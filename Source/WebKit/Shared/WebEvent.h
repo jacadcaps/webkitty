@@ -29,7 +29,6 @@
 // FIXME: We should probably move to making the WebCore/PlatformFooEvents trivial classes so that
 // we can use them as the event type.
 
-#include "WebEvent.h"
 #include "WebEventModifier.h"
 #include "WebEventType.h"
 #include <wtf/CheckedPtr.h>
@@ -47,12 +46,14 @@ class Encoder;
 
 namespace WebKit {
 
-class WebEvent : public CanMakeCheckedPtr<WebEvent> {
+class WebEvent : public CanMakeThreadSafeCheckedPtr<WebEvent> {
     WTF_MAKE_TZONE_ALLOCATED(WebEvent);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WebEvent);
 public:
     WebEvent(WebEventType, OptionSet<WebEventModifier>, WallTime timestamp, WTF::UUID authorizationToken);
     WebEvent(WebEventType, OptionSet<WebEventModifier>, WallTime timestamp);
+
+    virtual ~WebEvent() = default;
 
     WebEventType type() const { return m_type; }
 

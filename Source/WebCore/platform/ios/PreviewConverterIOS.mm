@@ -35,6 +35,8 @@
 #import "ResourceRequest.h"
 #import "ResourceResponse.h"
 #import "SharedBuffer.h"
+#import <wtf/cocoa/TypeCastsCocoa.h>
+
 #import <pal/ios/QuickLookSoftLink.h>
 
 @interface WebPreviewConverterDelegate : NSObject
@@ -82,7 +84,7 @@
 namespace WebCore {
 
 PreviewConverter::PreviewConverter(const ResourceResponse& response, PreviewConverterProvider& provider)
-    : m_previewData { FragmentedSharedBuffer::create() }
+    : m_previewData { SharedBuffer::create() }
     , m_originalResponse { response }
     , m_provider { provider }
     , m_platformDelegate { adoptNS([[WebPreviewConverterDelegate alloc] initWithDelegate:*this]) }
@@ -90,9 +92,9 @@ PreviewConverter::PreviewConverter(const ResourceResponse& response, PreviewConv
 {
 }
 
-UncheckedKeyHashSet<String, ASCIICaseInsensitiveHash> PreviewConverter::platformSupportedMIMETypes()
+HashSet<String, ASCIICaseInsensitiveHash> PreviewConverter::platformSupportedMIMETypes()
 {
-    UncheckedKeyHashSet<String, ASCIICaseInsensitiveHash> supportedMIMETypes;
+    HashSet<String, ASCIICaseInsensitiveHash> supportedMIMETypes;
     for (NSString *mimeType in QLPreviewGetSupportedMIMETypesSet())
         supportedMIMETypes.add(mimeType);
     return supportedMIMETypes;
@@ -145,7 +147,7 @@ static NSDictionary *optionsWithPassword(const String& password)
     if (password.isNull())
         return nil;
     
-    return @{ (NSString *)PAL::get_QuickLook_kQLPreviewOptionPasswordKey() : password };
+    return @{ bridge_cast(PAL::get_QuickLook_kQLPreviewOptionPasswordKey()) : password.createNSString().get() };
 }
 
 void PreviewConverter::platformUnlockWithPassword(const String& password)

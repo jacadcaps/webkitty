@@ -42,16 +42,15 @@ private:
     bool isWebMediaStrategy() const final { return true; }
 
 #if ENABLE(WEB_AUDIO)
-    Ref<WebCore::AudioDestination> createAudioDestination(WebCore::AudioIOCallback&,
-        const String& inputDeviceId, unsigned numberOfInputChannels, unsigned numberOfOutputChannels, float sampleRate) override;
+    Ref<WebCore::AudioDestination> createAudioDestination(const WebCore::AudioDestinationCreationOptions&) override;
 #endif
     std::unique_ptr<WebCore::NowPlayingManager> createNowPlayingManager() const final;
     bool hasThreadSafeMediaSourceSupport() const final;
 #if ENABLE(MEDIA_SOURCE)
     void enableMockMediaSource() final;
 #endif
-#if PLATFORM(COCOA) && ENABLE(MEDIA_RECORDER)
-    std::unique_ptr<WebCore::MediaRecorderPrivateWriter> createMediaRecorderPrivateWriter(const String&, WebCore::MediaRecorderPrivateWriterListener&) const final;
+#if PLATFORM(COCOA) && ENABLE(VIDEO)
+    void nativeImageFromVideoFrame(const WebCore::VideoFrame&, CompletionHandler<void(std::optional<RefPtr<WebCore::NativeImage>>&&)>&&) final;
 #endif
 
 #if ENABLE(GPU_PROCESS)

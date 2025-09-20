@@ -66,6 +66,13 @@
 
 @end
 
+@protocol StringReplyObjectProtocol
+
+- (void)methodWithInteger:(uint64_t)integer;
+- (void)methodWithCompletionHandler:(void (^)(id, NSString *))completionHandler;
+
+@end
+
 static inline _WKRemoteObjectInterface *remoteObjectInterface()
 {
     _WKRemoteObjectInterface *interface = [_WKRemoteObjectInterface remoteObjectInterfaceWithProtocol:@protocol(RemoteObjectProtocol)];
@@ -79,5 +86,11 @@ static inline _WKRemoteObjectInterface *localObjectInterface()
 {
     _WKRemoteObjectInterface *interface = [_WKRemoteObjectInterface remoteObjectInterfaceWithProtocol:@protocol(LocalObjectProtocol)];
 
+    return interface;
+}
+
+static inline _WKRemoteObjectInterface *stringReplyObjectInterface()
+{
+    _WKRemoteObjectInterface *interface = [_WKRemoteObjectInterface remoteObjectInterfaceWithProtocol:@protocol(StringReplyObjectProtocol)];
     return interface;
 }

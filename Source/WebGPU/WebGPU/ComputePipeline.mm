@@ -33,6 +33,7 @@
 #import "Pipeline.h"
 #import "PipelineLayout.h"
 #import "ShaderModule.h"
+#import "WGSL.h"
 
 namespace WebGPU {
 
@@ -46,11 +47,9 @@ static id<MTLComputePipelineState> createComputePipelineState(id<MTLDevice> devi
 #endif
 
     computePipelineDescriptor.computeFunction = function;
-    computePipelineDescriptor.maxTotalThreadsPerThreadgroup = size.width * size.height * size.depth;
+    UNUSED_PARAM(size);
     for (size_t i = 0; i < pipelineLayout.numberOfBindGroupLayouts(); ++i)
         computePipelineDescriptor.buffers[i].mutability = MTLMutabilityImmutable; // Argument buffers are always immutable in WebGPU.
-    // FIXME: https://bugs.webkit.org/show_bug.cgi?id=249345 don't unconditionally set this to YES
-    computePipelineDescriptor.supportIndirectCommandBuffers = YES;
     computePipelineDescriptor.label = label;
     NSError *error = nil;
     // FIXME: Run the asynchronous version of this
@@ -93,11 +92,11 @@ std::pair<Ref<ComputePipeline>, NSString*> Device::createComputePipeline(const W
         return returnInvalidComputePipeline(*this, isAsync, @"GPUDevice.createComputePipeline: Pipeline layout is invalid");
 
     auto& deviceLimits = limits();
-    auto label = fromAPI(descriptor.label);
+    auto label = fromAPI(descriptor.label).createNSString();
     auto entryPointName = descriptor.compute.entryPoint ? fromAPI(descriptor.compute.entryPoint) : shaderModule->defaultComputeEntryPoint();
     NSError *error;
     BufferBindingSizesForPipeline minimumBufferSizes;
-    auto libraryCreationResult = createLibrary(m_device, shaderModule.get(), &pipelineLayout.get(), entryPointName, label, descriptor.compute.constantsSpan(), minimumBufferSizes, &error);
+    auto libraryCreationResult = createLibrary(m_device, shaderModule.get(), &pipelineLayout.get(), entryPointName.createNSString().get(), label.get(), descriptor.compute.constantsSpan(), minimumBufferSizes, &error);
     if (!libraryCreationResult || &pipelineLayout->device() != this)
         return returnInvalidComputePipeline(*this, isAsync, error.localizedDescription ?: @"Compute library failed creation");
 
@@ -109,7 +108,7 @@ std::pair<Ref<ComputePipeline>, NSString*> Device::createComputePipeline(const W
         return returnInvalidComputePipeline(*this, isAsync);
     WGSL::Reflection::Compute computeInformation = std::get<WGSL::Reflection::Compute>(entryPointInformation.typedEntryPoint);
 
-    auto function = createFunction(library, entryPointInformation, label);
+    auto function = createFunction(library, entryPointInformation, label.get());
     if (!function || function.functionType != MTLFunctionTypeKernel || entryPointInformation.specializationConstants.size() != wgslConstantValues.size())
         return returnInvalidComputePipeline(*this, isAsync);
 
@@ -123,6 +122,10 @@ std::pair<Ref<ComputePipeline>, NSString*> Device::createComputePipeline(const W
     if (!size.width || size.width > deviceLimits.maxComputeWorkgroupSizeX || !size.height || size.height > deviceLimits.maxComputeWorkgroupSizeY || !size.depth || size.depth > deviceLimits.maxComputeWorkgroupSizeZ || size.width * size.height * size.depth > deviceLimits.maxComputeInvocationsPerWorkgroup)
         return returnInvalidComputePipeline(*this, isAsync);
 
+    if (m_computePipelineId == Device::maxPipelines) {
+        loseTheDevice(WGPUDeviceLostReason_Undefined);
+        return returnInvalidComputePipeline(*this, isAsync, @"too many compute pipelines");
+    }
     if (pipelineLayout->isAutoLayout() && entryPointInformation.defaultLayout) {
         Vector<Vector<WGPUBindGroupLayoutEntry>> bindGroupEntries;
         if (NSString* error = addPipelineLayouts(bindGroupEntries, entryPointInformation.defaultLayout))
@@ -131,12 +134,12 @@ std::pair<Ref<ComputePipeline>, NSString*> Device::createComputePipeline(const W
         auto generatedPipelineLayout = generatePipelineLayout(bindGroupEntries);
         if (!generatedPipelineLayout->isValid())
             return returnInvalidComputePipeline(*this, isAsync);
-        auto computePipelineState = createComputePipelineState(m_device, function, generatedPipelineLayout, size, label, shaderValidationState());
-        return std::make_pair(ComputePipeline::create(computePipelineState, WTFMove(generatedPipelineLayout), size, WTFMove(minimumBufferSizes), *this), nil);
+        auto computePipelineState = createComputePipelineState(m_device, function, generatedPipelineLayout, size, label.get(), shaderValidationState());
+        return std::make_pair(ComputePipeline::create(computePipelineState, WTFMove(generatedPipelineLayout), size, WTFMove(minimumBufferSizes), ++m_computePipelineId, *this), nil);
     }
 
-    auto computePipelineState = createComputePipelineState(m_device, function, pipelineLayout, size, label, shaderValidationState());
-    return std::make_pair(ComputePipeline::create(computePipelineState, WTFMove(pipelineLayout), size, WTFMove(minimumBufferSizes), *this), nil);
+    auto computePipelineState = createComputePipelineState(m_device, function, pipelineLayout, size, label.get(), shaderValidationState());
+    return std::make_pair(ComputePipeline::create(computePipelineState, WTFMove(pipelineLayout), size, WTFMove(minimumBufferSizes), ++m_computePipelineId, *this), nil);
 }
 
 void Device::createComputePipelineAsync(const WGPUComputePipelineDescriptor& descriptor, CompletionHandler<void(WGPUCreatePipelineAsyncStatus, Ref<ComputePipeline>&&, String&& message)>&& callback)
@@ -152,12 +155,13 @@ void Device::createComputePipelineAsync(const WGPUComputePipelineDescriptor& des
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(ComputePipeline);
 
-ComputePipeline::ComputePipeline(id<MTLComputePipelineState> computePipelineState, Ref<PipelineLayout>&& pipelineLayout, MTLSize threadsPerThreadgroup, BufferBindingSizesForPipeline&& minimumBufferSizes, Device& device)
+ComputePipeline::ComputePipeline(id<MTLComputePipelineState> computePipelineState, Ref<PipelineLayout>&& pipelineLayout, MTLSize threadsPerThreadgroup, BufferBindingSizesForPipeline&& minimumBufferSizes, uint64_t uniqueId, Device& device)
     : m_computePipelineState(computePipelineState)
     , m_device(device)
     , m_threadsPerThreadgroup(threadsPerThreadgroup)
     , m_pipelineLayout(WTFMove(pipelineLayout))
     , m_minimumBufferSizes(WTFMove(minimumBufferSizes))
+    , m_uniqueId(uniqueId)
 {
 }
 
@@ -183,8 +187,10 @@ Ref<BindGroupLayout> ComputePipeline::getBindGroupLayout(uint32_t groupIndex)
     }
 
     if (groupIndex >= pipelineLayout->numberOfBindGroupLayouts()) {
-        device->generateAValidationError("getBindGroupLayout: groupIndex is out of range"_s);
-        pipelineLayout->makeInvalid();
+        if (groupIndex >= device->limits().maxBindGroups) {
+            device->generateAValidationError("getBindGroupLayout: groupIndex is out of range"_s);
+            pipelineLayout->makeInvalid();
+        }
         return BindGroupLayout::createInvalid(device);
     }
 

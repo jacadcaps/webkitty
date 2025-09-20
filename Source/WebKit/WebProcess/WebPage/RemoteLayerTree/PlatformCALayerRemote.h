@@ -32,6 +32,7 @@
 #include <WebCore/PlatformCALayer.h>
 #include <WebCore/PlatformCALayerDelegatedContents.h>
 #include <WebCore/PlatformLayer.h>
+#include <wtf/MachSendRightAnnotated.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -222,6 +223,12 @@ public:
     void setScrollingNodeID(std::optional<WebCore::ScrollingNodeID>) override;
 #endif
 
+#if HAVE(SUPPORT_HDR_DISPLAY)
+    bool setNeedsDisplayIfEDRHeadroomExceeds(float) override;
+    void setTonemappingEnabled(bool) override;
+    bool tonemappingEnabled() const override;
+#endif
+
 #if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
     bool isSeparated() const override;
     void setIsSeparated(bool) override;
@@ -272,6 +279,11 @@ public:
     void purgeFrontBufferForTesting() override;
     void purgeBackBufferForTesting() override;
 
+#if ENABLE(MACH_PORT_LAYER_HOSTING)
+    void setSendRightAnnotated(WTF::MachSendRightAnnotated sendRightAnnotated) { m_sendRightAnnotated = sendRightAnnotated; }
+    std::optional<WTF::MachSendRightAnnotated> sendRightAnnotated() const { return m_sendRightAnnotated; }
+#endif
+
 protected:
     PlatformCALayerRemote(WebCore::PlatformCALayer::LayerType, WebCore::PlatformCALayerClient* owner, RemoteLayerTreeContext&);
     PlatformCALayerRemote(const PlatformCALayerRemote&, WebCore::PlatformCALayerClient*, RemoteLayerTreeContext&);
@@ -301,6 +313,10 @@ private:
 
     bool m_acceleratesDrawing { false };
     WeakPtr<RemoteLayerTreeContext> m_context;
+
+#if ENABLE(MACH_PORT_LAYER_HOSTING)
+    std::optional<WTF::MachSendRightAnnotated> m_sendRightAnnotated;
+#endif
 };
 
 } // namespace WebKit

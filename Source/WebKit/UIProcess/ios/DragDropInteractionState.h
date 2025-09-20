@@ -41,6 +41,8 @@
 namespace WebCore {
 struct DragItem;
 struct TextIndicatorData;
+struct NodeIdentifierType;
+using NodeIdentifier = ObjectIdentifier<NodeIdentifierType>;
 }
 
 namespace WebKit {
@@ -48,7 +50,7 @@ namespace WebKit {
 struct DragSourceState {
     OptionSet<WebCore::DragSourceAction> action;
     CGRect dragPreviewFrameInRootViewCoordinates { CGRectZero };
-    using DragPreviewContentType = std::variant<RetainPtr<UIImage>, RetainPtr<UIView>>;
+    using DragPreviewContentType = Variant<RetainPtr<UIImage>, RetainPtr<UIView>>;
     DragPreviewContentType dragPreviewContent;
     std::optional<WebCore::TextIndicatorData> indicatorData;
     std::optional<WebCore::Path> visiblePath;
@@ -85,6 +87,7 @@ public:
     void dropSessionDidEnterOrUpdate(id <UIDropSession>, const WebCore::DragData&);
     void dropSessionDidExit() { m_dropSession = nil; }
     void dropSessionWillPerformDrop() { m_isPerformingDrop = true; }
+    void setElementIdentifier(const std::optional<WebCore::NodeIdentifier>&);
 
     void dragAndDropSessionsDidBecomeInactive();
 
@@ -96,10 +99,11 @@ public:
     BlockPtr<void()> takeDragStartCompletionBlock() { return WTFMove(m_dragStartCompletionBlock); }
     BlockPtr<void(NSArray<UIDragItem *> *)> takeAddDragItemCompletionBlock() { return WTFMove(m_addDragItemCompletionBlock); }
     Vector<RetainPtr<UIView>> takePreviewViewsForDragCancel() { return std::exchange(m_previewViewsForDragCancel, { }); }
+    std::optional<WebCore::NodeIdentifier> nodeIdentifier() const { return m_nodeIdentifier; }
 
     void addDefaultDropPreview(UIDragItem *, UITargetedDragPreview *);
     UITargetedDragPreview *finalDropPreview(UIDragItem *) const;
-    void deliverDelayedDropPreview(UIView *contentView, UIView *previewContainer, const WebCore::TextIndicatorData&);
+    void deliverDelayedDropPreview(UIView *contentView, UIView *previewContainer, const RefPtr<WebCore::TextIndicator>&&);
     void deliverDelayedDropPreview(UIView *contentView, CGRect unobscuredContentRect, NSArray<UIDragItem *> *, const Vector<WebCore::IntRect>& placeholderRects);
 
 private:
@@ -123,6 +127,7 @@ private:
     Vector<DragSourceState> m_activeDragSources;
     DragItemToPreviewMap m_defaultDropPreviews;
     DragItemToPreviewMap m_finalDropPreviews;
+    std::optional<WebCore::NodeIdentifier> m_nodeIdentifier;
 };
 
 } // namespace WebKit

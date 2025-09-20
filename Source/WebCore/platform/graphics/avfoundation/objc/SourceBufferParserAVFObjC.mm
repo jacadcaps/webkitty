@@ -211,7 +211,7 @@ MediaPlayerEnums::SupportsType SourceBufferParserAVFObjC::isContentTypeSupported
     String extendedType = type.raw();
     String outputCodecs = type.parameter(ContentType::codecsParameter());
     if (!outputCodecs.isEmpty() && [PAL::getAVStreamDataParserClass() respondsToSelector:@selector(outputMIMECodecParameterForInputMIMECodecParameter:)]) {
-        outputCodecs = [PAL::getAVStreamDataParserClass() outputMIMECodecParameterForInputMIMECodecParameter:outputCodecs];
+        outputCodecs = [PAL::getAVStreamDataParserClass() outputMIMECodecParameterForInputMIMECodecParameter:outputCodecs.createNSString().get()];
         extendedType = makeString(type.containerType(), "; codecs=\""_s, outputCodecs, "\""_s);
     }
 
@@ -241,11 +241,10 @@ SourceBufferParserAVFObjC::~SourceBufferParserAVFObjC()
     [m_delegate invalidate];
 }
 
-Expected<void, PlatformMediaError> SourceBufferParserAVFObjC::appendData(Segment&& segment, AppendFlags flags)
+Expected<void, PlatformMediaError> SourceBufferParserAVFObjC::appendData(Ref<const SharedBuffer>&& segment, AppendFlags flags)
 {
     INFO_LOG_IF_POSSIBLE(LOGIDENTIFIER);
-    auto sharedBuffer = segment.takeSharedBuffer();
-    auto nsData = sharedBuffer->makeContiguous()->createNSData();
+    RetainPtr nsData = segment->createNSData();
     if (m_parserStateWasReset || flags == AppendFlags::Discontinuity)
         [m_parser appendStreamData:nsData.get() withFlags:AVStreamDataParserStreamDataDiscontinuity];
     else
@@ -280,7 +279,7 @@ void SourceBufferParserAVFObjC::invalidate()
 #if !RELEASE_LOG_DISABLED
 void SourceBufferParserAVFObjC::setLogger(const Logger& newLogger, uint64_t newLogIdentifier)
 {
-    m_logger = &newLogger;
+    m_logger = newLogger;
     m_logIdentifier = newLogIdentifier;
     ALWAYS_LOG(LOGIDENTIFIER);
 }

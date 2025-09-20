@@ -87,6 +87,12 @@ void RemoteCompositorIntegrationProxy::withDisplayBufferAsNativeImage(uint32_t, 
     RELEASE_ASSERT_NOT_REACHED();
 }
 
+void RemoteCompositorIntegrationProxy::updateContentsHeadroom(float headroom)
+{
+    auto result = send(Messages::RemoteCompositorIntegration::UpdateContentsHeadroom(headroom));
+    UNUSED_VARIABLE(result);
+}
+
 } // namespace WebKit::WebGPU
 
 #endif // ENABLE(GPU_PROCESS)

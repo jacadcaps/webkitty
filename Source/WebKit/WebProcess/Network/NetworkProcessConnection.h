@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010, 2011, 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -59,7 +59,7 @@ class WebSharedWorkerObjectConnection;
 enum class WebsiteDataType : uint32_t;
 
 class NetworkProcessConnection final : public RefCounted<NetworkProcessConnection>, IPC::Connection::Client {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(NetworkProcessConnection);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(NetworkProcessConnection);
 public:
     static Ref<NetworkProcessConnection> create(IPC::Connection::Identifier&& connectionIdentifier, WebCore::HTTPCookieAcceptPolicy httpCookieAcceptPolicy)
@@ -70,8 +70,7 @@ public:
 
     void ref() const final { RefCounted::ref(); }
     void deref() const final { RefCounted::deref(); }
-    
-    Ref<IPC::Connection> protectedConnection() { return m_connection; }
+
     IPC::Connection& connection() { return m_connection.get(); }
 
     void writeBlobsToTemporaryFilesForIndexedDB(const Vector<String>& blobURLs, CompletionHandler<void(Vector<String>&& filePaths)>&&);
@@ -82,6 +81,7 @@ public:
     WebSWClientConnection& serviceWorkerConnection();
     Ref<WebSWClientConnection> protectedServiceWorkerConnection();
     WebSharedWorkerObjectConnection& sharedWorkerConnection();
+    Ref<WebSharedWorkerObjectConnection> protectedSharedWorkerConnection();
 
 #if HAVE(AUDIT_TOKEN)
     void setNetworkProcessAuditToken(std::optional<audit_token_t> auditToken) { m_networkProcessAuditToken = auditToken; }
@@ -105,7 +105,7 @@ private:
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
     bool didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) override;
     void didClose(IPC::Connection&) override;
-    void didReceiveInvalidMessage(IPC::Connection&, IPC::MessageName, int32_t) override;
+    void didReceiveInvalidMessage(IPC::Connection&, IPC::MessageName, const Vector<uint32_t>&) override;
     bool dispatchMessage(IPC::Connection&, IPC::Decoder&);
     bool dispatchSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&);
 
@@ -127,7 +127,7 @@ private:
     void broadcastConsoleMessage(MessageSource, MessageLevel, const String& message);
 
     // The connection from the web process to the network process.
-    Ref<IPC::Connection> m_connection;
+    const Ref<IPC::Connection> m_connection;
 #if HAVE(AUDIT_TOKEN)
     std::optional<audit_token_t> m_networkProcessAuditToken;
 #endif

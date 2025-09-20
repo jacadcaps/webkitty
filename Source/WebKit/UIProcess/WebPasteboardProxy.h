@@ -120,11 +120,11 @@ private:
 
 #endif
 
-    void readStringFromPasteboard(IPC::Connection&, size_t index, const String& pasteboardType, const String& pasteboardName, std::optional<WebPageProxyIdentifier>, CompletionHandler<void(String&&)>&&);
-    void readURLFromPasteboard(IPC::Connection&, size_t index, const String& pasteboardName, std::optional<WebPageProxyIdentifier>, CompletionHandler<void(String&& url, String&& title)>&&);
-    void readBufferFromPasteboard(IPC::Connection&, std::optional<size_t> index, const String& pasteboardType, const String& pasteboardName, std::optional<WebPageProxyIdentifier>, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&&);
+    void readStringFromPasteboard(IPC::Connection&, uint64_t index, const String& pasteboardType, const String& pasteboardName, std::optional<WebPageProxyIdentifier>, CompletionHandler<void(String&&)>&&);
+    void readURLFromPasteboard(IPC::Connection&, uint64_t index, const String& pasteboardName, std::optional<WebPageProxyIdentifier>, CompletionHandler<void(String&& url, String&& title)>&&);
+    void readBufferFromPasteboard(IPC::Connection&, std::optional<uint64_t> index, const String& pasteboardType, const String& pasteboardName, std::optional<WebPageProxyIdentifier>, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&&);
     void getPasteboardItemsCount(IPC::Connection&, const String& pasteboardName, std::optional<WebPageProxyIdentifier>, CompletionHandler<void(uint64_t)>&&);
-    void informationForItemAtIndex(IPC::Connection&, size_t index, const String& pasteboardName, int64_t changeCount, std::optional<WebPageProxyIdentifier>, CompletionHandler<void(std::optional<WebCore::PasteboardItemInfo>&&)>&&);
+    void informationForItemAtIndex(IPC::Connection&, uint64_t index, const String& pasteboardName, int64_t changeCount, std::optional<WebPageProxyIdentifier>, CompletionHandler<void(std::optional<WebCore::PasteboardItemInfo>&&)>&&);
     void allPasteboardItemInfo(IPC::Connection&, const String& pasteboardName, int64_t changeCount, std::optional<WebPageProxyIdentifier>, CompletionHandler<void(std::optional<Vector<WebCore::PasteboardItemInfo>>&&)>&&);
 
     void writeCustomData(IPC::Connection&, const Vector<WebCore::PasteboardCustomData>&, const String& pasteboardName, std::optional<WebPageProxyIdentifier>, CompletionHandler<void(int64_t)>&&);
@@ -133,19 +133,15 @@ private:
     void containsURLStringSuitableForLoading(IPC::Connection&, const String& pasteboardName, std::optional<WebPageProxyIdentifier>, CompletionHandler<void(bool)>&&);
     void urlStringSuitableForLoading(IPC::Connection&, const String& pasteboardName, std::optional<WebPageProxyIdentifier>, CompletionHandler<void(String&& url, String&& title)>&&);
 
-#if PLATFORM(GTK)
+#if PLATFORM(GTK) || PLATFORM(WPE)
     void getTypes(const String& pasteboardName, CompletionHandler<void(Vector<String>&&)>&&);
-    void readText(IPC::Connection&, const String& pasteboardName, CompletionHandler<void(String&&)>&&);
+    void readText(IPC::Connection&, const String& pasteboardName, const String& pasteboardType, CompletionHandler<void(String&&)>&&);
     void readFilePaths(IPC::Connection&, const String& pasteboardName, CompletionHandler<void(Vector<String>&&)>&&);
     void readBuffer(IPC::Connection&, const String& pasteboardName, const String& pasteboardType, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&&);
     void writeToClipboard(const String& pasteboardName, WebCore::SelectionData&&);
     void clearClipboard(const String& pasteboardName);
     void getPasteboardChangeCount(IPC::Connection&, const String& pasteboardName, CompletionHandler<void(int64_t)>&&);
-
-    WebFrameProxy* m_primarySelectionOwner { nullptr };
-#endif // PLATFORM(GTK)
-
-#if USE(LIBWPE)
+#elif USE(LIBWPE)
     void getPasteboardTypes(CompletionHandler<void(Vector<String>&&)>&&);
     void writeWebContentToPasteboard(const WebCore::PasteboardWebContent&);
     void writeStringToPasteboard(const String& pasteboardType, const String&);
@@ -164,6 +160,10 @@ private:
 #endif
 
     WeakHashSet<WebProcessProxy> m_webProcessProxySet;
+
+#if PLATFORM(GTK)
+    WebFrameProxy* m_primarySelectionOwner { nullptr };
+#endif
 
 #if PLATFORM(COCOA)
     struct PasteboardAccessInformation {

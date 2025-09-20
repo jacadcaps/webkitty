@@ -121,10 +121,9 @@ public:
 
     // Other dumping.
     void dumpBackForwardList();
-    void dumpChildFrameScrollPositions() { m_shouldDumpAllFrameScrollPositions = true; }
+    void dumpChildFrameScrollPositions();
     void dumpEditingCallbacks() { m_dumpEditingCallbacks = true; }
     void dumpSelectionRect() { m_dumpSelectionRect = true; }
-    void dumpStatusCallbacks() { m_dumpStatusCallbacks = true; }
     void dumpTitleChanges() { m_dumpTitleChanges = true; }
     void dumpFullScreenCallbacks();
     void dumpFrameLoadCallbacks() { setShouldDumpFrameLoadCallbacks(true); }
@@ -133,7 +132,6 @@ public:
     void dumpResourceResponseMIMETypes() { m_dumpResourceResponseMIMETypes = true; }
     void dumpWillCacheResponse() { m_dumpWillCacheResponse = true; }
     void dumpApplicationCacheDelegateCallbacks() { m_dumpApplicationCacheDelegateCallbacks = true; }
-    void dumpDatabaseCallbacks() { m_dumpDatabaseCallbacks = true; }
     void dumpDOMAsWebArchive() { setWhatToDump(WhatToDump::DOMAsWebArchive); }
     void dumpPolicyDelegateCallbacks();
     void dumpResourceLoadStatistics();
@@ -184,8 +182,9 @@ public:
     void addUserStyleSheet(JSStringRef source, bool allFrames);
 
     // Text search testing.
-    bool findString(JSContextRef, JSStringRef, JSValueRef optionsArray);
+    void findString(JSContextRef, JSStringRef, JSValueRef optionsArray, JSValueRef callback);
     void findStringMatchesInPage(JSContextRef, JSStringRef, JSValueRef optionsArray);
+    void indicateFindMatch(JSContextRef, uint32_t index);
     void replaceFindMatchesAtIndices(JSContextRef, JSValueRef matchIndices, JSStringRef replacementText, bool selectionOnly);
 
     // Local storage
@@ -230,11 +229,10 @@ public:
     WhatToDump whatToDump() const;
     void setWhatToDump(WhatToDump);
 
-    bool shouldDumpAllFrameScrollPositions() const { return m_shouldDumpAllFrameScrollPositions; }
+    bool shouldDumpAllFrameScrollPositions() const;
     bool shouldDumpBackForwardListsForAllWindows() const;
     bool shouldDumpEditingCallbacks() const { return m_dumpEditingCallbacks; }
     bool shouldDumpMainFrameScrollPosition() const { return whatToDump() == WhatToDump::RenderTree; }
-    bool shouldDumpStatusCallbacks() const { return m_dumpStatusCallbacks; }
     bool shouldDumpTitleChanges() const { return m_dumpTitleChanges; }
     bool shouldDumpPixels() const;
     bool shouldDumpFrameLoadCallbacks();
@@ -243,7 +241,6 @@ public:
     bool shouldDumpResourceResponseMIMETypes() const { return m_dumpResourceResponseMIMETypes; }
     bool shouldDumpWillCacheResponse() const { return m_dumpWillCacheResponse; }
     bool shouldDumpApplicationCacheDelegateCallbacks() const { return m_dumpApplicationCacheDelegateCallbacks; }
-    bool shouldDumpDatabaseCallbacks() const { return m_dumpDatabaseCallbacks; }
     bool shouldDumpSelectionRect() const { return m_dumpSelectionRect; }
 
     bool didReceiveServerRedirectForProvisionalNavigation() const;
@@ -347,9 +344,9 @@ public:
     void setMicrophonePermission(bool);
     void setUserMediaPermission(bool);
     void resetUserMediaPermission();
-    void setUserMediaPersistentPermissionForOrigin(bool permission, JSStringRef origin, JSStringRef parentOrigin);
-    unsigned userMediaPermissionRequestCountForOrigin(JSStringRef origin, JSStringRef parentOrigin) const;
-    void resetUserMediaPermissionRequestCountForOrigin(JSStringRef origin, JSStringRef parentOrigin);
+    void delayUserMediaRequestDecision();
+    unsigned userMediaPermissionRequestCount() const;
+    void resetUserMediaPermissionRequestCount();
     bool isDoingMediaCapture() const;
 
     void setPageVisibility(JSStringRef state);
@@ -485,6 +482,7 @@ public:
     // Storage Access API
     void getAllStorageAccessEntries(JSContextRef, JSValueRef callback);
     void setRequestStorageAccessThrowsExceptionUntilReload(bool enabled);
+    void setStorageAccessPermission(JSContextRef, bool, JSStringRef, JSValueRef callback);
 
     // Open panel
     void setOpenPanelFiles(JSContextRef, JSValueRef);
@@ -566,6 +564,7 @@ public:
 
     void flushConsoleLogs(JSContextRef, JSValueRef callback);
     void updatePresentation(JSContextRef, JSValueRef callback);
+    void scrollDuringEnterFullscreen();
     void waitBeforeFinishingFullscreenExit();
     void finishFullscreenExit();
     void requestExitFullscreenFromUIProcess();
@@ -613,11 +612,9 @@ private:
     size_t m_userMediaPermissionRequestCount { 0 };
 
     unsigned m_renderTreeDumpOptions { 0 };
-    bool m_shouldDumpAllFrameScrollPositions { false };
     bool m_shouldAllowEditing { true };
 
     bool m_dumpEditingCallbacks { false };
-    bool m_dumpStatusCallbacks { false };
     bool m_dumpTitleChanges { false };
     bool m_dumpPixels { false };
     bool m_dumpSelectionRect { false };
@@ -626,7 +623,6 @@ private:
     bool m_dumpResourceResponseMIMETypes { false };
     bool m_dumpWillCacheResponse { false };
     bool m_dumpApplicationCacheDelegateCallbacks { false };
-    bool m_dumpDatabaseCallbacks { false };
 
     bool m_testRepaint { false };
     bool m_testRepaintSweepHorizontally { false };
@@ -638,7 +634,6 @@ private:
     bool m_shouldStopProvisionalFrameLoads { false };
 
     bool m_globalFlag { false };
-    bool m_customFullScreenBehavior { false };
 
     bool m_shouldDecideNavigationPolicyAfterDelay { false };
     bool m_shouldDecideResponsePolicyAfterDelay { false };

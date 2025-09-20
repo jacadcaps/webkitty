@@ -37,6 +37,7 @@
 #include "XRDeviceInfo.h"
 #include <WebCore/Page.h>
 #include <WebCore/SecurityOrigin.h>
+#include <WebCore/Settings.h>
 #include <wtf/Vector.h>
 
 using namespace PlatformXR;
@@ -102,15 +103,38 @@ void PlatformXRSystemProxy::requestFrame(std::optional<PlatformXR::RequestData>&
     protectedPage()->sendWithAsyncReply(Messages::PlatformXRSystem::RequestFrame(WTFMove(requestData)), WTFMove(callback));
 }
 
-std::optional<PlatformXR::LayerHandle> PlatformXRSystemProxy::createLayerProjection(uint32_t, uint32_t, bool)
+std::optional<PlatformXR::LayerHandle> PlatformXRSystemProxy::createLayerProjection(uint32_t width, uint32_t height, bool alpha)
 {
+#if USE(OPENXR)
+    protectedPage()->send(Messages::PlatformXRSystem::CreateLayerProjection(width, height, alpha));
+#else
+    UNUSED_PARAM(width);
+    UNUSED_PARAM(height);
+    UNUSED_PARAM(alpha);
+#endif
     return PlatformXRCoordinator::defaultLayerHandle();
 }
 
+#if USE(OPENXR)
+void PlatformXRSystemProxy::submitFrame(Vector<PlatformXR::Device::Layer>&& layers)
+{
+    Vector<WebKit::XRDeviceLayer> deviceLayers;
+    for (auto& layer : layers) {
+        deviceLayers.append(WebKit::XRDeviceLayer {
+            .handle = layer.handle,
+            .visible = layer.visible,
+            .views = layer.views,
+            .fenceFD = WTFMove(layer.fenceFD)
+        });
+    }
+    protectedPage()->send(Messages::PlatformXRSystem::SubmitFrame(WTFMove(deviceLayers)));
+}
+#else
 void PlatformXRSystemProxy::submitFrame()
 {
     protectedPage()->send(Messages::PlatformXRSystem::SubmitFrame());
 }
+#endif
 
 void PlatformXRSystemProxy::sessionDidEnd(XRDeviceIdentifier deviceIdentifier)
 {

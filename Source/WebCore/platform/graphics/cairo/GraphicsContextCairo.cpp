@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2022 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006-2022 Apple Inc. All rights reserved.
  * Copyright (C) 2007 Alp Toker <alp@atoker.com>
  * Copyright (C) 2008, 2009 Dirk Schulze <krit@webkit.org>
  * Copyright (C) 2008 Nuanti Ltd.
@@ -43,6 +43,7 @@
 #include "Gradient.h"
 #include "ImageBuffer.h"
 #include "IntRect.h"
+#include "NativeImage.h"
 #include "NotImplemented.h"
 #include "RefPtrCairo.h"
 

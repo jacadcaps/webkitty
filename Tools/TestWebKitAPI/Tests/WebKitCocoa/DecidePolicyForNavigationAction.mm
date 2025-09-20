@@ -32,10 +32,12 @@
 #import "PlatformUtilities.h"
 #import "PlatformWebView.h"
 #import "Test.h"
+#import "TestNavigationDelegate.h"
 #import "TestProtocol.h"
 #import "TestWKWebView.h"
 #import <WebKit/WKNavigationActionPrivate.h>
 #import <WebKit/WKProcessPoolPrivate.h>
+#import <WebKit/WKWebViewPrivate.h>
 #import <WebKit/_WKHitTestResult.h>
 #import <WebKit/_WKProcessPoolConfiguration.h>
 #import <wtf/BlockPtr.h>
@@ -297,6 +299,35 @@ TEST(WebKit, DecidePolicyForNavigationActionCancelAfterDiscardingForwardItemsWit
     [webView synchronouslyLoadRequest:server.request("/a"_s)];
     [webView synchronouslyLoadRequest:server.requestWithLocalhost("/b"_s)];
     [webView synchronouslyLoadRequest:server.request("/a"_s)];
+    [webView synchronouslyGoBack];
+    [webView synchronouslyGoBack];
+    [webView synchronouslyLoadRequest:server.request("/b"_s)];
+
+    RetainPtr controller = adoptNS([[DecidePolicyForNavigationActionController alloc] init]);
+    [webView setNavigationDelegate:controller.get()];
+
+    shouldCancelNavigation = true;
+    decidedPolicy = false;
+    [webView goBack];
+    TestWebKitAPI::Util::run(&decidedPolicy);
+    [webView waitForNextPresentationUpdate];
+    [[webView backForwardList] currentItem];
+
+    newWebView = nullptr;
+    action = nullptr;
+}
+
+TEST(WebKit, DecidePolicyForNavigationActionCancelAfterDiscardingForwardItemsWithPSONAndSessionRestore)
+{
+    TestWebKitAPI::HTTPServer server({
+        { "/a"_s, { ""_s } },
+        { "/b"_s, { ""_s } },
+    });
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600)]);
+    [webView synchronouslyLoadRequest:server.request("/a"_s)];
+    [webView synchronouslyLoadRequest:server.requestWithLocalhost("/b"_s)];
+    [webView synchronouslyLoadRequest:server.request("/a"_s)];
+    [webView _restoreSessionState:[webView _sessionState] andNavigate:NO];
     [webView synchronouslyGoBack];
     [webView synchronouslyGoBack];
     [webView synchronouslyLoadRequest:server.request("/b"_s)];
@@ -788,6 +819,21 @@ TEST(WebKit, DecidePolicyForNavigationActionFragment)
     [webView setNavigationDelegate:delegate.get()];
     [webView loadHTMLString:@"<script>window.location.href='#fragment';</script>" baseURL:[NSURL URLWithString:@"http://webkit.org"]];
     TestWebKitAPI::Util::run(&done);
+}
+
+TEST(WebKit, NavigationActionFrames)
+{
+    TestWebKitAPI::HTTPServer server({ { "/"_s, { "hi"_s } } });
+    auto webView = adoptNS([WKWebView new]);
+    auto delegate = adoptNS([TestNavigationDelegate new]);
+    delegate.get().decidePolicyForNavigationAction = ^(WKNavigationAction *action, void (^completionHandler)(WKNavigationActionPolicy)) {
+        EXPECT_NOT_NULL(action.sourceFrame.request);
+        EXPECT_NOT_NULL(action.targetFrame.request);
+        completionHandler(WKNavigationActionPolicyAllow);
+    };
+    webView.get().navigationDelegate = delegate.get();
+    [webView loadRequest:server.request()];
+    [delegate waitForDidFinishNavigation];
 }
 
 #endif

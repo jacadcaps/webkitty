@@ -44,9 +44,9 @@ class GStreamerPeerConnectionBackend;
 class GStreamerRtpSenderBackend final : public RTCRtpSenderBackend {
     WTF_MAKE_TZONE_ALLOCATED(GStreamerRtpSenderBackend);
 public:
-    GStreamerRtpSenderBackend(GStreamerPeerConnectionBackend&, GRefPtr<GstWebRTCRTPSender>&&);
-    using Source = std::variant<std::nullptr_t, Ref<RealtimeOutgoingAudioSourceGStreamer>, Ref<RealtimeOutgoingVideoSourceGStreamer>>;
-    GStreamerRtpSenderBackend(GStreamerPeerConnectionBackend&, GRefPtr<GstWebRTCRTPSender>&&, Source&&, GUniquePtr<GstStructure>&& initData);
+    GStreamerRtpSenderBackend(WeakPtr<GStreamerPeerConnectionBackend>&&, GRefPtr<GstWebRTCRTPSender>&&);
+    using Source = Variant<std::nullptr_t, Ref<RealtimeOutgoingAudioSourceGStreamer>, Ref<RealtimeOutgoingVideoSourceGStreamer>>;
+    GStreamerRtpSenderBackend(WeakPtr<GStreamerPeerConnectionBackend>&&, GRefPtr<GstWebRTCRTPSender>&&, Source&&, GUniquePtr<GstStructure>&& initData);
 
     void setRTCSender(GRefPtr<GstWebRTCRTPSender>&& rtcSender) { m_rtcSender = WTFMove(rtcSender); }
     GstWebRTCRTPSender* rtcSender() { return m_rtcSender.get(); }
@@ -54,28 +54,31 @@ public:
     RealtimeOutgoingAudioSourceGStreamer* audioSource()
     {
         return WTF::switchOn(m_source,
-            [] (Ref<RealtimeOutgoingAudioSourceGStreamer>& source) { return source.ptr(); },
-            [] (const auto&) -> RealtimeOutgoingAudioSourceGStreamer* { return nullptr; }
+            [](Ref<RealtimeOutgoingAudioSourceGStreamer>& source) { return source.ptr(); },
+            [](Ref<RealtimeOutgoingVideoSourceGStreamer>&) -> RealtimeOutgoingAudioSourceGStreamer* { return nullptr; },
+            [](std::nullptr_t&) -> RealtimeOutgoingAudioSourceGStreamer* { return nullptr; }
         );
+    }
+
+    ThreadSafeWeakPtr<RealtimeOutgoingAudioSourceGStreamer> audioSourceWeak()
+    {
+        return WTF::switchOn(m_source,
+            [](Ref<RealtimeOutgoingAudioSourceGStreamer>& source) -> ThreadSafeWeakPtr<RealtimeOutgoingAudioSourceGStreamer> { return source.get(); },
+            [](Ref<RealtimeOutgoingVideoSourceGStreamer>&) -> ThreadSafeWeakPtr<RealtimeOutgoingAudioSourceGStreamer> { return nullptr; },
+            [](std::nullptr_t&) -> ThreadSafeWeakPtr<RealtimeOutgoingAudioSourceGStreamer> { return nullptr; });
     }
 
     RealtimeOutgoingVideoSourceGStreamer* videoSource()
     {
         return WTF::switchOn(m_source,
-            [] (Ref<RealtimeOutgoingVideoSourceGStreamer>& source) { return source.ptr(); },
-            [] (const auto&) -> RealtimeOutgoingVideoSourceGStreamer* { return nullptr; }
+            [](Ref<RealtimeOutgoingVideoSourceGStreamer>& source) { return source.ptr(); },
+            [](Ref<RealtimeOutgoingAudioSourceGStreamer>&) -> RealtimeOutgoingVideoSourceGStreamer* { return nullptr; },
+            [](std::nullptr_t&) -> RealtimeOutgoingVideoSourceGStreamer* { return nullptr; }
         );
     }
 
-    bool hasSource() const
-    {
-        return WTF::switchOn(m_source,
-            [] (const std::nullptr_t&) { return false; },
-            [] (const auto&) { return true; }
-        );
-    }
+    bool hasSource() const { return !std::holds_alternative<std::nullptr_t>(m_source); }
 
-    void clearSource();
     void setSource(Source&&);
     void takeSource(GStreamerRtpSenderBackend&);
 
@@ -85,6 +88,7 @@ public:
     void dispatchBitrateRequest(uint32_t bitrate);
 
 private:
+    void clearSource();
     bool replaceTrack(RTCRtpSender&, MediaStreamTrack*) final;
     RTCRtpSendParameters getParameters() const final;
     void setParameters(const RTCRtpSendParameters&, DOMPromiseDeferred<void>&&) final;

@@ -227,8 +227,7 @@ bool SkEdgeClipper::clipQuad(const SkPoint srcPts[3], const SkRect& clip) {
     fCurrPoint = fPoints;
     fCurrVerb = fVerbs;
 
-    SkRect  bounds;
-    bounds.setBounds(srcPts, 3);
+    const SkRect bounds = SkRect::BoundsOrEmpty({srcPts, 3});
 
     if (!quick_reject(bounds, clip)) {
         SkPoint monoY[5];
@@ -403,9 +402,7 @@ void SkEdgeClipper::clipMonoCubic(const SkPoint src[4], const SkRect& clip) {
 }
 
 static SkRect compute_cubic_bounds(const SkPoint pts[4]) {
-    SkRect r;
-    r.setBounds(pts, 4);
-    return r;
+    return SkRect::BoundsOrEmpty({pts, 4});
 }
 
 static bool too_big_for_reliable_float_math(const SkRect& r) {
@@ -568,7 +565,7 @@ void SkEdgeClipper::ClipPath(const SkPath& path, const SkRect& clip, bool canCul
     SkASSERT(path.isFinite());
 
     SkAutoConicToQuads quadder;
-    const SkScalar conicTol = SK_Scalar1 / 4;
+    constexpr float kConicTol = 0.25f;
 
     SkPathEdgeIter iter(path);
     SkEdgeClipper clipper(canCullToTheRight);
@@ -586,7 +583,8 @@ void SkEdgeClipper::ClipPath(const SkPath& path, const SkRect& clip, bool canCul
                 }
                 break;
             case SkPathEdgeIter::Edge::kConic: {
-                const SkPoint* quadPts = quadder.computeQuads(e.fPts, iter.conicWeight(), conicTol);
+                const SkPoint* quadPts =
+                        quadder.computeQuads(e.fPts, iter.conicWeight(), kConicTol);
                 for (int i = 0; i < quadder.countQuads(); ++i) {
                     if (clipper.clipQuad(quadPts, clip)) {
                         consume(&clipper, e.fIsNewContour, ctx);
@@ -598,6 +596,9 @@ void SkEdgeClipper::ClipPath(const SkPath& path, const SkRect& clip, bool canCul
                 if (clipper.clipCubic(e.fPts, clip)) {
                     consume(&clipper, e.fIsNewContour, ctx);
                 }
+                break;
+            default:
+                SkDEBUGFAIL("Unknown edge type");
                 break;
         }
     }

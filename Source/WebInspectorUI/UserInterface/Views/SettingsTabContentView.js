@@ -285,7 +285,6 @@ WI.SettingsTabContentView = class SettingsTabContentView extends WI.TabContentVi
         let elementsSettingsView = new WI.SettingsView("elements", WI.UIString("Elements"));
 
         // COMPATIBILITY (macOS 13.0, iOS 16.0): CSS.LayoutFlag.Rendered did not exist yet.
-        console.log(InspectorBackend.Enum.CSS);
         if (InspectorBackend.Enum.CSS?.LayoutFlag?.Rendered) {
             elementsSettingsView.addSetting(WI.UIString("DOM Tree:"), WI.settings.domTreeDeemphasizesNodesThatAreNotRendered, WI.UIString("De-emphasize nodes that are not rendered"));
 
@@ -438,14 +437,6 @@ WI.SettingsTabContentView = class SettingsTabContentView extends WI.TabContentVi
 
         experimentalSettingsView.addSeparator();
 
-        let hasTimelineDomain = InspectorBackend.hasDomain("Timeline");
-        if (hasTimelineDomain) {
-            let timelinesGroup = experimentalSettingsView.addGroup(WI.UIString("Timelines:", "Timelines: @ Experimental Settings", "Category label for experimental settings related to the Timelines Tab."));
-            timelinesGroup.addSetting(WI.settings.experimentalEnableWorkerTimelineRecording, WI.UIString("Enable recording in Workers", "Label for checkbox that controls whether timeline recordings can capture activity in Worker contexts."));
-        }
-
-        experimentalSettingsView.addSeparator();
-
         let diagnosticsGroup = experimentalSettingsView.addGroup(WI.UIString("Diagnostics:", "Diagnostics: @ Experimental Settings", "Category label for experimental settings related to Web Inspector diagnostics."));
         diagnosticsGroup.addSetting(WI.settings.experimentalAllowInspectingInspector, WI.UIString("Allow Inspecting Web Inspector", "Allow Inspecting Web Inspector @ Experimental Settings", "Label for setting that allows the user to inspect the Web Inspector user interface."));
         experimentalSettingsView.addSeparator();
@@ -466,18 +457,20 @@ WI.SettingsTabContentView = class SettingsTabContentView extends WI.TabContentVi
             }, reloadInspectorContainerElement);
         }
 
+        listenForChange(WI.settings.experimentalGroupSourceMapErrors);
+        listenForChange(WI.settings.experimentalShowCaseSensitiveAutocomplete);
+
         if (hasCSSDomain) {
             listenForChange(WI.settings.experimentalEnableStylesJumpToEffective);
             listenForChange(WI.settings.experimentalEnableStylesJumpToVariableDeclaration);
+            listenForChange(WI.settings.experimentalCSSSortPropertyNameAutocompletionByUsage);
         }
 
         if (hasNetworkEmulatedCondition)
             listenForChange(WI.settings.experimentalEnableNetworkEmulatedCondition);
 
         listenForChange(WI.settings.experimentalLimitSourceCodeHighlighting);
-
-        if (hasTimelineDomain)
-            listenForChange(WI.settings.experimentalEnableWorkerTimelineRecording);
+        listenForChange(WI.settings.experimentalUseFuzzyMatchingForCSSCodeCompletion);
 
         this._createReferenceLink(experimentalSettingsView);
 

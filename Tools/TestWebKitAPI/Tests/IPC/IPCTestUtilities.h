@@ -52,7 +52,7 @@ struct MockTestMessage1 {
     static constexpr bool canDispatchOutOfOrder = true;
     static constexpr bool replyCanDispatchOutOfOrder = false;
     static constexpr IPC::MessageName name()  { return static_cast<IPC::MessageName>(123); }
-    std::tuple<> arguments() { return { }; }
+    template<typename Encoder> void encode(Encoder&) { }
 };
 
 struct MockTestMessageWithAsyncReply1 {
@@ -63,13 +63,14 @@ struct MockTestMessageWithAsyncReply1 {
     // Just using WebPage_GetBytecodeProfileReply as something that is async message name.
     // If WebPage_GetBytecodeProfileReply is removed, just use another one.
     static constexpr IPC::MessageName asyncMessageReplyName() { return IPC::MessageName::WebPage_GetBytecodeProfileReply; }
-    std::tuple<> arguments() { return { }; }
+    template<typename Encoder> void encode(Encoder&) { }
+
     using ReplyArguments = std::tuple<uint64_t>;
     using Promise = WTF::NativePromise<uint64_t, IPC::Error>;
 };
 
 class MockConnectionClient final : public IPC::Connection::Client, public RefCounted<MockConnectionClient> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(MockConnectionClient);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(MockConnectionClient);
 public:
     static Ref<MockConnectionClient> create()
@@ -146,7 +147,7 @@ public:
         m_didClose = true;
     }
 
-    void didReceiveInvalidMessage(IPC::Connection&, IPC::MessageName message, int32_t) override
+    void didReceiveInvalidMessage(IPC::Connection&, IPC::MessageName message, const Vector<uint32_t>&) override
     {
         m_didReceiveInvalidMessage = message;
     }

@@ -41,7 +41,7 @@ class ProcessThrottlerActivity;
 class WebProcessPool;
 class WebsiteDataStore;
 
-class WebProcessCache final : public CanMakeCheckedPtr<WebProcessCache> {
+class WebProcessCache final : public CanMakeThreadSafeCheckedPtr<WebProcessCache> {
     WTF_MAKE_TZONE_ALLOCATED(WebProcessCache);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WebProcessCache);
 public:
@@ -79,7 +79,7 @@ private:
         RefPtr<WebProcessProxy> protectedProcess() const { return m_process; }
         void startSuspensionTimer();
 
-#if PLATFORM(MAC) || PLATFORM(GTK) || PLATFORM(WPE)
+#if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
         bool isSuspended() const { return !m_suspensionTimer.isActive(); }
 #endif
 
@@ -87,13 +87,13 @@ private:
         explicit CachedProcess(Ref<WebProcessProxy>&&);
 
         void evictionTimerFired();
-#if PLATFORM(MAC) || PLATFORM(GTK) || PLATFORM(WPE)
+#if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
         void suspensionTimerFired();
 #endif
 
         RefPtr<WebProcessProxy> m_process;
         RunLoop::Timer m_evictionTimer;
-#if PLATFORM(MAC) || PLATFORM(GTK) || PLATFORM(WPE)
+#if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
         RunLoop::Timer m_suspensionTimer;
         RefPtr<ProcessThrottlerActivity> m_backgroundActivity;
 #endif

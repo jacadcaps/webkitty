@@ -28,6 +28,11 @@
 #import <wtf/Platform.h>
 
 #import "WKMaterialHostingSupport.h"
+#import "WKMouseDeviceObserver.h"
 #import "WKPreferencesInternal.h"
+#import "WKScrollGeometry.h"
+#import "WKSeparatedImageView.h"
+#import "WKUIDelegateInternal.h"
 #import "WKWebViewConfigurationInternal.h"
 #import "WKWebViewInternal.h"
+#import "_WKTextExtractionInternal.h"

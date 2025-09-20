@@ -91,11 +91,8 @@ list(APPEND WebKit_SOURCES
 
     WebProcess/InjectedBundle/playstation/InjectedBundlePlayStation.cpp
 
-    WebProcess/WebPage/AcceleratedSurface.cpp
-
+    WebProcess/WebPage/CoordinatedGraphics/AcceleratedSurface.cpp
     WebProcess/WebPage/CoordinatedGraphics/DrawingAreaCoordinatedGraphics.cpp
-
-    WebProcess/WebPage/libwpe/AcceleratedSurfaceLibWPE.cpp
 
     WebProcess/WebPage/playstation/WebPagePlayStation.cpp
 

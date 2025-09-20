@@ -26,16 +26,13 @@
 #pragma once
 
 #include "APIObject.h"
+#include <WebCore/ContentExtensionParser.h>
 #include <system_error>
+#include <wtf/Forward.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 class FragmentedSharedBuffer;
-}
-
-namespace WTF {
-class ConcurrentWorkQueue;
-class WorkQueue;
 }
 
 namespace API {
@@ -44,7 +41,7 @@ class ContentRuleList;
 
 class ContentRuleListStore final : public ObjectImpl<Object::Type::ContentRuleListStore> {
 public:
-    enum class Error {
+    enum class Error : uint8_t {
         LookupFailed = 1,
         VersionMismatch,
         CompileFailed,
@@ -54,7 +51,7 @@ public:
 #if ENABLE(CONTENT_EXTENSIONS)
     // This should be incremented every time a functional change is made to the bytecode, file format, etc.
     // to prevent crashing while loading old data.
-    static constexpr uint32_t CurrentContentRuleListFileVersion = 18;
+    static constexpr uint32_t CurrentContentRuleListFileVersion = 20;
 
     static ContentRuleListStore& defaultStoreSingleton();
     static Ref<ContentRuleListStore> storeWithPath(const WTF::String& storePath);
@@ -67,7 +64,7 @@ public:
     void lookupContentRuleList(WTF::String&& identifier, CompletionHandler<void(RefPtr<API::ContentRuleList>, std::error_code)>);
     void removeContentRuleList(WTF::String&& identifier, CompletionHandler<void(std::error_code)>);
 
-    void compileContentRuleListFile(WTF::String&& filePath, WTF::String&& identifier, WTF::String&& json, CompletionHandler<void(RefPtr<API::ContentRuleList>, std::error_code)>);
+    void compileContentRuleListFile(WTF::String&& filePath, WTF::String&& identifier, WTF::String&& json, WebCore::ContentExtensions::CSSSelectorsAllowed, CompletionHandler<void(RefPtr<API::ContentRuleList>, std::error_code)>);
     void lookupContentRuleListFile(WTF::String&& filePath, WTF::String&& identifier, CompletionHandler<void(RefPtr<API::ContentRuleList>, std::error_code)>);
     void removeContentRuleListFile(WTF::String&& filePath, CompletionHandler<void(std::error_code)>);
 
@@ -77,20 +74,14 @@ public:
     void synchronousRemoveAllContentRuleLists();
     void invalidateContentRuleListVersion(const WTF::String& identifier);
     void corruptContentRuleListHeader(const WTF::String& identifier, bool usingCurrentVersion);
+    void corruptContentRuleListActionsMatchingEverything(const WTF::String& identifier);
     void invalidateContentRuleListHeader(const WTF::String& identifier);
     void getContentRuleListSource(WTF::String&& identifier, CompletionHandler<void(WTF::String)>);
-
-    Ref<WTF::ConcurrentWorkQueue> protectedCompileQueue();
-    Ref<WTF::WorkQueue> protectedReadQueue();
-    Ref<WTF::WorkQueue> protectedRemoveQueue();
 
 private:
     WTF::String defaultStorePath();
 
     const WTF::String m_storePath;
-    Ref<WTF::ConcurrentWorkQueue> m_compileQueue;
-    Ref<WTF::WorkQueue> m_readQueue;
-    Ref<WTF::WorkQueue> m_removeQueue;
 #endif // ENABLE(CONTENT_EXTENSIONS)
 };
 
@@ -102,6 +93,8 @@ inline std::error_code make_error_code(ContentRuleListStore::Error error)
 }
 
 } // namespace API
+
+SPECIALIZE_TYPE_TRAITS_API_OBJECT(ContentRuleListStore);
 
 namespace std {
 template<> struct is_error_code_enum<API::ContentRuleListStore::Error> : public true_type { };

@@ -294,8 +294,8 @@ public:
     void deleteExternalImage(GCGLExternalImage) final;
     void bindExternalImage(GCGLenum target, GCGLExternalImage) override;
     GCGLExternalSync createExternalSync(ExternalSyncSource&&) override;
-#endif
     void deleteExternalSync(GCGLExternalSync) final;
+#endif
     void multiDrawArraysANGLE(GCGLenum mode, GCGLSpanTuple<const GCGLint, const GCGLsizei> firstsAndCounts) final;
     void multiDrawArraysInstancedANGLE(GCGLenum mode, GCGLSpanTuple<const GCGLint, const GCGLsizei, const GCGLsizei> firstsCountsAndInstanceCounts) final;
     void multiDrawElementsANGLE(GCGLenum mode, GCGLSpanTuple<const GCGLsizei, const GCGLsizei> countsAndOffsets, GCGLenum type) final;
@@ -418,9 +418,9 @@ protected:
     void prepareForDrawingBufferWriteIfBound();
     virtual void prepareForDrawingBufferWrite();
 
-    UncheckedKeyHashSet<String> m_availableExtensions;
-    UncheckedKeyHashSet<String> m_requestableExtensions;
-    UncheckedKeyHashSet<String> m_enabledExtensions;
+    HashSet<String> m_availableExtensions;
+    HashSet<String> m_requestableExtensions;
+    HashSet<String> m_enabledExtensions;
     bool m_webglColorBufferFloatRGB { false };
     bool m_webglColorBufferFloatRGBA { false };
     GCGLuint m_texture { 0 };
@@ -453,8 +453,9 @@ protected:
     GCGLboolean m_packReverseRowOrder { false };
     uint32_t m_nextExternalImageName { 0 };
     uint32_t m_nextExternalSyncName { 0 };
-    UncheckedKeyHashMap<uint32_t, void*, IntHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>> m_eglImages;
-    UncheckedKeyHashMap<uint32_t, void*, IntHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>> m_eglSyncs;
+    HashMap<uint32_t, void*, IntHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>> m_eglImages;
+    HashMap<uint32_t, void*, IntHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>> m_eglSyncs;
+    IntSize m_maxInternalFramebufferSize;
 };
 
 

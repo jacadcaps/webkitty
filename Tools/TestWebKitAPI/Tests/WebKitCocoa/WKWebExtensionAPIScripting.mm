@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023-2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2023-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -879,6 +879,56 @@ TEST(WKWebExtensionAPIScripting, RegisterContentScriptsWithCSSAuthorOrigin)
     [manager run];
 }
 
+TEST(WKWebExtensionAPIScripting, RegisterContentScriptsMatchOriginAsFallback)
+{
+    TestWebKitAPI::HTTPServer server({
+        { "/"_s, { { { "Content-Type"_s, "text/html"_s } }, "<iframe src='about:blank'></iframe>"_s } }
+    }, TestWebKitAPI::HTTPServer::Protocol::Http);
+
+    auto *backgroundScript = Util::constructScript(@[
+        @"await browser.scripting.registerContentScripts([{",
+        @"    id: 'applyStylesAndScript',",
+        @"    matches: ['*://localhost/*'],",
+        @"    matchOriginAsFallback: true,",
+        @"    allFrames: true,",
+        @"    js: ['content.js'],",
+        @"    css: ['applyStyles.css']",
+        @"}])",
+
+        @"browser.test.sendMessage('Scripts Registered');"
+    ]);
+
+    auto *contentStyle = @"body { background-color: green !important }";
+
+    auto *contentScript = Util::constructScript(@[
+        @"browser.test.assertEq(document.body.dataset.injected, undefined, 'Script should not have run before')",
+        @"document.body.dataset.injected = 'true'",
+
+        @"const bgColor = getComputedStyle(document.body).backgroundColor",
+        @"browser.test.assertEq(bgColor, 'rgb(0, 128, 0)', 'CSS should be applied correctly')",
+
+        @"browser.test.sendMessage(window.top === window ? 'Main Frame Injected' : 'Sub-Frame Injected')"
+    ]);
+
+    auto *resources = @{
+        @"background.js": backgroundScript,
+        @"content.js": contentScript,
+        @"applyStyles.css": contentStyle
+    };
+
+    auto manager = Util::loadExtension(scriptingManifest, resources);
+
+    auto *urlRequest = server.requestWithLocalhost();
+    [manager.get().context setPermissionStatus:WKWebExtensionContextPermissionStatusGrantedExplicitly forURL:urlRequest.URL];
+
+    [manager runUntilTestMessage:@"Scripts Registered"];
+
+    [manager.get().defaultTab.webView loadRequest:urlRequest];
+
+    [manager runUntilTestMessage:@"Main Frame Injected"];
+    [manager runUntilTestMessage:@"Sub-Frame Injected"];
+}
+
 TEST(WKWebExtensionAPIScripting, UpdateContentScripts)
 {
     TestWebKitAPI::HTTPServer server({
@@ -960,6 +1010,26 @@ TEST(WKWebExtensionAPIScripting, UpdateContentScripts)
     [manager.get().defaultTab.webView loadRequest:urlRequest];
 
     [manager run];
+}
+
+TEST(WKWebExtensionAPIScripting, UpdateContentScriptsWithMinimalParametersShouldNotCrash)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"await browser.scripting.registerContentScripts([{ id: '1', matches: ['*://localhost/*'], js: ['script.js'] }])",
+        @"await browser.scripting.updateContentScripts([{ id: '1', allFrames: true }])",
+
+        @"const results = await browser.scripting.getRegisteredContentScripts()",
+        @"browser.test.assertDeepEq(results, [{ id: '1', matches: ['*://localhost/*'], js: ['script.js'], allFrames: true, persistAcrossSessions: true }])",
+
+        @"browser.test.notifyPass()",
+    ]);
+
+    auto *resources = @{
+        @"background.js": backgroundScript,
+        @"script.js": @"document.body.style.backgroundColor = 'red'",
+    };
+
+    Util::loadAndRunExtension(scriptingManifest, resources);
 }
 
 TEST(WKWebExtensionAPIScripting, GetContentScripts)
@@ -1165,6 +1235,173 @@ TEST(WKWebExtensionAPIScripting, RegisteredScriptIsInjectedAfterContextReloads)
     [manager run];
 }
 
+TEST(WKWebExtensionAPIScripting, PersistentRegisteredScriptIsInjectedAfterContextReloads)
+{
+    TestWebKitAPI::HTTPServer server({
+        { "/"_s, { { { "Content-Type"_s, "text/html"_s } }, ""_s } }
+    }, TestWebKitAPI::HTTPServer::Protocol::Http);
+
+    auto *backgroundScript = Util::constructScript(@[
+        @"browser.webNavigation.onCompleted.addListener(async (details) => {",
+        @"  const pinkValue = 'rgb(255, 192, 203)'",
+        @"  function getBackgroundColor() { return window.getComputedStyle(document.body).getPropertyValue('background-color') }",
+
+        @"  let results = await browser.scripting.executeScript({ target: { tabId: details.tabId, allFrames: false }, func: getBackgroundColor })",
+        @"  browser.test.assertEq(results?.[0]?.result, pinkValue)",
+
+        @"  browser.test.notifyPass()",
+        @"})",
+
+        @"let registeredScripts = await browser.scripting.getRegisteredContentScripts()",
+        @"if (!registeredScripts.length) {",
+        @"  await browser.scripting.registerContentScripts([{ id: '1', matches: [ '*://localhost/*' ], js: [ 'changeBackgroundColorScript.js' ], 'allFrames': true, 'persistAcrossSessions': true }])",
+
+        @"  registeredScripts = await browser.scripting.getRegisteredContentScripts()",
+        @"  browser.test.assertEq(registeredScripts.length, 1)",
+
+        @"  browser.test.sendMessage('Unload extension')",
+        @"} else {",
+        @"  browser.test.assertEq(registeredScripts.length, 1)",
+
+        @"  browser.test.sendMessage('Load Tab')",
+        @"}"
+    ]);
+
+    static auto *resources = @{
+        @"background.js": backgroundScript,
+        @"changeBackgroundColorScript.js": changeBackgroundColorScript,
+    };
+
+    auto manager = Util::parseExtension(scriptingManifest, resources, WKWebExtensionControllerConfiguration._temporaryConfiguration);
+
+    // Give the extension a unique identifier so it opts into saving data in the temporary configuration.
+    manager.get().context.uniqueIdentifier = @"org.webkit.test.extension (76C788B8)";
+
+    EXPECT_FALSE(manager.get().context.hasInjectedContent);
+
+    [manager load];
+    [manager runUntilTestMessage:@"Unload extension"];
+
+    EXPECT_TRUE(manager.get().context.hasInjectedContent);
+
+    [manager unload];
+
+    EXPECT_FALSE(manager.get().context.hasInjectedContent);
+
+    [manager load];
+    [manager runUntilTestMessage:@"Load Tab"];
+
+    EXPECT_TRUE(manager.get().context.hasInjectedContent);
+
+    auto *urlRequest = server.requestWithLocalhost();
+    [manager.get().context setPermissionStatus:WKWebExtensionContextPermissionStatusGrantedExplicitly forURL:urlRequest.URL];
+    [manager.get().defaultTab.webView loadRequest:urlRequest];
+
+    [manager run];
+}
+
+TEST(WKWebExtensionAPIScripting, RegisteredScriptExcludeMatches)
+{
+    TestWebKitAPI::HTTPServer server({
+        { "/"_s, { { { "Content-Type"_s, "text/html"_s } }, ""_s } }
+    }, TestWebKitAPI::HTTPServer::Protocol::Http);
+
+    auto *backgroundScript = Util::constructScript(@[
+        @"browser.webNavigation.onCompleted.addListener(async () => {",
+
+        @"  var expectedResults = [{",
+        @"    id: '1',",
+        @"    js: ['changeBackgroundColorScript.js'],",
+        @"    matches: ['*://*/*'],",
+        @"    persistAcrossSessions: true,",
+        @"    excludeMatches: ['*://*.example.com/*']",
+        @"  }]",
+
+        @"  await browser.scripting.registerContentScripts([{ id: '1', matches: ['*://*/*'], js: ['changeBackgroundColorScript.js'], excludeMatches: ['*://*.example.com/*']}])",
+
+        @"  var results = await browser.scripting.getRegisteredContentScripts()",
+        @"  browser.test.assertDeepEq(results, expectedResults)",
+
+        @"  results = await browser.scripting.getRegisteredContentScripts({ 'ids': ['1'] })",
+        @"  browser.test.assertDeepEq(results, expectedResults)",
+
+        @"  await browser.scripting.unregisterContentScripts()",
+
+        @"  browser.test.notifyPass()",
+        @"})",
+
+        @"browser.test.sendMessage('Load Tab')",
+    ]);
+
+    static auto *resources = @{
+        @"background.js": backgroundScript,
+        @"changeBackgroundColorScript.js": changeBackgroundColorScript,
+    };
+
+    auto manager = Util::loadExtension(scriptingManifest, resources);
+    auto *testContext = manager.get().context;
+
+    // Confirm that the script can't be injected on example.com.
+    auto *exampleURL = [NSURL URLWithString:@"https://example.com/"];
+    EXPECT_FALSE([testContext hasInjectedContentForURL:exampleURL]);
+
+    auto *urlRequest = server.requestWithLocalhost();
+    auto *url = urlRequest.URL;
+
+    auto *matchPattern = [WKWebExtensionMatchPattern matchPatternWithScheme:url.scheme host:url.host path:@"/*"];
+    [testContext setPermissionStatus:WKWebExtensionContextPermissionStatusGrantedExplicitly forPermission:WKWebExtensionPermissionWebNavigation];
+    [testContext setPermissionStatus:WKWebExtensionContextPermissionStatusGrantedExplicitly forMatchPattern:matchPattern];
+
+    [manager runUntilTestMessage:@"Load Tab"];
+
+    [manager.get().defaultTab.webView loadRequest:urlRequest];
+
+    [manager run];
+}
+
+TEST(WKWebExtensionAPIScripting, InjectedOnlyOnce)
+{
+    TestWebKitAPI::HTTPServer server({
+        { "/"_s, { { { "Content-Type"_s, "text/html"_s } }, "<iframe src='about:blank'></iframe>"_s } }
+    }, TestWebKitAPI::HTTPServer::Protocol::Http);
+
+    auto *contentScriptsManifest = @{
+        @"manifest_version": @3,
+
+        @"name": @"Scripting Test",
+        @"description": @"Scripting Test",
+        @"version": @"1.0",
+
+        @"content_scripts": @[ @{
+            @"matches": @[ @"*://localhost/*" ],
+            @"js": @[ @"content_script.js" ]
+        } ]
+    };
+
+    auto *contentScript = Util::constructScript(@[
+        @"if (document.body.dataset.injected)",
+        @"    browser.test.notifyFail('Script injected more than once')",
+
+        @"document.body.dataset.injected = 'true'",
+
+        @"browser.test.sendMessage('script-injected')"
+    ]);
+
+    auto *resources = @{
+        @"content_script.js": contentScript
+    };
+
+    auto manager = Util::loadExtension(contentScriptsManifest, resources);
+
+    auto *urlRequest = server.requestWithLocalhost();
+    [manager.get().context setPermissionStatus:WKWebExtensionContextPermissionStatusGrantedExplicitly forURL:urlRequest.URL];
+    [manager.get().defaultTab.webView loadRequest:urlRequest];
+
+    [manager runUntilTestMessage:@"script-injected"];
+
+    [manager runForTimeInterval:3];
+}
+
 TEST(WKWebExtensionAPIScripting, MainWorld)
 {
     TestWebKitAPI::HTTPServer server({
@@ -1250,6 +1487,208 @@ TEST(WKWebExtensionAPIScripting, IsolatedWorld)
     [manager.get().defaultTab.webView loadRequest:urlRequest];
 
     [manager run];
+}
+
+TEST(WKWebExtensionAPIScripting, MatchAboutBlank)
+{
+    TestWebKitAPI::HTTPServer server({
+        { "/"_s, { { { "Content-Type"_s, "text/html"_s } }, "<iframe src='about:blank'></iframe>"_s } }
+    }, TestWebKitAPI::HTTPServer::Protocol::Http);
+
+    auto *contentScriptsManifest = @{
+        @"manifest_version": @3,
+
+        @"name": @"Scripting Test",
+        @"description": @"Scripting Test",
+        @"version": @"1.0",
+
+        @"content_scripts": @[ @{
+            @"matches": @[ @"*://localhost/*" ],
+            @"match_about_blank": @YES,
+            @"all_frames": @YES,
+            @"js": @[ @"content.js" ],
+            @"css": @[ @"content.css" ]
+        } ]
+    };
+
+    auto *contentStyle = @"body { background-color: red !important; }";
+
+    auto *contentScript = Util::constructScript(@[
+        @"browser.test.assertEq(document.body.dataset.injected, undefined, 'Script should not have run before')",
+        @"document.body.dataset.injected = 'true'",
+
+        @"const bgColor = getComputedStyle(document.body).backgroundColor",
+        @"browser.test.assertEq(bgColor, 'rgb(255, 0, 0)', 'CSS should be applied correctly')",
+
+        @"browser.test.sendMessage(window.top === window ? 'Main Frame Injected' : 'Sub-Frame Injected')"
+    ]);
+
+    auto *resources = @{
+        @"content.js": contentScript,
+        @"content.css": contentStyle
+    };
+
+    auto manager = Util::loadExtension(contentScriptsManifest, resources);
+
+    auto *urlRequest = server.requestWithLocalhost();
+    [manager.get().context setPermissionStatus:WKWebExtensionContextPermissionStatusGrantedExplicitly forURL:urlRequest.URL];
+    [manager.get().defaultTab.webView loadRequest:urlRequest];
+
+    [manager runUntilTestMessage:@"Main Frame Injected"];
+    [manager runUntilTestMessage:@"Sub-Frame Injected"];
+}
+
+TEST(WKWebExtensionAPIScripting, MatchOriginAsFallbackWithAboutBlank)
+{
+    TestWebKitAPI::HTTPServer server({
+        { "/"_s, { { { "Content-Type"_s, "text/html"_s } }, "<iframe src='about:blank'></iframe>"_s } }
+    }, TestWebKitAPI::HTTPServer::Protocol::Http);
+
+    auto *contentScriptsManifest = @{
+        @"manifest_version": @3,
+
+        @"name": @"Scripting Test",
+        @"description": @"Scripting Test",
+        @"version": @"1.0",
+
+        @"content_scripts": @[ @{
+            @"matches": @[ @"*://localhost/*" ],
+            @"match_origin_as_fallback": @YES,
+            @"all_frames": @YES,
+            @"js": @[ @"content.js" ],
+            @"css": @[ @"content.css" ]
+        } ]
+    };
+
+    auto *contentStyle = @"body { background-color: green !important; }";
+
+    auto *contentScript = Util::constructScript(@[
+        @"browser.test.assertEq(document.body.dataset.injected, undefined, 'Script should not have run before')",
+        @"document.body.dataset.injected = 'true'",
+
+        @"const bgColor = getComputedStyle(document.body).backgroundColor",
+        @"browser.test.assertEq(bgColor, 'rgb(0, 128, 0)', 'CSS should be applied correctly')",
+
+        @"browser.test.sendMessage(window.top === window ? 'Main Frame Injected' : 'Sub-Frame Injected')"
+    ]);
+
+    auto *resources = @{
+        @"content.js": contentScript,
+        @"content.css": contentStyle
+    };
+
+    auto manager = Util::loadExtension(contentScriptsManifest, resources);
+
+    auto *urlRequest = server.requestWithLocalhost();
+    [manager.get().context setPermissionStatus:WKWebExtensionContextPermissionStatusGrantedExplicitly forURL:urlRequest.URL];
+    [manager.get().defaultTab.webView loadRequest:urlRequest];
+
+    [manager runUntilTestMessage:@"Main Frame Injected"];
+    [manager runUntilTestMessage:@"Sub-Frame Injected"];
+}
+
+TEST(WKWebExtensionAPIScripting, MatchOriginAsFallbackWithData)
+{
+    TestWebKitAPI::HTTPServer server({
+        { "/"_s, { { { "Content-Type"_s, "text/html"_s } }, "<iframe src='data:text/html,<body></body>'></iframe>"_s } }
+    }, TestWebKitAPI::HTTPServer::Protocol::Http);
+
+    auto *contentScriptsManifest = @{
+        @"manifest_version": @3,
+        @"name": @"Scripting Test",
+        @"description": @"Scripting Test",
+        @"version": @"1.0",
+        @"content_scripts": @[ @{
+            @"matches": @[ @"*://localhost/*" ],
+            @"match_origin_as_fallback": @YES,
+            @"all_frames": @YES,
+            @"js": @[ @"content.js" ],
+            @"css": @[ @"content.css" ]
+        } ]
+    };
+
+    auto *contentStyle = @"body { background-color: blue !important; }";
+
+    auto *contentScript = Util::constructScript(@[
+        @"browser.test.assertEq(document.body.dataset.injected, undefined, 'Script should not have run before')",
+        @"document.body.dataset.injected = 'true'",
+
+        @"const bgColor = getComputedStyle(document.body).backgroundColor",
+        @"browser.test.assertEq(bgColor, 'rgb(0, 0, 255)', 'CSS should be applied correctly')",
+
+        @"browser.test.sendMessage(window.top === window ? 'Main Frame Injected' : 'Sub-Frame Injected')"
+    ]);
+
+    auto *resources = @{
+        @"content.js": contentScript,
+        @"content.css": contentStyle
+    };
+
+    auto manager = Util::loadExtension(contentScriptsManifest, resources);
+
+    auto *urlRequest = server.requestWithLocalhost();
+    [manager.get().context setPermissionStatus:WKWebExtensionContextPermissionStatusGrantedExplicitly forURL:urlRequest.URL];
+    [manager.get().defaultTab.webView loadRequest:urlRequest];
+
+    [manager runUntilTestMessage:@"Main Frame Injected"];
+    [manager runUntilTestMessage:@"Sub-Frame Injected"];
+}
+
+TEST(WKWebExtensionAPIScripting, MatchOriginAsFallbackWithBlob)
+{
+    auto *pageScript = Util::constructScript(@[
+        @"<script>",
+        @"  const blob = new Blob(['<body></body>'], { type: 'text/html' })",
+        @"  const blobURL = URL.createObjectURL(blob)",
+        @"  document.write(`<iframe src='${blobURL}'></iframe>`)",
+        @"</script>"
+    ]);
+
+    TestWebKitAPI::HTTPServer server({
+        { "/"_s, { { { "Content-Type"_s, "text/html"_s } }, pageScript } }
+    }, TestWebKitAPI::HTTPServer::Protocol::Http);
+
+    auto *contentScriptsManifest = @{
+        @"manifest_version": @3,
+
+        @"name": @"Scripting Test",
+        @"description": @"Scripting Test",
+        @"version": @"1.0",
+
+        @"content_scripts": @[ @{
+            @"matches": @[ @"*://localhost/*" ],
+            @"match_origin_as_fallback": @YES,
+            @"all_frames": @YES,
+            @"js": @[ @"content.js" ],
+            @"css": @[ @"content.css" ]
+        } ]
+    };
+
+    auto *contentStyle = @"body { background-color: green !important; }";
+
+    auto *contentScript = Util::constructScript(@[
+        @"browser.test.assertEq(document.body.dataset.injected, undefined, 'Script should not have run before')",
+        @"document.body.dataset.injected = 'true'",
+
+        @"const bgColor = getComputedStyle(document.body).backgroundColor",
+        @"browser.test.assertEq(bgColor, 'rgb(0, 128, 0)', 'CSS should be applied correctly')",
+
+        @"browser.test.sendMessage(window.top === window ? 'Main Frame Injected' : 'Sub-Frame Injected')"
+    ]);
+
+    auto *resources = @{
+        @"content.js": contentScript,
+        @"content.css": contentStyle
+    };
+
+    auto manager = Util::loadExtension(contentScriptsManifest, resources);
+
+    auto *urlRequest = server.requestWithLocalhost();
+    [manager.get().context setPermissionStatus:WKWebExtensionContextPermissionStatusGrantedExplicitly forURL:urlRequest.URL];
+    [manager.get().defaultTab.webView loadRequest:urlRequest];
+
+    [manager runUntilTestMessage:@"Main Frame Injected"];
+    [manager runUntilTestMessage:@"Sub-Frame Injected"];
 }
 
 TEST(WKWebExtensionAPIScripting, RemoveAllUserScriptsDoesNotRemoveWebExtensionScripts)
@@ -1355,6 +1794,43 @@ TEST(WKWebExtensionAPIScripting, RemoveAllUserStyleSheetsDoesNotRemoveWebExtensi
     [manager runUntilTestMessage:@"Remove StyleSheets and Load Tab"];
 
     [manager.get().defaultTab.webView.configuration.userContentController _removeAllUserStyleSheets];
+    [manager.get().defaultTab.webView loadRequest:urlRequest];
+
+    [manager run];
+}
+
+TEST(WKWebExtensionAPIScripting, InjectScriptWithTrustedTypesCSP)
+{
+    TestWebKitAPI::HTTPServer server({
+        { "/"_s, { { { "Content-Type"_s, "text/html"_s }, { "Content-Security-Policy"_s, "require-trusted-types-for 'script'"_s } }, ""_s } },
+    }, TestWebKitAPI::HTTPServer::Protocol::Http);
+
+    auto *manifest = @{
+        @"manifest_version": @3,
+
+        @"name": @"Scripting Test",
+        @"description": @"Scripting Test",
+        @"version": @"1.0",
+
+        @"content_scripts": @[ @{
+            @"matches": @[ @"*://localhost/*" ],
+            @"js": @[ @"content.js" ]
+        } ]
+    };
+
+    auto *contentScript = Util::constructScript(@[
+        @"try {",
+        @"  document.body.innerHTML = '<p>Injected</p>'",
+        @"  browser.test.notifyPass()",
+        @"} catch (error) {",
+        @"  browser.test.notifyFail('CSP blocked innerHTML: ' + error.message)",
+        @"}",
+    ]);
+
+    auto manager = Util::loadExtension(manifest, @{ @"content.js": contentScript });
+
+    auto *urlRequest = server.requestWithLocalhost();
+    [manager.get().context setPermissionStatus:WKWebExtensionContextPermissionStatusGrantedExplicitly forURL:urlRequest.URL];
     [manager.get().defaultTab.webView loadRequest:urlRequest];
 
     [manager run];

@@ -72,9 +72,15 @@ using GL = GraphicsContextGL;
 // For WK1, this variable is accessed from multiple threads but always sequentially.
 static GraphicsContextGLANGLE* currentContext;
 
+static const char* const enabledANGLEMetalFeatures[] = {
+    "ensureLoopForwardProgress",
+    nullptr
+};
+
 static const char* const disabledANGLEMetalFeatures[] = {
     "enableInMemoryMtlLibraryCache", // This would leak all program binary objects.
     "alwaysPreferStagedTextureUploads", // This would timeout tests due to excess staging buffer allocations and fail tests on MacPro.
+    "injectAsmStatementIntoLoopBodies", // Replaced by ensureLoopForwardProgress.
     nullptr
 };
 
@@ -139,9 +145,11 @@ static EGLDisplay initializeEGLDisplay(const GraphicsContextGLAttributes& attrs)
     ASSERT(WTF::contains(clientExtensions, "EGL_ANGLE_feature_control"_span));
     displayAttributes.append(EGL_FEATURE_OVERRIDES_DISABLED_ANGLE);
     displayAttributes.append(reinterpret_cast<EGLAttrib>(disabledANGLEMetalFeatures));
+    displayAttributes.append(EGL_FEATURE_OVERRIDES_ENABLED_ANGLE);
+    displayAttributes.append(reinterpret_cast<EGLAttrib>(enabledANGLEMetalFeatures));
     displayAttributes.append(EGL_NONE);
 
-    EGLDisplay display = EGL_GetPlatformDisplay(EGL_PLATFORM_ANGLE_ANGLE, reinterpret_cast<void*>(EGL_DEFAULT_DISPLAY), displayAttributes.data());
+    EGLDisplay display = EGL_GetPlatformDisplay(EGL_PLATFORM_ANGLE_ANGLE, reinterpret_cast<void*>(EGL_DEFAULT_DISPLAY), displayAttributes.span().data());
     EGLint majorVersion = 0;
     EGLint minorVersion = 0;
     if (EGL_Initialize(display, &majorVersion, &minorVersion) == EGL_FALSE) {
@@ -150,7 +158,7 @@ static EGLDisplay initializeEGLDisplay(const GraphicsContextGLAttributes& attrs)
     }
     LOG(WebGL, "ANGLE initialised Major: %d Minor: %d", majorVersion, minorVersion);
 
-#if ASSERT_ENABLED && ENABLE(WEBXR)
+#if ASSERT_ENABLED
     auto displayExtensions = unsafeSpan8(EGL_QueryString(display, EGL_EXTENSIONS));
     ASSERT(WTF::contains(displayExtensions, "EGL_ANGLE_metal_shared_event_sync"_span));
 #endif
@@ -270,7 +278,7 @@ bool GraphicsContextGLCocoa::platformInitializeContext()
 
     eglContextAttributes.append(EGL_NONE);
 
-    m_contextObj = EGL_CreateContext(m_displayObj, m_configObj, EGL_NO_CONTEXT, eglContextAttributes.data());
+    m_contextObj = EGL_CreateContext(m_displayObj, m_configObj, EGL_NO_CONTEXT, eglContextAttributes.span().data());
     if (m_contextObj == EGL_NO_CONTEXT || !makeCurrent(m_displayObj, m_contextObj)) {
         LOG(WebGL, "EGLContext Initialization failed.");
         return false;
@@ -300,14 +308,13 @@ bool GraphicsContextGLCocoa::platformInitializeExtensions()
     if (attributes.xrCompatible && !enableRequiredWebXRExtensionsImpl())
         return false;
 #endif
-    // Sync objects are used to throttle display on Metal implementations.
-    if (!enableExtension("GL_ARB_sync"_s))
-        return false;
     return true;
 }
 
 bool GraphicsContextGLCocoa::platformInitialize()
 {
+    // Compute platform-specific max internal framebuffer size.
+    m_maxInternalFramebufferSize.clampToMinimumSize(IOSurface::maximumSize());
     return true;
 }
 
@@ -570,7 +577,7 @@ GCGLExternalImage GraphicsContextGLCocoa::createExternalImage(ExternalImageSourc
     UNUSED_VARIABLE(internalFormat);
 #endif
     attributes.appendList({ EGL_NONE, EGL_NONE });
-    auto eglImage = EGL_CreateImageKHR(platformDisplay(), EGL_NO_CONTEXT, EGL_METAL_TEXTURE_ANGLE, reinterpret_cast<EGLClientBuffer>(texture.get()), attributes.data());
+    auto eglImage = EGL_CreateImageKHR(platformDisplay(), EGL_NO_CONTEXT, EGL_METAL_TEXTURE_ANGLE, reinterpret_cast<EGLClientBuffer>(texture.get()), attributes.span().data());
     if (!eglImage) {
         addError(GCGLErrorCode::InvalidOperation);
         return { };
@@ -652,11 +659,19 @@ GCGLExternalSync GraphicsContextGLCocoa::createExternalSync(ExternalSyncSource&&
     auto [syncEventHandle, signalValue] = WTFMove(syncEvent);
     auto sharedEvent = newSharedEventWithMachPort(syncEventHandle.sendRight());
     if (!sharedEvent) {
-        LOG(WebGL, "Unable to create a MTLSharedEvent from the syncEvent in createEGLSync.");
+        LOG(WebGL, "Unable to create a MTLSharedEvent from the syncEvent.");
         addError(GCGLErrorCode::InvalidOperation);
         return { };
     }
-    return createExternalSync(sharedEvent.get(), signalValue);
+    auto* eglSync = createMetalSharedEventEGLSync(sharedEvent.get(), signalValue);
+    if (!eglSync) {
+        addError(GCGLErrorCode::InvalidOperation);
+        return { };
+    }
+    auto newName = ++m_nextExternalSyncName;
+    m_eglSyncs.add(newName, eglSync);
+    return newName;
+
 }
 
 bool GraphicsContextGLCocoa::enableRequiredWebXRExtensions()
@@ -686,9 +701,9 @@ bool GraphicsContextGLCocoa::enableRequiredWebXRExtensionsImpl()
 }
 #endif
 
-GCGLExternalSync GraphicsContextGLCocoa::createExternalSync(id sharedEvent, uint64_t signalValue)
+void* GraphicsContextGLCocoa::createMetalSharedEventEGLSync(id sharedEvent, uint64_t signalValue)
 {
-    COMPILE_ASSERT(sizeof(EGLAttrib) == sizeof(void*), "EGLAttrib not pointer-sized!");
+    static_assert(sizeof(EGLAttrib) == sizeof(void*), "EGLAttrib not pointer-sized!");
     auto signalValueLo = static_cast<EGLAttrib>(signalValue);
     auto signalValueHi = static_cast<EGLAttrib>(signalValue >> 32);
 
@@ -700,14 +715,7 @@ GCGLExternalSync GraphicsContextGLCocoa::createExternalSync(id sharedEvent, uint
         EGL_SYNC_METAL_SHARED_EVENT_SIGNAL_VALUE_HI_ANGLE, signalValueHi,
         EGL_NONE
     };
-    auto* eglSync = EGL_CreateSync(display, EGL_SYNC_METAL_SHARED_EVENT_ANGLE, syncAttributes);
-    if (!eglSync) {
-        addError(GCGLErrorCode::InvalidOperation);
-        return { };
-    }
-    auto newName = ++m_nextExternalSyncName;
-    m_eglSyncs.add(newName, eglSync);
-    return newName;
+    return EGL_CreateSync(display, EGL_SYNC_METAL_SHARED_EVENT_ANGLE, syncAttributes);
 }
 
 void GraphicsContextGLCocoa::waitUntilWorkScheduled()
@@ -875,13 +883,14 @@ void GraphicsContextGLCocoa::insertFinishedSignalOrInvoke(Function<void()> signa
     [event notifyListener:m_finishedMetalSharedEventListener.get() atValue:signalValue block:^(id<MTLSharedEvent>, uint64_t) {
         blockSignal();
     }];
-    auto sync = createExternalSync(event, signalValue);
-    if (UNLIKELY(!sync)) {
+    auto* eglSync = createMetalSharedEventEGLSync(event, signalValue);
+    if (!eglSync) [[unlikely]] {
         event.signaledValue = signalValue;
         ASSERT_NOT_REACHED();
         return;
     }
-    deleteExternalSync(sync);
+    bool result = EGL_DestroySync(platformDisplay(), eglSync);
+    ASSERT_UNUSED(result, result);
 }
 
 #if ENABLE(VIDEO)

@@ -52,7 +52,7 @@ JSTestCallbackFunctionGenerateIsReachable::~JSTestCallbackFunctionGenerateIsReac
 #endif
 }
 
-CallbackResult<typename IDLDOMString::CallbackReturnType> JSTestCallbackFunctionGenerateIsReachable::handleEvent(typename IDLLong::ParameterType argument)
+CallbackResult<typename IDLDOMString::CallbackReturnType> JSTestCallbackFunctionGenerateIsReachable::invoke(typename IDLLong::ParameterType argument)
 {
     if (!canInvokeCallback())
         return CallbackResultType::UnableToExecute;
@@ -79,12 +79,12 @@ CallbackResult<typename IDLDOMString::CallbackReturnType> JSTestCallbackFunction
 
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto returnValue = convert<IDLDOMString>(lexicalGlobalObject, jsResult);
-    if (UNLIKELY(returnValue.hasException(throwScope)))
+    if (returnValue.hasException(throwScope)) [[unlikely]]
         return CallbackResultType::ExceptionThrown;
     return { returnValue.releaseReturnValue() };
 }
 
-CallbackResult<typename IDLDOMString::CallbackReturnType> JSTestCallbackFunctionGenerateIsReachable::handleEventRethrowingException(typename IDLLong::ParameterType argument)
+CallbackResult<typename IDLDOMString::CallbackReturnType> JSTestCallbackFunctionGenerateIsReachable::invokeRethrowingException(typename IDLLong::ParameterType argument)
 {
     if (!canInvokeCallback())
         return CallbackResultType::UnableToExecute;
@@ -111,7 +111,7 @@ CallbackResult<typename IDLDOMString::CallbackReturnType> JSTestCallbackFunction
 
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto returnValue = convert<IDLDOMString>(lexicalGlobalObject, jsResult);
-    if (UNLIKELY(returnValue.hasException(throwScope)))
+    if (returnValue.hasException(throwScope)) [[unlikely]]
         return CallbackResultType::ExceptionThrown;
     return { returnValue.releaseReturnValue() };
 }
@@ -124,4 +124,8 @@ JSC::JSValue toJS(TestCallbackFunctionGenerateIsReachable& impl)
     return static_cast<JSTestCallbackFunctionGenerateIsReachable&>(impl).callbackData()->callback();
 }
 
+ScriptExecutionContext* JSTestCallbackFunctionGenerateIsReachable::scriptExecutionContext() const
+{
+    return ContextDestructionObserver::scriptExecutionContext();
+}
 } // namespace WebCore

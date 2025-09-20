@@ -42,7 +42,7 @@ namespace WebKit {
 class WebPage;
 
 class PlatformXRSystemProxy : public IPC::MessageReceiver {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(PlatformXRSystemProxy);
 public:
     PlatformXRSystemProxy(WebPage&);
     virtual ~PlatformXRSystemProxy();
@@ -54,7 +54,11 @@ public:
     void didCompleteShutdownTriggeredBySystem();
     void requestFrame(std::optional<PlatformXR::RequestData>&&, PlatformXR::Device::RequestFrameCallback&&);
     std::optional<PlatformXR::LayerHandle> createLayerProjection(uint32_t, uint32_t, bool);
+#if USE(OPENXR)
+    void submitFrame(Vector<PlatformXR::Device::Layer>&&);
+#else
     void submitFrame();
+#endif
 
     void ref() const final;
     void deref() const final;

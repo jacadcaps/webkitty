@@ -26,6 +26,7 @@
 #include "config.h"
 
 #include "Test.h"
+#include <algorithm>
 #include <thread>
 #include <wtf/HashCountedSet.h>
 #include <wtf/HashMap.h>
@@ -124,7 +125,7 @@ struct Int : public CanMakeWeakPtr<Int> {
 };
 
 class Base : public CanMakeWeakPtr<Base> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(Base);
 public:
     Base() { }
 
@@ -1314,7 +1315,7 @@ TEST(WTF_WeakPtr, WeakHashMapRemoveIterator)
     }
     while (!objects.isEmpty()) {
         auto it = weakHashMap.find(*objects.last());
-        objects.remove(0);
+        objects.removeAt(0);
         weakHashMap.remove(it);
         weakHashMap.checkConsistency();
     }
@@ -1697,7 +1698,7 @@ TEST(WTF_WeakPtr, WeakHashMapIterators)
             ASSERT(pairs.size(), 40U);
             for (unsigned i = 0; i < 50; ++i) {
                 if (!(i % 5))
-                    EXPECT_TRUE(WTF::allOf(pairs, [&](auto& item) { return item.first != objects[i].get(); }));
+                    EXPECT_TRUE(std::ranges::all_of(pairs, [&](auto& item) { return item.first != objects[i].get(); }));
                 else if (!(i % 6))
                     EXPECT_TRUE(pairs.contains(std::pair { objects[i].get(), i * 51 }));
                 else
@@ -1715,7 +1716,7 @@ TEST(WTF_WeakPtr, WeakHashMapIterators)
             ASSERT(pairs.size(), 36U);
             for (unsigned i = 0; i < 50; ++i) {
                 if (!(i % 5) || !(i % 9))
-                    EXPECT_TRUE(WTF::allOf(pairs, [&](auto& item) { return item.first != objects[i].get(); }));
+                    EXPECT_TRUE(std::ranges::all_of(pairs, [&](auto& item) { return item.first != objects[i].get(); }));
                 else if (!(i % 6))
                     EXPECT_TRUE(pairs.contains(std::pair { objects[i].get(), i * 51 }));
                 else
@@ -2174,7 +2175,7 @@ TEST(WTF_WeakPtr, WeakListHashSetRemoveIterator)
     }
     for (unsigned i = 0; i < 13; ++i) {
         auto it = weakListHashSet.find(*objects[0]);
-        objects.remove(0);
+        objects.removeAt(0);
         weakListHashSet.remove(it);
         weakListHashSet.checkConsistency();
         unsigned j = 0;
@@ -3180,7 +3181,7 @@ DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(DidUpdateRefCountWeakPtrImpl);
 
 class DidUpdateRefCountWeakPtrImpl final {
     WTF_MAKE_NONCOPYABLE(DidUpdateRefCountWeakPtrImpl);
-    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(DidUpdateRefCountWeakPtrImpl);
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(DidUpdateRefCountWeakPtrImpl, DidUpdateRefCountWeakPtrImpl);
 public:
     ~DidUpdateRefCountWeakPtrImpl() = default;
 

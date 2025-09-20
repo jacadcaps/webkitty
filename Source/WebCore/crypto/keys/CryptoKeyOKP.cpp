@@ -27,6 +27,7 @@
 #include "CryptoKeyOKP.h"
 
 #include "CryptoAlgorithmRegistry.h"
+#include "ExceptionOr.h"
 #include "JsonWebKey.h"
 #include <wtf/text/Base64.h>
 
@@ -97,8 +98,7 @@ RefPtr<CryptoKeyOKP> CryptoKeyOKP::importJwk(CryptoAlgorithmIdentifier identifie
         }
         if (keyData.crv != "Ed25519"_s)
             return nullptr;
-        // FIXME: Do we have tests for these checks ?
-        if (!keyData.alg.isEmpty() && keyData.alg != "EdDSA"_s)
+        if (!keyData.alg.isEmpty() && (keyData.alg != "EdDSA"_s && keyData.alg != "Ed25519"_s))
             return nullptr;
         if (usages && !keyData.use.isEmpty() && keyData.use != "sign"_s)
             return nullptr;
@@ -158,6 +158,7 @@ ExceptionOr<JsonWebKey> CryptoKeyOKP::exportJwk() const
         break;
     case NamedCurve::Ed25519:
         result.crv = Ed25519;
+        result.alg = "Ed25519"_s;
         break;
     }
 

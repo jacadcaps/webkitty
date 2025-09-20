@@ -136,12 +136,15 @@ private:
     void setRegistrationUpdateViaCache(WebCore::ServiceWorkerRegistrationIdentifier, WebCore::ServiceWorkerUpdateViaCache);
 
 #if ENABLE(REMOTE_INSPECTOR) && PLATFORM(COCOA)
-    void connectToInspector(WebCore::ServiceWorkerIdentifier);
+    void connectToInspector(WebCore::ServiceWorkerIdentifier, bool isAutomaticConnection = false, bool immediatelyPause = false);
     void disconnectFromInspector(WebCore::ServiceWorkerIdentifier);
     void dispatchMessageFromInspector(WebCore::ServiceWorkerIdentifier, String&&);
+#if ENABLE(REMOTE_INSPECTOR_SERVICE_WORKER_AUTO_INSPECTION)
+    void unpauseServiceWorkerForRejectedAutomaticInspection(WebCore::ServiceWorkerIdentifier);
+#endif
 #endif
 
-    Ref<IPC::Connection> m_connectionToNetworkProcess;
+    const Ref<IPC::Connection> m_connectionToNetworkProcess;
     const WebCore::Site m_site;
     std::optional<WebCore::ScriptExecutionContextIdentifier> m_serviceWorkerPageIdentifier;
     PageGroupIdentifier m_pageGroupID;
@@ -151,15 +154,20 @@ private:
     HashSet<std::unique_ptr<RemoteWorkerFrameLoaderClient>> m_loaders;
     String m_userAgent;
     bool m_isThrottleable { true };
-    Ref<WebUserContentController> m_userContentController;
+    const Ref<WebUserContentController> m_userContentController;
     std::optional<WebPreferencesStore> m_preferencesStore;
-    Ref<WorkQueue> m_queue;
+    const Ref<WorkQueue> m_queue;
 
     using FetchKey = std::pair<WebCore::SWServerConnectionIdentifier, WebCore::FetchIdentifier>;
     HashMap<FetchKey, Ref<WebServiceWorkerFetchTaskClient>> m_ongoingNavigationFetchTasks WTF_GUARDED_BY_CAPABILITY(m_queue.get());
+    bool isWebSWContextManagerConnection() const final { return true; }
 #if ENABLE(REMOTE_INSPECTOR) && PLATFORM(COCOA)
     HashMap<WebCore::ServiceWorkerIdentifier, Ref<ServiceWorkerDebuggableFrontendChannel>> m_channels;
 #endif
 };
 
 } // namespace WebKit
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebSWContextManagerConnection) \
+    static bool isType(const WebCore::SWContextManager::Connection& connection) { return connection.isWebSWContextManagerConnection(); } \
+SPECIALIZE_TYPE_TRAITS_END()

@@ -76,11 +76,9 @@ public:
     void setTopLoadingFrame(WKBundleFrameRef frame) { m_topLoadingFrame = frame; }
 
     bool shouldDumpPixels() const { return m_dumpPixels; }
-    bool dumpJSConsoleLogInStdErr() const { return m_dumpJSConsoleLogInStdErr; };
 
     enum class IsFinalTestOutput : bool { No, Yes };
     void outputText(StringView, IsFinalTestOutput = IsFinalTestOutput::No);
-    void dumpToStdErr(const String&);
     void postNewBeforeUnloadReturnValue(bool);
     void postSetWindowIsKey(bool);
     void postSetViewSize(double width, double height);
@@ -101,9 +99,9 @@ public:
     void setCameraPermission(bool);
     void setMicrophonePermission(bool);
     void resetUserMediaPermission();
-    void setUserMediaPersistentPermissionForOrigin(bool permission, WKStringRef origin, WKStringRef parentOrigin);
-    unsigned userMediaPermissionRequestCountForOrigin(WKStringRef origin, WKStringRef parentOrigin) const;
-    void resetUserMediaPermissionRequestCountForOrigin(WKStringRef origin, WKStringRef parentOrigin);
+    void delayUserMediaRequestDecision();
+    unsigned userMediaPermissionRequestCount() const;
+    void resetUserMediaPermissionRequestCount();
 
     // Policy delegate.
     void setCustomPolicyDelegate(bool enabled, bool permissive);
@@ -187,9 +185,7 @@ private:
     WKBundleFrameRef m_topLoadingFrame { nullptr };
 
     bool m_dumpPixels { false };
-    bool m_useWorkQueue { false };
     bool m_pixelResultIsPending { false };
-    bool m_dumpJSConsoleLogInStdErr { false };
     bool m_accessibilityIsolatedTreeMode { false };
 
     WTF::Seconds m_timeout;
@@ -225,6 +221,7 @@ void postSynchronousMessage(const char* name, const void* value) = delete;
 
 void postPageMessage(const char* name);
 void postPageMessage(const char* name, bool value);
+void postPageMessage(const char* name, unsigned value);
 void postPageMessage(const char* name, const char* value);
 void postPageMessage(const char* name, WKStringRef value);
 void postPageMessage(const char* name, WKDataRef value);

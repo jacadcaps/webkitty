@@ -307,7 +307,7 @@ inline void unmapRtpBuffer(GstBuffer*, GstRTPBuffer* rtpBuffer)
 using GstMappedRtpBuffer = GstBufferMapper<GstRTPBuffer, mapRtpBuffer, unmapRtpBuffer>;
 
 class StatsTimestampConverter {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(StatsTimestampConverter);
     WTF_MAKE_NONCOPYABLE(StatsTimestampConverter);
     friend NeverDestroyed<StatsTimestampConverter>;
 
@@ -342,6 +342,14 @@ inline GstWebRTCKind webrtcKindFromCaps(const GRefPtr<GstCaps>& caps)
 }
 
 void forEachTransceiver(const GRefPtr<GstElement>&, Function<bool(GRefPtr<GstWebRTCRTPTransceiver>&&)>&&);
+
+String sdpAsString(const GstSDPMessage*);
+
+bool sdpMediaHasRTPHeaderExtension(const GstSDPMedia*, const String&);
+
+WARN_UNUSED_RETURN GRefPtr<GstCaps> extractMidAndRidFromRTPBuffer(const GstMappedRtpBuffer&, const GstSDPMessage*);
+
+bool validateRTPHeaderExtensions(const GstSDPMessage* previousSDP, const GstSDPMessage* newSDP);
 
 } // namespace WebCore
 

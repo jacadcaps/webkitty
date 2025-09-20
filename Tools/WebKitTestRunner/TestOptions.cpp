@@ -54,7 +54,7 @@ static constexpr bool fullGPUProcessEnabledValue = false;
 #endif
 
 #if ENABLE(UNIFIED_PDF)
-#if ENABLE(UNIFIED_PDF_FOR_TESTING)
+#if ENABLE(UNIFIED_PDF_BY_DEFAULT)
 static constexpr bool unifiedPDFEnabledValue = true;
 #else
 static constexpr bool unifiedPDFEnabledValue = false;
@@ -86,14 +86,10 @@ const TestFeatures& TestOptions::defaults()
             { "AppBadgeEnabled", true },
             { "AsyncFrameScrollingEnabled", false },
             { "AsyncOverflowScrollingEnabled", false },
-            { "BroadcastChannelOriginPartitioningEnabled", false },
             { "BuiltInNotificationsEnabled", false },
-            { "CSSOMViewScrollingAPIEnabled", true },
             { "CSSUnprefixedBackdropFilterEnabled", true },
             { "CaptureAudioInGPUProcessEnabled", captureAudioInGPUProcessEnabledValue },
-            { "CaptureAudioInUIProcessEnabled", false },
             { "CaptureVideoInGPUProcessEnabled", captureVideoInGPUProcessEnabledValue },
-            { "CaptureVideoInUIProcessEnabled", false },
             { "ContentChangeObserverEnabled", false },
             { "CustomPasteboardDataEnabled", true },
             { "DOMPasteAllowed", true },
@@ -141,6 +137,7 @@ const TestFeatures& TestOptions::defaults()
             { "ScrollToTextFragmentIndicatorEnabled", false },
             { "ShowModalDialogEnabled", false },
             { "SpeakerSelectionRequiresUserGesture", false },
+            { "SupportHDRDisplayEnabled", true },
             { "VerifyWindowOpenUserGestureFromUIProcess", false },
             { "TabsToLinks", false },
             { "TextAutosizingEnabled", false },
@@ -214,10 +211,12 @@ const TestFeatures& TestOptions::defaults()
             { "useHardwareKeyboardMode", false },
             { "enableMetalDebugDevice", false },
             { "enableMetalShaderValidation", false },
+            { "pageTopColorSamplingEnabled", false },
         };
         features.doubleTestRunnerFeatures = {
             { "contentInset.top", 0 },
             { "obscuredInset.top", 0 },
+            { "obscuredInset.left", 0 },
             { "horizontalSystemMinimumLayoutMargin", 0 },
             { "deviceScaleFactor", 1 },
             { "viewHeight", 600 },
@@ -289,9 +288,11 @@ const std::unordered_map<std::string, TestHeaderKeyType>& TestOptions::keyTypeMa
         { "useHardwareKeyboardMode", TestHeaderKeyType::BoolTestRunner },
         { "enableMetalDebugDevice", TestHeaderKeyType::BoolTestRunner },
         { "enableMetalShaderValidation", TestHeaderKeyType::BoolTestRunner },
+        { "pageTopColorSamplingEnabled", TestHeaderKeyType::BoolTestRunner },
 
         { "contentInset.top", TestHeaderKeyType::DoubleTestRunner },
         { "obscuredInset.top", TestHeaderKeyType::DoubleTestRunner },
+        { "obscuredInset.left", TestHeaderKeyType::DoubleTestRunner },
         { "horizontalSystemMinimumLayoutMargin", TestHeaderKeyType::DoubleTestRunner },
         { "deviceScaleFactor", TestHeaderKeyType::DoubleTestRunner },
         { "viewHeight", TestHeaderKeyType::DoubleTestRunner },

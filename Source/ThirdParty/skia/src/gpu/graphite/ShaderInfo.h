@@ -22,6 +22,7 @@ class RenderStep;
 class RuntimeEffectDictionary;
 class ShaderCodeDictionary;
 class ShaderNode;
+enum class TextureFormat : uint8_t;
 
 // ShaderInfo holds all root ShaderNodes defined for a PaintParams as well as the extracted fixed
 // function blending parameters and other aggregate requirements for the effect trees that have
@@ -43,22 +44,25 @@ public:
     // 2) a real SamplerDesc describing an immutable sampler. Backend pipelines can then use the
     //    desc to obtain a real immutable sampler pointer (which typically must be included in
     //    pipeline layouts)
-    // TODO(b/390457657): Add DstReadStrategy param to this method rather than determining it within
-    // generateFragmentSkSL. The Caps query used will eventually take in target texture information,
-    // which this class does not have access to.
     static std::unique_ptr<ShaderInfo> Make(const Caps*,
                                             const ShaderCodeDictionary*,
                                             const RuntimeEffectDictionary*,
                                             const RenderStep*,
                                             UniquePaintParamsID,
                                             bool useStorageBuffers,
+                                            TextureFormat targetFormat,
                                             skgpu::Swizzle writeSwizzle,
+                                            DstReadStrategy dstReadStrategy,
                                             skia_private::TArray<SamplerDesc>* outDescs = nullptr);
 
+    const ShaderCodeDictionary* shaderCodeDictionary() const {
+        return fShaderCodeDictionary;
+    }
     const RuntimeEffectDictionary* runtimeEffectDictionary() const {
         return fRuntimeEffectDictionary;
     }
-    const char* ssboIndex() const { return fSsboIndex; }
+
+    const char* shadingSsboIndex() const { return fShadingSsboIndex; }
 
     DstReadStrategy dstReadStrategy() const { return fDstReadStrategy; }
     const skgpu::BlendInfo& blendInfo() const { return fBlendInfo; }
@@ -79,19 +83,24 @@ public:
     static constexpr char kGradientBufferName[] = "fsGradientBuffer";
 
 private:
-    ShaderInfo(const RuntimeEffectDictionary*, const char* ssboIndex);
+    ShaderInfo(const ShaderCodeDictionary*,
+               const RuntimeEffectDictionary*,
+               const char* ssboIndex,
+               DstReadStrategy);
 
     void generateVertexSkSL(const Caps*,
                             const RenderStep*,
                             bool useStorageBuffers);
 
-    // Determines fNumFragmentTexturesAndSamplers, fHasPaintUniforms, fHasGradientBuffer, and if a
-    // valid SamplerDesc ptr is passed in, any immutable sampler SamplerDescs.
+    // Determines fNumFragmentTexturesAndSamplers, fHasPaintUniforms, fHasGradientBuffer,
+    // fHasSsboIndicesVarying, and if a valid SamplerDesc ptr is passed in, any immutable
+    // sampler SamplerDescs.
     void generateFragmentSkSL(const Caps*,
                               const ShaderCodeDictionary*,
                               const RenderStep*,
                               UniquePaintParamsID,
                               bool useStorageBuffers,
+                              TextureFormat targetFormat,
                               skgpu::Swizzle writeSwizzle,
                               skia_private::TArray<SamplerDesc>* outDescs);
 
@@ -106,8 +115,9 @@ private:
     // All shader nodes and arrays of children pointers are held in this arena
     SkArenaAlloc fShaderNodeAlloc{256};
 
+    const ShaderCodeDictionary* fShaderCodeDictionary;
     const RuntimeEffectDictionary* fRuntimeEffectDictionary;
-    const char* fSsboIndex;
+    const char* fShadingSsboIndex;
 
     // De-compressed shader tree from a PaintParamsKey. There can be 1 or 2 root nodes, the first
     // being the paint effects (rooted with a BlendCompose for the final paint blend) and the
@@ -131,7 +141,9 @@ private:
     int fNumFragmentTexturesAndSamplers = 0;
     bool fHasStepUniforms = false;
     bool fHasPaintUniforms = false;
+    bool fHasLiftedPaintUniforms = false;
     bool fHasGradientBuffer = false;
+    bool fHasSsboIndicesVarying = false;
 };
 
 }  // namespace skgpu::graphite

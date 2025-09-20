@@ -57,7 +57,7 @@ private:
     uint32_t m_usage;
     uint32_t m_usagePage;
     IOHIDElementCookie m_cookie;
-    RetainPtr<IOHIDElementRef> m_rawElement;
+    const RetainPtr<IOHIDElementRef> m_rawElement;
 };
 
 

@@ -29,6 +29,7 @@
 #include "Connection.h"
 
 #include "IPCUtilities.h"
+#include "Logging.h"
 #include "UnixMessage.h"
 #include <WebCore/SharedMemory.h>
 #include <sys/socket.h>
@@ -46,6 +47,10 @@
 #if USE(GLIB)
 #include <gio/gio.h>
 #include <wtf/glib/GUniquePtr.h>
+#endif
+
+#if OS(ANDROID)
+#include <android/hardware_buffer.h>
 #endif
 
 #if OS(DARWIN)
@@ -78,12 +83,12 @@ public:
     {
         // The entire AttachmentInfo is passed to write(), so we have to zero our
         // padding bytes to avoid writing uninitialized memory.
-        memset(static_cast<void*>(this), 0, sizeof(*this));
+        zeroBytes(*this);
     }
 
     AttachmentInfo(const AttachmentInfo& info)
+        : AttachmentInfo()
     {
-        memset(static_cast<void*>(this), 0, sizeof(*this));
         *this = info;
     }
 
@@ -93,9 +98,24 @@ public:
     void setNull() { m_isNull = true; }
     bool isNull() const { return m_isNull; }
 
+#if OS(ANDROID)
+    enum class Type : uint8_t {
+        Unset = 0,
+        FileDescriptor,
+        HardwareBuffer,
+    };
+
+    Type type() const { return m_type; }
+    void setType(Type type) { m_type = type; }
+#endif // OS(ANDROID)
+
 private:
     // The AttachmentInfo will be copied using memcpy, so all members must be trivially copyable.
     bool m_isNull;
+
+#if OS(ANDROID)
+    Type m_type;
+#endif
 };
 
 static_assert(sizeof(MessageInfo) + sizeof(AttachmentInfo) * attachmentMaxAmount <= messageMaxSize, "messageMaxSize is too small.");
@@ -129,7 +149,10 @@ void Connection::platformInitialize(Identifier&& identifier)
 void Connection::platformInvalidate()
 {
 #if USE(GLIB)
-    g_socket_close(m_socket.get(), nullptr);
+    GUniqueOutPtr<GError> error;
+    g_socket_close(m_socket.get(), &error.outPtr());
+    if (error)
+        g_warning("Failed to close WebKit IPC socket: %s", error->message);
 #else
     if (m_socketDescriptor.value() != -1)
         closeWithRetry(m_socketDescriptor.release());
@@ -158,10 +181,9 @@ bool Connection::processMessage()
     if (m_readBuffer.size() < sizeof(MessageInfo))
         return false;
 
-    uint8_t* messageData = m_readBuffer.data();
+    auto messageData = m_readBuffer.mutableSpan();
     MessageInfo messageInfo;
-    memcpy(static_cast<void*>(&messageInfo), messageData, sizeof(messageInfo));
-    messageData += sizeof(messageInfo);
+    memcpySpan(asMutableByteSpan(messageInfo), consumeSpan(messageData, sizeof(messageInfo)));
 
     if (messageInfo.attachmentCount() > attachmentMaxAmount || (!messageInfo.isBodyOutOfLine() && messageInfo.bodySize() > messageMaxSize)) {
         ASSERT_NOT_REACHED();
@@ -176,13 +198,30 @@ bool Connection::processMessage()
     size_t attachmentCount = messageInfo.attachmentCount();
     Vector<AttachmentInfo> attachmentInfo(attachmentCount);
 
-    if (attachmentCount) {
-        memcpy(static_cast<void*>(attachmentInfo.data()), messageData, sizeof(AttachmentInfo) * attachmentCount);
-        messageData += sizeof(AttachmentInfo) * attachmentCount;
+#if OS(ANDROID)
+    [[maybe_unused]] size_t attachmentHardwareBufferCount = 0;
+#endif
 
+    if (attachmentCount) {
+        memcpySpan(asMutableByteSpan(attachmentInfo.mutableSpan()), consumeSpan(messageData, sizeof(AttachmentInfo) * attachmentCount));
         for (size_t i = 0; i < attachmentCount; ++i) {
+#if OS(ANDROID)
+            switch (attachmentInfo[i].type()) {
+            case AttachmentInfo::Type::FileDescriptor:
+                if (!attachmentInfo[i].isNull())
+                    attachmentFileDescriptorCount++;
+                break;
+            case AttachmentInfo::Type::HardwareBuffer:
+                if (!attachmentInfo[i].isNull())
+                    attachmentHardwareBufferCount++;
+                break;
+            case AttachmentInfo::Type::Unset:
+                RELEASE_ASSERT_NOT_REACHED();
+            }
+#else
             if (!attachmentInfo[i].isNull())
                 attachmentFileDescriptorCount++;
+#endif // OS(ANDROID)
         }
 
         if (messageInfo.isBodyOutOfLine())
@@ -192,11 +231,37 @@ bool Connection::processMessage()
     Vector<Attachment> attachments(attachmentCount);
     RefPtr<WebCore::SharedMemory> oolMessageBody;
 
+#if OS(ANDROID)
+    RELEASE_ASSERT(attachmentHardwareBufferCount == messageInfo.hardwareBufferCount());
+    size_t fdIndex = 0;
+    for (size_t i = 0; i < attachmentCount; ++i) {
+        switch (attachmentInfo[i].type()) {
+        case AttachmentInfo::Type::FileDescriptor:
+            attachments[attachmentCount - i - 1] = UnixFileDescriptor {
+                attachmentInfo[i].isNull() ? -1 : m_fileDescriptors[fdIndex++],
+                UnixFileDescriptor::Adopt
+            };
+            break;
+        case AttachmentInfo::Type::HardwareBuffer:
+            if (attachmentInfo[i].isNull())
+                attachments[attachmentCount - i - 1] = nullptr;
+            else {
+                RELEASE_ASSERT(!m_incomingHardwareBuffers.isEmpty());
+                attachments[attachmentCount - i - 1] = WTFMove(m_incomingHardwareBuffers.first());
+                m_incomingHardwareBuffers.removeAt(0);
+            }
+            break;
+        case AttachmentInfo::Type::Unset:
+            RELEASE_ASSERT_NOT_REACHED();
+        }
+    }
+#else
     size_t fdIndex = 0;
     for (size_t i = 0; i < attachmentCount; ++i) {
         int fd = !attachmentInfo[i].isNull() ? m_fileDescriptors[fdIndex++] : -1;
         attachments[attachmentCount - i - 1] = UnixFileDescriptor { fd, UnixFileDescriptor::Adopt };
     }
+#endif // OS(ANDROID)
 
     if (messageInfo.isBodyOutOfLine()) {
         ASSERT(messageInfo.bodySize());
@@ -222,11 +287,11 @@ bool Connection::processMessage()
 
     ASSERT(attachments.size() == (messageInfo.isBodyOutOfLine() ? messageInfo.attachmentCount() - 1 : messageInfo.attachmentCount()));
 
-    uint8_t* messageBody = messageData;
+    auto messageBody = messageData;
     if (messageInfo.isBodyOutOfLine())
-        messageBody = oolMessageBody->mutableSpan().data();
+        messageBody = oolMessageBody->mutableSpan();
 
-    auto decoder = Decoder::create({ messageBody, messageInfo.bodySize() }, WTFMove(attachments));
+    auto decoder = Decoder::create(messageBody.first(messageInfo.bodySize()), WTFMove(attachments));
     ASSERT(decoder);
     if (!decoder)
         return false;
@@ -234,14 +299,14 @@ bool Connection::processMessage()
     processIncomingMessage(makeUniqueRefFromNonNullUniquePtr(WTFMove(decoder)));
 
     if (m_readBuffer.size() > messageLength) {
-        memmove(m_readBuffer.data(), m_readBuffer.data() + messageLength, m_readBuffer.size() - messageLength);
+        memmoveSpan(m_readBuffer.mutableSpan(), m_readBuffer.subspan(messageLength));
         m_readBuffer.shrink(m_readBuffer.size() - messageLength);
     } else
         m_readBuffer.shrink(0);
 
     if (attachmentFileDescriptorCount) {
         if (m_fileDescriptors.size() > attachmentFileDescriptorCount) {
-            memmove(m_fileDescriptors.data(), m_fileDescriptors.data() + attachmentFileDescriptorCount, (m_fileDescriptors.size() - attachmentFileDescriptorCount) * sizeof(int));
+            memmoveSpan(m_fileDescriptors.mutableSpan(), m_fileDescriptors.subspan(attachmentFileDescriptorCount));
             m_fileDescriptors.shrink(m_fileDescriptors.size() - attachmentFileDescriptorCount);
         } else
             m_fileDescriptors.shrink(0);
@@ -266,7 +331,7 @@ static ssize_t readBytesFromSocket(int socketDescriptor, Vector<uint8_t>& buffer
 
     size_t previousBufferSize = buffer.size();
     buffer.grow(buffer.capacity());
-    iov[0].iov_base = buffer.data() + previousBufferSize;
+    iov[0].iov_base = buffer.mutableSpan().data() + previousBufferSize;
     iov[0].iov_len = buffer.size() - previousBufferSize;
 
     message.msg_iov = iov;
@@ -299,7 +364,7 @@ static ssize_t readBytesFromSocket(int socketDescriptor, Vector<uint8_t>& buffer
                 size_t previousFileDescriptorsSize = fileDescriptors.size();
                 size_t fileDescriptorsCount = (controlMessage->cmsg_len - CMSG_LEN(0)) / sizeof(int);
                 fileDescriptors.grow(fileDescriptors.size() + fileDescriptorsCount);
-                memcpy(fileDescriptors.data() + previousFileDescriptorsSize, CMSG_DATA(controlMessage), sizeof(int) * fileDescriptorsCount);
+                memcpy(fileDescriptors.mutableSpan().subspan(previousFileDescriptorsSize).data(), CMSG_DATA(controlMessage), sizeof(int) * fileDescriptorsCount);
 
                 for (size_t i = 0; i < fileDescriptorsCount; ++i) {
                     if (!setCloseOnExec(fileDescriptors[previousFileDescriptorsSize + i])) {
@@ -320,6 +385,14 @@ static ssize_t readBytesFromSocket(int socketDescriptor, Vector<uint8_t>& buffer
 
 void Connection::readyReadHandler()
 {
+#if OS(ANDROID)
+    if (m_pendingIncomingHardwareBufferCount) {
+        if (receiveIncomingHardwareBuffers())
+            RELEASE_ASSERT(processMessage());
+        return;
+    }
+#endif
+
     while (true) {
         ssize_t bytesRead = readBytesFromSocket(socketDescriptor(), m_readBuffer, m_fileDescriptors);
 
@@ -344,6 +417,18 @@ void Connection::readyReadHandler()
             connectionDidClose();
             return;
         }
+
+#if OS(ANDROID)
+        RELEASE_ASSERT(m_readBuffer.size() >= sizeof(MessageInfo));
+        const auto& messageInfo = reinterpretCastSpanStartTo<MessageInfo>(m_readBuffer.span());
+        if (auto hardwareBufferCount = messageInfo.hardwareBufferCount()) {
+            RELEASE_ASSERT(m_incomingHardwareBuffers.isEmpty());
+            RELEASE_ASSERT(!m_pendingIncomingHardwareBufferCount);
+            m_pendingIncomingHardwareBufferCount = hardwareBufferCount;
+            if (!receiveIncomingHardwareBuffers())
+                return;
+        }
+#endif // OS(ANDROID)
 
         // Process messages from data received.
         while (true) {
@@ -411,7 +496,11 @@ void Connection::platformOpen()
 
 bool Connection::platformCanSendOutgoingMessages() const
 {
+#if OS(ANDROID)
+    return !m_pendingOutputMessage && m_outgoingHardwareBuffers.isEmpty();
+#else
     return !m_pendingOutputMessage;
+#endif
 }
 
 bool Connection::sendOutgoingMessage(UniqueRef<Encoder>&& encoder)
@@ -448,6 +537,11 @@ bool Connection::sendOutputMessage(UnixMessage& outputMessage)
 {
     ASSERT(!m_pendingOutputMessage);
 
+#if OS(ANDROID)
+    RELEASE_ASSERT(m_outgoingHardwareBuffers.isEmpty());
+    Vector<RefPtr<AHardwareBuffer>, 2> hardwareBuffers;
+#endif
+
     auto& messageInfo = outputMessage.messageInfo();
     struct msghdr message;
     memset(&message, 0, sizeof(message));
@@ -468,10 +562,26 @@ bool Connection::sendOutputMessage(UnixMessage& outputMessage)
     if (!attachments.isEmpty()) {
         int* fdPtr = 0;
 
+#if OS(ANDROID)
+        size_t attachmentFDBufferLength = 0;
+        for (const auto& attachment : attachments) {
+            switchOn(attachment,
+                [&attachmentFDBufferLength](const UnixFileDescriptor& fd) {
+                    if (!!fd)
+                        ++attachmentFDBufferLength;
+                },
+                [&hardwareBuffers](const RefPtr<AHardwareBuffer>& buffer) {
+                    if (buffer)
+                        hardwareBuffers.append(buffer);
+                }
+            );
+        }
+#else
         size_t attachmentFDBufferLength = std::count_if(attachments.begin(), attachments.end(),
             [](const Attachment& attachment) {
                 return !!attachment;
             });
+#endif // OS(ANDROID)
 
         if (attachmentFDBufferLength) {
             attachmentFDBuffer = MallocSpan<char>::zeroedMalloc(CMSG_SPACE(sizeof(int) * attachmentFDBufferLength));
@@ -490,14 +600,33 @@ bool Connection::sendOutputMessage(UnixMessage& outputMessage)
         attachmentInfo.resize(attachments.size());
         int fdIndex = 0;
         for (size_t i = 0; i < attachments.size(); ++i) {
+#if OS(ANDROID)
+            RELEASE_ASSERT(attachmentInfo[i].type() == AttachmentInfo::Type::Unset);
+
+            if (holdsAlternative<RefPtr<AHardwareBuffer>>(attachments[i])) {
+                attachmentInfo[i].setType(AttachmentInfo::Type::HardwareBuffer);
+                if (!get<RefPtr<AHardwareBuffer>>(attachments[i]))
+                    attachmentInfo[i].setNull();
+            } else if (holdsAlternative<UnixFileDescriptor>(attachments[i])) {
+                attachmentInfo[i].setType(AttachmentInfo::Type::FileDescriptor);
+                if (!!get<UnixFileDescriptor>(attachments[i]))
+                    fdPtr[fdIndex++] = get<UnixFileDescriptor>(attachments[i]).value();
+                else
+                    attachmentInfo[i].setNull();
+            } else
+                RELEASE_ASSERT_NOT_REACHED();
+
+            RELEASE_ASSERT(attachmentInfo[i].type() != AttachmentInfo::Type::Unset);
+#else
             if (!!attachments[i]) {
                 ASSERT(fdPtr);
                 fdPtr[fdIndex++] = attachments[i].value();
             } else
                 attachmentInfo[i].setNull();
+#endif // OS(ANDROID)
         }
 
-        iov[iovLength].iov_base = attachmentInfo.data();
+        iov[iovLength].iov_base = attachmentInfo.mutableSpan().data();
         iov[iovLength].iov_len = sizeof(AttachmentInfo) * attachments.size();
         ++iovLength;
     }
@@ -559,8 +688,91 @@ bool Connection::sendOutputMessage(UnixMessage& outputMessage)
         return false;
     }
 
+#if OS(ANDROID)
+    RELEASE_ASSERT(m_outgoingHardwareBuffers.isEmpty());
+    m_outgoingHardwareBuffers = WTFMove(hardwareBuffers);
+    return sendOutgoingHardwareBuffers();
+#else
+    return true;
+#endif
+}
+
+#if OS(ANDROID)
+bool Connection::sendOutgoingHardwareBuffers()
+{
+    while (!m_outgoingHardwareBuffers.isEmpty()) {
+        auto& buffer = m_outgoingHardwareBuffers.first();
+        RELEASE_ASSERT(buffer);
+
+        // There is no need to check for EINTR, it is handled internally.
+        int result = AHardwareBuffer_sendHandleToUnixSocket(buffer.get(), socketDescriptor());
+        if (!result) {
+            m_outgoingHardwareBuffers.removeAt(0);
+            continue;
+        }
+
+        if (result == -EAGAIN || result == -EWOULDBLOCK) {
+            m_writeSocketMonitor.start(m_socket.get(), G_IO_OUT, m_connectionQueue->runLoop(), [this, protectedThis = Ref { *this }] (GIOCondition condition) -> gboolean {
+                if (condition & G_IO_OUT) {
+                    RELEASE_ASSERT(!m_outgoingHardwareBuffers.isEmpty());
+                    // We can't stop the monitor from this lambda, because stop destroys the lambda.
+                    m_connectionQueue->dispatch([this, protectedThis = Ref { *this }] {
+                        m_writeSocketMonitor.stop();
+                        if (m_isConnected) {
+                            if (sendOutgoingHardwareBuffers())
+                                sendOutgoingMessages();
+                        }
+                    });
+                }
+                return G_SOURCE_REMOVE;
+            });
+            return false;
+        }
+
+        if (result == -EPIPE || result == -ECONNRESET) {
+            connectionDidClose();
+            return false;
+        }
+
+        if (m_isConnected) {
+            LOG_ERROR("Error sending AHardwareBuffer on socket %d in process %d: %s", socketDescriptor(), getpid(), safeStrerror(-result).data());
+            connectionDidClose();
+        }
+        return false;
+    }
+
+    RELEASE_ASSERT(m_outgoingHardwareBuffers.isEmpty());
     return true;
 }
+
+bool Connection::receiveIncomingHardwareBuffers()
+{
+    while (m_pendingIncomingHardwareBufferCount) {
+        AHardwareBuffer* buffer { nullptr };
+        int result = AHardwareBuffer_recvHandleFromUnixSocket(socketDescriptor(), &buffer);
+        if (!result) {
+            m_pendingIncomingHardwareBufferCount--;
+            auto hardwareBuffer = adoptRef(buffer);
+            m_incomingHardwareBuffers.append(WTFMove(hardwareBuffer));
+            continue;
+        }
+
+        if (result == -EAGAIN || result == -EWOULDBLOCK)
+            return false;
+
+        if (result == -ECONNRESET)
+            connectionDidClose();
+
+        if (m_isConnected) {
+            LOG_ERROR("Error receiving AHardwareBuffer on socket %d in process %d: %s", socketDescriptor(), getpid(), safeStrerror(-result).data());
+            connectionDidClose();
+        }
+        return false;
+    }
+
+    return true;
+}
+#endif // OS(ANDROID)
 
 SocketPair createPlatformConnection(unsigned options)
 {
@@ -665,7 +877,7 @@ pid_t readPIDFromPeer(int socket)
         g_error("readPIDFromPeer: Failed to read pid from PID socket: %s", g_strerror(errno));
 
     if (message.msg_controllen <= 0)
-        g_error("readPIDFromPeer: Unexpected short read from PID socket");
+        g_error("readPIDFromPeer: Unexpected short read from PID socket. (This usually means the auxiliary process crashed immediately. Investigate that instead!)");
 
     for (cmsghdr* header = CMSG_FIRSTHDR(&message); header; header = CMSG_NXTHDR(&message, header)) {
         const unsigned payloadLength = header->cmsg_len - CMSG_LEN(0);

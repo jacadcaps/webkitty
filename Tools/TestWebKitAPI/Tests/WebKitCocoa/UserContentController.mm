@@ -44,6 +44,7 @@
 #import <WebKit/WebKit.h>
 #import <WebKit/_WKContentWorldConfiguration.h>
 #import <WebKit/_WKFrameTreeNode.h>
+#import <WebKit/_WKInputDelegate.h>
 #import <WebKit/_WKProcessPoolConfiguration.h>
 #import <WebKit/_WKUserContentWorld.h>
 #import <WebKit/_WKUserStyleSheet.h>
@@ -52,6 +53,23 @@
 #import <wtf/WeakObjCPtr.h>
 
 static bool isDoneWithNavigation;
+static bool isDoneWithFormSubmission;
+
+@interface InputDelegateForFormSubmission : NSObject <_WKInputDelegate>
+@end
+
+@implementation InputDelegateForFormSubmission {
+}
+
+- (void)_webView:(WKWebView *)webView willSubmitFormValues:(NSDictionary *)values frameInfo:(WKFrameInfo *)frameInfo sourceFrameInfo:(WKFrameInfo *)sourceFrameInfo userObject:(NSObject <NSSecureCoding> *)userObject submissionHandler:(void (^)(void))submissionHandler
+{
+    auto *dictionary = (NSDictionary *)userObject;
+    EXPECT_WK_STREQ((NSString *)dictionary[@"foo"], @"bar");
+    submissionHandler();
+    isDoneWithFormSubmission = true;
+}
+
+@end
 
 @interface SimpleNavigationDelegate : NSObject <WKNavigationDelegate>
 @end
@@ -895,75 +913,6 @@ TEST(WKUserContentController, InjectUserScriptImmediately)
     compareMessages({"start all", "start all", "end main", "start all", "end main", "start all"});
 }
 
-TEST(WKUserContentController, UserScriptNotification)
-{
-    auto waitsForNotification = adoptNS([[WKUserScript alloc] _initWithSource:@"alert('waited for notification')" injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES includeMatchPatternStrings:@[] excludeMatchPatternStrings:@[] associatedURL:[NSURL URLWithString:@"test:///script"] contentWorld:[WKContentWorld defaultClientWorld] deferRunningUntilNotification:YES]);
-    auto documentEnd = adoptNS([[WKUserScript alloc] initWithSource:@"alert('document parsing ended')" injectionTime:WKUserScriptInjectionTimeAtDocumentEnd forMainFrameOnly:YES]);
-
-    auto webView1 = adoptNS([TestWKWebView new]);
-    EXPECT_TRUE([webView1 _deferrableUserScriptsNeedNotification]);
-    [[webView1 configuration].userContentController addUserScript:waitsForNotification.get()];
-    [[webView1 configuration].userContentController addUserScript:documentEnd.get()];
-    auto delegate = adoptNS([TestUIDelegate new]);
-    [webView1 setUIDelegate:delegate.get()];
-    [webView1 loadTestPageNamed:@"simple"];
-    EXPECT_WK_STREQ([delegate waitForAlert], "document parsing ended");
-    EXPECT_TRUE([webView1 _deferrableUserScriptsNeedNotification]);
-    [webView1 _notifyUserScripts];
-    EXPECT_FALSE([webView1 _deferrableUserScriptsNeedNotification]);
-    EXPECT_WK_STREQ([delegate waitForAlert], "waited for notification");
-
-    [webView1 _killWebContentProcessAndResetState];
-    [webView1 reload];
-
-    EXPECT_WK_STREQ([delegate waitForAlert], "document parsing ended");
-    EXPECT_TRUE([webView1 _deferrableUserScriptsNeedNotification]);
-    [webView1 _notifyUserScripts];
-    EXPECT_FALSE([webView1 _deferrableUserScriptsNeedNotification]);
-    EXPECT_WK_STREQ([delegate waitForAlert], "waited for notification");
-
-    [webView1 reload];
-
-    EXPECT_FALSE([webView1 _deferrableUserScriptsNeedNotification]);
-    EXPECT_WK_STREQ([delegate waitForAlert], "waited for notification");
-    EXPECT_WK_STREQ([delegate waitForAlert], "document parsing ended");
-
-    auto configuration = adoptNS([WKWebViewConfiguration new]);
-    EXPECT_TRUE([configuration _deferrableUserScriptsShouldWaitUntilNotification]);
-    configuration.get()._deferrableUserScriptsShouldWaitUntilNotification = NO;
-    auto webView2 = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
-    EXPECT_FALSE([webView2 _deferrableUserScriptsNeedNotification]);
-    [[webView2 configuration].userContentController addUserScript:waitsForNotification.get()];
-    [[webView2 configuration].userContentController addUserScript:documentEnd.get()];
-    [webView2 setUIDelegate:delegate.get()];
-    [webView2 loadTestPageNamed:@"simple"];
-    EXPECT_WK_STREQ([delegate waitForAlert], "waited for notification");
-    EXPECT_WK_STREQ([delegate waitForAlert], "document parsing ended");
-
-    auto webView3 = adoptNS([TestWKWebView new]);
-    EXPECT_TRUE([webView3 _deferrableUserScriptsNeedNotification]);
-    [[webView3 configuration].userContentController addUserScript:waitsForNotification.get()];
-    [[webView3 configuration].userContentController addUserScript:documentEnd.get()];
-    [webView3 setUIDelegate:delegate.get()];
-    [webView3 loadTestPageNamed:@"simple"];
-    [webView3 _notifyUserScripts];
-    EXPECT_FALSE([webView3 _deferrableUserScriptsNeedNotification]);
-    EXPECT_WK_STREQ([delegate waitForAlert], "waited for notification");
-    EXPECT_WK_STREQ([delegate waitForAlert], "document parsing ended");
-
-    auto webView4 = adoptNS([TestWKWebView new]);
-    EXPECT_TRUE([webView4 _deferrableUserScriptsNeedNotification]);
-    [[webView4 configuration].userContentController addUserScript:waitsForNotification.get()];
-    [[webView4 configuration].userContentController addUserScript:documentEnd.get()];
-    [webView4 setUIDelegate:delegate.get()];
-    [webView4 loadTestPageNamed:@"simple-iframe"];
-    [webView4 _notifyUserScripts];
-
-    // If this is broken, two alerts would appear back-to-back with the same text due to the frame.
-    EXPECT_WK_STREQ([delegate waitForAlert], "waited for notification");
-    EXPECT_WK_STREQ([delegate waitForAlert], "document parsing ended");
-}
-
 TEST(WKUserContentController, AddUserScriptInWorldWithGlobalObjectAvailableInIframe)
 {
     RetainPtr<WKContentWorld> testWorld = [WKContentWorld worldWithName:@"testWorld"];
@@ -1478,7 +1427,10 @@ TEST(WKUserContentController, AllowAccessToClosedShadowRoots)
 
     __block bool isDoneEvaluatingScript = false;
     __block RetainPtr resultValue = @"";
-    [webView evaluateJavaScript:@"document.body.appendChild(document.createElement('div')).attachShadow({mode: 'closed'}).textContent = 'PASS';" completionHandler:^(id value, NSError *error) {
+    [webView evaluateJavaScript:@"host = document.createElement('div');"
+        "document.body.appendChild(host);"
+        "host.innerHTML = '<span id=target></span>';"
+        "host.attachShadow({mode: 'closed'}).innerHTML = 'PASS<slot></slot>';" completionHandler:^(id value, NSError *error) {
         resultValue = value;
         isDoneEvaluatingScript = true;
     }];
@@ -1493,6 +1445,18 @@ TEST(WKUserContentController, AllowAccessToClosedShadowRoots)
     TestWebKitAPI::Util::run(&isDoneEvaluatingScript);
     isDoneEvaluatingScript = false;
     EXPECT_WK_STREQ(@"PASS", resultValue.get());
+
+    [webView evaluateJavaScript:@"let path = '';"
+        "target.addEventListener('custom-event', (event) => { path = Array.from(event.composedPath()).map((target) => target.localName || target.__proto__.constructor.name).join(','); });"
+        "target.dispatchEvent(new CustomEvent('custom-event'));"
+        "path" inFrame:nil inContentWorld:world.get() completionHandler:^(id value, NSError *error) {
+        resultValue = value;
+        isDoneEvaluatingScript = true;
+    }];
+
+    TestWebKitAPI::Util::run(&isDoneEvaluatingScript);
+    isDoneEvaluatingScript = false;
+    EXPECT_WK_STREQ(@"span,slot,ShadowRoot,div,body,html,HTMLDocument,Window", resultValue.get());
 }
 
 TEST(WKUserContentController, DisableLegacyBuiltinOverrides)
@@ -1536,4 +1500,30 @@ TEST(WKUserContentController, DisableLegacyBuiltinOverrides)
     TestWebKitAPI::Util::run(&isDoneEvaluatingScript);
     isDoneEvaluatingScript = false;
     EXPECT_WK_STREQ(@"function", resultValue.get());
+}
+
+TEST(WKUserContentController, FormSubmissionWithUserInfo)
+{
+    auto inputDelegate = adoptNS([[InputDelegateForFormSubmission alloc] init]);
+    isDoneWithFormSubmission = false;
+
+    RetainPtr contentWorldConfiguration = adoptNS([[_WKContentWorldConfiguration alloc] init]);
+    [contentWorldConfiguration setName:@"TestWillWithSubmitFormWithAllowElementUserInfo"];
+    [contentWorldConfiguration setAllowElementUserInfo:YES];
+
+    RetainPtr world = [WKContentWorld _worldWithConfiguration:contentWorldConfiguration.get()];
+    RetainPtr userScript = adoptNS([[WKUserScript alloc] _initWithSource:@"window.addEventListener(\"load\", function() { document.getElementById(\"formID\").setUserInfo({foo: \"bar\"}); document.getElementById(\"formID\").submit()});"
+        injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:NO includeMatchPatternStrings:@[] excludeMatchPatternStrings:@[] associatedURL:nil contentWorld:world.get() deferRunningUntilNotification:NO]);
+
+    RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    [[configuration userContentController] addUserScript:userScript.get()];
+
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    [webView _setInputDelegate:inputDelegate.get()];
+    [webView loadHTMLString:@"<body><form id='formID' method='post' action='https://webkit.org/'>"
+        "<input type='text' name='testname1' value='testvalue1'/>"
+        "<input type='password' name='testname2' value='testvalue2'/>"
+        "<input type='hidden' name='testname3' value='testvalue3'/>"
+    "</form></body>" baseURL:nil];
+    TestWebKitAPI::Util::run(&isDoneWithFormSubmission);
 }

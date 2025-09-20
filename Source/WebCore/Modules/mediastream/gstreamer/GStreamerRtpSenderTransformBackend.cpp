@@ -22,6 +22,7 @@
 
 #if ENABLE(WEB_RTC) && USE(GSTREAMER_WEBRTC)
 
+#include "ContextDestructionObserverInlines.h"
 #include "NotImplemented.h"
 #include <wtf/TZoneMallocInlines.h>
 
@@ -29,14 +30,14 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(GStreamerRtpSenderTransformBackend);
 
-static inline GStreamerRtpSenderTransformBackend::MediaType mediaTypeFromSender(const GstWebRTCRTPSender&)
+static inline GStreamerRtpSenderTransformBackend::MediaType mediaTypeFromSender(GstWebRTCRTPSender*)
 {
     notImplemented();
     return RTCRtpTransformBackend::MediaType::Video;
 }
 
 GStreamerRtpSenderTransformBackend::GStreamerRtpSenderTransformBackend(const GRefPtr<GstWebRTCRTPSender>& rtcSender)
-    : GStreamerRtpTransformBackend(mediaTypeFromSender(*rtcSender), Side::Sender)
+    : GStreamerRtpTransformBackend(mediaTypeFromSender(rtcSender.get()), Side::Sender)
     , m_rtcSender(rtcSender)
 {
 }
@@ -51,10 +52,11 @@ void GStreamerRtpSenderTransformBackend::setTransformableFrameCallback(Callback&
     notImplemented();
 }
 
-void GStreamerRtpSenderTransformBackend::requestKeyFrame()
+bool GStreamerRtpSenderTransformBackend::requestKeyFrame(const String&)
 {
     ASSERT(mediaType() == MediaType::Video);
     notImplemented();
+    return true;
 }
 
 } // namespace WebCore

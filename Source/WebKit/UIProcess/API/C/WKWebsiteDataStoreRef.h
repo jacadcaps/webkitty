@@ -231,6 +231,9 @@ WK_EXPORT void WKWebsiteDataStoreSetOriginQuotaRatioEnabled(WKWebsiteDataStoreRe
 typedef void (*KWebsiteDataStoreResetResourceMonitorThrottler)(void* functionContext);
 WK_EXPORT void WKWebsiteDataStoreResetResourceMonitorThrottler(WKWebsiteDataStoreRef dataStoreRef, void* context, KWebsiteDataStoreResetResourceMonitorThrottler callback);
 
+typedef void (*WKWebsiteDataStoreSetStorageAccessPermissionForTestingFunction)(void* functionContext);
+WK_EXPORT void WKWebsiteDataStoreSetStorageAccessPermissionForTesting(WKWebsiteDataStoreRef dataStoreRef, bool granted, WKStringRef topFrame, WKStringRef subFrame, void* context, WKWebsiteDataStoreSetStorageAccessPermissionForTestingFunction completionHandler);
+
 #ifdef __cplusplus
 }
 #endif

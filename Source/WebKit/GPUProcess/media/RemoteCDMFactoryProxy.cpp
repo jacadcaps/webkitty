@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,7 +34,6 @@
 #include "RemoteCDMInstanceSessionProxy.h"
 #include "RemoteCDMProxy.h"
 #include <WebCore/CDMFactory.h>
-#include <wtf/Algorithms.h>
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
@@ -168,7 +167,7 @@ void RemoteCDMFactoryProxy::removeInstance(const RemoteCDMInstanceIdentifier& id
     m_instances.remove(identifier);
     auto connection = m_gpuConnectionToWebProcess.get();
     if (connection && allowsExitUnderMemoryPressure())
-        connection->protectedGPUProcess()->tryExitIfUnusedAndUnderMemoryPressure();
+        connection->gpuProcess().tryExitIfUnusedAndUnderMemoryPressure();
 }
 
 RemoteCDMInstanceProxy* RemoteCDMFactoryProxy::getInstance(const RemoteCDMInstanceIdentifier& identifier)

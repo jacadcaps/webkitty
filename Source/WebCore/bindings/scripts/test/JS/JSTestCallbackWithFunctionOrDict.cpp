@@ -31,7 +31,7 @@
 #include "JSTestCallbackFunction.h"
 #include "JSTestDictionary.h"
 #include "ScriptExecutionContext.h"
-#include <variant>
+#include <wtf/Variant.h>
 
 
 namespace WebCore {
@@ -58,7 +58,7 @@ JSTestCallbackWithFunctionOrDict::~JSTestCallbackWithFunctionOrDict()
 #endif
 }
 
-CallbackResult<typename IDLUndefined::CallbackReturnType> JSTestCallbackWithFunctionOrDict::handleEvent(typename IDLUnion<IDLDictionary<TestDictionary>, IDLCallbackFunction<JSTestCallbackFunction>>::ParameterType callback)
+CallbackResult<typename IDLUndefined::CallbackReturnType> JSTestCallbackWithFunctionOrDict::invoke(typename IDLUnion<IDLDictionary<TestDictionary>, IDLCallbackFunction<JSTestCallbackFunction>>::ParameterType callback)
 {
     if (!canInvokeCallback())
         return CallbackResultType::UnableToExecute;
@@ -86,7 +86,7 @@ CallbackResult<typename IDLUndefined::CallbackReturnType> JSTestCallbackWithFunc
     return { };
 }
 
-CallbackResult<typename IDLUndefined::CallbackReturnType> JSTestCallbackWithFunctionOrDict::handleEventRethrowingException(typename IDLUnion<IDLDictionary<TestDictionary>, IDLCallbackFunction<JSTestCallbackFunction>>::ParameterType callback)
+CallbackResult<typename IDLUndefined::CallbackReturnType> JSTestCallbackWithFunctionOrDict::invokeRethrowingException(typename IDLUnion<IDLDictionary<TestDictionary>, IDLCallbackFunction<JSTestCallbackFunction>>::ParameterType callback)
 {
     if (!canInvokeCallback())
         return CallbackResultType::UnableToExecute;
@@ -132,4 +132,8 @@ JSC::JSValue toJS(TestCallbackWithFunctionOrDict& impl)
     return static_cast<JSTestCallbackWithFunctionOrDict&>(impl).callbackData()->callback();
 }
 
+ScriptExecutionContext* JSTestCallbackWithFunctionOrDict::scriptExecutionContext() const
+{
+    return ContextDestructionObserver::scriptExecutionContext();
+}
 } // namespace WebCore

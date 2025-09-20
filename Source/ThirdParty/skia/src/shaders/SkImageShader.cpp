@@ -159,7 +159,7 @@ sk_sp<SkFlattenable> SkImageShader::CreateProc(SkReadBuffer& buffer) {
     bool raw = buffer.isVersionLT(SkPicturePriv::Version::kRawImageShaders) ? false
                                                                             : buffer.readBool();
 
-    // TODO(skbug.com/12784): Subset is not serialized yet; it's only used by special images so it
+    // TODO(skbug.com/40043877): Subset is not serialized yet; it's only used by special images so it
     // will never be written to an SKP.
 
     return raw ? SkImageShader::MakeRaw(std::move(img), tmx, tmy, sampling, &localMatrix)
@@ -175,7 +175,7 @@ void SkImageShader::flatten(SkWriteBuffer& buffer) const {
     buffer.writeImage(fImage.get());
     SkASSERT(fClampAsIfUnpremul == false);
 
-    // TODO(skbug.com/12784): Subset is not serialized yet; it's only used by special images so it
+    // TODO(skbug.com/40043877): Subset is not serialized yet; it's only used by special images so it
     // will never be written to an SKP.
     SkASSERT(!needs_subset(fImage.get(), fSubset));
 
@@ -215,7 +215,7 @@ static bool legacy_shader_can_handle(const SkMatrix& inv) {
 
 SkShaderBase::Context* SkImageShader::onMakeContext(const ContextRec& rec,
                                                     SkArenaAlloc* alloc) const {
-    SkASSERT(!needs_subset(fImage.get(), fSubset)); // TODO(skbug.com/12784)
+    SkASSERT(!needs_subset(fImage.get(), fSubset)); // TODO(skbug.com/40043877)
     if (fImage->alphaType() == kUnpremul_SkAlphaType) {
         return nullptr;
     }
@@ -429,16 +429,16 @@ namespace {
 struct MipLevelHelper {
     SkPixmap pm;
     SkMatrix inv;
-    SkRasterPipeline_GatherCtx* gather;
-    SkRasterPipeline_TileCtx* limitX;
-    SkRasterPipeline_TileCtx* limitY;
-    SkRasterPipeline_DecalTileCtx* decalCtx = nullptr;
+    SkRasterPipelineContexts::GatherCtx* gather;
+    SkRasterPipelineContexts::TileCtx* limitX;
+    SkRasterPipelineContexts::TileCtx* limitY;
+    SkRasterPipelineContexts::DecalTileCtx* decalCtx = nullptr;
 
     void allocAndInit(SkArenaAlloc* alloc,
                       const SkSamplingOptions& sampling,
                       SkTileMode tileModeX,
                       SkTileMode tileModeY) {
-        gather = alloc->make<SkRasterPipeline_GatherCtx>();
+        gather = alloc->make<SkRasterPipelineContexts::GatherCtx>();
         gather->pixels = pm.addr();
         gather->stride = pm.rowBytesAsPixels();
         gather->width = pm.width();
@@ -449,8 +449,8 @@ struct MipLevelHelper {
                     .getColMajor(gather->weights);
         }
 
-        limitX = alloc->make<SkRasterPipeline_TileCtx>();
-        limitY = alloc->make<SkRasterPipeline_TileCtx>();
+        limitX = alloc->make<SkRasterPipelineContexts::TileCtx>();
+        limitY = alloc->make<SkRasterPipelineContexts::TileCtx>();
         limitX->scale = pm.width();
         limitX->invScale = 1.0f / pm.width();
         limitY->scale = pm.height();
@@ -475,7 +475,7 @@ struct MipLevelHelper {
         }
 
         if (tileModeX == SkTileMode::kDecal || tileModeY == SkTileMode::kDecal) {
-            decalCtx = alloc->make<SkRasterPipeline_DecalTileCtx>();
+            decalCtx = alloc->make<SkRasterPipelineContexts::DecalTileCtx>();
             decalCtx->limit_x = limitX->scale;
             decalCtx->limit_y = limitY->scale;
 
@@ -507,7 +507,7 @@ static SkSamplingOptions tweak_sampling(SkSamplingOptions sampling, const SkMatr
 }
 
 bool SkImageShader::appendStages(const SkStageRec& rec, const SkShaders::MatrixRec& mRec) const {
-    SkASSERT(!needs_subset(fImage.get(), fSubset));  // TODO(skbug.com/12784)
+    SkASSERT(!needs_subset(fImage.get(), fSubset));  // TODO(skbug.com/40043877)
 
     // We only support certain sampling options in stages so far
     auto sampling = fSampling;
@@ -550,11 +550,11 @@ bool SkImageShader::appendStages(const SkStageRec& rec, const SkShaders::MatrixR
     upper.allocAndInit(alloc, sampling, fTileModeX, fTileModeY);
 
     MipLevelHelper lower;
-    SkRasterPipeline_MipmapCtx* mipmapCtx = nullptr;
+    SkRasterPipelineContexts::MipmapCtx* mipmapCtx = nullptr;
     float lowerWeight = access->lowerWeight();
     if (lowerWeight > 0) {
         std::tie(lower.pm, lower.inv) = access->lowerLevel();
-        mipmapCtx = alloc->make<SkRasterPipeline_MipmapCtx>();
+        mipmapCtx = alloc->make<SkRasterPipelineContexts::MipmapCtx>();
         mipmapCtx->lowerWeight = lowerWeight;
         mipmapCtx->scaleX = static_cast<float>(lower.pm.width()) / upper.pm.width();
         mipmapCtx->scaleY = static_cast<float>(lower.pm.height()) / upper.pm.height();
@@ -735,7 +735,8 @@ bool SkImageShader::appendStages(const SkStageRec& rec, const SkShaders::MatrixR
     }
 
     // This context can be shared by both levels when doing linear mipmap filtering
-    SkRasterPipeline_SamplerCtx* sampler = alloc->make<SkRasterPipeline_SamplerCtx>();
+    SkRasterPipelineContexts::SamplerCtx* sampler =
+            alloc->make<SkRasterPipelineContexts::SamplerCtx>();
 
     auto sample = [&](SkRasterPipelineOp setup_x,
                       SkRasterPipelineOp setup_y,

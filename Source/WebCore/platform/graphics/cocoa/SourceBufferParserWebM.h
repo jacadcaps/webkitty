@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,14 +27,12 @@
 
 #if ENABLE(MEDIA_SOURCE)
 
-#include "ExceptionOr.h"
 #include "LibWebRTCMacros.h"
 #include "MediaSample.h"
 #include "SharedBuffer.h"
 #include "SourceBufferParser.h"
 #include <CoreAudio/CoreAudioTypes.h>
 #include <pal/spi/cf/CoreMediaSPI.h>
-#include <variant>
 #include <webm/callback.h>
 #include <webm/common/vp9_header_parser.h>
 #include <webm/status.h>
@@ -55,6 +53,7 @@ namespace WebCore {
 
 class PacketDurationParser;
 struct TrackInfo;
+template<typename> class ExceptionOr;
 
 class WebMParser
     : private webm::Callback
@@ -78,7 +77,7 @@ public:
     class SegmentReader;
 
     WEBCORE_EXPORT void createByteRangeSamples();
-    WEBCORE_EXPORT ExceptionOr<int> parse(SourceBufferParser::Segment&&);
+    WEBCORE_EXPORT ExceptionOr<int> parse(Ref<const SharedBuffer>&&);
     WEBCORE_EXPORT void resetState();
     WEBCORE_EXPORT void reset();
     WEBCORE_EXPORT void invalidate();
@@ -125,7 +124,7 @@ public:
         PCM,
     };
 
-    using ConsumeFrameDataResult = std::variant<MediaTime, webm::Status>;
+    using ConsumeFrameDataResult = Variant<MediaTime, webm::Status>;
 
     class TrackData {
         WTF_MAKE_TZONE_ALLOCATED(TrackData);
@@ -272,8 +271,8 @@ public:
     void allowLimitedMatroska() { m_allowLimitedMatroska = true; }
 private:
     TrackData* trackDataForTrackNumber(uint64_t);
-    static bool isSupportedVideoCodec(StringView);
-    static bool isSupportedAudioCodec(StringView);
+    bool isSupportedVideoCodec(StringView);
+    bool isSupportedAudioCodec(StringView);
     void flushPendingVideoSamples();
 
     // webm::Callback
@@ -309,10 +308,10 @@ private:
 
     State m_state { State::None };
 
-    UniqueRef<SegmentReader> m_reader;
+    const UniqueRef<SegmentReader> m_reader;
 
     Vector<UniqueRef<TrackData>> m_tracks;
-    using BlockVariant = std::variant<webm::Block, webm::SimpleBlock>;
+    using BlockVariant = Variant<webm::Block, webm::SimpleBlock>;
     std::optional<BlockVariant> m_currentBlock;
     std::optional<uint64_t> m_rewindToPosition;
 
@@ -338,7 +337,7 @@ public:
     static bool isAvailable();
 
     Type type() const { return Type::WebM; }
-    WEBCORE_EXPORT Expected<void, PlatformMediaError> appendData(Segment&&, AppendFlags = AppendFlags::None) final;
+    WEBCORE_EXPORT Expected<void, PlatformMediaError> appendData(Ref<const SharedBuffer>&&, AppendFlags = AppendFlags::None) final;
     void flushPendingMediaData() final;
     void resetParserState() final { m_parser.resetState(); }
     void invalidate() final;

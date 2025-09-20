@@ -26,6 +26,7 @@
 #pragma once
 
 #include "DownloadID.h"
+#include "NetworkSession.h"
 #include "SandboxExtension.h"
 #include "WebPageProxyIdentifier.h"
 #include <WebCore/Credential.h>
@@ -36,6 +37,7 @@
 #include <WebCore/StoredCredentialsPolicy.h>
 #include <pal/SessionID.h>
 #include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
+#include <wtf/CheckedPtr.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/text/WTFString.h>
@@ -50,12 +52,14 @@ class SharedBuffer;
 
 namespace WebKit {
 
-class NetworkLoadParameters;
 class NetworkSession;
 class PendingDownload;
+
 enum class AuthenticationChallengeDisposition : uint8_t;
 enum class NegotiatedLegacyTLS : bool;
 enum class PrivateRelayed : bool;
+
+struct NetworkLoadParameters;
 
 using RedirectCompletionHandler = CompletionHandler<void(WebCore::ResourceRequest&&)>;
 using ChallengeCompletionHandler = CompletionHandler<void(AuthenticationChallengeDisposition, const WebCore::Credential&)>;
@@ -144,10 +148,15 @@ public:
     virtual void setEmulatedConditions(const std::optional<int64_t>& /* bytesPerSecondLimit */) { }
 #endif
 
-    PAL::SessionID sessionID() const;
+    PAL::SessionID sessionID() const { return m_session->sessionID(); }
+    const NetworkSession* networkSession() const { return m_session.get(); }
+    NetworkSession* networkSession() { return m_session.get(); }
 
-    const NetworkSession* networkSession() const;
-    NetworkSession* networkSession();
+    CheckedPtr<NetworkSession> checkedNetworkSession()
+    {
+        ASSERT(m_session);
+        return m_session.get();
+    }
 
     virtual void setTimingAllowFailedFlag() { }
 
@@ -167,7 +176,7 @@ protected:
     void restrictRequestReferrerToOriginIfNeeded(WebCore::ResourceRequest&);
     void setBytesTransferredOverNetwork(size_t bytes) { m_bytesTransferredOverNetwork = bytes; }
 
-    WeakPtr<NetworkSession> m_session;
+    const WeakPtr<NetworkSession> m_session;
     WeakPtr<NetworkDataTaskClient> m_client;
     WeakPtr<PendingDownload> m_pendingDownload;
     Markable<DownloadID> m_pendingDownloadID;

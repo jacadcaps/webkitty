@@ -25,10 +25,11 @@
 [
     DispatchedFrom=Model,
     DispatchedTo=WebContent,
-    ExceptionForEnabledBy
+    EnabledBy=ModelElementEnabled && ModelProcessEnabled
 ]
 messages -> ModelProcessConnection WantsDispatchMessage {
-    DidInitialize(std::optional<WebKit::ModelProcessConnectionInfo> info) CanDispatchOutOfOrder
+    DidInitialize(struct std::optional<WebKit::ModelProcessConnectionInfo> info) CanDispatchOutOfOrder
+    DidUnloadModelPlayer(WebCore::ModelPlayerIdentifier identifier)
 }
 
 #endif // ENABLE(MODEL_PROCESS)

@@ -61,6 +61,11 @@
     _world->makeAllShadowRootsOpen();
 }
 
+- (void)exposeClosedShadowRootsForExtensions
+{
+    _world->exposeClosedShadowRootsForExtensions();
+}
+
 - (void)disableOverrideBuiltinsBehavior
 {
     _world->disableOverrideBuiltinsBehavior();
@@ -68,7 +73,7 @@
 
 - (NSString *)name
 {
-    return _world->name();
+    return _world->name().createNSString().autorelease();
 }
 
 - (WebKit::InjectedBundleScriptWorld&)_scriptWorld

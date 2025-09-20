@@ -76,8 +76,8 @@ private:
     // Return whether the view is focused.
     bool isViewFocused() override;
 
-    // Return whether the view is visible.
-    bool isViewVisible() override;
+    // Return whether the active view is visible.
+    bool isActiveViewVisible() override;
 
     // Return whether the view is in a window.
     bool isViewInWindow() override;
@@ -113,7 +113,7 @@ private:
 
     void doneWithKeyEvent(const NativeWebKeyboardEvent&, bool wasEventHandled) override;
 #if ENABLE(TOUCH_EVENTS)
-    void doneWithTouchEvent(const NativeWebTouchEvent&, bool) override;
+    void doneWithTouchEvent(const WebTouchEvent&, bool) override;
 #endif
 
     RefPtr<WebPopupMenuProxy> createPopupMenuProxy(WebPageProxy&) override;
@@ -132,7 +132,7 @@ private:
 
     // Auxiliary Client Creation
 #if ENABLE(FULLSCREEN_API)
-    WebFullScreenManagerProxyClient& fullScreenManagerProxyClient() override;
+    WebFullScreenManagerProxyClient& fullScreenManagerProxyClient() final;
     void setFullScreenClientForTesting(std::unique_ptr<WebFullScreenManagerProxyClient>&&) override;
 
     void closeFullScreenManager() override;

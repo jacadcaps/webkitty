@@ -52,9 +52,13 @@ class WPEPort(GLibPort):
         if self._display_server == 'xvfb':
             # While not supported by WPE, xvfb is used as the default value in the main scripts
             self._display_server = 'headless'
+        self._wpe_legacy_api = self.get_option("wpe_legacy_api")
 
     def _port_flag_for_scripts(self):
-        return "--wpe"
+        port = "--wpe"
+        if self._wpe_legacy_api:
+            port += " --wpe-legacy-api"
+        return port
 
     @memoized
     def _driver_class(self):
@@ -95,7 +99,16 @@ class WPEPort(GLibPort):
         return self._path_to_image_diff()
 
     def _search_paths(self):
-        return [self.port_name, 'glib', 'wk2'] + self.get_option("additional_platform_directory", [])
+        search_paths = []
+
+        if self._wpe_legacy_api:
+            search_paths.append('wpe-legacy-api')
+
+        search_paths.append(self.port_name)
+        search_paths.append('glib')
+        search_paths.append('wk2')
+        search_paths.extend(self.get_option("additional_platform_directory", []))
+        return search_paths
 
     def default_baseline_search_path(self, **kwargs):
         return list(map(self._webkit_baseline_path, self._search_paths()))
@@ -111,6 +124,9 @@ class WPEPort(GLibPort):
     def cog_path_to(self, *components):
         return self._build_path('Tools', 'cog-prefix', 'src', 'cog-build', *components)
 
+    def get_browser_path(self, browser_name):
+        return self.cog_path_to('launcher', browser_name) if browser_name == 'cog' else self._build_path('bin', browser_name)
+
     def browser_name(self):
         """Returns the lower case name of the browser to be used (Cog or MiniBrowser)
 
@@ -121,10 +137,8 @@ class WPEPort(GLibPort):
             return browser
 
         if browser:
-            _log.warning("Unknown browser {}. Defaulting to Cog and MiniBrowser selection".format(browser))
+            _log.warning("Unknown browser {}. Defaulting to MiniBrowser".format(browser))
 
-        if self._filesystem.isfile(self.cog_path_to('launcher', 'cog')):
-            return "cog"
         return "minibrowser"
 
     def setup_environ_for_minibrowser(self):
@@ -147,9 +161,9 @@ class WPEPort(GLibPort):
         miniBrowser = None
 
         if self.browser_name() == "cog":
-            miniBrowser = self.cog_path_to('launcher', 'cog')
+            miniBrowser = self.get_browser_path("cog")
             if not self._filesystem.isfile(miniBrowser):
-                _log.warning("Cog not found 😢. If you wish to enable it, rebuild with `-DENABLE_COG=ON`. Falling back to good old MiniBrowser")
+                _log.warning("Cog not found 😢. If you wish to enable it, rebuild with `-DENABLE_COG=ON`. Falling back to MiniBrowser")
                 miniBrowser = None
             else:
                 print("Using Cog as MiniBrowser")
@@ -159,7 +173,7 @@ class WPEPort(GLibPort):
 
         if not miniBrowser:
             print("Using default MiniBrowser")
-            miniBrowser = self._build_path('bin', 'MiniBrowser')
+            miniBrowser = self.get_browser_path("MiniBrowser")
             if not self._filesystem.isfile(miniBrowser):
                 _log.warning("%s not found... Did you run build-webkit?" % miniBrowser)
                 return 1

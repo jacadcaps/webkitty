@@ -72,7 +72,7 @@ void WebExtensionControllerProxy::globalObjectIsAvailableForFrame(WebPage& page,
     extension->addFrameWithExtensionContent(frame);
 
     if (!isMainWorld)
-        extension->setContentScriptWorld(&world);
+        extension->setContentScriptWorld(world);
 
     auto contentWorldType = isMainWorld ? WebExtensionContentWorldType::Main : WebExtensionContentWorldType::ContentScript;
 
@@ -128,9 +128,13 @@ void WebExtensionControllerProxy::addBindingsToWebPageFrameIfNecessary(WebFrame&
 
 static WebExtensionFrameParameters toFrameParameters(WebFrame& frame, const URL& url, bool includeDocumentIdentifier = true)
 {
+    auto parentFrameIdentifier = WebExtensionFrameConstants::NoneIdentifier;
+    if (RefPtr parentFrame = frame.parentFrame())
+        parentFrameIdentifier = toWebExtensionFrameIdentifier(*parentFrame);
+
     return {
         .url = url,
-        .parentFrameIdentifier = frame.isMainFrame() ? WebExtensionFrameConstants::NoneIdentifier : toWebExtensionFrameIdentifier(*frame.parentFrame()),
+        .parentFrameIdentifier = parentFrameIdentifier,
         .frameIdentifier = toWebExtensionFrameIdentifier(frame),
         .documentIdentifier = includeDocumentIdentifier ? toDocumentIdentifier(frame) : std::nullopt
     };

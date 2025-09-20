@@ -11,7 +11,6 @@
 #include "include/codec/SkPixmapUtils.h"
 #include "include/core/SkAlphaType.h"
 #include "include/core/SkBitmap.h"
-#include "include/core/SkColorPriv.h"
 #include "include/core/SkColorSpace.h"
 #include "include/core/SkColorType.h"
 #include "include/core/SkData.h"
@@ -26,6 +25,7 @@
 #include "src/codec/SkFrameHolder.h"
 #include "src/codec/SkPixmapUtilsPriv.h"
 #include "src/codec/SkSampler.h"
+#include "src/core/SkColorPriv.h"
 
 #include <string>
 #include <string_view>
@@ -521,7 +521,7 @@ SkCodec::Result SkCodec::getPixels(const SkImageInfo& info, void* pixels, size_t
     // their own.  They indicate that all of the memory has been filled by
     // setting rowsDecoded equal to the height.
     if ((kIncompleteInput == result || kErrorInInput == result) && rowsDecoded != info.height()) {
-        // FIXME: (skbug.com/5772) fillIncompleteImage will fill using the swizzler's width, unless
+        // FIXME: (skbug.com/40036982) fillIncompleteImage will fill using the swizzler's width, unless
         // there is a subset. In that case, it will use the width of the subset. From here, the
         // subset will only be non-null in the case of SkWebpCodec, but it treats the subset
         // differenty from the other codecs, and it needs to use the width specified by the info.

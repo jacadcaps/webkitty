@@ -95,16 +95,6 @@ void FontCascade::drawGlyphs(GraphicsContext& graphicsContext, const Font& font,
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-bool FontCascade::canReturnFallbackFontsForComplexText()
-{
-    return false;
-}
-
-bool FontCascade::canExpandAroundIdeographsInComplexText()
-{
-    return false;
-}
-
 bool FontCascade::canUseGlyphDisplayList(const RenderStyle&)
 {
     return true;
@@ -114,16 +104,20 @@ ResolvedEmojiPolicy FontCascade::resolveEmojiPolicy(FontVariantEmoji fontVariant
 {
     switch (fontVariantEmoji) {
     case FontVariantEmoji::Normal:
-    case FontVariantEmoji::Unicode:
         if (isEmojiWithPresentationByDefault(character)
             || isEmojiModifierBase(character)
             || isEmojiFitzpatrickModifier(character))
             return ResolvedEmojiPolicy::RequireEmoji;
         break;
+    case FontVariantEmoji::Unicode:
+        if (u_hasBinaryProperty(character, UCHAR_EMOJI))
+            return isEmojiWithPresentationByDefault(character) ? ResolvedEmojiPolicy::RequireEmoji : ResolvedEmojiPolicy::RequireText;
+        break;
     case FontVariantEmoji::Text:
         return ResolvedEmojiPolicy::RequireText;
     case FontVariantEmoji::Emoji:
-        return ResolvedEmojiPolicy::RequireEmoji;
+        if (u_hasBinaryProperty(character, UCHAR_EMOJI))
+            return ResolvedEmojiPolicy::RequireEmoji;
     }
 
     return ResolvedEmojiPolicy::NoPreference;
@@ -138,17 +132,45 @@ RefPtr<const Font> FontCascade::fontForCombiningCharacterSequence(StringView str
     ++codePointsIterator;
     bool isOnlySingleCodePoint = codePointsIterator == codePoints.end();
 
+    auto [emojiPolicy, shouldForceEmojiFont] = [&]() -> std::pair<ResolvedEmojiPolicy, bool> {
+        if (!isOnlySingleCodePoint) {
+            if (*codePointsIterator == emojiVariationSelector)
+                return { ResolvedEmojiPolicy::RequireEmoji, true };
+
+            if (*codePointsIterator == textVariationSelector)
+                return { ResolvedEmojiPolicy::RequireText, false };
+        }
+
+        auto emojiPolicy = resolveEmojiPolicy(m_fontDescription.variantEmoji(), baseCharacter);
+        return { emojiPolicy, emojiPolicy == ResolvedEmojiPolicy::RequireEmoji && m_fontDescription.variantEmoji() == FontVariantEmoji::Emoji };
+    }();
+
     char32_t baseCharacterForBaseFont = baseCharacter;
-    if (!isOnlySingleCodePoint && *codePointsIterator == emojiVariationSelector) {
+    if (shouldForceEmojiFont) {
         // System fallback doesn't support character sequences, so here we override
         // the base character with the cat emoji to try to force an emoji font.
         baseCharacterForBaseFont = emojiCat;
     }
-    GlyphData baseCharacterGlyphData = glyphDataForCharacter(baseCharacterForBaseFont, false, NormalVariant);
+    GlyphData baseCharacterGlyphData = glyphDataForCharacter(baseCharacterForBaseFont, false, NormalVariant, emojiPolicy);
     if (!baseCharacterGlyphData.glyph)
         return nullptr;
 
-    if (isOnlySingleCodePoint)
+    auto fontMatchesEmojiPolicy = [](const Font* font, ResolvedEmojiPolicy emojiPolicy) -> bool {
+        if (!font)
+            return false;
+
+        switch (emojiPolicy) {
+        case ResolvedEmojiPolicy::RequireEmoji:
+            return font->platformData().isColorBitmapFont();
+        case ResolvedEmojiPolicy::RequireText:
+            return !font->platformData().isColorBitmapFont();
+        case ResolvedEmojiPolicy::NoPreference:
+            break;
+        }
+        return true;
+    };
+
+    if (isOnlySingleCodePoint && !shouldForceEmojiFont && fontMatchesEmojiPolicy(baseCharacterGlyphData.font.get(), emojiPolicy))
         return baseCharacterGlyphData.font.get();
 
     bool triedBaseCharacterFont = false;
@@ -161,6 +183,9 @@ RefPtr<const Font> FontCascade::fontForCombiningCharacterSequence(StringView str
         if (!font)
             continue;
 
+        if (!fontMatchesEmojiPolicy(font, emojiPolicy))
+            continue;
+
         if (font == baseCharacterGlyphData.font)
             triedBaseCharacterFont = true;
 
@@ -170,6 +195,29 @@ RefPtr<const Font> FontCascade::fontForCombiningCharacterSequence(StringView str
 
     if (!triedBaseCharacterFont && baseCharacterGlyphData.font && baseCharacterGlyphData.font->canRenderCombiningCharacterSequence(stringView))
         return baseCharacterGlyphData.font.get();
+
+    bool clusterContainsOtherNonDefaultIgnorableCodePoints = [&] -> bool {
+        if (isOnlySingleCodePoint)
+            return false;
+
+        do {
+            if (!isDefaultIgnorableCodePoint(*codePointsIterator))
+                return true;
+            ++codePointsIterator;
+        } while (codePointsIterator != codePoints.end());
+
+        return false;
+    }();
+
+    // Try a system fallback for the whole cluster if needed.
+    if (clusterContainsOtherNonDefaultIgnorableCodePoints) {
+        auto preferColoredFont = emojiPolicy == ResolvedEmojiPolicy::RequireEmoji ? FontCache::PreferColoredFont::Yes : FontCache::PreferColoredFont::No;
+        if (auto systemFallback = FontCache::forCurrentThread()->systemFallbackForCharacterCluster(m_fontDescription, fallbackRangesAt(0).fontForFirstRange(), IsForPlatformFont::No, preferColoredFont, stringView)) {
+            if (systemFallback->canRenderCombiningCharacterSequence(stringView))
+                return systemFallback.get();
+        }
+    }
+
     return nullptr;
 }
 

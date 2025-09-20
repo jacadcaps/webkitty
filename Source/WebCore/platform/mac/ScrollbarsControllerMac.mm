@@ -53,7 +53,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(ScrollbarsControllerMac);
 static ScrollbarThemeMac* macScrollbarTheme()
 {
     ScrollbarTheme& scrollbarTheme = ScrollbarTheme::theme();
-    return !scrollbarTheme.isMockTheme() ? static_cast<ScrollbarThemeMac*>(&scrollbarTheme) : nullptr;
+    return !scrollbarTheme.isMockTheme() ? downcast<ScrollbarThemeMac>(&scrollbarTheme) : nullptr;
 }
 
 static NSScrollerImp *scrollerImpForScrollbar(Scrollbar& scrollbar)
@@ -128,7 +128,7 @@ static NSScrollerImp *scrollerImpForScrollbar(Scrollbar& scrollbar)
     if (!scrollableArea || !scrollerImp)
         return NSZeroPoint;
 
-    WebCore::Scrollbar* scrollbar = 0;
+    RefPtr<WebCore::Scrollbar> scrollbar;
     if ([scrollerImp isHorizontal])
         scrollbar = scrollableArea->horizontalScrollbar();
     else
@@ -186,10 +186,10 @@ enum FeatureToAnimate {
 static TextStream& operator<<(TextStream& ts, FeatureToAnimate feature)
 {
     switch (feature) {
-    case ThumbAlpha: ts << "ThumbAlpha" ; break;
-    case TrackAlpha: ts << "TrackAlpha" ; break;
-    case UIStateTransition: ts << "UIStateTransition" ; break;
-    case ExpansionTransition: ts << "ExpansionTransition" ; break;
+    case ThumbAlpha: ts << "ThumbAlpha"_s ; break;
+    case TrackAlpha: ts << "TrackAlpha"_s ; break;
+    case UIStateTransition: ts << "UIStateTransition"_s ; break;
+    case ExpansionTransition: ts << "ExpansionTransition"_s ; break;
     }
     return ts;
 }
@@ -382,7 +382,7 @@ using WebCore::LogOverlayScrollbars;
     if (!WebCore::ScrollbarThemeMac::isCurrentlyDrawingIntoLayer())
         return nil;
 
-    WebCore::GraphicsLayer* layer;
+    RefPtr<WebCore::GraphicsLayer> layer;
     if (_scrollbar->orientation() == WebCore::ScrollbarOrientation::Vertical)
         layer = _scrollbar->scrollableArea().layerForVerticalScrollbar();
     else
@@ -626,7 +626,7 @@ void ScrollbarsControllerMac::cancelAnimations()
 void ScrollbarsControllerMac::setVisibleScrollerThumbRect(const IntRect& scrollerThumb)
 {
     auto rectInViewCoordinates = scrollerThumb;
-    if (auto* verticalScrollbar = scrollableArea().verticalScrollbar())
+    if (RefPtr verticalScrollbar = scrollableArea().verticalScrollbar())
         rectInViewCoordinates = verticalScrollbar->convertToContainingView(scrollerThumb);
 
     if (rectInViewCoordinates == m_visibleScrollerThumbRect)
@@ -765,7 +765,7 @@ void ScrollbarsControllerMac::didBeginScrollGesture()
 
     [m_scrollerImpPair beginScrollGesture];
 
-    if (auto* monitor = wheelEventTestMonitor())
+    if (RefPtr monitor = wheelEventTestMonitor())
         monitor->deferForReason(scrollableArea().scrollingNodeIDForTesting(), WheelEventTestMonitor::DeferReason::ContentScrollInProgress);
 
     ScrollbarsController::didBeginScrollGesture();
@@ -780,7 +780,7 @@ void ScrollbarsControllerMac::didEndScrollGesture()
 
     [m_scrollerImpPair endScrollGesture];
 
-    if (auto* monitor = wheelEventTestMonitor())
+    if (RefPtr monitor = wheelEventTestMonitor())
         monitor->removeDeferralForReason(scrollableArea().scrollingNodeIDForTesting(), WheelEventTestMonitor::DeferReason::ContentScrollInProgress);
 
     ScrollbarsController::didEndScrollGesture();
@@ -828,7 +828,7 @@ void ScrollbarsControllerMac::didAddVerticalScrollbar(Scrollbar* scrollbar)
     m_verticalScrollerImpDelegate = adoptNS([[WebScrollerImpDelegate alloc] initWithScrollbar:scrollbar]);
 
     [painter setDelegate:m_verticalScrollerImpDelegate.get()];
-    if (GraphicsLayer* layer = scrollbar->scrollableArea().layerForVerticalScrollbar())
+    if (RefPtr layer = scrollbar->scrollableArea().layerForVerticalScrollbar())
         [painter setLayer:layer->platformLayer()];
 
     [m_scrollerImpPair setVerticalScrollerImp:painter];
@@ -860,7 +860,7 @@ void ScrollbarsControllerMac::didAddHorizontalScrollbar(Scrollbar* scrollbar)
     m_horizontalScrollerImpDelegate = adoptNS([[WebScrollerImpDelegate alloc] initWithScrollbar:scrollbar]);
 
     [painter setDelegate:m_horizontalScrollerImpDelegate.get()];
-    if (GraphicsLayer* layer = scrollbar->scrollableArea().layerForHorizontalScrollbar())
+    if (RefPtr layer = scrollbar->scrollableArea().layerForHorizontalScrollbar())
         [painter setLayer:layer->platformLayer()];
 
     [m_scrollerImpPair setHorizontalScrollerImp:painter];
@@ -889,8 +889,8 @@ void ScrollbarsControllerMac::invalidateScrollbarPartLayers(Scrollbar* scrollbar
 
 void ScrollbarsControllerMac::verticalScrollbarLayerDidChange()
 {
-    GraphicsLayer* layer = scrollableArea().layerForVerticalScrollbar();
-    Scrollbar* scrollbar = scrollableArea().verticalScrollbar();
+    RefPtr layer = scrollableArea().layerForVerticalScrollbar();
+    RefPtr scrollbar = scrollableArea().verticalScrollbar();
     if (!scrollbar)
         return;
 
@@ -903,8 +903,8 @@ void ScrollbarsControllerMac::verticalScrollbarLayerDidChange()
 
 void ScrollbarsControllerMac::horizontalScrollbarLayerDidChange()
 {
-    GraphicsLayer* layer = scrollableArea().layerForHorizontalScrollbar();
-    Scrollbar* scrollbar = scrollableArea().horizontalScrollbar();
+    RefPtr layer = scrollableArea().layerForHorizontalScrollbar();
+    RefPtr scrollbar = scrollableArea().horizontalScrollbar();
     if (!scrollbar)
         return;
 
@@ -944,22 +944,22 @@ void ScrollbarsControllerMac::notifyContentAreaScrolled(const FloatSize& delta)
 
 void ScrollbarsControllerMac::updateScrollerImps()
 {
-    Scrollbar* verticalScrollbar = scrollableArea().verticalScrollbar();
+    RefPtr verticalScrollbar = scrollableArea().verticalScrollbar();
     if (verticalScrollbar && !verticalScrollbar->isCustomScrollbar()) {
         verticalScrollbar->invalidate();
 
         NSScrollerImp *oldVerticalPainter = [m_scrollerImpPair verticalScrollerImp];
-        auto* verticalScrollbarMac = dynamicDowncast<ScrollbarMac>(verticalScrollbar);
+        RefPtr verticalScrollbarMac = dynamicDowncast<ScrollbarMac>(verticalScrollbar);
         verticalScrollbarMac->createScrollerImp(WTFMove(oldVerticalPainter));
         [m_scrollerImpPair setVerticalScrollerImp:verticalScrollbarMac->scrollerImp()];
     }
 
-    Scrollbar* horizontalScrollbar = scrollableArea().horizontalScrollbar();
+    RefPtr horizontalScrollbar = scrollableArea().horizontalScrollbar();
     if (horizontalScrollbar && !horizontalScrollbar->isCustomScrollbar()) {
         horizontalScrollbar->invalidate();
 
         NSScrollerImp *oldHorizontalPainter = [m_scrollerImpPair horizontalScrollerImp];
-        auto* horizontalScrollbarMac = dynamicDowncast<ScrollbarMac>(horizontalScrollbar);
+        RefPtr horizontalScrollbarMac = dynamicDowncast<ScrollbarMac>(horizontalScrollbar);
         horizontalScrollbarMac->createScrollerImp(WTFMove(oldHorizontalPainter));
         [m_scrollerImpPair setHorizontalScrollerImp:horizontalScrollbarMac->scrollerImp()];
     }
@@ -1026,7 +1026,7 @@ void ScrollbarsControllerMac::sendContentAreaScrolledTimerFired()
     sendContentAreaScrolled(m_contentAreaScrolledTimerScrollDelta);
     m_contentAreaScrolledTimerScrollDelta = { };
 
-    if (auto* monitor = wheelEventTestMonitor())
+    if (RefPtr monitor = wheelEventTestMonitor())
         monitor->removeDeferralForReason(scrollableArea().scrollingNodeIDForTesting(), WheelEventTestMonitor::DeferReason::ContentScrollInProgress);
 }
 
@@ -1037,7 +1037,7 @@ void ScrollbarsControllerMac::sendContentAreaScrolledSoon(const FloatSize& delta
     if (!m_sendContentAreaScrolledTimer.isActive())
         m_sendContentAreaScrolledTimer.startOneShot(0_s);
 
-    if (auto* monitor = wheelEventTestMonitor())
+    if (RefPtr monitor = wheelEventTestMonitor())
         monitor->deferForReason(scrollableArea().scrollingNodeIDForTesting(), WheelEventTestMonitor::DeferReason::ContentScrollInProgress);
 }
 

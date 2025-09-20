@@ -61,7 +61,6 @@ interface TestRunner {
     undefined dumpChildFrameScrollPositions();
     undefined dumpEditingCallbacks();
     undefined dumpSelectionRect();
-    undefined dumpStatusCallbacks();
     undefined dumpTitleChanges();
     undefined dumpFullScreenCallbacks();
     undefined dumpFrameLoadCallbacks();
@@ -70,7 +69,6 @@ interface TestRunner {
     undefined dumpResourceResponseMIMETypes();
     undefined dumpWillCacheResponse();
     undefined dumpApplicationCacheDelegateCallbacks();
-    undefined dumpDatabaseCallbacks();
     undefined dumpDOMAsWebArchive();
     undefined dumpPolicyDelegateCallbacks();
     undefined dumpResourceLoadStatistics();
@@ -154,8 +152,9 @@ interface TestRunner {
     attribute double databaseMaxQuota;
 
     // Text search testing.
-    boolean findString(DOMString target, object optionsArray);
+    Promise<boolean> findString(DOMString target, object optionsArray);
     undefined findStringMatchesInPage(DOMString target, object optionsArray);
+    undefined indicateFindMatch(unsigned long matchIndex);
     undefined replaceFindMatchesAtIndices(object matchIndicesArray, DOMString replacementText, boolean selectionOnly);
 
     // Evaluating script in a special context.
@@ -239,9 +238,9 @@ interface TestRunner {
     undefined setMicrophonePermission(boolean value);
     undefined setUserMediaPermission(boolean value);
     undefined resetUserMediaPermission();
-    undefined setUserMediaPersistentPermissionForOrigin(boolean permission, DOMString origin, DOMString parentOrigin);
-    unsigned long userMediaPermissionRequestCountForOrigin(DOMString origin, DOMString parentOrigin);
-    undefined resetUserMediaPermissionRequestCountForOrigin(DOMString origin, DOMString parentOrigin);
+    undefined delayUserMediaRequestDecision();
+    unsigned long userMediaPermissionRequestCount();
+    undefined resetUserMediaPermissionRequestCount();
     readonly attribute boolean isDoingMediaCapture;
 
     // Audio testing.
@@ -293,8 +292,6 @@ interface TestRunner {
     // UI Process Testing
     undefined runUIScript(DOMString script, object callback);
     undefined runUIScriptImmediately(DOMString script, object callback);
-
-    undefined clearTestRunnerCallbacks();
 
     undefined accummulateLogsForChannel(DOMString channel);
 
@@ -374,6 +371,7 @@ interface TestRunner {
     // Storage Access API
     undefined getAllStorageAccessEntries(object callback);
     undefined setRequestStorageAccessThrowsExceptionUntilReload(boolean enabled);
+    Promise<undefined> setStorageAccessPermission(boolean value, DOMString subFrameURL);
 
     // Open panel
     undefined setOpenPanelFiles(object filesArray);
@@ -463,6 +461,7 @@ interface TestRunner {
     Promise<undefined> flushConsoleLogs();
     Promise<undefined> updatePresentation();
 
+    undefined scrollDuringEnterFullscreen();
     undefined waitBeforeFinishingFullscreenExit();
     undefined finishFullscreenExit();
     undefined requestExitFullscreenFromUIProcess();

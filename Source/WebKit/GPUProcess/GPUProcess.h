@@ -85,7 +85,7 @@ struct SharedPreferencesForWebProcess;
 
 class GPUProcess final : public AuxiliaryProcess, public ThreadSafeRefCounted<GPUProcess> {
     WTF_MAKE_NONCOPYABLE(GPUProcess);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(GPUProcess);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(GPUProcess);
 public:
     GPUProcess();
@@ -163,6 +163,15 @@ public:
 
 #if PLATFORM(VISION) && ENABLE(MODEL_PROCESS)
     void requestSharedSimulationConnection(CoreIPCAuditToken&&, CompletionHandler<void(std::optional<IPC::SharedFileHandle>)>&&);
+#if HAVE(TASK_IDENTITY_TOKEN)
+    void createMemoryAttributionIDForTask(WebCore::ProcessIdentity, CompletionHandler<void(const std::optional<String>&)>&&);
+    void unregisterMemoryAttributionID(const String&, CompletionHandler<void()>&&);
+#endif
+#endif
+
+#if PLATFORM(COCOA)
+    void postWillTakeSnapshotNotification(CompletionHandler<void()>&&);
+    void registerFonts(Vector<SandboxExtension::Handle>&&);
 #endif
 
 private:
@@ -195,7 +204,6 @@ private:
 
 #if ENABLE(MEDIA_STREAM)
     void setMockCaptureDevicesEnabled(bool);
-    void setUseSCContentSharingPicker(bool);
     void enableMicrophoneMuteStatusAPI();
     void setOrientationForMediaCapture(WebCore::IntDegrees);
     void rotationAngleForCaptureDeviceChanged(const String&, WebCore::VideoFrameRotation);
@@ -285,6 +293,7 @@ private:
 #endif
 #if ENABLE(VP9) && PLATFORM(COCOA)
     bool m_haveEnabledVP9Decoder { false };
+    bool m_haveEnabledSWVP9Decoder { false };
 #endif
 
 };

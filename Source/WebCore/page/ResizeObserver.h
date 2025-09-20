@@ -45,12 +45,12 @@ class Element;
 struct ResizeObserverOptions;
 
 struct ResizeObserverData {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(ResizeObserverData);
     Vector<WeakPtr<ResizeObserver>> observers;
 };
 
 using NativeResizeObserverCallback = void (*)(const Vector<Ref<ResizeObserverEntry>>&, ResizeObserver&);
-using JSOrNativeResizeObserverCallback = std::variant<RefPtr<ResizeObserverCallback>, NativeResizeObserverCallback>;
+using JSOrNativeResizeObserverCallback = Variant<RefPtr<ResizeObserverCallback>, NativeResizeObserverCallback>;
 
 class ResizeObserver : public RefCountedAndCanMakeWeakPtr<ResizeObserver> {
     WTF_MAKE_TZONE_OR_ISO_ALLOCATED(ResizeObserver);

@@ -36,6 +36,8 @@ LOTTIE_WEB_EXCLUDE = [
   # Times out.
   'lottiefiles.com - Nudge.json',
   'lottiefiles.com - Retweet.json',
+  'regress-perspective-blur-01.json',
+  'regress-perspective-blur-02.json',
   # Trace file has majority main_frame_aborted terminations in it and < 25
   # occurrences of submitted_frame + missed_frame.
   # Static scenes (nothing animating)
@@ -146,7 +148,7 @@ def RunSteps(api):
       continue
     output_file = output_dir.joinpath(lottie_filename)
     with api.context(cwd=perf_app_dir, env={'DISPLAY': ':0'}):
-      # This is occasionally flaky due to skbug.com/9207, adding retries.
+      # This is occasionally flaky due to skbug.com/40040508, adding retries.
       attempts = 3
       # Add output and input arguments to the cmd.
       api.run.with_retry(api.step, 'Run perf cmd line app', attempts,

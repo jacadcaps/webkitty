@@ -11,7 +11,6 @@
 #include "include/core/SkCanvas.h"
 #include "include/core/SkColor.h"
 #include "include/core/SkColorFilter.h"
-#include "include/core/SkColorPriv.h"
 #include "include/core/SkColorSpace.h"
 #include "include/core/SkColorType.h"
 #include "include/core/SkFont.h"
@@ -40,7 +39,6 @@
 #include "include/gpu/ganesh/GrTypes.h"
 #include "include/gpu/ganesh/SkImageGanesh.h"
 #include "include/gpu/ganesh/SkSurfaceGanesh.h"
-#include "include/private/SkColorData.h"
 #include "include/private/base/SkDebug.h"
 #include "include/private/base/SkFloatingPoint.h"
 #include "include/private/base/SkMalloc.h"
@@ -48,6 +46,8 @@
 #include "include/private/gpu/ganesh/GrTypesPriv.h"
 #include "src/core/SkAutoPixmapStorage.h"
 #include "src/core/SkCanvasPriv.h"
+#include "src/core/SkColorData.h"
+#include "src/core/SkColorPriv.h"
 #include "src/gpu/ganesh/Device.h"
 #include "src/gpu/ganesh/GrCanvas.h"
 #include "src/gpu/ganesh/GrCaps.h"
@@ -516,7 +516,6 @@ static void test_copy_on_write(skiatest::Reporter* reporter, SkSurface* surface)
         {SkIntToScalar(2), SkIntToScalar(1)},
         {SkIntToScalar(0), SkIntToScalar(2)}
     };
-    const size_t testPointCount = 3;
 
     SkBitmap testBitmap;
     testBitmap.allocN32Pixels(10, 10);
@@ -539,8 +538,7 @@ static void test_copy_on_write(skiatest::Reporter* reporter, SkSurface* surface)
 
     EXPECT_COPY_ON_WRITE(clear(testColor))
     EXPECT_COPY_ON_WRITE(drawPaint(testPaint))
-    EXPECT_COPY_ON_WRITE(drawPoints(SkCanvas::kPoints_PointMode, testPointCount, testPoints, \
-        testPaint))
+    EXPECT_COPY_ON_WRITE(drawPoints(SkCanvas::kPoints_PointMode, testPoints, testPaint))
     EXPECT_COPY_ON_WRITE(drawOval(testRect, testPaint))
     EXPECT_COPY_ON_WRITE(drawRect(testRect, testPaint))
     EXPECT_COPY_ON_WRITE(drawRRect(testRRect, testPaint))

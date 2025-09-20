@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -48,6 +48,7 @@
 #include "WKBundleAPICast.h"
 #include "WebAutomationSessionProxy.h"
 #include "WebBackForwardListProxy.h"
+#include "WebChromeClient.h"
 #include "WebErrors.h"
 #include "WebEvent.h"
 #include "WebFrame.h"
@@ -87,6 +88,7 @@
 #include <WebCore/PluginData.h>
 #include <WebCore/PluginDocument.h>
 #include <WebCore/PolicyChecker.h>
+#include <WebCore/ProcessSwapDisposition.h>
 #include <WebCore/ProgressTracker.h>
 #include <WebCore/Quirks.h>
 #include <WebCore/ResourceError.h>
@@ -104,7 +106,7 @@
 #include <wtf/RuntimeApplicationChecks.h>
 
 #if ENABLE(FULLSCREEN_API)
-#include <WebCore/FullscreenManager.h>
+#include <WebCore/DocumentFullscreen.h>
 #endif
 
 #if ENABLE(WK_WEB_EXTENSIONS) && PLATFORM(COCOA)
@@ -113,7 +115,7 @@
 
 #define PREFIX_PARAMETERS "%p - [webFrame=%p, webFrameID=%" PRIu64 ", webPage=%p, webPageID=%" PRIu64 "] WebLocalFrameLoaderClient::"
 #define WEBFRAME (&webFrame())
-#define WEBFRAMEID (webFrame().frameID().object().toUInt64())
+#define WEBFRAMEID (webFrame().frameID().toUInt64())
 #define WEBPAGE (webFrame().page())
 #define WEBPAGEID (WEBPAGE ? WEBPAGE->identifier().toUInt64() : 0)
 
@@ -198,7 +200,7 @@ void WebLocalFrameLoaderClient::detachedFromParent2()
         return;
 
     if (m_frameSpecificStorageAccessIdentifier) {
-        WebProcess::singleton().ensureNetworkProcessConnection().protectedConnection()->send(Messages::NetworkConnectionToWebProcess::RemoveStorageAccessForFrame(
+        WebProcess::singleton().ensureNetworkProcessConnection().connection().send(Messages::NetworkConnectionToWebProcess::RemoveStorageAccessForFrame(
             m_frameSpecificStorageAccessIdentifier->frameID, m_frameSpecificStorageAccessIdentifier->pageID), 0);
         m_frameSpecificStorageAccessIdentifier = std::nullopt;
     }
@@ -463,7 +465,7 @@ void WebLocalFrameLoaderClient::dispatchWillChangeDocument(const URL& currentURL
         return;
 
     if (m_frameSpecificStorageAccessIdentifier && !WebCore::areRegistrableDomainsEqual(currentURL, newURL)) {
-        WebProcess::singleton().ensureNetworkProcessConnection().protectedConnection()->send(Messages::NetworkConnectionToWebProcess::RemoveStorageAccessForFrame(
+        WebProcess::singleton().ensureNetworkProcessConnection().connection().send(Messages::NetworkConnectionToWebProcess::RemoveStorageAccessForFrame(
             m_frameSpecificStorageAccessIdentifier->frameID, m_frameSpecificStorageAccessIdentifier->pageID), 0);
         m_frameSpecificStorageAccessIdentifier = std::nullopt;
     }
@@ -499,6 +501,8 @@ void WebLocalFrameLoaderClient::didSameDocumentNavigationForFrameViaJS(SameDocum
         false, /* openedByDOMWithOpener */
         !!localFrame->opener(), /* hasOpener */
         localFrame->loader().isHTTPFallbackInProgress(),
+        false, /* isInitialFrameSrcLoad */
+        false, /* isContentRuleListRedirect */
         { }, /* openedMainFrameName */
         { }, /* requesterOrigin */
         { }, /* requesterTopOrigin */
@@ -520,7 +524,8 @@ void WebLocalFrameLoaderClient::didSameDocumentNavigationForFrameViaJS(SameDocum
         m_frame->info(),
         { }, /* navigationID */
         { }, /* originalRequest */
-        { } /* request */
+        { }, /* request */
+        { }, /* invalidURLString */
     };
 
     // Notify the UIProcess.
@@ -566,12 +571,12 @@ void WebLocalFrameLoaderClient::dispatchDidStartProvisionalLoad()
 
 #if ENABLE(FULLSCREEN_API)
     RefPtr document = m_localFrame->document();
-    if (document && document->fullscreenManager().fullscreenElement()) {
+    if (document && document->protectedFullscreen()->fullscreenElement()) {
         Ref fullScreenManager = webPage->fullScreenManager();
         RefPtr element = fullScreenManager->element();
         fullScreenManager->exitFullScreenForElement(element.get(), [element] {
             if (element)
-                element->protectedDocument()->fullscreenManager().didExitFullscreen([](auto) { });
+                element->protectedDocument()->protectedFullscreen()->didExitFullscreen([](auto) { });
         });
     }
 #endif
@@ -792,7 +797,27 @@ void WebLocalFrameLoaderClient::completePageTransitionIfNeeded()
 
     webPage->didCompletePageTransition();
     m_didCompletePageTransition = true;
+
+    // We suppress layout related milestones during page transition but we need to make sure
+    // we eventually dispatch when the transition is complete.
+    fireLayoutRelatedMilestonesIfNeeded();
+
     WebLocalFrameLoaderClient_RELEASE_LOG_FORWARDABLE(Layout, WEBLOCALFRAMELOADERCLIENT_COMPLETE_PAGE_TRANSITION_IF_NEEDED);
+}
+
+bool WebLocalFrameLoaderClient::shouldSuppressLayoutMilestones() const
+{
+    return m_frame->isMainFrame() && !m_didCompletePageTransition;
+}
+
+void WebLocalFrameLoaderClient::fireLayoutRelatedMilestonesIfNeeded()
+{
+    ASSERT(!shouldSuppressLayoutMilestones());
+    RefPtr localFrame = m_frame->coreLocalFrame();
+    if (!localFrame || !localFrame->isMainFrame())
+        return;
+    if (RefPtr view = localFrame->view())
+        view->fireLayoutRelatedMilestonesIfNeeded();
 }
 
 void WebLocalFrameLoaderClient::setDocumentVisualUpdatesAllowed(bool allowed)
@@ -931,7 +956,7 @@ void WebLocalFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRe
         return;
     }
 
-    if (webPage->shouldSkipDecidePolicyForResponse(response)) {
+    if ((!m_frame->isMainFrame() || m_frame->isSafeBrowsingCheckOngoing() == SafeBrowsingCheckOngoing::No) && webPage->shouldSkipDecidePolicyForResponse(response)) {
         WebLocalFrameLoaderClient_RELEASE_LOG(Network, "dispatchDecidePolicyForResponse: continuing because injected bundle says so");
         function(PolicyAction::Use);
         return;
@@ -983,6 +1008,8 @@ void WebLocalFrameLoaderClient::dispatchDecidePolicyForNewWindowAction(const Nav
         false, /* openedByDOMWithOpener */
         navigationAction.newFrameOpenerPolicy() == NewFrameOpenerPolicy::Allow, /* hasOpener */
         localFrame->loader().isHTTPFallbackInProgress(),
+        navigationAction.isInitialFrameSrcLoad(),
+        navigationAction.isContentRuleListRedirect(),
         { }, /* openedMainFrameName */
         { }, /* requesterOrigin */
         { }, /* requesterTopOrigin */
@@ -1004,7 +1031,8 @@ void WebLocalFrameLoaderClient::dispatchDecidePolicyForNewWindowAction(const Nav
         m_frame->info(),
         { }, /* navigationID */
         { }, /* originalRequest */
-        request
+        request,
+        request.url().isValid() ? String() : request.url().string(), /* invalidURLString */
     };
 
     webPage->sendWithAsyncReply(Messages::WebPageProxy::DecidePolicyForNewWindowAction(navigationActionData, frameName), [frame = m_frame, listenerID] (PolicyDecision&& policyDecision) {
@@ -1089,7 +1117,15 @@ void WebLocalFrameLoaderClient::dispatchWillSubmitForm(FormState& formState, Com
     RefPtr<API::Object> userData;
     webPage->injectedBundleFormClient().willSubmitForm(webPage.get(), form.ptr(), m_frame.ptr(), sourceFrame.get(), values, userData);
 
-    webPage->sendWithAsyncReply(Messages::WebPageProxy::WillSubmitForm(m_frame->frameID(), sourceFrame->frameID(), values, UserData(WebProcess::singleton().transformObjectsToHandles(userData.get()).get())), WTFMove(completionHandler));
+    if (!userData) {
+        auto userInfo = form->userInfo();
+        if (!userInfo.isNull()) {
+            if (auto data = JSON::Value::parseJSON(userInfo))
+                userData = userDataFromJSONData(*data);
+        }
+    }
+
+    webPage->sendWithAsyncReply(Messages::WebPageProxy::WillSubmitForm(m_frame->info(), sourceFrame->info(), values, UserData(WebProcess::singleton().transformObjectsToHandles(userData.get()).get())), WTFMove(completionHandler));
 }
 
 void WebLocalFrameLoaderClient::revertToProvisionalState(DocumentLoader*)
@@ -1263,10 +1299,10 @@ void WebLocalFrameLoaderClient::updateGlobalHistoryRedirectLinks()
     }
 }
 
-WebCore::ShouldGoToHistoryItem WebLocalFrameLoaderClient::shouldGoToHistoryItem(HistoryItem& item, IsSameDocumentNavigation isSameDocumentNavigation) const
+WebCore::ShouldGoToHistoryItem WebLocalFrameLoaderClient::shouldGoToHistoryItem(HistoryItem& item, IsSameDocumentNavigation isSameDocumentNavigation, ProcessSwapDisposition processSwapDisposition) const
 {
-    // In WebKit2, the synchronous version of this policy client should only ever be consulted for same document navigations.
-    RELEASE_ASSERT(isSameDocumentNavigation == IsSameDocumentNavigation::Yes);
+    // In WebKit2, the synchronous version of this policy client should only ever be consulted for same document navigations or a COOP swap is being performed.
+    RELEASE_ASSERT(isSameDocumentNavigation == IsSameDocumentNavigation::Yes || processSwapDisposition == ProcessSwapDisposition::COOP);
 
     RefPtr webPage = m_frame->page();
     if (!webPage)
@@ -1368,7 +1404,7 @@ void WebLocalFrameLoaderClient::loadStorageAccessQuirksIfNeeded()
     if (!WebProcess::singleton().haveStorageAccessQuirksForDomain(RegistrableDomain { documentURLWithoutFragmentOrQueries }))
         return;
 
-    WebProcess::singleton().ensureNetworkProcessConnection().protectedConnection()->sendWithAsyncReply(Messages::NetworkConnectionToWebProcess::StorageAccessQuirkForTopFrameDomain(documentURLWithoutFragmentOrQueries), [weakDocument = WeakPtr { *document }](Vector<RegistrableDomain>&& domains) {
+    WebProcess::singleton().ensureNetworkProcessConnection().connection().sendWithAsyncReply(Messages::NetworkConnectionToWebProcess::StorageAccessQuirkForTopFrameDomain(documentURLWithoutFragmentOrQueries), [weakDocument = WeakPtr { *document }](Vector<RegistrableDomain>&& domains) {
         if (!domains.size())
             return;
         if (!weakDocument)
@@ -1448,9 +1484,9 @@ void WebLocalFrameLoaderClient::prepareForDataSourceReplacement()
     notImplemented();
 }
 
-Ref<DocumentLoader> WebLocalFrameLoaderClient::createDocumentLoader(const ResourceRequest& request, const SubstituteData& substituteData)
+Ref<DocumentLoader> WebLocalFrameLoaderClient::createDocumentLoader(ResourceRequest&& request, SubstituteData&& substituteData)
 {
-    return m_frame->protectedPage()->createDocumentLoader(protectedLocalFrame(), request, substituteData);
+    return m_frame->protectedPage()->createDocumentLoader(protectedLocalFrame(), WTFMove(request), WTFMove(substituteData));
 }
 
 void WebLocalFrameLoaderClient::updateCachedDocumentLoader(WebCore::DocumentLoader& loader)
@@ -1636,7 +1672,7 @@ RefPtr<Widget> WebLocalFrameLoaderClient::createPlugin(HTMLPlugInElement& plugin
 void WebLocalFrameLoaderClient::redirectDataToPlugin(Widget& pluginWidget)
 {
 #if ENABLE(PDF_PLUGIN)
-    m_pluginView = &downcast<PluginView>(pluginWidget);
+    m_pluginView = downcast<PluginView>(pluginWidget);
 #else
     UNUSED_PARAM(pluginWidget);
 #endif
@@ -1762,6 +1798,11 @@ void WebLocalFrameLoaderClient::willInjectUserScript(DOMWrapperWorld& world)
     if (!webPage)
         return;
 
+#if ENABLE(WK_WEB_EXTENSIONS) && PLATFORM(COCOA)
+    if (RefPtr extensionControllerProxy = webPage->webExtensionControllerProxy())
+        extensionControllerProxy->globalObjectIsAvailableForFrame(*webPage, m_frame, world);
+#endif
+
     webPage->injectedBundleLoaderClient().willInjectUserScriptForFrame(*webPage, m_frame, world);
 }
 
@@ -1810,11 +1851,11 @@ RemoteAXObjectRef WebLocalFrameLoaderClient::accessibilityRemoteObject()
 }
 
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
-void WebLocalFrameLoaderClient::setAXIsolatedTreeRoot(WebCore::AXCoreObject* axObject)
+void WebLocalFrameLoaderClient::setIsolatedTree(Ref<WebCore::AXIsolatedTree>&& tree)
 {
     ASSERT(isMainRunLoop());
     if (RefPtr webPage = m_frame->page())
-        webPage->setAXIsolatedTreeRoot(axObject);
+        webPage->setIsolatedTree(WTFMove(tree));
 }
 #endif
 
@@ -1890,22 +1931,22 @@ void WebLocalFrameLoaderClient::sendH2Ping(const URL& url, CompletionHandler<voi
     if (!webPage)
         return completionHandler(makeUnexpected(internalError(url)));
 
-    NetworkResourceLoadParameters parameters;
-    parameters.request = ResourceRequest(url);
+    NetworkResourceLoadParameters parameters {
+        webPage->webPageProxyIdentifier(),
+        webPage->identifier(),
+        m_frame->frameID(),
+        ResourceRequest(URL { url })
+    };
+    parameters.createSandboxExtensionHandlesIfNecessary();
+
     parameters.identifier = WebCore::ResourceLoaderIdentifier::generate();
-    parameters.webPageProxyID = webPage->webPageProxyIdentifier();
-    parameters.webPageID = webPage->identifier();
-    parameters.webFrameID = m_frame->frameID();
     parameters.parentPID = legacyPresentingApplicationPID();
-#if HAVE(AUDIT_TOKEN)
-    parameters.networkProcessAuditToken = WebProcess::singleton().ensureNetworkProcessConnection().networkProcessAuditToken();
-#endif
     parameters.shouldPreconnectOnly = PreconnectOnly::Yes;
     parameters.options.destination = FetchOptions::Destination::EmptyString;
 #if ENABLE(APP_BOUND_DOMAINS)
     parameters.isNavigatingToAppBoundDomain = m_frame->isTopFrameNavigatingToAppBoundDomain();
 #endif
-    WebProcess::singleton().ensureNetworkProcessConnection().protectedConnection()->sendWithAsyncReply(Messages::NetworkConnectionToWebProcess::SendH2Ping(parameters), WTFMove(completionHandler));
+    WebProcess::singleton().ensureNetworkProcessConnection().connection().sendWithAsyncReply(Messages::NetworkConnectionToWebProcess::SendH2Ping(WTFMove(parameters)), WTFMove(completionHandler));
 }
 
 void WebLocalFrameLoaderClient::didRestoreScrollPosition()
@@ -2040,6 +2081,8 @@ void WebLocalFrameLoaderClient::didExceedNetworkUsageThreshold()
     if (url.isEmpty())
         return;
 
+    WebLocalFrameLoaderClient_RELEASE_LOG(ResourceMonitoring, "didExceedNetworkUsageThreshold host=%" SENSITIVE_LOG_STRING, url.host().utf8().data());
+
     auto action = [weakFrame = WeakPtr { m_frame->coreLocalFrame() }](bool wasGranted) {
         RefPtr frame = weakFrame.get();
         if (!frame)
@@ -2053,7 +2096,7 @@ void WebLocalFrameLoaderClient::didExceedNetworkUsageThreshold()
     if (document->shouldSkipResourceMonitorThrottling())
         action(true);
     else
-        WebProcess::singleton().ensureNetworkProcessConnection().protectedConnection()->sendWithAsyncReply(Messages::NetworkConnectionToWebProcess::ShouldOffloadIFrameForHost(url.host().toStringWithoutCopying()), WTFMove(action), 0);
+        WebProcess::singleton().ensureNetworkProcessConnection().connection().sendWithAsyncReply(Messages::NetworkConnectionToWebProcess::ShouldOffloadIFrameForHost(url.host().toStringWithoutCopying()), WTFMove(action), 0);
 }
 
 #endif

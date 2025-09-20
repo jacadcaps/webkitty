@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2023-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -98,9 +98,8 @@ public:
 
     bool flushAndCollectHandles(HashMap<RemoteImageBufferSetIdentifier, std::unique_ptr<BufferSetBackendHandle>>& handlesMap) final
     {
-        Ref flushState = m_flushState;
-        if (flushState->wait()) {
-            handlesMap.add(m_identifier, makeUnique<BufferSetBackendHandle>(*flushState->takeHandles()));
+        if (m_flushState->wait()) {
+            handlesMap.add(m_identifier, makeUnique<BufferSetBackendHandle>(*m_flushState->takeHandles()));
             return true;
         }
         RELEASE_LOG(RemoteLayerBuffers, "RemoteImageBufferSetProxyFlusher::flushAndCollectHandlers - failed");
@@ -109,7 +108,7 @@ public:
 
 private:
     RemoteImageBufferSetIdentifier m_identifier;
-    Ref<RemoteImageBufferSetProxyFlushFence> m_flushState;
+    const Ref<RemoteImageBufferSetProxyFlushFence> m_flushState;
 };
 
 }
@@ -118,11 +117,11 @@ template<typename T>
 ALWAYS_INLINE auto RemoteImageBufferSetProxy::send(T&& message)
 {
     RefPtr connection = this->connection();
-    if (UNLIKELY(!connection))
+    if (!connection) [[unlikely]]
         return IPC::Error::InvalidConnection;
 
     auto result = connection->send(std::forward<T>(message), identifier());
-    if (UNLIKELY(result != IPC::Error::NoError)) {
+    if (result != IPC::Error::NoError) [[unlikely]] {
         RELEASE_LOG(RemoteLayerBuffers, "RemoteImageBufferSetProxy::send - failed, name:%" PUBLIC_LOG_STRING ", error:%" PUBLIC_LOG_STRING,
             IPC::description(T::name()).characters(), IPC::errorAsString(result).characters());
         didBecomeUnresponsive();
@@ -134,15 +133,15 @@ template<typename T>
 ALWAYS_INLINE auto RemoteImageBufferSetProxy::sendSync(T&& message)
 {
     RefPtr connection = this->connection();
-    if (UNLIKELY(!connection))
+    if (!connection) [[unlikely]]
         return IPC::StreamClientConnection::SendSyncResult<T> { IPC::Error::InvalidConnection };
 
     auto result = connection->sendSync(std::forward<T>(message), identifier());
-    if (LIKELY(result.succeeded()))
+    if (result.succeeded()) [[likely]]
         return result;
 
     RefPtr remoteRenderingBackendProxy = m_remoteRenderingBackendProxy.get();
-    if (UNLIKELY(!remoteRenderingBackendProxy)) {
+    if (!remoteRenderingBackendProxy) [[unlikely]] {
         RELEASE_LOG(RemoteLayerBuffers, "[renderingBackend was deleted] Proxy::sendSync - failed, name:%" PUBLIC_LOG_STRING ", error:%" PUBLIC_LOG_STRING,
             IPC::description(T::name()).characters(), IPC::errorAsString(result.error()).characters());
         return result;
@@ -158,7 +157,7 @@ ALWAYS_INLINE auto RemoteImageBufferSetProxy::sendSync(T&& message)
 ALWAYS_INLINE RefPtr<IPC::StreamClientConnection> RemoteImageBufferSetProxy::connection() const
 {
     RefPtr backend = m_remoteRenderingBackendProxy.get();
-    if (UNLIKELY(!backend))
+    if (!backend) [[unlikely]]
         return nullptr;
     return backend->connection();
 }
@@ -166,14 +165,19 @@ ALWAYS_INLINE RefPtr<IPC::StreamClientConnection> RemoteImageBufferSetProxy::con
 void RemoteImageBufferSetProxy::didBecomeUnresponsive() const
 {
     RefPtr backend = m_remoteRenderingBackendProxy.get();
-    if (UNLIKELY(!backend))
+    if (!backend) [[unlikely]]
         return;
     backend->didBecomeUnresponsive();
 }
 
-RemoteImageBufferSetProxy::RemoteImageBufferSetProxy(RemoteRenderingBackendProxy& remoteRenderingBackendProxy)
+Ref<RemoteImageBufferSetProxy> RemoteImageBufferSetProxy::create(RemoteRenderingBackendProxy& renderingBackend, ImageBufferSetClient& client)
+{
+    return adoptRef(*new RemoteImageBufferSetProxy(renderingBackend, client));
+}
+
+RemoteImageBufferSetProxy::RemoteImageBufferSetProxy(RemoteRenderingBackendProxy& remoteRenderingBackendProxy, ImageBufferSetClient& client)
     : m_remoteRenderingBackendProxy(remoteRenderingBackendProxy)
-    , m_displayListIdentifier(RenderingResourceIdentifier::generate())
+    , m_client(&client)
 {
 }
 
@@ -200,6 +204,12 @@ void RemoteImageBufferSetProxy::clearVolatility()
 }
 
 #if PLATFORM(COCOA)
+void RemoteImageBufferSetProxy::prepareToDisplay(const WebCore::Region& dirtyRegion, bool supportsPartialRepaint, bool hasEmptyDirtyRegion, bool drawingRequiresClearedPixels)
+{
+    if (RefPtr remoteRenderingBackendProxy = m_remoteRenderingBackendProxy.get())
+        remoteRenderingBackendProxy->prepareImageBufferSetForDisplay({ *this, dirtyRegion, supportsPartialRepaint, hasEmptyDirtyRegion, drawingRequiresClearedPixels });
+}
+
 void RemoteImageBufferSetProxy::didPrepareForDisplay(ImageBufferSetPrepareBufferForDisplayOutputData outputData, RenderingUpdateID renderingUpdateID)
 {
     ASSERT(!isMainRunLoop());
@@ -237,13 +247,14 @@ void RemoteImageBufferSetProxy::close()
     assertIsMainRunLoop();
     Locker locker { m_lock };
     m_closed = true;
+    m_client = nullptr;
 
     if (RefPtr streamConnection = m_streamConnection; !m_prepareForDisplayIsPending && streamConnection) {
         streamConnection->removeWorkQueueMessageReceiver(Messages::RemoteImageBufferSetProxy::messageReceiverName(), identifier().toUInt64());
         m_streamConnection = nullptr;
     }
     if (RefPtr remoteRenderingBackendProxy = m_remoteRenderingBackendProxy.get())
-        remoteRenderingBackendProxy->releaseRemoteImageBufferSet(*this);
+        remoteRenderingBackendProxy->releaseImageBufferSet(*this);
 }
 
 void RemoteImageBufferSetProxy::setConfiguration(RemoteImageBufferSetConfiguration&& configuration)
@@ -274,10 +285,15 @@ void RemoteImageBufferSetProxy::willPrepareForDisplay()
     if (!connection)
         return;
 
+    RefPtr renderingBackend = m_remoteRenderingBackendProxy.get();
+    if (!renderingBackend)
+        return;
+
     if (m_remoteNeedsConfigurationUpdate) {
         send(Messages::RemoteImageBufferSet::UpdateConfiguration(m_configuration));
-
-        m_displayListRecorder = Ref { *m_remoteRenderingBackendProxy }->createDisplayListRecorder(m_displayListIdentifier, m_configuration.logicalSize, m_configuration.renderingMode, m_configuration.renderingPurpose, m_configuration.resolutionScale, m_configuration.colorSpace, m_configuration.pixelFormat);
+        ImageBufferParameters parameters { m_configuration.logicalSize, m_configuration.resolutionScale, m_configuration.colorSpace, m_configuration.bufferFormat, m_configuration.renderingPurpose };
+        auto transform = ImageBufferBackend::calculateBaseTransform(ImageBuffer::backendParameters(parameters));
+        m_context.emplace(m_configuration.colorSpace, m_configuration.contentsFormat, m_configuration.renderingMode, FloatRect { { }, m_configuration.logicalSize }, transform, m_contextIdentifier, *renderingBackend);
     }
     m_remoteNeedsConfigurationUpdate = false;
 
@@ -290,7 +306,13 @@ void RemoteImageBufferSetProxy::willPrepareForDisplay()
     m_prepareForDisplayIsPending = true;
 }
 
-void RemoteImageBufferSetProxy::remoteBufferSetWasDestroyed()
+void RemoteImageBufferSetProxy::setNeedsDisplay()
+{
+    if (CheckedPtr client = m_client)
+        client->setNeedsDisplay();
+}
+
+void RemoteImageBufferSetProxy::disconnect()
 {
     Locker locker { m_lock };
     if (RefPtr pendingFlush = m_pendingFlush) {
@@ -304,18 +326,19 @@ void RemoteImageBufferSetProxy::remoteBufferSetWasDestroyed()
     m_prepareForDisplayIsPending = false;
     m_generation++;
     m_remoteNeedsConfigurationUpdate = true;
+    m_context = std::nullopt;
 }
 
 GraphicsContext& RemoteImageBufferSetProxy::context()
 {
-    RELEASE_ASSERT(m_displayListRecorder);
-    return *m_displayListRecorder;
+    RELEASE_ASSERT(m_context);
+    return *m_context;
 }
 
 #if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
 std::optional<WebCore::DynamicContentScalingDisplayList> RemoteImageBufferSetProxy::dynamicContentScalingDisplayList()
 {
-    if (UNLIKELY(!m_remoteRenderingBackendProxy))
+    if (!m_remoteRenderingBackendProxy) [[unlikely]]
         return std::nullopt;
     auto sendResult = sendSync(Messages::RemoteImageBufferSet::DynamicContentScalingDisplayList());
     if (!sendResult.succeeded())

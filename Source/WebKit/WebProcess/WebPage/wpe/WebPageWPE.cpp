@@ -27,11 +27,8 @@
 #include "WebPage.h"
 
 #include "DrawingArea.h"
-#include "WebPageProxy.h"
 #include "WebPageProxyMessages.h"
 #include <WebCore/NotImplemented.h>
-#include <WebCore/PlatformScreen.h>
-#include <WebCore/PointerCharacteristics.h>
 
 namespace WebKit {
 using namespace WebCore;
@@ -46,44 +43,8 @@ bool WebPage::platformCanHandleRequest(const ResourceRequest&)
     return false;
 }
 
-bool WebPage::hoverSupportedByPrimaryPointingDevice() const
-{
-#if ENABLE(TOUCH_EVENTS)
-    return !screenIsTouchPrimaryInputDevice();
-#else
-    return true;
-#endif
-}
-
-bool WebPage::hoverSupportedByAnyAvailablePointingDevice() const
-{
-#if ENABLE(TOUCH_EVENTS)
-    return !screenHasTouchDevice();
-#else
-    return true;
-#endif
-}
-
-std::optional<PointerCharacteristics> WebPage::pointerCharacteristicsOfPrimaryPointingDevice() const
-{
-#if ENABLE(TOUCH_EVENTS)
-    if (screenIsTouchPrimaryInputDevice())
-        return PointerCharacteristics::Coarse;
-#endif
-    return PointerCharacteristics::Fine;
-}
-
-OptionSet<PointerCharacteristics> WebPage::pointerCharacteristicsOfAllAvailablePointingDevices() const
-{
-#if ENABLE(TOUCH_EVENTS)
-    if (screenHasTouchDevice())
-        return PointerCharacteristics::Coarse;
-#endif
-    return PointerCharacteristics::Fine;
-}
-
 #if USE(GBM) && ENABLE(WPE_PLATFORM)
-void WebPage::preferredBufferFormatsDidChange(Vector<DMABufRendererBufferFormat>&& preferredBufferFormats)
+void WebPage::preferredBufferFormatsDidChange(Vector<RendererBufferFormat>&& preferredBufferFormats)
 {
     m_preferredBufferFormats = WTFMove(preferredBufferFormats);
     if (m_drawingArea)

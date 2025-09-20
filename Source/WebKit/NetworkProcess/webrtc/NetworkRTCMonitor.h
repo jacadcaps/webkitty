@@ -28,6 +28,7 @@
 #if USE(LIBWEBRTC)
 
 #include "RTCNetwork.h"
+#include "SharedPreferencesForWebProcess.h"
 #include <wtf/CheckedRef.h>
 #include <wtf/WeakPtr.h>
 
@@ -51,7 +52,9 @@ public:
 
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&);
     void stopUpdating();
+#if ASSERT_ENABLED
     bool isStarted() const { return m_isStarted; }
+#endif
     NetworkRTCProvider& rtcProvider();
 
     void onNetworksChanged(const Vector<RTCNetwork>&, const RTCNetwork::IPAddress&, const RTCNetwork::IPAddress&);
@@ -62,11 +65,15 @@ public:
     void ref();
     void deref();
 
+    std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess(IPC::Connection&) const;
+
 private:
     void startUpdatingIfNeeded();
 
     CheckedRef<NetworkRTCProvider> m_rtcProvider;
+#if ASSERT_ENABLED
     bool m_isStarted { false };
+#endif
 };
 
 } // namespace WebKit

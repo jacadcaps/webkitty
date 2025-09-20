@@ -43,7 +43,7 @@ static String utf16String(const char16_t (&string)[length])
     StringBuilder builder;
     builder.reserveCapacity(length - 1);
     for (auto c : string)
-        builder.append(static_cast<UChar>(c));
+        builder.append(static_cast<char16_t>(c));
     return builder.toString();
 }
 
@@ -88,10 +88,10 @@ static void testSummaryProviders()
     OptionSet<ExampleFlags> exampleFlagsSimple { ExampleFlags::A, ExampleFlags::D, ExampleFlags::C };
     OptionSet<ExampleFlags> exampleFlagsAliasedFlag { ExampleFlags::AAlias, ExampleFlags::D };
 
-    CompactPointerTuple<String*, uint8_t> exampleCompactPointerTupleEmpty;
-    CompactPointerTuple<String*, uint8_t> exampleCompactPointerTupleSimple { &an8BitString, 7 };
-    CompactPointerTuple<String*, uint8_t> exampleCompactPointerTupleMaxTypeValue { &an8BitString, 255 };
-    CompactPointerTuple<String*, bool> exampleCompactPointerTupleSimpleBool { &an8BitString, true };
+    CompactPointerTuple<StringImpl*, uint8_t> exampleCompactPointerTupleEmpty;
+    CompactPointerTuple<StringImpl*, uint8_t> exampleCompactPointerTupleSimple { an8BitStringImpl, 7 };
+    CompactPointerTuple<StringImpl*, uint8_t> exampleCompactPointerTupleMaxTypeValue { an8BitStringImpl, 255 };
+    CompactPointerTuple<StringImpl*, bool> exampleCompactPointerTupleSimpleBool { an8BitStringImpl, true };
     
     URL aURL("https://www.example.com"_s);
 

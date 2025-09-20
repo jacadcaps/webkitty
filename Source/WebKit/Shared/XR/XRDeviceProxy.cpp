@@ -50,6 +50,8 @@ XRDeviceProxy::XRDeviceProxy(XRDeviceInfo&& deviceInfo, PlatformXRSystemProxy& x
     m_recommendedResolution = deviceInfo.recommendedResolution;
     m_minimumNearClipPlane = deviceInfo.minimumNearClipPlane;
 
+    if (!deviceInfo.vrFeatures.contains(SessionFeature::WebGPU))
+        deviceInfo.vrFeatures.append(SessionFeature::WebGPU);
     if (!deviceInfo.vrFeatures.isEmpty())
         setSupportedFeatures(SessionMode::ImmersiveVr, deviceInfo.vrFeatures);
     if (!deviceInfo.arFeatures.isEmpty())
@@ -89,7 +91,7 @@ void XRDeviceProxy::initializeTrackingAndRendering(const WebCore::SecurityOrigin
 
         if (trackingAndRenderingClient())
             trackingAndRenderingClient()->sessionDidInitializeInputSources({ });
-    });    
+    });
 }
 
 void XRDeviceProxy::shutDownTrackingAndRendering()
@@ -107,7 +109,7 @@ void XRDeviceProxy::didCompleteShutdownTriggeredBySystem()
 Vector<PlatformXR::Device::ViewData> XRDeviceProxy::views(SessionMode mode) const
 {
     Vector<Device::ViewData> views;
-    if (m_supportsStereoRendering && mode == SessionMode::ImmersiveVr) {
+    if (m_supportsStereoRendering && isImmersive(mode)) {
         views.append({ .active = true, .eye = Eye::Left });
         views.append({ .active = true, .eye = Eye::Right });
     } else
@@ -129,10 +131,16 @@ std::optional<PlatformXR::LayerHandle> XRDeviceProxy::createLayerProjection(uint
     return xrSystem ? xrSystem->createLayerProjection(width, height, alpha) : std::nullopt;
 }
 
-void XRDeviceProxy::submitFrame(Vector<PlatformXR::Device::Layer>&&)
+void XRDeviceProxy::submitFrame(Vector<PlatformXR::Device::Layer>&& layers)
 {
-    if (RefPtr xrSystem = m_xrSystem.get())
+    if (RefPtr xrSystem = m_xrSystem.get()) {
+#if USE(OPENXR)
+        xrSystem->submitFrame(WTFMove(layers));
+#else
+        UNUSED_PARAM(layers);
         xrSystem->submitFrame();
+#endif
+    }
 }
 
 } // namespace WebKit

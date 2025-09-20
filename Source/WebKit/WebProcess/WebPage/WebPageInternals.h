@@ -27,7 +27,11 @@
 
 #include "IdentifierTypes.h"
 #include "WebPage.h"
+#include <WebCore/IntPointHash.h>
+#include <WebCore/IntSizeHash.h>
 #include <WebCore/ScrollTypes.h>
+#include <WebCore/TextManipulationControllerExclusionRule.h>
+#include <WebCore/UserActivity.h>
 #include <WebCore/VisibleSelection.h>
 
 #if ENABLE(APP_HIGHLIGHTS)
@@ -37,7 +41,7 @@
 namespace WebKit {
 
 struct WebPage::Internals {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(WebPage);
 #if PLATFORM(IOS_FAMILY)
     WebCore::VisibleSelection storedSelectionForAccessibility { WebCore::VisibleSelection() };
     FocusedElementInformationIdentifier lastFocusedElementInformationIdentifier;
@@ -53,6 +57,9 @@ struct WebPage::Internals {
     mutable EditorStateIdentifier lastEditorStateIdentifier;
     HashMap<WebCore::RegistrableDomain, HashSet<WebCore::RegistrableDomain>> domainsWithPageLevelStorageAccess;
     HashSet<WebCore::RegistrableDomain> loadedSubresourceDomains;
+    UserActivity userActivity { "App nap disabled for page due to user activity"_s };
+    std::optional<Vector<WebCore::TextManipulationControllerExclusionRule>> textManipulationExclusionRules;
+    HashMap<std::pair<WebCore::IntSize, double>, WebCore::IntPoint> dynamicSizeUpdateHistory;
 #if ENABLE(ADVANCED_PRIVACY_PROTECTIONS)
     struct LinkDecorationFilteringConditionals {
         HashSet<WebCore::RegistrableDomain> domains;

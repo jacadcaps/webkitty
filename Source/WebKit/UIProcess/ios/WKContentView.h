@@ -26,7 +26,6 @@
 #import "WKApplicationStateTrackingView.h"
 #import "WKBase.h"
 #import "WKBrowsingContextController.h"
-#import "WKProcessGroup.h"
 #import <WebCore/InspectorOverlay.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/WeakObjCPtr.h>
@@ -57,10 +56,6 @@ enum class ViewStabilityFlag : uint8_t;
     RefPtr<WebKit::WebPageProxy> _page;
     WeakObjCPtr<WKWebView> _webView;
 }
-
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-@property (nonatomic, readonly) WKBrowsingContextController *browsingContextController;
-ALLOW_DEPRECATED_DECLARATIONS_END
 
 @property (nonatomic, readonly) WebKit::WebPageProxy* page;
 @property (nonatomic, readonly) BOOL isFocusingElement;
@@ -142,5 +137,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 - (double)_initialScaleFactor;
 - (double)_contentZoomScale;
 - (double)_targetContentZoomScaleForRect:(const WebCore::FloatRect&)targetRect currentScale:(double)currentScale fitEntireRect:(BOOL)fitEntireRect minimumScale:(double)minimumScale maximumScale:(double)maximumScale;
-
+#if ENABLE(MODEL_PROCESS)
+- (void)_setTransform3DForModelViews:(CGFloat)newScale;
+#endif
 @end

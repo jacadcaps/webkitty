@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -58,7 +58,7 @@ class WebProcessProxy;
 struct SharedPreferencesForWebProcess;
 
 class WebFullScreenManagerProxyClient : public CanMakeCheckedPtr<WebFullScreenManagerProxyClient> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(WebFullScreenManagerProxyClient);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WebFullScreenManagerProxyClient);
 public:
     virtual ~WebFullScreenManagerProxyClient() { }
@@ -126,14 +126,14 @@ public:
 private:
     WebFullScreenManagerProxy(WebPageProxy&, WebFullScreenManagerProxyClient&);
 
-    void enterFullScreen(IPC::Connection&, WebCore::FrameIdentifier, bool blocksReturnToFullscreenFromPictureInPicture, FullScreenMediaDetails&&, CompletionHandler<void(bool)>&&);
+    Awaitable<bool> enterFullScreen(IPC::Connection&, WebCore::FrameIdentifier, bool blocksReturnToFullscreenFromPictureInPicture, FullScreenMediaDetails);
     void didEnterFullScreen(CompletionHandler<void(bool)>&&);
 #if ENABLE(QUICKLOOK_FULLSCREEN)
     void updateImageSource(FullScreenMediaDetails&&);
 #endif
-    void exitFullScreen(CompletionHandler<void()>&&);
-    void beganEnterFullScreen(const WebCore::IntRect& initialFrame, const WebCore::IntRect& finalFrame, CompletionHandler<void(bool)>&&);
-    void beganExitFullScreen(WebCore::FrameIdentifier, const WebCore::IntRect& initialFrame, const WebCore::IntRect& finalFrame, CompletionHandler<void()>&&);
+    Awaitable<void> exitFullScreen();
+    Awaitable<bool> beganEnterFullScreen(WebCore::IntRect initialFrame, WebCore::IntRect finalFrame);
+    Awaitable<void> beganExitFullScreen(WebCore::FrameIdentifier, WebCore::IntRect initialFrame, WebCore::IntRect finalFrame);
     void callCloseCompletionHandlers();
     template<typename M> void sendToWebProcess(M&&);
 
@@ -159,7 +159,7 @@ private:
     WeakPtr<WebProcessProxy> m_fullScreenProcess;
 
 #if !RELEASE_LOG_DISABLED
-    Ref<const Logger> m_logger;
+    const Ref<const Logger> m_logger;
     const uint64_t m_logIdentifier;
 #endif
 };

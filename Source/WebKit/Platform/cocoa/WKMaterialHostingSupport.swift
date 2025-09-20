@@ -21,7 +21,7 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-#if !os(visionOS) && !os(tvOS) && !os(watchOS) && canImport(SwiftUI, _version: 7.0.27)
+#if HAVE_MATERIAL_HOSTING
 
 internal import WebKit_Internal
 
@@ -79,25 +79,53 @@ private struct MaterialHostingView<P: MaterialHostingProvider>: View {
     private let colorScheme: WKHostedMaterialColorScheme
     private let cornerRadius: CGFloat
 
+    #if os(macOS)
+    @State
+    private var shouldIncreaseContrast = false
+
+    @State
+    private var shouldReduceTransparency = false
+    #endif
+
     static func resolvedMaterialEffect(for type: WKHostedMaterialEffectType) -> Material? {
         switch type {
         case .none:
             return nil
-        case .blur:
-            return Material._hostedBlurMaterial
-        case .thinBlur:
-            return Material._hostedThinBlurMaterial
+        case .glass:
+            return ._glass(.regular)
+        case .clearGlass:
+            return ._glass(.clear)
+        case .subduedGlass:
+            return ._glass(.regular.forceSubdued())
+        case .mediaControlsGlass:
+            return ._glass(.regular.adaptive(false))
+        case .subduedMediaControlsGlass:
+            return ._glass(.avplayer.forceSubdued())
         @unknown default:
             return nil
         }
     }
 
-    init(content: P.Source, materialEffectType: WKHostedMaterialEffectType = .none, colorScheme: WKHostedMaterialColorScheme = .light, cornerRadius: CGFloat = 0) {
+    init(
+        content: P.Source,
+        materialEffectType: WKHostedMaterialEffectType = .none,
+        colorScheme: WKHostedMaterialColorScheme = .light,
+        cornerRadius: CGFloat = 0
+    ) {
         self.content = content
         self.materialEffectType = materialEffectType
         self.colorScheme = colorScheme
         self.cornerRadius = cornerRadius
     }
+
+    #if os(macOS)
+    private func updateAccessibilityState() {
+        shouldIncreaseContrast =
+            NSWorkspace.shared
+            .accessibilityDisplayShouldIncreaseContrast
+        shouldReduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+    }
+    #endif
 
     var body: some View {
         let view = P.view(for: content)
@@ -105,16 +133,27 @@ private struct MaterialHostingView<P: MaterialHostingProvider>: View {
         if let effect = MaterialHostingView<P>.resolvedMaterialEffect(for: materialEffectType) {
             AnyView(view.materialEffect(effect, in: .rect(cornerRadius: cornerRadius)))
                 .environment(\.colorScheme, colorScheme == .light ? .light : .dark)
+                #if os(macOS)
+            .environment(\._accessibilityReduceTransparency, shouldReduceTransparency)
+            .environment(\._colorSchemeContrast, shouldIncreaseContrast ? .increased : .standard)
+            .onAppear {
+                updateAccessibilityState()
+            }
+            .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification)) {
+                _ in
+                updateAccessibilityState()
+            }
+                #endif
         } else {
             view
         }
     }
 }
 
-private extension CALayer {
+extension CALayer {
     private static let materialHostingContentLayerKey = "_materialHostingContentLayerKey"
 
-    var materialHostingContentLayer: CALayer? {
+    fileprivate var materialHostingContentLayer: CALayer? {
         get {
             value(forKeyPath: Self.materialHostingContentLayerKey) as? CALayer
         }
@@ -124,16 +163,18 @@ private extension CALayer {
     }
 }
 
-@objc @implementation extension WKMaterialHostingSupport {
+@objc
+@implementation
+extension WKMaterialHostingSupport {
     class func isMaterialHostingAvailable() -> Bool {
         guard #_hasSymbol(Material.self) else {
             return false
         }
 
-        return true;
+        return true
     }
 
-    class func createHostingLayer() -> CALayer {
+    class func hostingLayer() -> CALayer {
         let contentLayer = CALayer()
 
         let hostingLayer = CAHostingLayer(rootView: MaterialHostingView<LayerBackedMaterialHostingProvider>(content: contentLayer))
@@ -143,7 +184,12 @@ private extension CALayer {
         return hostingLayer
     }
 
-    class func updateHostingLayer(_ layer: CALayer, materialEffectType: WKHostedMaterialEffectType, colorScheme: WKHostedMaterialColorScheme, cornerRadius: CGFloat) {
+    class func updateHostingLayer(
+        _ layer: CALayer,
+        materialEffectType: WKHostedMaterialEffectType,
+        colorScheme: WKHostedMaterialColorScheme,
+        cornerRadius: CGFloat
+    ) {
         guard let hostingLayer = layer as? CAHostingLayer<MaterialHostingView<LayerBackedMaterialHostingProvider>> else {
             assertionFailure("updateHostingLayer should only be called with a hosting layer.")
             return
@@ -154,29 +200,44 @@ private extension CALayer {
             return
         }
 
-        hostingLayer.rootView = MaterialHostingView<LayerBackedMaterialHostingProvider>(content: contentLayer, materialEffectType: materialEffectType, colorScheme: colorScheme, cornerRadius: cornerRadius)
+        hostingLayer.rootView = MaterialHostingView<LayerBackedMaterialHostingProvider>(
+            content: contentLayer,
+            materialEffectType: materialEffectType,
+            colorScheme: colorScheme,
+            cornerRadius: cornerRadius
+        )
     }
 
     class func contentLayer(forMaterialHostingLayer layer: CALayer) -> CALayer? {
         layer.materialHostingContentLayer
     }
 
-#if canImport(UIKit)
+    #if canImport(UIKit)
 
-    class func createHostingView(_ contentView: UIView) -> UIView {
+    class func hostingView(_ contentView: UIView) -> UIView {
         _UIHostingView(rootView: MaterialHostingView<ViewBackedMaterialHostingProvider>(content: contentView))
     }
 
-    class func updateHostingView(_ view: UIView, contentView: UIView, materialEffectType: WKHostedMaterialEffectType, colorScheme: WKHostedMaterialColorScheme, cornerRadius: CGFloat) {
+    class func updateHostingView(
+        _ view: UIView,
+        contentView: UIView,
+        materialEffectType: WKHostedMaterialEffectType,
+        colorScheme: WKHostedMaterialColorScheme,
+        cornerRadius: CGFloat
+    ) {
         guard let hostingView = view as? _UIHostingView<MaterialHostingView<ViewBackedMaterialHostingProvider>> else {
-            return;
+            return
         }
 
-        hostingView.rootView = MaterialHostingView<ViewBackedMaterialHostingProvider>(content: contentView, materialEffectType: materialEffectType, colorScheme: colorScheme, cornerRadius: cornerRadius)
+        hostingView.rootView = MaterialHostingView<ViewBackedMaterialHostingProvider>(
+            content: contentView,
+            materialEffectType: materialEffectType,
+            colorScheme: colorScheme,
+            cornerRadius: cornerRadius
+        )
     }
 
-#endif
-
+    #endif
 }
 
 #endif

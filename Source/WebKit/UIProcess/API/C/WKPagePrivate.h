@@ -143,9 +143,6 @@ WK_EXPORT void WKPageClearUserMediaState(WKPageRef page);
 WK_EXPORT void WKPageSetMediaCaptureEnabled(WKPageRef page, bool enabled);
 WK_EXPORT bool WKPageGetMediaCaptureEnabled(WKPageRef page);
 
-WK_EXPORT void WKPageDidAllowPointerLock(WKPageRef page);
-WK_EXPORT void WKPageDidDenyPointerLock(WKPageRef page);
-
 enum {
     kWKMediaIsNotPlaying = 0,
     kWKMediaIsPlayingAudio = 1 << 0,
@@ -237,6 +234,9 @@ typedef void (*WKPageSetTracksRepaintsForTestingFunction)(void* functionContext)
 WK_EXPORT void WKPageSetTracksRepaintsForTesting(WKPageRef page, void* context, bool trackRepaints, WKPageSetTracksRepaintsForTestingFunction completionHandler);
 typedef void (*WKPageDisplayAndTrackRepaintsForTestingFunction)(void* functionContext);
 WK_EXPORT void WKPageDisplayAndTrackRepaintsForTesting(WKPageRef page, void* context, WKPageDisplayAndTrackRepaintsForTestingFunction completionHandler);
+typedef void (*WKPageFindStringForTestingFunction)(bool found, void* functionContext);
+WK_EXPORT void WKPageFindStringForTesting(WKPageRef page, void* context, WKStringRef string, WKFindOptions options, unsigned maxMatchCount, WKPageFindStringForTestingFunction completionHandler);
+
 #ifdef __cplusplus
 }
 #endif

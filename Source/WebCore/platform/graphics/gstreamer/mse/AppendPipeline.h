@@ -36,6 +36,9 @@
 
 namespace WebCore {
 
+typedef MediaSourcePrivateGStreamer::StreamType StreamType;
+typedef MediaSourcePrivateGStreamer::RegisteredTrack RegisteredTrack;
+
 #if !LOG_DISABLED || ENABLE(ENCRYPTED_MEDIA)
 struct PadProbeInformation {
     AppendPipeline* appendPipeline;
@@ -57,9 +60,6 @@ public:
     MediaPlayerPrivateGStreamerMSE* playerPrivate() { return m_playerPrivate; }
 
 private:
-    // Similar to TrackPrivateBaseGStreamer::TrackType, but with a new value (Invalid) for when the codec is
-    // not supported on this system, which should result in ParsingFailed error being thrown in SourceBuffer.
-    enum StreamType { Audio, Video, Text, Unknown, Invalid };
 #ifndef GST_DISABLE_GST_DEBUG
     static const char * streamTypeToString(StreamType);
 #endif
@@ -90,7 +90,6 @@ private:
         GRefPtr<GstElement> encoder;
         GRefPtr<GstElement> appsink;
         GRefPtr<GstPad> entryPad; // Sink pad of the parser/GstIdentity.
-        GRefPtr<GstPad> encoderPad; // Sink pad of the encoder/GstIdentity.
         GRefPtr<GstPad> appsinkPad;
 
         RefPtr<WebCore::TrackPrivateBase> webKitTrack;
@@ -102,12 +101,13 @@ private:
         struct PadProbeInformation appsinkPadEventProbeInformation;
 #endif
 
-        void emplaceOptionalEncoderForFormat(GstBin*, const GRefPtr<GstCaps>&);
-        void emplaceOptionalParserForFormat(GstBin*, const GRefPtr<GstCaps>&);
+        void emplaceOptionalElementsForFormat(GstBin*, const GRefPtr<GstCaps>&);
         void initializeElements(AppendPipeline*, GstBin*);
         bool isLinked() const { return gst_pad_is_linked(entryPad.get()); }
     };
 
+    void configureOptionalDemuxerFromAnyThread();
+    void removeParserForDemuxerPad(const GRefPtr<GstPad>&);
     void handleErrorSyncMessage(GstMessage*);
     void handleNeedContextSyncMessage(GstMessage*);
     // For debug purposes only:
@@ -118,7 +118,7 @@ private:
     void handleErrorConditionFromStreamingThread();
 
     void hookTrackEvents(Track&);
-    static std::tuple<GRefPtr<GstCaps>, AppendPipeline::StreamType, FloatSize> parseDemuxerSrcPadCaps(GstCaps*);
+    static std::tuple<GRefPtr<GstCaps>, StreamType, FloatSize> parseDemuxerSrcPadCaps(GstCaps*);
     Ref<WebCore::TrackPrivateBase> makeWebKitTrack(Track& appendPipelineTrack, int trackIndex, TrackID);
     void appsinkCapsChanged(Track&);
     void appsinkNewSample(const Track&, GRefPtr<GstSample>&&);

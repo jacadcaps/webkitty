@@ -33,6 +33,7 @@
 #include "RemoteImageBufferSetIdentifier.h"
 #include "RenderingUpdateID.h"
 #include "WorkQueueMessageReceiver.h"
+#include <wtf/CheckedRef.h>
 #include <wtf/Identified.h>
 #include <wtf/Lock.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -68,6 +69,19 @@ public:
     virtual bool flushAndCollectHandles(HashMap<RemoteImageBufferSetIdentifier, std::unique_ptr<BufferSetBackendHandle>>&) = 0;
 };
 
+class ImageBufferSetClient {
+public:
+    virtual ~ImageBufferSetClient() = default;
+
+    // CheckedPtr interface
+    virtual uint32_t checkedPtrCount() const = 0;
+    virtual uint32_t checkedPtrCountWithoutThreadCheck() const = 0;
+    virtual void incrementCheckedPtrCount() const = 0;
+    virtual void decrementCheckedPtrCount() const = 0;
+
+    virtual void setNeedsDisplay() = 0;
+};
+
 // A RemoteImageBufferSet is an ImageBufferSet, where the actual ImageBuffers are owned by the GPU process.
 // To draw a frame, the consumer allocates a new RemoteDisplayListRecorderProxy and
 // asks the RemoteImageBufferSet set to map it to an appropriate new front
@@ -81,7 +95,7 @@ public:
 // probably can't while it uses batching for prepare and volatility.
 class RemoteImageBufferSetProxy : public IPC::WorkQueueMessageReceiver<WTF::DestructionThread::Any>, public Identified<RemoteImageBufferSetIdentifier> {
 public:
-    RemoteImageBufferSetProxy(RemoteRenderingBackendProxy&);
+    static Ref<RemoteImageBufferSetProxy> create(RemoteRenderingBackendProxy&, ImageBufferSetClient&);
     ~RemoteImageBufferSetProxy();
 
     OptionSet<BufferInSetType> requestedVolatility() { return m_requestedVolatility; }
@@ -90,20 +104,23 @@ public:
     void addRequestedVolatility(OptionSet<BufferInSetType> request);
     void setConfirmedVolatility(OptionSet<BufferInSetType> types);
 
+    void setNeedsDisplay();
+
 #if PLATFORM(COCOA)
+    void prepareToDisplay(const WebCore::Region& dirtyRegion, bool supportsPartialRepaint, bool hasEmptyDirtyRegion, bool drawingRequiresClearedPixels);
     void didPrepareForDisplay(ImageBufferSetPrepareBufferForDisplayOutputData, RenderingUpdateID);
 #endif
 
     WebCore::GraphicsContext& context();
-    bool hasContext() const { return !!m_displayListRecorder; }
+    bool hasContext() const { return !!m_context; }
 
-    WebCore::RenderingResourceIdentifier displayListResourceIdentifier() const { return m_displayListIdentifier; }
+    RemoteDisplayListRecorderIdentifier contextIdentifier() const { return m_contextIdentifier; }
 
     std::unique_ptr<ThreadSafeImageBufferSetFlusher> flushFrontBufferAsync(ThreadSafeImageBufferSetFlusher::FlushType);
 
     void setConfiguration(RemoteImageBufferSetConfiguration&&);
     void willPrepareForDisplay();
-    void remoteBufferSetWasDestroyed();
+    void disconnect();
 
 #if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
     std::optional<WebCore::DynamicContentScalingDisplayList> dynamicContentScalingDisplayList();
@@ -116,15 +133,17 @@ public:
     void close();
 
 private:
+    RemoteImageBufferSetProxy(RemoteRenderingBackendProxy&, ImageBufferSetClient&);
     template<typename T> auto send(T&& message);
     template<typename T> auto sendSync(T&& message);
     RefPtr<IPC::StreamClientConnection> connection() const;
     void didBecomeUnresponsive() const;
 
+    const RemoteDisplayListRecorderIdentifier m_contextIdentifier { RemoteDisplayListRecorderIdentifier::generate() };
     WeakPtr<RemoteRenderingBackendProxy> m_remoteRenderingBackendProxy;
+    std::optional<RemoteDisplayListRecorderProxy> m_context;
 
-    WebCore::RenderingResourceIdentifier m_displayListIdentifier;
-    std::unique_ptr<RemoteDisplayListRecorderProxy> m_displayListRecorder;
+    CheckedPtr<ImageBufferSetClient> m_client;
 
     OptionSet<BufferInSetType> m_requestedVolatility;
     OptionSet<BufferInSetType> m_confirmedVolatility;

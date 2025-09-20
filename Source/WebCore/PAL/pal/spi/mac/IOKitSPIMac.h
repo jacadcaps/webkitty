@@ -25,6 +25,8 @@
 
 #pragma once
 
+DECLARE_SYSTEM_HEADER
+
 #if PLATFORM(MAC)
 
 #import <IOKit/hid/IOHIDDevice.h>
@@ -90,6 +92,7 @@ typedef uint64_t IOHIDEventSenderID;
 
 
 enum {
+    kIOHIDEventScrollMomentumWillBegin = (1 << 3),
     kIOHIDEventScrollMomentumInterrupted = (1 << 4),
 };
 typedef uint8_t IOHIDEventScrollMomentumBits;

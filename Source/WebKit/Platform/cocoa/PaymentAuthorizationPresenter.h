@@ -60,7 +60,7 @@ class PaymentAuthorizationPresenter : public RefCountedAndCanMakeWeakPtr<Payment
     WTF_MAKE_NONCOPYABLE(PaymentAuthorizationPresenter);
 public:
     struct Client : public AbstractRefCountedAndCanMakeWeakPtr<Client> {
-        WTF_MAKE_STRUCT_FAST_ALLOCATED;
+        WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(Client);
 
         virtual ~Client() = default;
 
@@ -78,6 +78,7 @@ public:
 
     virtual ~PaymentAuthorizationPresenter() = default;
 
+    Client* client() { return m_client.get(); }
     RefPtr<Client> protectedClient() { return m_client.get(); }
 
     void completeMerchantValidation(const WebCore::PaymentMerchantSession&);

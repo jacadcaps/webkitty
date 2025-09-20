@@ -41,7 +41,7 @@ namespace WTR {
 
 RefPtr<AccessibilityUIElement> AccessibilityController::focusedElement(JSContextRef context)
 {
-    PlatformUIElement root = static_cast<PlatformUIElement>(WKAccessibilityRootObject(WKBundleFrameForJavaScriptContext(context)));
+    PlatformUIElement root = static_cast<PlatformUIElement>(_WKAccessibilityRootObjectForTesting(WKBundleFrameForJavaScriptContext(context)));
     auto rootElement = AccessibilityUIElement::create(root);
     return rootElement->focusedElement();
 }
@@ -101,7 +101,7 @@ void AccessibilityController::injectAccessibilityPreference(JSStringRef, JSStrin
 
 RefPtr<AccessibilityUIElement> AccessibilityController::accessibleElementById(JSContextRef context, JSStringRef idAttribute)
 {
-    PlatformUIElement root = static_cast<PlatformUIElement>(WKAccessibilityRootObject(WKBundleFrameForJavaScriptContext(context)));
+    PlatformUIElement root = static_cast<PlatformUIElement>(_WKAccessibilityRootObjectForTesting(WKBundleFrameForJavaScriptContext(context)));
 
     id result = findAccessibleObjectById(root, [NSString stringWithJSStringRef:idAttribute]);
     if (result)

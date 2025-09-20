@@ -168,8 +168,11 @@ static MTCoreMaterialRecipe materialRecipeForAppleVisualEffect(AppleVisualEffect
     case AppleVisualEffect::None:
         return PAL::get_CoreMaterial_MTCoreMaterialRecipeNone();
 #if HAVE(MATERIAL_HOSTING)
-    case AppleVisualEffect::HostedBlurMaterial:
-    case AppleVisualEffect::HostedThinBlurMaterial:
+    case AppleVisualEffect::GlassMaterial:
+    case AppleVisualEffect::GlassClearMaterial:
+    case AppleVisualEffect::GlassSubduedMaterial:
+    case AppleVisualEffect::GlassMediaControlsMaterial:
+    case AppleVisualEffect::GlassSubduedMediaControlsMaterial:
 #endif
     case AppleVisualEffect::VibrancyLabel:
     case AppleVisualEffect::VibrancySecondaryLabel:
@@ -207,8 +210,11 @@ static MTCoreMaterialVisualStyle materialVisualStyleForAppleVisualEffect(AppleVi
     case AppleVisualEffect::BlurThickMaterial:
     case AppleVisualEffect::BlurChromeMaterial:
 #if HAVE(MATERIAL_HOSTING)
-    case AppleVisualEffect::HostedBlurMaterial:
-    case AppleVisualEffect::HostedThinBlurMaterial:
+    case AppleVisualEffect::GlassMaterial:
+    case AppleVisualEffect::GlassClearMaterial:
+    case AppleVisualEffect::GlassSubduedMaterial:
+    case AppleVisualEffect::GlassMediaControlsMaterial:
+    case AppleVisualEffect::GlassSubduedMediaControlsMaterial:
 #endif
         ASSERT_NOT_REACHED();
         return nil;
@@ -235,8 +241,11 @@ static MTCoreMaterialVisualStyleCategory materialVisualStyleCategoryForAppleVisu
     case AppleVisualEffect::BlurThickMaterial:
     case AppleVisualEffect::BlurChromeMaterial:
 #if HAVE(MATERIAL_HOSTING)
-    case AppleVisualEffect::HostedBlurMaterial:
-    case AppleVisualEffect::HostedThinBlurMaterial:
+    case AppleVisualEffect::GlassMaterial:
+    case AppleVisualEffect::GlassClearMaterial:
+    case AppleVisualEffect::GlassSubduedMaterial:
+    case AppleVisualEffect::GlassMediaControlsMaterial:
+    case AppleVisualEffect::GlassSubduedMediaControlsMaterial:
 #endif
         ASSERT_NOT_REACHED();
         return nil;
@@ -248,10 +257,16 @@ static MTCoreMaterialVisualStyleCategory materialVisualStyleCategoryForAppleVisu
 static WKHostedMaterialEffectType hostedMaterialEffectTypeForAppleVisualEffect(AppleVisualEffect effect)
 {
     switch (effect) {
-    case AppleVisualEffect::HostedBlurMaterial:
-        return WKHostedMaterialEffectTypeBlur;
-    case AppleVisualEffect::HostedThinBlurMaterial:
-        return WKHostedMaterialEffectTypeThinBlur;
+    case AppleVisualEffect::GlassMaterial:
+        return WKHostedMaterialEffectTypeGlass;
+    case AppleVisualEffect::GlassClearMaterial:
+        return WKHostedMaterialEffectTypeClearGlass;
+    case AppleVisualEffect::GlassSubduedMaterial:
+        return WKHostedMaterialEffectTypeSubduedGlass;
+    case AppleVisualEffect::GlassMediaControlsMaterial:
+        return WKHostedMaterialEffectTypeMediaControlsGlass;
+    case AppleVisualEffect::GlassSubduedMediaControlsMaterial:
+        return WKHostedMaterialEffectTypeSubduedMediaControlsGlass;
     case AppleVisualEffect::None:
     case AppleVisualEffect::BlurUltraThinMaterial:
     case AppleVisualEffect::BlurThinMaterial:
@@ -285,7 +300,7 @@ static WKHostedMaterialColorScheme hostedMaterialColorSchemeForAppleVisualEffect
 
 static void applyVisualStylingToLayer(CALayer *layer, const AppleVisualEffectData& effectData)
 {
-    MTCoreMaterialRecipe recipe = materialRecipeForAppleVisualEffect(effectData.contextEffect, effectData.colorScheme);
+    RetainPtr recipe = materialRecipeForAppleVisualEffect(effectData.contextEffect, effectData.colorScheme);
     if ([recipe isEqualToString:PAL::get_CoreMaterial_MTCoreMaterialRecipeNone()]) {
         bool isDark = effectData.colorScheme == AppleVisualEffectData::ColorScheme::Dark;
 #if PLATFORM(VISION)
@@ -296,7 +311,7 @@ static void applyVisualStylingToLayer(CALayer *layer, const AppleVisualEffectDat
     }
 
     // Despite the name, MTVisualStylingCreateDictionaryRepresentation returns an autoreleased object.
-    RetainPtr visualStylingDescription = PAL::softLink_CoreMaterial_MTVisualStylingCreateDictionaryRepresentation(recipe, materialVisualStyleCategoryForAppleVisualEffect(effectData.effect), materialVisualStyleForAppleVisualEffect(effectData.effect), nil);
+    RetainPtr visualStylingDescription = PAL::softLink_CoreMaterial_MTVisualStylingCreateDictionaryRepresentation(recipe.get(), materialVisualStyleCategoryForAppleVisualEffect(effectData.effect), materialVisualStyleForAppleVisualEffect(effectData.effect), nil);
 
     RetainPtr<NSArray<NSDictionary<NSString *, id> *>> filterDescriptionsArray = [visualStylingDescription objectForKey:@"filters"];
     RetainPtr filterDescription = [filterDescriptionsArray firstObject];
@@ -368,7 +383,7 @@ static void updateCustomAppearance(CALayer *layer, GraphicsLayer::CustomAppearan
 #endif
 }
 
-void RemoteLayerTreePropertyApplier::applyPropertiesToLayer(CALayer *layer, RemoteLayerTreeNode* layerTreeNode, RemoteLayerTreeHost* layerTreeHost, const LayerProperties& properties, LayerContentsType layerContentsType)
+void RemoteLayerTreePropertyApplier::applyPropertiesToLayer(CALayer *layer, RemoteLayerTreeNode* layerTreeNode, RemoteLayerTreeHost* layerTreeHost, const LayerProperties& properties)
 {
     if (properties.changedProperties & LayerChange::PositionChanged) {
         layer.position = CGPointMake(properties.position.x(), properties.position.y());
@@ -407,7 +422,7 @@ void RemoteLayerTreePropertyApplier::applyPropertiesToLayer(CALayer *layer, Remo
         layer.masksToBounds = properties.masksToBounds;
 
     if (properties.changedProperties & LayerChange::NameChanged)
-        layer.name = properties.name;
+        layer.name = properties.name.createNSString().get();
 
     if (properties.changedProperties & LayerChange::BackgroundColorChanged)
         layer.backgroundColor = cgColorFromColor(properties.backgroundColor).get();
@@ -420,9 +435,6 @@ void RemoteLayerTreePropertyApplier::applyPropertiesToLayer(CALayer *layer, Remo
 
     if (properties.changedProperties & LayerChange::DoubleSidedChanged)
         layer.doubleSided = properties.doubleSided;
-
-    if (properties.changedProperties & LayerChange::OpaqueChanged)
-        layer.opaque = properties.opaque;
 
     if (properties.changedProperties & LayerChange::ContentsRectChanged)
         layer.contentsRect = properties.contentsRect;
@@ -476,17 +488,8 @@ void RemoteLayerTreePropertyApplier::applyPropertiesToLayer(CALayer *layer, Remo
     {
         auto* backingStore = properties.backingStoreOrProperties.properties.get();
         if (backingStore && properties.backingStoreAttached) {
-            std::optional<WebCore::RenderingResourceIdentifier> asyncContentsIdentifier;
-            UIView* hostingView = nil;
-            if (layerTreeNode) {
-                backingStore->updateCachedBuffers(*layerTreeNode, layerContentsType);
-                asyncContentsIdentifier = layerTreeNode->asyncContentsIdentifier();
-#if PLATFORM(IOS_FAMILY)
-                hostingView = layerTreeNode->uiView();
-#endif
-            }
-
-            backingStore->applyBackingStoreToLayer(layer, layerContentsType, asyncContentsIdentifier, layerTreeHost->replayDynamicContentScalingDisplayListsIntoBackingStore(), hostingView);
+            RELEASE_ASSERT(layerTreeNode);
+            layerTreeNode->applyBackingStore(layerTreeHost, *backingStore);
         } else
             [layer _web_clearContents];
     }
@@ -516,6 +519,12 @@ void RemoteLayerTreePropertyApplier::applyPropertiesToLayer(CALayer *layer, Remo
     if (properties.changedProperties & LayerChange::BackdropRootChanged)
         layer.shouldRasterize = properties.backdropRoot;
 
+    if (properties.changedProperties & LayerChange::TonemappingEnabledChanged) {
+#if HAVE(SUPPORT_HDR_DISPLAY_APIS)
+        layer.toneMapMode = properties.tonemappingEnabled ? CAToneMapModeIfSupported : CAToneMapModeNever;
+#endif
+    }
+
 #if HAVE(CORE_ANIMATION_SEPARATED_PORTALS)
     if (properties.changedProperties & LayerChange::SeparatedPortalChanged) {
         // FIXME: Implement SeparatedPortalChanged.
@@ -539,29 +548,17 @@ void RemoteLayerTreePropertyApplier::applyPropertiesToLayer(CALayer *layer, Remo
     }
 #endif
 
-    if (properties.changedProperties & LayerChange::ContentsFormatChanged) {
-        auto contentsFormat = properties.contentsFormat;
-        if (NSString *formatString = contentsFormatString(contentsFormat))
-            [layer setContentsFormat:formatString];
-#if ENABLE(PIXEL_FORMAT_RGBA16F)
-        if (contentsFormat == ContentsFormat::RGBA16F) {
-            [layer setWantsExtendedDynamicRangeContent:true];
-            [layer setToneMapMode:CAToneMapModeIfSupported];
-        }
-#endif
-    }
-
 #if HAVE(CORE_MATERIAL)
     if (properties.changedProperties & LayerChange::AppleVisualEffectChanged)
         updateAppleVisualEffect(layer, layerTreeNode, properties.appleVisualEffectData);
 #endif
 }
 
-void RemoteLayerTreePropertyApplier::applyProperties(RemoteLayerTreeNode& node, RemoteLayerTreeHost* layerTreeHost, const LayerProperties& properties, const RelatedLayerMap& relatedLayers, LayerContentsType layerContentsType)
+void RemoteLayerTreePropertyApplier::applyProperties(RemoteLayerTreeNode& node, RemoteLayerTreeHost* layerTreeHost, const LayerProperties& properties, const RelatedLayerMap& relatedLayers)
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
 
-    applyPropertiesToLayer(node.layer(), &node, layerTreeHost, properties, layerContentsType);
+    applyPropertiesToLayer(node.layer(), &node, layerTreeHost, properties);
     if (properties.changedProperties & LayerChange::EventRegionChanged)
         node.setEventRegion(properties.eventRegion);
     updateMask(node, properties, relatedLayers);
@@ -668,10 +665,10 @@ void RemoteLayerTreePropertyApplier::updateMask(RemoteLayerTreeNode& node, const
     if (!properties.changedProperties.contains(LayerChange::MaskLayerChanged))
         return;
 
-    auto maskOwnerLayer = node.layer();
+    RetainPtr maskOwnerLayer = node.layer();
 
     if (!properties.maskLayerID) {
-        maskOwnerLayer.mask = nullptr;
+        maskOwnerLayer.get().mask = nullptr;
         return;
     }
 
@@ -683,7 +680,7 @@ void RemoteLayerTreePropertyApplier::updateMask(RemoteLayerTreeNode& node, const
     RetainPtr maskLayer = maskNode->layer();
     [maskLayer removeFromSuperlayer];
 
-    maskOwnerLayer.mask = maskLayer.get();
+    maskOwnerLayer.get().mask = maskLayer.get();
 }
 
 #if PLATFORM(IOS_FAMILY)

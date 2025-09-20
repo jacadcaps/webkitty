@@ -170,6 +170,23 @@
         _didUpdateSidebar(sidebar);
 }
 
+
+- (void)_webExtensionController:(WKWebExtensionController *)controller createBookmarkWithParentIdentifier:(NSString *)parentId index:(NSNumber *)index url:(NSString *)url title:(NSString *)title forExtensionContext:(WKWebExtensionContext *)context completionHandler:(void (^)(NSObject<_WKWebExtensionBookmark> *, NSError *))completionHandler
+{
+    if (_createBookmarkWithParentIdentifier)
+        _createBookmarkWithParentIdentifier(parentId, index, url, title, completionHandler);
+    else if (completionHandler)
+        completionHandler(nil, nil);
+}
+
+- (void)_webExtensionController:(WKWebExtensionController *)controller bookmarksForExtensionContext:(WKWebExtensionContext *)context completionHandler:(void (^)(NSArray<NSObject<_WKWebExtensionBookmark> *> *, NSError *))completionHandler
+{
+    if (_bookmarksForExtensionContext)
+        _bookmarksForExtensionContext(completionHandler);
+    else if (completionHandler)
+        completionHandler(@[], nil);
+}
+
 @end
 
 #endif // ENABLE(WK_WEB_EXTENSIONS)

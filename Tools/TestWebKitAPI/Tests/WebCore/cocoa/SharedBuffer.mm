@@ -55,16 +55,18 @@ TEST_F(FragmentedSharedBufferTest, createNSDataArray)
 
         NSData *helloData = [NSData dataWithBytes:"hello" length:5];
         builder.append(span(helloData));
+        EXPECT_TRUE(builder.get()->isContiguous());
         expectDataArraysEqual(@[ helloData ], builder.get()->createNSDataArray().get());
 
         NSData *worldData = [NSData dataWithBytes:"world" length:5];
         builder.append((__bridge CFDataRef)worldData);
+        EXPECT_FALSE(builder.get()->isContiguous());
         expectDataArraysEqual(@[ helloData, worldData ], builder.get()->createNSDataArray().get());
 
         expectDataArraysEqual(@[ helloData ], SharedBuffer::create(helloData)->createNSDataArray().get());
         expectDataArraysEqual(@[ worldData ], SharedBuffer::create((__bridge CFDataRef)worldData)->createNSDataArray().get());
 
-        expectDataArraysEqual(@[ [NSData dataWithContentsOfFile:tempFilePath()] ], SharedBuffer::createWithContentsOfFile(tempFilePath())->createNSDataArray().get());
+        expectDataArraysEqual(@[ [NSData dataWithContentsOfFile:tempFilePath().createNSString().get()] ], SharedBuffer::createWithContentsOfFile(tempFilePath())->createNSDataArray().get());
     }
 }
 

@@ -31,17 +31,13 @@
 #import "CocoaImage.h"
 #import "Logging.h"
 #import "TransactionID.h"
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <WebCore/TextRecognitionResult.h>
+#import <pal/cocoa/VisionKitCoreSoftLink.h>
+#import <pal/cocoa/VisionSoftLink.h>
 #import <pal/spi/cocoa/FeatureFlagsSPI.h>
 #import <wtf/RobinHoodHashSet.h>
 #import <wtf/WorkQueue.h>
-
-#if HAVE(UNIFORM_TYPE_IDENTIFIERS_FRAMEWORK)
-#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
-#endif
-
-#import <pal/cocoa/VisionKitCoreSoftLink.h>
-#import <pal/cocoa/VisionSoftLink.h>
 
 #define CRLayoutDirectionTopToBottom 3
 
@@ -282,9 +278,9 @@ void requestVisualTranslation(CocoaImageAnalyzer *analyzer, NSURL *imageURL, con
             });
 
             if ([analysis respondsToSelector:@selector(translateFrom:to:withCompletion:)])
-                [analysis translateFrom:sourceLocale to:targetLocale withCompletion:completionBlock.get()];
+                [analysis translateFrom:sourceLocale.createNSString().get() to:targetLocale.createNSString().get() withCompletion:completionBlock.get()];
             else
-                [analysis translateTo:targetLocale withCompletion:completionBlock.get()];
+                [analysis translateTo:targetLocale.createNSString().get() withCompletion:completionBlock.get()];
         });
     }).get()];
 }

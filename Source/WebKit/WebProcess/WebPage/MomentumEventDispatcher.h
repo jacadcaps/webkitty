@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -55,7 +55,7 @@ class MomentumEventDispatcher {
     WTF_MAKE_TZONE_ALLOCATED(MomentumEventDispatcher);
 public:
     class Client : public CanMakeCheckedPtr<Client> {
-        WTF_MAKE_FAST_ALLOCATED;
+        WTF_DEPRECATED_MAKE_FAST_ALLOCATED(Client);
         WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(Client);
     friend class MomentumEventDispatcher;
     public:
@@ -181,7 +181,7 @@ private:
 
     mutable Lock m_accelerationCurvesLock;
     HashMap<WebCore::PageIdentifier, std::optional<ScrollingAccelerationCurve>> m_accelerationCurves WTF_GUARDED_BY_LOCK(m_accelerationCurvesLock);
-    CheckedRef<Client> m_client;
+    const CheckedRef<Client> m_client;
 };
 
 } // namespace WebKit

@@ -34,6 +34,7 @@
 #import "WebViewPrivate.h"
 #import <JavaScriptCore/InitializeThreading.h>
 #import <WebCore/BreakLines.h>
+#import <WebCore/Path.h>
 #import <WebCore/PathUtilities.h>
 #import <WebCore/ResourceRequest.h>
 #import <WebCore/Settings.h>
@@ -87,7 +88,7 @@ float WebKitGetMinimumZoomFontSize(void)
     return DEFAULT_VALUE_FOR_MinimumZoomFontSize;
 }
 
-int WebKitGetLastLineBreakInBuffer(UChar *characters, int position, int length)
+int WebKitGetLastLineBreakInBuffer(char16_t *characters, int position, int length)
 {
     unsigned lastBreakPos = position;
     unsigned breakPos = 0;

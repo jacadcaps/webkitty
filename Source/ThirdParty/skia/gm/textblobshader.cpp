@@ -41,7 +41,7 @@ private:
             const char* txt = "Blobber";
             size_t txtLen = strlen(txt);
             fGlyphs.append(font.countText(txt, txtLen, SkTextEncoding::kUTF8));
-            font.textToGlyphs(txt, txtLen, SkTextEncoding::kUTF8, fGlyphs.begin(), fGlyphs.size());
+            font.textToGlyphs(txt, txtLen, SkTextEncoding::kUTF8, fGlyphs);
         }
 
         SkFont font = ToolUtils::DefaultPortableFont();
@@ -111,7 +111,7 @@ private:
         }
     }
 
-    SkTDArray<uint16_t> fGlyphs;
+    SkTDArray<SkGlyphID> fGlyphs;
     sk_sp<SkTextBlob>   fBlob;
     sk_sp<SkShader>     fShader;
 

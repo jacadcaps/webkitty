@@ -20,24 +20,26 @@
 #include "src/gpu/graphite/geom/Geometry.h"
 #include "src/gpu/graphite/geom/Rect.h"
 #include "src/gpu/graphite/geom/Shape.h"
-#include "src/gpu/graphite/geom/Transform_graphite.h"
+#include "src/gpu/graphite/geom/Transform.h"
 
 namespace skgpu::graphite {
 
 CoverBoundsRenderStep::CoverBoundsRenderStep(RenderStep::RenderStepID renderStepID,
                                              DepthStencilSettings dsSettings)
         : RenderStep(renderStepID,
-                     Flags::kPerformsShading,
+                     Flags::kPerformsShading |
+                     Flags::kAppendInstances |
+                     Flags::kInverseFillsScissor,
                      /*uniforms=*/{},
                      PrimitiveType::kTriangleStrip,
                      dsSettings,
-                     /*vertexAttrs=*/  {},
-                     /*instanceAttrs=*/{{"bounds", VertexAttribType::kFloat4, SkSLType::kFloat4},
-                                        {"depth", VertexAttribType::kFloat, SkSLType::kFloat},
-                                        {"ssboIndices", VertexAttribType::kUInt2, SkSLType::kUInt2},
-                                        {"mat0", VertexAttribType::kFloat3, SkSLType::kFloat3},
-                                        {"mat1", VertexAttribType::kFloat3, SkSLType::kFloat3},
-                                        {"mat2", VertexAttribType::kFloat3, SkSLType::kFloat3}}) {}
+                     /*staticAttrs=*/ {},
+                     /*appendAttrs=*/{{"bounds", VertexAttribType::kFloat4, SkSLType::kFloat4},
+                                      {"depth", VertexAttribType::kFloat, SkSLType::kFloat},
+                                      {"ssboIndices", VertexAttribType::kUInt2, SkSLType::kUInt2},
+                                      {"mat0", VertexAttribType::kFloat3, SkSLType::kFloat3},
+                                      {"mat1", VertexAttribType::kFloat3, SkSLType::kFloat3},
+                                      {"mat2", VertexAttribType::kFloat3, SkSLType::kFloat3}}) {}
 
 CoverBoundsRenderStep::~CoverBoundsRenderStep() {}
 

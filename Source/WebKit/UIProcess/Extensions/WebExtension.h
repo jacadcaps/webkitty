@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022-2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2022-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,6 +34,7 @@
 #include "WebExtensionMatchPattern.h"
 #include <WebCore/FloatSize.h>
 #include <WebCore/Icon.h>
+#include <WebCore/UserContentTypes.h>
 #include <WebCore/UserStyleSheetTypes.h>
 #include <wtf/Forward.h>
 #include <wtf/HashSet.h>
@@ -59,9 +60,9 @@ class WebExtension : public API::ObjectImpl<API::Object::Type::WebExtension>, pu
     WTF_MAKE_NONCOPYABLE(WebExtension);
 
 public:
-    using IconCacheEntry = std::variant<RefPtr<WebCore::Icon>, Vector<double>>;
+    using IconCacheEntry = Variant<RefPtr<WebCore::Icon>, Vector<double>>;
     using IconsCache = HashMap<String, IconCacheEntry>;
-    using Resources = HashMap<String, std::variant<String, Ref<API::Data>>>;
+    using Resources = HashMap<String, Variant<String, Ref<API::Data>>>;
 
     template<typename... Args>
     static Ref<WebExtension> create(Args&&... args)
@@ -168,11 +169,11 @@ public:
         MatchPatternSet includeMatchPatterns;
         MatchPatternSet excludeMatchPatterns;
 
-        InjectionTime injectionTime = InjectionTime::DocumentIdle;
+        InjectionTime injectionTime { InjectionTime::DocumentIdle };
+        WebCore::UserContentMatchParentFrame matchParentFrame { WebCore::UserContentMatchParentFrame::Never };
 
         String identifier { ""_s };
 
-        bool matchesAboutBlank { false };
         bool injectsIntoAllFrames { false };
         WebExtensionContentWorldType contentWorldType { WebExtensionContentWorldType::ContentScript };
         WebCore::UserStyleLevel styleLevel { WebCore::UserStyleLevel::Author };
@@ -329,6 +330,7 @@ public:
     // These are not the currently allowed permission patterns.
     const MatchPatternSet& requestedPermissionMatchPatterns();
     const MatchPatternSet& optionalPermissionMatchPatterns();
+    const MatchPatternSet combinedPermissionMatchPatterns() { return requestedPermissionMatchPatterns().unionWith(optionalPermissionMatchPatterns()); }
 
     // Permission patterns requested by the extension in their manifest.
     // These determine which websites the extension can communicate with.

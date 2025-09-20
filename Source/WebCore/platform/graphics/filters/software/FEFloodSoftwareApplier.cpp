@@ -3,7 +3,7 @@
  * Copyright (C) 2004, 2005 Rob Buis <buis@kde.org>
  * Copyright (C) 2005 Eric Seidel <eric@webkit.org>
  * Copyright (C) 2009 Dirk Schulze <krit@webkit.org>
- * Copyright (C) 2021 Apple Inc.  All rights reserved.
+ * Copyright (C) 2021 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -33,7 +33,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(FEFloodSoftwareApplier);
 
-bool FEFloodSoftwareApplier::apply(const Filter&, const FilterImageVector&, FilterImage& result) const
+bool FEFloodSoftwareApplier::apply(const Filter&, std::span<const Ref<FilterImage>>, FilterImage& result) const
 {
     RefPtr resultImage = result.imageBuffer();
     if (!resultImage)

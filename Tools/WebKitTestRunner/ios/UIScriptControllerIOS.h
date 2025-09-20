@@ -128,7 +128,6 @@ private:
     JSObjectRef inputViewBounds() const override;
     JSRetainPtr<JSStringRef> scrollingTreeAsText() const override;
     JSRetainPtr<JSStringRef> uiViewTreeAsText() const override;
-    JSObjectRef propertiesOfLayerWithID(uint64_t layerID) const override;
     void simulateRotation(DeviceOrientation*, JSValueRef) override;
     void simulateRotationLikeSafari(DeviceOrientation*, JSValueRef) override;
     bool isShowingPopover() const override;
@@ -180,7 +179,6 @@ private:
 
     void beginInteractiveObscuredInsetsChange() final;
     void endInteractiveObscuredInsetsChange() final;
-    void setObscuredInsets(double top, double right, double bottom, double left) final;
 
     bool suppressSoftwareKeyboard() const final;
     void setSuppressSoftwareKeyboard(bool) final;

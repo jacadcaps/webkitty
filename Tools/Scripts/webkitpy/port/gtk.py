@@ -77,6 +77,9 @@ class GtkPort(GLibPort):
         environment = super(GtkPort, self).setup_environ_for_server(server_name)
         environment['LIBOVERLAY_SCROLLBAR'] = '0'
 
+        # Copy all GTK Scene Graph Kit (GSK) env vars
+        self._copy_values_from_environ_with_prefix(environment, 'GSK_')
+
         # Configure the software libgl renderer if jhbuild ready and we test inside a virtualized window system
         if self._driver_class() in [XvfbDriver, WestonDriver] and (self._should_use_jhbuild() or self._is_flatpak()):
             if self._should_use_jhbuild():
@@ -95,6 +98,9 @@ class GtkPort(GLibPort):
                 environment['LIBGL_DRIVERS_PATH'] = dri_libgl_path
             else:
                 _log.warning("Can't find Gallium llvmpipe driver. Try to run update-webkitgtk-libs or update-webkit-flatpak")
+
+        # Gtk uses hybrid painting mode by default (preferring GPU) -- for deterministic tests we always want to use the GPU for Gtk.
+        environment['WEBKIT_SKIA_CPU_PAINTING_THREADS'] = '0'
         return environment
 
     def _generate_all_test_configurations(self):
@@ -172,8 +178,11 @@ class GtkPort(GLibPort):
         configuration['version_name'] = self._display_server.capitalize() if self._display_server else 'Xvfb'
         return configuration
 
+    def get_browser_path(self, browser_name):
+        return self._build_path('bin', browser_name)
+
     def run_minibrowser(self, args):
-        miniBrowser = self._build_path('bin', 'MiniBrowser')
+        miniBrowser = self.get_browser_path('MiniBrowser')
         if not self._filesystem.isfile(miniBrowser):
             print("%s not found... Did you run build-webkit?" % miniBrowser)
             return 1

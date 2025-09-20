@@ -391,16 +391,18 @@ bool TestController::platformResetStateToConsistentValues(const TestOptions& opt
         [scrollView setZoomScale:1 animated:NO];
         scrollView.firstResponderKeyboardAvoidanceEnabled = YES;
 
-        auto contentInsetTop = options.contentInsetTop();
-        if (auto contentInset = scrollView.contentInset; contentInset.top != contentInsetTop) {
-            contentInset.top = contentInsetTop;
-            scrollView.contentInset = contentInset;
+        auto insetsToRestore = UIEdgeInsetsMake(options.contentInsetTop(), 0, 0, 0);
+        if (auto contentInset = scrollView.contentInset; !UIEdgeInsetsEqualToEdgeInsets(contentInset, insetsToRestore)) {
+            scrollView.contentInset = insetsToRestore;
             scrollView.contentOffset = CGPointMake(-contentInset.left, -contentInset.top);
         }
 
-        auto obscuredInsetTop = options.obscuredInsetTop();
-        if (auto obscuredInset = webView._obscuredInsets; obscuredInset.top != obscuredInsetTop) {
-            obscuredInset.top = obscuredInsetTop;
+        auto newObscuredInsetTop = options.obscuredInsetTop();
+        auto newObscuredInsetLeft = options.obscuredInsetLeft();
+        auto obscuredInset = webView._obscuredInsets;
+        if (obscuredInset.top != newObscuredInsetTop || obscuredInset.left != newObscuredInsetLeft) {
+            obscuredInset.top = newObscuredInsetTop;
+            obscuredInset.left = newObscuredInsetLeft;
             webView._obscuredInsets = obscuredInset;
         }
 
@@ -529,9 +531,12 @@ const char* TestController::platformLibraryPathForTesting()
     return [platformLibraryPath.get() UTF8String];
 }
 
-void TestController::setHidden(bool)
+void TestController::setHidden(bool hidden)
 {
-    // FIXME: implement for iOS
+    if (hidden)
+        mainWebView()->removeFromWindow();
+    else
+        mainWebView()->addToWindow();
 }
 
 static UIKeyboardInputMode *swizzleCurrentInputMode()
@@ -552,7 +557,7 @@ unsigned TestController::keyboardUpdateForChangedSelectionCount() const
 void TestController::setKeyboardInputModeIdentifier(const String& identifier)
 {
     m_inputModeSwizzlers.clear();
-    m_overriddenKeyboardInputMode = [UIKeyboardInputMode keyboardInputModeWithIdentifier:identifier];
+    m_overriddenKeyboardInputMode = [UIKeyboardInputMode keyboardInputModeWithIdentifier:identifier.createNSString().get()];
     if (!m_overriddenKeyboardInputMode) {
         ASSERT_NOT_REACHED();
         return;

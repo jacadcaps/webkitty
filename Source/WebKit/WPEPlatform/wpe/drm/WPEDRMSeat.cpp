@@ -26,6 +26,7 @@
 #include "config.h"
 #include "WPEDRMSeat.h"
 
+#include "GRefPtrWPE.h"
 #include "WPEDRMSession.h"
 #include "WPEKeymapXKB.h"
 #include "WPESettings.h"
@@ -219,10 +220,9 @@ void Seat::handlePointerMotionEvent(struct libinput_event_pointer* event)
     m_pointer.y = y;
     wpeViewDRMUpdateCursor(WPE_VIEW_DRM(m_view.get()), m_pointer.x, m_pointer.y);
 
-    auto* wpeEvent = wpe_event_pointer_move_new(WPE_EVENT_POINTER_MOVE, m_view.get(), m_pointer.source, m_pointer.time, modifiers(),
-        m_pointer.x / scale, m_pointer.y / scale, deltaX / scale, deltaY / scale);
-    wpe_view_event(m_view.get(), wpeEvent);
-    wpe_event_unref(wpeEvent);
+    GRefPtr<WPEEvent> wpeEvent = adoptGRef(wpe_event_pointer_move_new(WPE_EVENT_POINTER_MOVE, m_view.get(), m_pointer.source, m_pointer.time, modifiers(),
+        m_pointer.x / scale, m_pointer.y / scale, deltaX / scale, deltaY / scale));
+    wpe_view_event(m_view.get(), wpeEvent.get());
 }
 
 void Seat::handlePointerButtonEvent(struct libinput_event_pointer* event)
@@ -277,10 +277,9 @@ void Seat::handlePointerButtonEvent(struct libinput_event_pointer* event)
 
     auto scale = wpe_view_get_scale(m_view.get());
     unsigned pressCount = state == LIBINPUT_BUTTON_STATE_PRESSED ? wpe_view_compute_press_count(m_view.get(), m_pointer.x / scale, m_pointer.y / scale, button, m_pointer.time) : 0;
-    auto* wpeEvent = wpe_event_pointer_button_new(state == LIBINPUT_BUTTON_STATE_PRESSED ? WPE_EVENT_POINTER_DOWN : WPE_EVENT_POINTER_UP, m_view.get(), m_pointer.source,
-        m_pointer.time, modifiers(), button, m_pointer.x / scale, m_pointer.y / scale, pressCount);
-    wpe_view_event(m_view.get(), wpeEvent);
-    wpe_event_unref(wpeEvent);
+    GRefPtr<WPEEvent> wpeEvent = adoptGRef(wpe_event_pointer_button_new(state == LIBINPUT_BUTTON_STATE_PRESSED ? WPE_EVENT_POINTER_DOWN : WPE_EVENT_POINTER_UP, m_view.get(), m_pointer.source,
+        m_pointer.time, modifiers(), button, m_pointer.x / scale, m_pointer.y / scale, pressCount));
+    wpe_view_event(m_view.get(), wpeEvent.get());
 }
 
 void Seat::handlePointerScrollWheelEvent(struct libinput_event_pointer* event)
@@ -301,10 +300,9 @@ void Seat::handlePointerScrollWheelEvent(struct libinput_event_pointer* event)
     m_pointer.time = libinput_event_pointer_get_time(event);
 
     auto scale = wpe_view_get_scale(m_view.get());
-    auto* wpeEvent = wpe_event_scroll_new(m_view.get(), WPE_INPUT_SOURCE_MOUSE, m_pointer.time, modifiers(), -valueX / 120, -valueY / 120,
-        FALSE, FALSE, m_pointer.x / scale, m_pointer.y / scale);
-    wpe_view_event(m_view.get(), wpeEvent);
-    wpe_event_unref(wpeEvent);
+    GRefPtr<WPEEvent> wpeEvent = adoptGRef(wpe_event_scroll_new(m_view.get(), WPE_INPUT_SOURCE_MOUSE, m_pointer.time, modifiers(), -valueX / 120, -valueY / 120,
+        FALSE, FALSE, m_pointer.x / scale, m_pointer.y / scale));
+    wpe_view_event(m_view.get(), wpeEvent.get());
 }
 
 void Seat::handlePointerScrollContinuousEvent(struct libinput_event_pointer* event, WPEInputSource source)
@@ -334,10 +332,9 @@ void Seat::handlePointerScrollContinuousEvent(struct libinput_event_pointer* eve
     m_pointer.time = libinput_event_pointer_get_time(event);
 
     auto scale = wpe_view_get_scale(m_view.get());
-    auto* wpeEvent = wpe_event_scroll_new(m_view.get(), source, m_pointer.time, modifiers(), deltaX, deltaY,
-        TRUE, finishedHorizontal && finishedVertical, m_pointer.x / scale, m_pointer.y / scale);
-    wpe_view_event(m_view.get(), wpeEvent);
-    wpe_event_unref(wpeEvent);
+    GRefPtr<WPEEvent> wpeEvent = adoptGRef(wpe_event_scroll_new(m_view.get(), source, m_pointer.time, modifiers(), deltaX, deltaY,
+        TRUE, finishedHorizontal && finishedVertical, m_pointer.x / scale, m_pointer.y / scale));
+    wpe_view_event(m_view.get(), wpeEvent.get());
 }
 
 void Seat::handleKeyEvent(struct libinput_event_keyboard* event)
@@ -383,10 +380,9 @@ void Seat::handleKey(uint32_t time, uint32_t key, bool pressed, bool fromRepeat)
         return;
 
     GRefPtr<WPEView> view = m_view.get();
-    auto* event = wpe_event_keyboard_new(pressed ? WPE_EVENT_KEYBOARD_KEY_DOWN : WPE_EVENT_KEYBOARD_KEY_UP, view.get(), m_keyboard.source, time,
-        modifiers(), key, keyval);
-    wpe_view_event(view.get(), event);
-    wpe_event_unref(event);
+    GRefPtr<WPEEvent> event = adoptGRef(wpe_event_keyboard_new(pressed ? WPE_EVENT_KEYBOARD_KEY_DOWN : WPE_EVENT_KEYBOARD_KEY_UP, view.get(), m_keyboard.source, time,
+        modifiers(), key, keyval));
+    wpe_view_event(view.get(), event.get());
 
     auto* xkbKeymap = wpe_keymap_xkb_get_xkb_keymap(keymap);
     if (!xkb_keymap_key_repeats(xkbKeymap, key))
@@ -450,9 +446,8 @@ void Seat::handleTouchDownEvent(struct libinput_event_touch* event)
     double y = libinput_event_touch_get_y_transformed(event, wpe_view_get_height(m_view.get()));
     m_touch.points.add(id, std::pair<double, double>(x, y));
 
-    auto* wpeEvent = wpe_event_touch_new(WPE_EVENT_TOUCH_DOWN, m_view.get(), m_touch.source, m_touch.time, modifiers(), id, x, y);
-    wpe_view_event(m_view.get(), wpeEvent);
-    wpe_event_unref(wpeEvent);
+    GRefPtr<WPEEvent> wpeEvent = adoptGRef(wpe_event_touch_new(WPE_EVENT_TOUCH_DOWN, m_view.get(), m_touch.source, m_touch.time, modifiers(), id, x, y));
+    wpe_view_event(m_view.get(), wpeEvent.get());
 }
 
 void Seat::handleTouchUpEvent(struct libinput_event_touch* event)
@@ -467,9 +462,8 @@ void Seat::handleTouchUpEvent(struct libinput_event_touch* event)
 
     m_touch.time = libinput_event_touch_get_time(event);
 
-    auto* wpeEvent = wpe_event_touch_new(WPE_EVENT_TOUCH_UP, m_view.get(), m_touch.source, m_touch.time, modifiers(), id, iter->value.first, iter->value.second);
-    wpe_view_event(m_view.get(), wpeEvent);
-    wpe_event_unref(wpeEvent);
+    GRefPtr<WPEEvent> wpeEvent = adoptGRef(wpe_event_touch_new(WPE_EVENT_TOUCH_UP, m_view.get(), m_touch.source, m_touch.time, modifiers(), id, iter->value.first, iter->value.second));
+    wpe_view_event(m_view.get(), wpeEvent.get());
 
     m_touch.points.remove(id);
 }
@@ -490,9 +484,8 @@ void Seat::handleTouchMotionEvent(struct libinput_event_touch* event)
     double y = libinput_event_touch_get_y_transformed(event, wpe_view_get_height(m_view.get()));
     iter->value = { x, y };
 
-    auto* wpeEvent = wpe_event_touch_new(WPE_EVENT_TOUCH_MOVE, m_view.get(), m_touch.source, m_touch.time, modifiers(), id, x, y);
-    wpe_view_event(m_view.get(), wpeEvent);
-    wpe_event_unref(wpeEvent);
+    GRefPtr<WPEEvent> wpeEvent = adoptGRef(wpe_event_touch_new(WPE_EVENT_TOUCH_MOVE, m_view.get(), m_touch.source, m_touch.time, modifiers(), id, x, y));
+    wpe_view_event(m_view.get(), wpeEvent.get());
 }
 
 void Seat::handleTouchCancelEvent(struct libinput_event_touch*)
@@ -501,9 +494,8 @@ void Seat::handleTouchCancelEvent(struct libinput_event_touch*)
         return;
 
     for (const auto& iter : m_touch.points) {
-        auto* wpeEvent = wpe_event_touch_new(WPE_EVENT_TOUCH_CANCEL, m_view.get(), m_touch.source, 0, modifiers(), iter.key, iter.value.first, iter.value.second);
-        wpe_view_event(m_view.get(), wpeEvent);
-        wpe_event_unref(wpeEvent);
+        GRefPtr<WPEEvent> wpeEvent = adoptGRef(wpe_event_touch_new(WPE_EVENT_TOUCH_CANCEL, m_view.get(), m_touch.source, 0, modifiers(), iter.key, iter.value.first, iter.value.second));
+        wpe_view_event(m_view.get(), wpeEvent.get());
     }
     m_touch.points.clear();
 }

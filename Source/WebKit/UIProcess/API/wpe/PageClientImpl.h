@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "DefaultUndoController.h"
 #include "PageClient.h"
 #include "WebFullScreenManagerProxy.h"
 #include <wtf/TZoneMalloc.h>
@@ -87,7 +88,7 @@ private:
     WebCore::IntSize viewSize() override;
     bool isViewWindowActive() override;
     bool isViewFocused() override;
-    bool isViewVisible() override;
+    bool isActiveViewVisible() override;
     bool isViewInWindow() override;
 
     void processDidExit() override;
@@ -118,7 +119,7 @@ private:
 
     void doneWithKeyEvent(const NativeWebKeyboardEvent&, bool) override;
 #if ENABLE(TOUCH_EVENTS)
-    void doneWithTouchEvent(const NativeWebTouchEvent&, bool) override;
+    void doneWithTouchEvent(const WebTouchEvent&, bool) override;
 #endif
     void wheelEventWasNotHandledByWebCore(const NativeWebWheelEvent&) override;
 
@@ -153,6 +154,7 @@ private:
     void didSameDocumentNavigationForMainFrame(SameDocumentNavigationType) override;
 
     void didChangeBackgroundColor() override;
+    void themeColorDidChange() override;
     void isPlayingAudioWillChange() final { }
     void isPlayingAudioDidChange() final { }
 
@@ -178,6 +180,8 @@ private:
 
     WebCore::UserInterfaceLayoutDirection userInterfaceLayoutDirection() override;
 
+    bool effectiveAppearanceIsDark() const override;
+
     void didChangeWebPageID() const override;
 
     void selectionDidChange() override;
@@ -185,6 +189,7 @@ private:
     WebKitWebResourceLoadManager* webResourceLoadManager() override;
 
     WKWPE::View& m_view;
+    DefaultUndoController m_undoController;
 #if ENABLE(FULLSCREEN_API)
     std::unique_ptr<WebFullScreenManagerProxyClient> m_fullscreenClientForTesting;
 #endif

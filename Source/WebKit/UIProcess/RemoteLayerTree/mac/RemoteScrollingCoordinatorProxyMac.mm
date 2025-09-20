@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2022-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -37,6 +37,7 @@
 #import <WebCore/ScrollingStateOverflowScrollingNode.h>
 #import <WebCore/ScrollingStatePluginScrollingNode.h>
 #import <WebCore/ScrollingStatePositionedNode.h>
+#import <WebCore/ScrollingStateStickyNode.h>
 #import <WebCore/ScrollingStateTree.h>
 #import <WebCore/ScrollingTreeFrameScrollingNode.h>
 #import <WebCore/ScrollingTreeOverflowScrollProxyNode.h>
@@ -116,7 +117,7 @@ void RemoteScrollingCoordinatorProxyMac::hasNodeWithAnimatedScrollChanged(bool h
 #if ENABLE(SCROLLING_THREAD)
     m_eventDispatcher->hasNodeWithAnimatedScrollChanged(hasAnimatedScrolls);
 #else
-    auto* drawingArea = dynamicDowncast<RemoteLayerTreeDrawingAreaProxy>(webPageProxy().drawingArea());
+    RefPtr drawingArea = dynamicDowncast<RemoteLayerTreeDrawingAreaProxy>(webPageProxy().drawingArea());
     if (!drawingArea)
         return;
 
@@ -128,7 +129,9 @@ void RemoteScrollingCoordinatorProxyMac::setRubberBandingInProgressForNode(Scrol
 {
     if (isRubberBanding) {
         if (scrollingTree().scrollingPerformanceTestingEnabled()) {
+#if ENABLE(THREADED_ANIMATION_RESOLUTION)
             m_eventDispatcher->didStartRubberbanding();
+#endif
             protectedWebPageProxy()->logScrollingEvent(static_cast<uint32_t>(PerformanceLoggingClient::ScrollingEvent::StartedRubberbanding), MonotonicTime::now(), 0);
         }
         m_uiState.addNodeWithActiveRubberband(nodeID);
@@ -245,7 +248,13 @@ void RemoteScrollingCoordinatorProxyMac::connectStateNodeLayers(ScrollingStateTr
         case ScrollingNodeType::FrameHosting:
         case ScrollingNodeType::PluginHosting:
         case ScrollingNodeType::Fixed:
-        case ScrollingNodeType::Sticky:
+        case ScrollingNodeType::Sticky: {
+            if (RefPtr stickyStateNode = dynamicDowncast<ScrollingStateStickyNode>(currNode)) {
+                if (stickyStateNode->hasChangedProperty(ScrollingStateNode::Property::ViewportAnchorLayer))
+                    stickyStateNode->setViewportAnchorLayer(layerTreeHost.layerForID(stickyStateNode->viewportAnchorLayer().layerID()));
+            }
+            break;
+        }
         case ScrollingNodeType::Positioned:
             break;
         }

@@ -30,15 +30,12 @@
 #import <PDFKit/PDFKit.h>
 
 #import <wtf/SoftLinking.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
 
 SOFT_LINK_FRAMEWORK_FOR_HEADER(WebKit, PDFKit)
 
-// FIXME (rdar://133488399): Weak link PDFKit on tvOS.
-#if PLATFORM(APPLETV)
-SOFT_LINK_CLASS_FOR_HEADER(WebKit, PDFHostViewController)
-#endif
-
 SOFT_LINK_CLASS_FOR_HEADER(WebKit, PDFActionResetForm)
+SOFT_LINK_CLASS_FOR_HEADER(WebKit, PDFActionNamed)
 SOFT_LINK_CLASS_FOR_HEADER(WebKit, PDFDocument)
 SOFT_LINK_CLASS_FOR_HEADER(WebKit, PDFLayerController)
 SOFT_LINK_CLASS_FOR_HEADER(WebKit, PDFSelection)
@@ -55,5 +52,8 @@ SOFT_LINK_CONSTANT_FOR_HEADER(WebKit, PDFKit, PDFAnnotationWidgetSubtypeButton, 
 SOFT_LINK_CONSTANT_FOR_HEADER(WebKit, PDFKit, PDFAnnotationWidgetSubtypeChoice, NSString *)
 SOFT_LINK_CONSTANT_FOR_HEADER(WebKit, PDFKit, PDFAnnotationWidgetSubtypeSignature, NSString *)
 SOFT_LINK_CONSTANT_FOR_HEADER(WebKit, PDFKit, PDFAnnotationWidgetSubtypeText, NSString *)
+
+SPECIALIZE_OBJC_TYPE_TRAITS(PDFActionResetForm, WebKit::getPDFActionResetFormClass())
+SPECIALIZE_OBJC_TYPE_TRAITS(PDFActionNamed, WebKit::getPDFActionNamedClass())
 
 #endif // HAVE(PDFKIT)

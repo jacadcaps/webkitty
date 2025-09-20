@@ -45,7 +45,7 @@ from webkitpy.test.runner import Runner
 from webkitpy.results.upload import Upload
 from webkitpy.results.options import upload_options
 
-from webkitcorepy import StringIO
+from webkitcorepy import AutoInstall, Package, StringIO, Version
 
 _log = logging.getLogger(__name__)
 
@@ -60,6 +60,15 @@ def main():
     up = os.path.dirname
     _webkit_root = up(up(up(up(up(os.path.abspath(__file__))))))
 
+    # Register local packages that webkitpy only cares about here.
+    AutoInstall.register(Package('reporelaypy', Version(0, 4, 1)), local=True)
+    AutoInstall.register(Package('webkitflaskpy', Version(0, 3, 0)), local=True)
+
+    # Register testing-only packages.
+    AutoInstall.register(Package('mypy', Version(1, 16, 1)))
+    AutoInstall.register(Package('mypy_extensions', Version(1, 1, 0)))
+    AutoInstall.register(Package('pathspec', Version(0, 12, 1)))
+
     tester = Tester()
     tester.add_tree(os.path.join(_webkit_root, 'Tools', 'Scripts'), 'webkitpy')
     tester.add_tree(os.path.join(_webkit_root, 'Tools', 'Scripts', 'libraries', 'webkitcorepy'), 'webkitcorepy')
@@ -67,6 +76,7 @@ def main():
     tester.add_tree(os.path.join(_webkit_root, 'Tools', 'Scripts', 'libraries', 'webkitscmpy'), 'webkitscmpy')
     tester.add_tree(os.path.join(_webkit_root, 'Tools', 'Scripts', 'libraries', 'webkitflaskpy'), 'webkitflaskpy')
     tester.add_tree(os.path.join(_webkit_root, 'Tools', 'Scripts', 'libraries', 'reporelaypy'), 'reporelaypy')
+    tester.add_tree(os.path.join(_webkit_root, 'Tools', 'Scripts', 'libraries', 'webkitapipy'), 'webkitapipy')
     tester.add_tree(os.path.join(_webkit_root, 'Source', 'WebKit', 'Scripts'), 'webkit')
 
     tester.skip(('webkitpy.common.checkout.scm.scm_unittest',), 'are really, really, slow', 31818)
@@ -196,14 +206,6 @@ class Tester(object):
     def _run_tests(self, names):
         # Make sure PYTHONPATH is set up properly.
         sys.path = self.finder.additional_paths(sys.path) + sys.path
-
-        from webkitcorepy import AutoInstall
-
-        # Force registration of all autoinstalled packages.
-        if any([n.startswith('reporelaypy') for n in names]):
-            import reporelaypy
-        if any([n.startswith('webkitflaskpy') for n in names]):
-            import webkitflaskpy
 
         AutoInstall.install_everything()
 
@@ -375,12 +377,6 @@ class _Loader(unittest.TestLoader):
     test_method_prefixes = []
 
     def getTestCaseNames(self, testCaseClass):
-        should_skip_class_method = getattr(testCaseClass, "shouldSkip", None)
-        if callable(should_skip_class_method):
-            if testCaseClass.shouldSkip():
-                _log.info('Skipping tests in %s' % (testCaseClass.__name__))
-                return []
-
         def isTestMethod(attrname, testCaseClass=testCaseClass):
             if not hasattr(getattr(testCaseClass, attrname), '__call__'):
                 return False

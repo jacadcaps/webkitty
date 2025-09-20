@@ -22,11 +22,14 @@
 
 #include "APISerializedScriptValue.h"
 #include "InjectUserScriptImmediately.h"
+#include "JavaScriptEvaluationResult.h"
 #include "WebKitInitialize.h"
 #include "WebKitUserContentManagerPrivate.h"
 #include "WebKitUserContentPrivate.h"
 #include "WebKitWebContextPrivate.h"
 #include "WebScriptMessageHandler.h"
+#include <jsc/JSCContextPrivate.h>
+#include <jsc/JSCValuePrivate.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/glib/GRefPtr.h>
@@ -280,7 +283,7 @@ void webkit_user_content_manager_remove_all_scripts(WebKitUserContentManager* ma
  * Since: 2.40
  */
 struct _WebKitScriptMessageReply {
-    _WebKitScriptMessageReply(WTF::Function<void(API::SerializedScriptValue*, const String&)>&& completionHandler)
+    _WebKitScriptMessageReply(WTF::Function<void(Expected<JavaScriptEvaluationResult, String>&&)>&& completionHandler)
         : completionHandler(WTFMove(completionHandler))
         , referenceCount(1)
     {
@@ -288,24 +291,25 @@ struct _WebKitScriptMessageReply {
 
     void sendValue(JSCValue* value)
     {
-        auto serializedValue = API::SerializedScriptValue::createFromJSCValue(value);
-        completionHandler(serializedValue.get(), { });
+        if (auto result = JavaScriptEvaluationResult::extract(API::SerializedScriptValue::deserializationContext().get(), jscValueGetJSValue(value)))
+            return completionHandler(WTFMove(*result));
+        completionHandler(makeUnexpected(String()));
     }
 
     void sendErrorMessage(const char* errorMessage)
     {
-        completionHandler(nullptr, String::fromUTF8(errorMessage));
+        completionHandler(makeUnexpected(String::fromUTF8(errorMessage)));
     }
 
     ~_WebKitScriptMessageReply()
     {
         if (completionHandler) {
-            auto value = adoptGRef(jsc_value_new_undefined(API::SerializedScriptValue::sharedJSCContext()));
+            auto value = adoptGRef(jsc_value_new_undefined(jscContextGetOrCreate(API::SerializedScriptValue::deserializationContext().get()).get()));
             sendValue(value.get());
         }
     }
 
-    WTF::CompletionHandler<void(API::SerializedScriptValue*, const String&)> completionHandler;
+    WTF::CompletionHandler<void(Expected<JavaScriptEvaluationResult, String>&&)> completionHandler;
     int referenceCount;
 };
 
@@ -350,7 +354,7 @@ void webkit_script_message_reply_unref(WebKitScriptMessageReply* scriptMessageRe
     }
 }
 
-WebKitScriptMessageReply* webKitScriptMessageReplyCreate(WTF::Function<void(API::SerializedScriptValue*, const String&)>&& completionHandler)
+WebKitScriptMessageReply* webKitScriptMessageReplyCreate(WTF::Function<void(Expected<JavaScriptEvaluationResult, String>&&)>&& completionHandler)
 {
     WebKitScriptMessageReply* scriptMessageReply = static_cast<WebKitScriptMessageReply*>(fastMalloc(sizeof(WebKitScriptMessageReply)));
     new (scriptMessageReply) WebKitScriptMessageReply(WTFMove(completionHandler));
@@ -405,7 +409,7 @@ public:
     {
     }
 
-    void didPostMessage(WebPageProxy&, FrameInfoData&&, API::ContentWorld&, WebCore::SerializedScriptValue& serializedScriptValue) override
+    void didPostMessage(WebPageProxy&, FrameInfoData&&, API::ContentWorld&, JavaScriptEvaluationResult&& jsMessage) override
     {
         if (!m_manager) {
             g_critical("Script message %s received after the WebKitUserContentManager has been destroyed. You must unregister the message handler!", g_quark_to_string(m_handlerName));
@@ -413,10 +417,10 @@ public:
         }
 
 #if ENABLE(2022_GLIB_API)
-        GRefPtr<JSCValue> value = API::SerializedScriptValue::deserialize(serializedScriptValue);
+        GRefPtr<JSCValue> value = jsMessage.toJSC();
         g_signal_emit(m_manager.get(), signals[SCRIPT_MESSAGE_RECEIVED], m_handlerName, value.get());
 #else
-        WebKitJavascriptResult* jsResult = webkitJavascriptResultCreate(serializedScriptValue);
+        WebKitJavascriptResult* jsResult = webkitJavascriptResultCreate(WTFMove(jsMessage));
         g_signal_emit(m_manager.get(), signals[SCRIPT_MESSAGE_RECEIVED], m_handlerName, jsResult);
         webkit_javascript_result_unref(jsResult);
 #endif
@@ -427,7 +431,7 @@ public:
         return m_supportsAsyncReply;
     }
 
-    void didPostMessageWithAsyncReply(WebPageProxy&, FrameInfoData&&, API::ContentWorld&, WebCore::SerializedScriptValue& serializedScriptValue, WTF::Function<void(API::SerializedScriptValue*, const String&)>&& completionHandler) override
+    void didPostMessageWithAsyncReply(WebPageProxy&, FrameInfoData&&, API::ContentWorld&, JavaScriptEvaluationResult&& jsMessage, WTF::Function<void(Expected<JavaScriptEvaluationResult, String>&&)>&& completionHandler) override
     {
         if (!m_manager) {
             g_critical("Script message %s received after the WebKitUserContentManager has been destroyed. You must unregister the message handler!", g_quark_to_string(m_handlerName));
@@ -435,7 +439,7 @@ public:
         }
 
         WebKitScriptMessageReply* message = webKitScriptMessageReplyCreate(WTFMove(completionHandler));
-        GRefPtr<JSCValue> value = API::SerializedScriptValue::deserialize(serializedScriptValue);
+        GRefPtr<JSCValue> value = jsMessage.toJSC();
         gboolean returnValue;
         g_signal_emit(m_manager.get(), signals[SCRIPT_MESSAGE_WITH_REPLY_RECEIVED], m_handlerName, value.get(), message, &returnValue);
         webkit_script_message_reply_unref(message);

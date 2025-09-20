@@ -33,7 +33,7 @@ extension WebPage {
     /// A `NavigationAction` value is intended to be used to make policy decisions about whether to
     /// allow navigation within a web page via a `NavigationDeciding`.
     @MainActor
-    @available(WK_IOS_TBA, WK_MAC_TBA, WK_XROS_TBA, *)
+    @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
     @available(watchOS, unavailable)
     @available(tvOS, unavailable)
     public struct NavigationAction {
@@ -56,14 +56,19 @@ extension WebPage {
         /// Indicates whether the web content provided an attribute that indicates a download.
         public var shouldPerformDownload: Bool { wrapped.shouldPerformDownload }
 
-#if canImport(UIKit)
+        #if canImport(UIKit)
         /// The number of the mouse button that caused the navigation request.
         public var buttonNumber: UIEvent.ButtonMask { wrapped.buttonNumber }
-#else
+        #else
         /// The number of the mouse button that caused the navigation request.
         public var buttonNumber: Int { wrapped.buttonNumber }
-#endif
+        #endif
 
+        /// Whether or not the navigation is a redirect from a content rule list.
+        public var isContentRuleListRedirect: Bool { wrapped.isContentRuleListRedirect }
+
+        // SPI for the cross-import overlay.
+        // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
         @_spi(CrossImportOverlay)
         public var wrapped: WKNavigationAction
     }
@@ -73,7 +78,7 @@ extension WebPage {
     /// A `NavigationResponse` value is intended to be used to make policy decisions about whether to
     /// allow navigation within a web page via a `NavigationDeciding`.
     @MainActor
-    @available(WK_IOS_TBA, WK_MAC_TBA, WK_XROS_TBA, *)
+    @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
     @available(watchOS, unavailable)
     @available(tvOS, unavailable)
     public struct NavigationResponse {
@@ -81,6 +86,8 @@ extension WebPage {
             self.wrapped = wrapped
         }
 
+        // FIXME: This needs to be made API.
+        // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
         @_spi(Private)
         public var isForMainFrame: Bool { wrapped.isForMainFrame }
 
@@ -100,7 +107,7 @@ extension WebPage {
     /// Allows providing custom behavior to handle navigation changes and to coordinate these changes for the web page's main page.
     ///
     /// For example, you might use these methods to restrict navigation from specific links within your content.
-    @available(WK_IOS_TBA, WK_MAC_TBA, WK_XROS_TBA, *)
+    @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
     @available(watchOS, unavailable)
     @available(tvOS, unavailable)
     public protocol NavigationDeciding {
@@ -113,7 +120,10 @@ extension WebPage {
         ///   - preferences: The preferences to use when displaying the new webpage.
         /// - Returns: The navigation policy for the action.
         @MainActor
-        mutating func decidePolicy(for action: WebPage.NavigationAction, preferences: inout WebPage.NavigationPreferences) async -> WKNavigationActionPolicy
+        mutating func decidePolicy(
+            for action: WebPage.NavigationAction,
+            preferences: inout WebPage.NavigationPreferences
+        ) async -> WKNavigationActionPolicy
 
         /// Determines permission to navigate to new content after the response to the navigation request is known.
         ///
@@ -127,33 +137,40 @@ extension WebPage {
         /// - Parameter challenge: The authentication challenge.
         /// - Returns: The option to use to handle the challenge, and the credential to use for authentication when the disposition is ``URLSession/AuthChallengeDisposition/useCredential``.
         @MainActor
-        mutating func decideAuthenticationChallengeDisposition(for challenge: URLAuthenticationChallenge) async -> (URLSession.AuthChallengeDisposition, URLCredential?)
+        mutating func decideAuthenticationChallengeDisposition(
+            for challenge: URLAuthenticationChallenge
+        ) async -> (URLSession.AuthChallengeDisposition, URLCredential?)
     }
 }
 
 // MARK: Default implementation
 
-@available(WK_IOS_TBA, WK_MAC_TBA, WK_XROS_TBA, *)
+@available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
 @available(watchOS, unavailable)
 @available(tvOS, unavailable)
-public extension WebPage.NavigationDeciding {
+extension WebPage.NavigationDeciding {
     /// By default, this method immediately returns with a policy of `.allow`.
     @MainActor
-    func decidePolicy(for action: WebPage.NavigationAction, preferences: inout WebPage.NavigationPreferences) async -> WKNavigationActionPolicy {
+    public func decidePolicy(
+        for action: WebPage.NavigationAction,
+        preferences: inout WebPage.NavigationPreferences
+    ) async -> WKNavigationActionPolicy {
         .allow
     }
 
     /// By default, this method immediately returns with a policy of `.allow`.
     @MainActor
-    func decidePolicy(for response: WebPage.NavigationResponse) async -> WKNavigationResponsePolicy {
+    public func decidePolicy(for response: WebPage.NavigationResponse) async -> WKNavigationResponsePolicy {
         .allow
     }
 
     /// By default, this method immediately returns with a disposition of `performDefaultHandling` and a `nil` credential.
     @MainActor
-    func decideAuthenticationChallengeDisposition(for challenge: URLAuthenticationChallenge) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+    public func decideAuthenticationChallengeDisposition(
+        for challenge: URLAuthenticationChallenge
+    ) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
         (.performDefaultHandling, nil)
     }
 }
 
- #endif
+#endif

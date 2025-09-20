@@ -224,7 +224,7 @@ void WKBundleResourceLoadStatisticsNotifyObserver(WKBundleRef, void* context, No
 void WKBundleExtendClassesForParameterCoder(WKBundleRef bundle, WKArrayRef classes)
 {
 #if PLATFORM(COCOA)
-    auto classList = WebKit::toImpl(classes);
+    RefPtr classList = WebKit::toImpl(classes);
     if (!classList)
         return;
 

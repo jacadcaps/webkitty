@@ -59,7 +59,7 @@ void AccessibilityController::platformInitialize()
 
 RefPtr<AccessibilityUIElement> AccessibilityController::focusedElement(JSContextRef context)
 {
-    if (!WKAccessibilityRootObject(WKBundleFrameForJavaScriptContext(context)))
+    if (!_WKAccessibilityRootObjectForTesting(WKBundleFrameForJavaScriptContext(context)))
         return nullptr;
 
     RetainPtr<PlatformUIElement> focus;
@@ -134,7 +134,7 @@ void AccessibilityController::injectAccessibilityPreference(JSStringRef domain, 
 
 RefPtr<AccessibilityUIElement> AccessibilityController::accessibleElementById(JSContextRef context, JSStringRef idAttribute)
 {
-    PlatformUIElement root = static_cast<PlatformUIElement>(WKAccessibilityRootObject(WKBundleFrameForJavaScriptContext(context)));
+    PlatformUIElement root = static_cast<PlatformUIElement>(_WKAccessibilityRootObjectForTesting(WKBundleFrameForJavaScriptContext(context)));
 
     NSString *attributeName = [NSString stringWithJSStringRef:idAttribute];
     RetainPtr<id> result;
@@ -170,7 +170,7 @@ void AccessibilityController::overrideClient(JSStringRef clientType)
 
 void AccessibilityController::printTrees(JSContextRef context)
 {
-    PlatformUIElement root = static_cast<PlatformUIElement>(WKAccessibilityRootObject(WKBundleFrameForJavaScriptContext(context)));
+    PlatformUIElement root = static_cast<PlatformUIElement>(_WKAccessibilityRootObjectForTesting(WKBundleFrameForJavaScriptContext(context)));
     [root accessibilityPerformAction:@"AXLogTrees"];
 }
 

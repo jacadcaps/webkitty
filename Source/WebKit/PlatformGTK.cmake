@@ -55,27 +55,30 @@ list(APPEND WebKit_UNIFIED_SOURCE_LIST_FILES
 list(APPEND WebKit_MESSAGES_IN_FILES
     UIProcess/ViewGestureController
 
-    UIProcess/dmabuf/AcceleratedBackingStoreDMABuf
+    UIProcess/glib/AcceleratedBackingStore
 
     WebProcess/WebPage/ViewGestureGeometryCollector
 
-    WebProcess/WebPage/dmabuf/AcceleratedSurfaceDMABuf
+    WebProcess/WebPage/CoordinatedGraphics/AcceleratedSurface
 
     WebProcess/glib/SystemSettingsManager
 )
 
 if (USE_GBM)
-  list(APPEND WebKit_SERIALIZATION_IN_FILES Shared/gbm/DMABufBuffer.serialization.in)
+  list(APPEND WebKit_SERIALIZATION_IN_FILES
+      Shared/gbm/DMABufBuffer.serialization.in
+      Shared/gbm/DRMDevice.serialization.in
+  )
 endif ()
 
 list(APPEND WebKit_SERIALIZATION_IN_FILES
-    Shared/glib/DMABufRendererBufferFormat.serialization.in
+    Shared/glib/AvailableInputDevices.serialization.in
+    Shared/glib/RendererBufferFormat.serialization.in
     Shared/glib/InputMethodState.serialization.in
     Shared/glib/RendererBufferTransportMode.serialization.in
+    Shared/glib/SelectionData.serialization.in
     Shared/glib/SystemSettings.serialization.in
     Shared/glib/UserMessage.serialization.in
-
-    Shared/gtk/ArgumentCodersGtk.serialization.in
 
     Shared/soup/WebCoreArgumentCodersSoup.serialization.in
 )
@@ -309,7 +312,6 @@ list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/WebProcess/WebCoreSupport/soup"
     "${WEBKIT_DIR}/WebProcess/WebPage/CoordinatedGraphics"
     "${WEBKIT_DIR}/WebProcess/WebPage/gtk"
-    "${WEBKIT_DIR}/WebProcess/WebPage/dmabuf"
 )
 
 list(APPEND WebKit_SYSTEM_INCLUDE_DIRECTORIES
@@ -347,6 +349,10 @@ list(APPEND GPUProcess_INCLUDE_DIRECTORIES ${WebKit_PRIVATE_INCLUDE_DIRECTORIES}
 
 if (GTK_UNIX_PRINT_FOUND)
     list(APPEND WebKit_LIBRARIES GTK::UnixPrint)
+endif ()
+
+if (USE_OPENXR)
+   list(APPEND WebKit_LIBRARIES OpenXR::openxr_loader)
 endif ()
 
 if (USE_CAIRO)
@@ -598,6 +604,7 @@ GI_INTROSPECT(WebKit${WEBKITGTK_API_INFIX} ${WEBKITGTK_API_VERSION} webkit${WEBK
 GI_DOCGEN(WebKit${WEBKITGTK_API_INFIX} gtk/gtk${GTK_API_VERSION}-webkitgtk.toml.in
     CONTENT_TEMPLATES
         gtk/gtk${GTK_API_VERSION}-urlmap.js
+        glib/contributing.md
         glib/environment-variables.md
         glib/profiling.md
         glib/remote-inspector.md

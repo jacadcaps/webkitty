@@ -34,6 +34,7 @@
 #import "WKViewInternal.h"
 #import "WKWebViewInternal.h"
 #import "WebPageProxy.h"
+#import <WebCore/IOSurface.h>
 #import <WebCore/ShareableBitmap.h>
 #import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <wtf/MathExtras.h>
@@ -51,7 +52,7 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     RetainPtr<WKView> _wkView;
 ALLOW_DEPRECATED_DECLARATIONS_END
     RetainPtr<WKWebView> _wkWebView;
-    NakedPtr<WebKit::WebPageProxy> _webPageProxy;
+    WeakPtr<WebKit::WebPageProxy> _webPageProxy;
 
     BOOL _originalMayStartMediaWhenInWindow;
     BOOL _originalSourceViewIsInWindow;
@@ -99,11 +100,16 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         return nil;
     
     _wkWebView = webView;
-    _webPageProxy = [_wkWebView _page];
+    _webPageProxy = [_wkWebView _page].get();
     _originalMayStartMediaWhenInWindow = _webPageProxy->mayStartMediaWhenInWindow();
     _originalSourceViewIsInWindow = !![_wkWebView window];
     
     return self;
+}
+
+- (Ref<WebKit::WebPageProxy>)_protectedWebPageProxy
+{
+    return *_webPageProxy;
 }
 
 - (BOOL)isFlipped
@@ -120,8 +126,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 {
     [super updateLayer];
 
-    NSColor *backgroundColor = self.overrideBackgroundColor ?: [NSColor quaternaryLabelColor];
-    self.layer.backgroundColor = backgroundColor.CGColor;
+    RetainPtr backgroundColor = self.overrideBackgroundColor ?: [NSColor quaternaryLabelColor];
+    self.layer.backgroundColor = backgroundColor.get().CGColor;
 }
 
 - (void)requestSnapshot
@@ -135,14 +141,15 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     _waitingForSnapshot = YES;
 
     RetainPtr<_WKThumbnailView> thumbnailView = self;
-    auto obscuredContentInsets = _webPageProxy->obscuredContentInsets();
-    WebCore::IntRect snapshotRect(WebCore::IntPoint(), _webPageProxy->viewSize() - WebCore::IntSize {
+    Ref webPageProxy = *_webPageProxy;
+    auto obscuredContentInsets = webPageProxy->obscuredContentInsets();
+    WebCore::IntRect snapshotRect(WebCore::IntPoint(), webPageProxy->viewSize() - WebCore::IntSize {
         static_cast<int>(obscuredContentInsets.left()),
         static_cast<int>(obscuredContentInsets.top())
     });
-    WebKit::SnapshotOptions options { WebKit::SnapshotOption::InViewCoordinates, WebKit::SnapshotOption::UseScreenColorSpace };
+    WebKit::SnapshotOptions options { WebKit::SnapshotOption::InViewCoordinates, WebKit::SnapshotOption::UseScreenColorSpace, WebKit::SnapshotOption::Accelerated, WebKit::SnapshotOption::AllowHDR };
     WebCore::IntSize bitmapSize = snapshotRect.size();
-    bitmapSize.scale(_scale * _webPageProxy->deviceScaleFactor());
+    bitmapSize.scale(_scale * webPageProxy->deviceScaleFactor());
 
     if (!CGSizeEqualToSize(_maximumSnapshotSize, CGSizeZero)) {
         double sizeConstraintScale = 1;
@@ -155,13 +162,11 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     _lastSnapshotScale = _scale;
     _lastSnapshotMaximumSize = _maximumSnapshotSize;
-    _webPageProxy->takeSnapshot(snapshotRect, bitmapSize, options, [thumbnailView](std::optional<WebCore::ShareableBitmap::Handle>&& imageHandle) {
-        if (!imageHandle)
+    webPageProxy->takeSnapshot(snapshotRect, bitmapSize, options, [thumbnailView](CGImageRef image) {
+        if (!image)
             return;
-        auto bitmap = WebCore::ShareableBitmap::create(WTFMove(*imageHandle), WebCore::SharedMemory::Protection::ReadOnly);
-        RetainPtr<CGImageRef> cgImage = bitmap ? bitmap->makeCGImage() : nullptr;
-        tracePoint(TakeSnapshotEnd, !!cgImage);
-        [thumbnailView _didTakeSnapshot:cgImage.get()];
+        tracePoint(TakeSnapshotEnd, !!image);
+        [thumbnailView _didTakeSnapshot:image];
     });
 }
 
@@ -191,7 +196,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
             [_wkWebView _setThumbnailView:nil];
             [_wkWebView _setIgnoresAllEvents:NO];
         }
-        _webPageProxy->setMayStartMediaWhenInWindow(_originalMayStartMediaWhenInWindow);
+        self._protectedWebPageProxy->setMayStartMediaWhenInWindow(_originalMayStartMediaWhenInWindow);
     }
 
     if (_shouldKeepSnapshotWhenRemovedFromSuperview)
@@ -209,12 +214,12 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         return;
 
     if (!_exclusivelyUsesSnapshot && !_originalSourceViewIsInWindow)
-        _webPageProxy->setMayStartMediaWhenInWindow(false);
+        self._protectedWebPageProxy->setMayStartMediaWhenInWindow(false);
 
     [self _requestSnapshotIfNeeded];
 
     if (!_exclusivelyUsesSnapshot) {
-        auto obscuredContentInsets = _webPageProxy->obscuredContentInsets();
+        auto obscuredContentInsets = RefPtr { _webPageProxy.get() }->obscuredContentInsets();
         self._sublayerTranslation = CGPointMake(-obscuredContentInsets.left(), -obscuredContentInsets.top());
         if (_wkView) {
             [_wkView _setThumbnailView:self];
@@ -244,6 +249,15 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     self.layer.sublayers = @[];
     self.layer.contentsGravity = kCAGravityResizeAspectFill;
     self.layer.contents = (__bridge id)image;
+#if HAVE(SUPPORT_HDR_DISPLAY_APIS)
+    if (CGImageGetContentHeadroom(image) > 1) {
+        self.layer.toneMapMode = CAToneMapModeIfSupported;
+        self.layer.preferredDynamicRange = CADynamicRangeHigh;
+    } else {
+        self.layer.toneMapMode = CAToneMapModeAutomatic;
+        self.layer.preferredDynamicRange = CADynamicRangeAutomatic;
+    }
+#endif
 
     // If we got a scale change while snapshotting, we'll take another snapshot once the first one returns.
     if (_snapshotWasDeferred) {

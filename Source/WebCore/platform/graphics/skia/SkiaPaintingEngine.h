@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Igalia S.L.
+ * Copyright (C) 2024, 2025 Igalia S.L.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -50,8 +50,21 @@ public:
 
     static std::unique_ptr<SkiaPaintingEngine> create();
 
+    enum class HybridPaintingStrategy {
+        PreferCPUIfIdle,
+        PreferGPUIfIdle,
+        PreferGPUAboveMinimumArea,
+        MinimumFractionOfTasksUsingGPU,
+        CPUAffineRendering,
+        GPUAffineRendering
+    };
+
     static unsigned numberOfCPUPaintingThreads();
     static unsigned numberOfGPUPaintingThreads();
+    static unsigned minimumAreaForGPUPainting();
+    static float minimumFractionOfTasksUsingGPUPainting();
+    static HybridPaintingStrategy hybridPaintingStrategy();
+    static bool shouldUseLinearTileTextures();
 
     bool useThreadedRendering() const { return m_cpuWorkerPool || m_gpuWorkerPool; }
 
@@ -61,11 +74,10 @@ public:
 
 private:
     Ref<CoordinatedTileBuffer> createBuffer(RenderingMode, const IntSize&, bool contentsOpaque) const;
-
     void paintIntoGraphicsContext(const GraphicsLayer&, GraphicsContext&, const IntRect&, bool contentsOpaque, float contentsScale) const;
 
-    RenderingMode renderingMode() const;
-    std::optional<RenderingMode> threadedRenderingMode() const;
+    bool isHybridMode() const;
+    RenderingMode decideHybridRenderingMode(const IntRect& dirtyRect, float contentsScale) const;
 
     RefPtr<WorkerPool> m_cpuWorkerPool;
     RefPtr<WorkerPool> m_gpuWorkerPool;

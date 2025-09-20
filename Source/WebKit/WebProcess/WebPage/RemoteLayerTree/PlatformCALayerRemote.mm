@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -148,7 +148,7 @@ void PlatformCALayerRemote::moveToContext(RemoteLayerTreeContext& context)
     if (RefPtr protectedContext = m_context.get())
         protectedContext->layerWillLeaveContext(*this);
 
-    m_context = &context;
+    m_context = context;
 
     context.layerDidEnterContext(*this, layerType());
 
@@ -203,9 +203,9 @@ void PlatformCALayerRemote::recursiveMarkWillBeDisplayedWithRenderingSuppresion(
         m_properties.backingStoreOrProperties.store->layerWillBeDisplayedWithRenderingSuppression();
 
     for (size_t i = 0; i < m_children.size(); ++i) {
-        PlatformCALayerRemote& child = downcast<PlatformCALayerRemote>(*m_children[i]);
-        ASSERT(child.superlayer() == this);
-        child.recursiveMarkWillBeDisplayedWithRenderingSuppresion();
+        Ref child = downcast<PlatformCALayerRemote>(*m_children[i]);
+        ASSERT(child->superlayer() == this);
+        child->recursiveMarkWillBeDisplayedWithRenderingSuppresion();
     }
 }
 
@@ -242,7 +242,7 @@ void PlatformCALayerRemote::recursiveBuildTransaction(RemoteLayerTreeContext& co
         // Once that setting is made unnecessary, remove this entire conditional as well.
         if (type() == PlatformCALayer::Type::RemoteCustom
             && !downcast<PlatformCALayerRemoteCustom>(*this).hasVideo()) {
-            RemoteLayerTreePropertyApplier::applyPropertiesToLayer(platformLayer(), nullptr, nullptr, m_properties, LayerContentsType::CAMachPort);
+            RemoteLayerTreePropertyApplier::applyPropertiesToLayer(platformLayer(), nullptr, nullptr, m_properties);
             didCommit();
             return;
         }
@@ -251,9 +251,9 @@ void PlatformCALayerRemote::recursiveBuildTransaction(RemoteLayerTreeContext& co
     }
 
     for (size_t i = 0; i < m_children.size(); ++i) {
-        PlatformCALayerRemote& child = downcast<PlatformCALayerRemote>(*m_children[i]);
-        ASSERT(child.superlayer() == this);
-        child.recursiveBuildTransaction(context, transaction);
+        Ref child = downcast<PlatformCALayerRemote>(*m_children[i]);
+        ASSERT(child->superlayer() == this);
+        child->recursiveBuildTransaction(context, transaction);
     }
 
     if (m_maskLayer)
@@ -294,12 +294,19 @@ void PlatformCALayerRemote::ensureBackingStore()
 
 DestinationColorSpace PlatformCALayerRemote::displayColorSpace() const
 {
+#if PLATFORM(IOS_FAMILY)
     if (auto displayColorSpace = contentsFormatExtendedColorSpace(contentsFormat()))
         return displayColorSpace.value();
-
-#if !PLATFORM(IOS_FAMILY)
-    if (auto displayColorSpace = m_context ? m_context->displayColorSpace() : std::nullopt)
+#else
+    if (auto displayColorSpace = m_context ? m_context->displayColorSpace() : std::nullopt) {
+#if ENABLE(PIXEL_FORMAT_RGBA16F)
+        if (contentsFormat() == ContentsFormat::RGBA16F) {
+            if (auto extendedDisplayColorSpace = displayColorSpace->asExtended())
+                return extendedDisplayColorSpace.value();
+        }
+#endif
         return displayColorSpace.value();
+    }
 #endif
 
     return DestinationColorSpace::SRGB();
@@ -400,7 +407,7 @@ void PlatformCALayerRemote::removeSublayer(PlatformCALayerRemote* layer)
 {
     size_t childIndex = m_children.find(layer);
     if (childIndex != notFound)
-        m_children.remove(childIndex);
+        m_children.removeAt(childIndex);
     layer->m_superlayer = nullptr;
     m_properties.notePropertiesChanged(LayerChange::ChildrenChanged);
 }
@@ -471,7 +478,7 @@ void PlatformCALayerRemote::adoptSublayers(PlatformCALayer& source)
         for (const auto& layer : *customLayers) {
             size_t layerIndex = layersToMove.find(layer);
             if (layerIndex != notFound)
-                layersToMove.remove(layerIndex);
+                layersToMove.removeAt(layerIndex);
         }
     }
 
@@ -549,7 +556,7 @@ void PlatformCALayerRemote::setMaskLayer(RefPtr<WebCore::PlatformCALayer>&& laye
 
     PlatformCALayer::setMaskLayer(WTFMove(layer));
 
-    if (auto* layer = maskLayer())
+    if (RefPtr layer = maskLayer())
         m_properties.maskLayerID = layer->layerID();
     else
         m_properties.maskLayerID = { };
@@ -578,7 +585,6 @@ bool PlatformCALayerRemote::isOpaque() const
 void PlatformCALayerRemote::setOpaque(bool value)
 {
     m_properties.opaque = value;
-    m_properties.notePropertiesChanged(LayerChange::OpaqueChanged);
 
     updateBackingStore();
 }
@@ -796,7 +802,7 @@ void PlatformCALayerRemote::setContentsFormat(ContentsFormat contentsFormat)
         return;
 
     m_properties.contentsFormat = contentsFormat;
-    m_properties.notePropertiesChanged(LayerChange::ContentsFormatChanged);
+    updateBackingStore();
 }
 
 bool PlatformCALayerRemote::hasContents() const
@@ -1069,6 +1075,29 @@ void PlatformCALayerRemote::setScrollingNodeID(std::optional<ScrollingNodeID> no
 
     m_properties.scrollingNodeID = nodeID;
     m_properties.notePropertiesChanged(LayerChange::ScrollingNodeIDChanged);
+}
+#endif
+
+#if HAVE(SUPPORT_HDR_DISPLAY)
+bool PlatformCALayerRemote::setNeedsDisplayIfEDRHeadroomExceeds(float headroom)
+{
+    if (m_properties.backingStoreOrProperties.store)
+        return m_properties.backingStoreOrProperties.store->setNeedsDisplayIfEDRHeadroomExceeds(headroom);
+    return false;
+}
+
+void PlatformCALayerRemote::setTonemappingEnabled(bool value)
+{
+    if (m_properties.tonemappingEnabled == value)
+        return;
+
+    m_properties.tonemappingEnabled = value;
+    m_properties.notePropertiesChanged(LayerChange::TonemappingEnabledChanged);
+}
+
+bool PlatformCALayerRemote::tonemappingEnabled() const
+{
+    return m_properties.tonemappingEnabled;
 }
 #endif
 

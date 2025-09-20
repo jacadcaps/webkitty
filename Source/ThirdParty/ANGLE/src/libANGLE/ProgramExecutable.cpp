@@ -744,7 +744,8 @@ ProgramExecutable::ProgramExecutable(rx::GLImplFactory *factory, InfoLog *infoLo
       mInfoLog(infoLog),
       mCachedBaseVertex(0),
       mCachedBaseInstance(0),
-      mIsPPO(false)
+      mIsPPO(false),
+      mBinaryRetrieveableHint(false)
 {
     memset(&mPod, 0, sizeof(mPod));
     reset();
@@ -829,6 +830,9 @@ void ProgramExecutable::reset()
     mActiveSamplerFormats.fill(SamplerFormat::InvalidEnum);
 
     mActiveImagesMask.reset();
+
+    mActiveUniformBufferBlocks.reset();
+    mActiveStorageBufferBlocks.reset();
 
     mUniformBlockIndexToBufferBinding = {};
 
@@ -1953,8 +1957,9 @@ bool ProgramExecutable::linkAtomicCounterBuffers(const Caps &caps)
     {
         auto &uniform = mUniforms[index];
 
-        uniform.pod.blockOffset                    = uniform.getOffset();
         uniform.pod.blockArrayStride               = uniform.isArray() ? 4 : 0;
+        uniform.pod.blockOffset =
+            uniform.getOffset() + uniform.pod.blockArrayStride * uniform.getOuterArrayOffset();
         uniform.pod.blockMatrixStride              = 0;
         uniform.pod.flagBits.blockIsRowMajorMatrix = false;
         uniform.pod.flagBits.isBlock               = true;
@@ -2421,6 +2426,11 @@ void ProgramExecutable::getActiveUniform(GLuint index,
                                          GLenum *type,
                                          GLchar *name) const
 {
+    if (length)
+    {
+        *length = 0;
+    }
+
     if (mUniforms.empty())
     {
         // Program is not successfully linked
@@ -2429,13 +2439,15 @@ void ProgramExecutable::getActiveUniform(GLuint index,
             name[0] = '\0';
         }
 
-        if (length)
+        if (size)
         {
-            *length = 0;
+            *size = 0;
         }
 
-        *size = 0;
-        *type = GL_NONE;
+        if (type)
+        {
+            *type = GL_NONE;
+        }
     }
 
     ASSERT(index < mUniforms.size());
@@ -2447,8 +2459,14 @@ void ProgramExecutable::getActiveUniform(GLuint index,
         CopyStringToBuffer(name, string, bufsize, length);
     }
 
-    *size = clampCast<GLint>(uniform.getBasicTypeElementCount());
-    *type = uniform.getType();
+    if (size)
+    {
+        *size = clampCast<GLint>(uniform.getBasicTypeElementCount());
+    }
+    if (type)
+    {
+        *type = uniform.getType();
+    }
 }
 
 GLint ProgramExecutable::getActiveUniformMaxLength() const
@@ -2927,6 +2945,24 @@ void ProgramExecutable::remapUniformBlockBinding(UniformBlockIndex uniformBlockI
     // Set new binding
     mUniformBlockIndexToBufferBinding[uniformBlockIndex.value] = uniformBlockBinding;
     mUniformBufferBindingToUniformBlocks[uniformBlockBinding].set(uniformBlockIndex.value);
+}
+
+void ProgramExecutable::updateActiveUniformBufferBlocks()
+{
+    for (size_t blockIndex = 0; blockIndex < mUniformBlocks.size(); blockIndex++)
+    {
+        mActiveUniformBufferBlocks.set(blockIndex,
+                                       mUniformBlocks[blockIndex].activeShaderCount() > 0);
+    }
+}
+
+void ProgramExecutable::updateActiveStorageBufferBlocks()
+{
+    for (size_t blockIndex = 0; blockIndex < mShaderStorageBlocks.size(); blockIndex++)
+    {
+        mActiveStorageBufferBlocks.set(blockIndex,
+                                       mShaderStorageBlocks[blockIndex].activeShaderCount() > 0);
+    }
 }
 
 void ProgramExecutable::setUniformValuesFromBindingQualifiers()

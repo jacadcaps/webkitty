@@ -58,7 +58,7 @@ public:
     AVStreamDataParser* streamDataParser() const { return m_parser.get(); }
 
     Type type() const { return Type::AVFObjC; }
-    Expected<void, PlatformMediaError> appendData(Segment&&, AppendFlags = AppendFlags::None) final;
+    Expected<void, PlatformMediaError> appendData(Ref<const SharedBuffer>&&, AppendFlags = AppendFlags::None) final;
     void flushPendingMediaData() final;
     void resetParserState() final;
     void invalidate() final;

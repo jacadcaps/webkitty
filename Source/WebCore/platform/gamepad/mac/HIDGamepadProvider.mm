@@ -88,11 +88,10 @@ HIDGamepadProvider& HIDGamepadProvider::singleton()
 }
 
 HIDGamepadProvider::HIDGamepadProvider()
-    : m_initialGamepadsConnectedTimer(*this, &HIDGamepadProvider::initialGamepadsConnectedTimerFired)
+    : m_manager(adoptCF(IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone)))
+    , m_initialGamepadsConnectedTimer(*this, &HIDGamepadProvider::initialGamepadsConnectedTimerFired)
     , m_inputNotificationTimer(*this, &HIDGamepadProvider::inputNotificationTimerFired)
 {
-    m_manager = adoptCF(IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone));
-
     RetainPtr<CFDictionaryRef> joystickDictionary = deviceMatchingDictionary(kHIDPage_GenericDesktop, kHIDUsage_GD_Joystick);
     RetainPtr<CFDictionaryRef> gamepadDictionary = deviceMatchingDictionary(kHIDPage_GenericDesktop, kHIDUsage_GD_GamePad);
 
@@ -271,7 +270,7 @@ void HIDGamepadProvider::deviceRemoved(IOHIDDeviceRef device)
 
     if (!removedGamepad) {
 #if HAVE(MULTIGAMEPADPROVIDER_SUPPORT)
-        auto taken = m_gameControllerManagedGamepads.take(device);
+        RetainPtr taken = m_gameControllerManagedGamepads.take(device);
         ASSERT_UNUSED(taken, taken);
         LOG(Gamepad, "HIDGamepadProvider informed of removal of device %p, which is managed by GameController framework. Ignoring.", device);
 #endif
@@ -286,9 +285,9 @@ void HIDGamepadProvider::deviceRemoved(IOHIDDeviceRef device)
 
 void HIDGamepadProvider::valuesChanged(IOHIDValueRef value)
 {
-    IOHIDDeviceRef device = IOHIDElementGetDevice(IOHIDValueGetElement(value));
+    RetainPtr device = IOHIDElementGetDevice(IOHIDValueGetElement(value));
 
-    HIDGamepad* gamepad = m_gamepadMap.get(device);
+    HIDGamepad* gamepad = m_gamepadMap.get(device.get());
 
     // When starting monitoring we might get a value changed callback before we even know the device is connected.
     if (!gamepad)

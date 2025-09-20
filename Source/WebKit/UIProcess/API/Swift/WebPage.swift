@@ -26,111 +26,80 @@
 import Foundation
 import Observation
 internal import WebKit_Private
+internal import WebKit_Internal
 
-@MainActor
-@_spi(CrossImportOverlay)
-public final class WebPageWebView: WKWebView {
-    @_spi(CrossImportOverlay)
-    public weak var delegate: (any Delegate)? = nil
-
-#if os(iOS)
-    override func findInteraction(_ interaction: UIFindInteraction, didBegin session: UIFindSession) {
-        super.findInteraction(interaction, didBegin: session)
-        delegate?.findInteraction(interaction, didBegin: session)
-    }
-
-    override func findInteraction(_ interaction: UIFindInteraction, didEnd session: UIFindSession) {
-        super.findInteraction(interaction, didBegin: session)
-        delegate?.findInteraction(interaction, didEnd: session)
-    }
-
-    override func supportsTextReplacement() -> Bool {
-        guard let delegate else {
-            return super.supportsTextReplacement()
-        }
-
-        return super.supportsTextReplacement() && delegate.supportsTextReplacement()
-    }
-#endif
-}
-
-extension WebPageWebView {
-    @MainActor
-    @_spi(CrossImportOverlay)
-    public protocol Delegate: AnyObject {
-#if os(iOS)
-        func findInteraction(_ interaction: UIFindInteraction, didBegin session: UIFindSession)
-
-        func findInteraction(_ interaction: UIFindInteraction, didEnd session: UIFindSession)
-
-        func supportsTextReplacement() -> Bool
-#endif
-    }
-}
-
-extension WebPageWebView {
-    // MARK: Platform-agnostic scrolling capabilities
-
-#if canImport(UIKit)
-    @_spi(CrossImportOverlay)
-    public var alwaysBounceVertical: Bool {
-        get { scrollView.alwaysBounceVertical }
-        set { scrollView.alwaysBounceVertical = newValue }
-    }
-
-    @_spi(CrossImportOverlay)
-    public var alwaysBounceHorizontal: Bool {
-        get { scrollView.alwaysBounceHorizontal }
-        set { scrollView.alwaysBounceHorizontal = newValue }
-    }
-
-    @_spi(CrossImportOverlay)
-    public var bouncesVertically: Bool {
-        get { scrollView.bouncesVertically }
-        set { scrollView.bouncesVertically = newValue }
-    }
-
-    @_spi(CrossImportOverlay)
-    public var bouncesHorizontally: Bool {
-        get { scrollView.bouncesHorizontally }
-        set { scrollView.bouncesHorizontally = newValue }
-    }
-#else
-    @_spi(CrossImportOverlay)
-    public var alwaysBounceVertical: Bool {
-        get { self._alwaysBounceVertical }
-        set { self._alwaysBounceVertical = newValue }
-    }
-
-    @_spi(CrossImportOverlay)
-    public var alwaysBounceHorizontal: Bool {
-        get { self._alwaysBounceHorizontal }
-        set { self._alwaysBounceHorizontal = newValue }
-    }
-
-    @_spi(CrossImportOverlay)
-    public var bouncesVertically: Bool {
-        get { self._rubberBandingEnabled.contains(.top) && self._rubberBandingEnabled.contains(.bottom) }
-        set { self._rubberBandingEnabled.formUnion([.top, .bottom]) }
-    }
-
-    @_spi(CrossImportOverlay)
-    public var bouncesHorizontally: Bool {
-        get { self._rubberBandingEnabled.contains(.left) && self._rubberBandingEnabled.contains(.right) }
-        set { self._rubberBandingEnabled.formUnion([.left, .right]) }
-    }
-#endif
-}
-
-/// An object that controls and manages the behavior of interactive web content.
+/// A ``WebPage`` is an ``Observable`` type, which you use to access various properties of web content
+/// and track changes to them. Use ``WebPage`` to interact with web content, like evaluating JavaScript
+/// or converting the page to PDF data. The following example shows you how you can combine these
+/// capabilities to get specific metadata from an ephemeral page with a custom user agent:
+///
+/// ```swift
+/// func fetchMetadata(for url: URL) async throws -> (title: String, description: String) {
+///     let botAgent = """
+///     Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_1) AppleWebKit/601.2.4 (KHTML, like Gecko) Version/9.0.1 Safari/601.2.4 facebookexternalhit/1.1 Facebot Twitterbot/1.0
+///     """
+///
+///     var configuration = WebPage.Configuration()
+///     configuration.loadsSubresources = false
+///     configuration.defaultNavigationPreferences.allowsContentJavaScript = false
+///     configuration.websiteDataStore = .nonPersistent()
+///
+///     // Set up the configured page.
+///
+///     let page = WebPage(configuration: configuration)
+///     page.customUserAgent = botAgent
+///
+///     // Load the request and wait for navigation to complete.
+///
+///     let request = URLRequest(url: url)
+///     for try await event in page.load(request) {
+///         // Optionally do something with `event`.
+///     }
+///
+///     // At this point, the navigation is complete.
+///     // Now, use JavaScript to query the appropriate properties of the page.
+///
+///     let fetchOpenGraphProperty = """
+///     const propertyValues = document.querySelectorAll(`meta[property="${property}"]`);
+///     return propertyValues[0];
+///     """
+///
+///     let javaScriptResult = try await page.callJavaScript(fetchOpenGraphProperty, arguments: arguments)
+///     guard let description = javaScriptResult as? String else {
+///         // Handle failure, like throwing an error.
+///     }
+///
+///     guard let title = page.title else {
+///         // Handle failure, like throwing an error.
+///     }
+///
+///     return (title, description)
+/// }
+/// ```
+///
+/// Use ``WebPage`` to programmatically navigate to various types of resources like URL requests,
+/// HTML strings, and data. Optionally, you can observe these navigations through the async sequence
+/// returned by their associated loading functions, and you can customize them by using a type that
+/// conforms to the ``WebPage/NavigationDeciding`` protocol. You can also use the ``WebPage/backForwardList``
+/// property to observe changes to people’s navigation history, and to programmatically navigate to a
+/// specific back-forward list item.
+///
+/// ``WebPage`` also conforms to the ``Transferable`` protocol. You can use this conformance to export the
+/// page to various different types of content, like PDF, web archive data, and other types. For customization
+/// of PDF or image export, use ``WebPage/exported(as:)``.
 @MainActor
 @Observable
-@available(WK_IOS_TBA, WK_MAC_TBA, WK_XROS_TBA, *)
+@available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
 @available(watchOS, unavailable)
 @available(tvOS, unavailable)
 final public class WebPage {
     /// A CSS media type as defined by the [CSS specification](https://www.w3.org/TR/mediaqueries-4/#media-types), or an arbitrary media type value.
-    @available(WK_IOS_TBA, WK_MAC_TBA, WK_XROS_TBA, *)
+    ///
+    /// Media types are one of several media queries that influence the `@media` CSS at-rule; this rule is used
+    /// by webpages to apply parts of a style sheet depending on the media properties specified.
+    ///
+    /// You can customize the media type of a ``WebPage`` by using the ``WebPage/mediaType`` property.
+    @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
     @available(watchOS, unavailable)
     @available(tvOS, unavailable)
     public struct CSSMediaType: Hashable, RawRepresentable, Sendable {
@@ -143,18 +112,21 @@ final public class WebPage {
         /// Corresponds to the "print" media type.
         public static let print = CSSMediaType(rawValue: "print")
 
-        /// Create a media type with an arbitrary value. Use the static type properties for the defined canonical CSS media type options.
+        /// Create a media type with an arbitrary value.
+        ///
+        /// Use the static type properties for the defined canonical CSS media type options.
+        ///
         /// - Parameter rawValue: The raw value of the media type.
-        public init(rawValue: String) {
+        public init(rawValue: Swift.String) {
             self.rawValue = rawValue
         }
 
         /// The raw value of the media type.
-        public let rawValue: String
+        public let rawValue: Swift.String
     }
 
     /// The set of possible fullscreen states a webpage may be in.
-    @available(WK_IOS_TBA, WK_MAC_TBA, WK_XROS_TBA, *)
+    @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
     @available(watchOS, unavailable)
     @available(tvOS, unavailable)
     public enum FullscreenState: Hashable, Sendable {
@@ -164,143 +136,122 @@ final public class WebPage {
         /// The page is exiting fullscreen.
         case exitingFullscreen
 
-        /// The page is currently in a fullscreen state.
+        /// The page is currently in fullscreen.
         case inFullscreen
 
-        /// The page is not currently in a fullscreen state.
+        /// The page is not currently in fullscreen.
         case notInFullscreen
     }
+    
+    // This is based on the XGA standard resolution size.
+    private static let defaultFrame = CGRect(x: 0, y: 0, width: 1024, height: 768)
 
     // MARK: Initializers
 
     private init(
-        _configuration: Configuration,
-        _navigationDecider navigationDecider: (any NavigationDeciding)?,
-        _dialogPresenter dialogPresenter: (any DialogPresenting)?,
-        _downloadCoordinator downloadCoordinator: (any DownloadCoordinator)?
+        internalHelperWithConfiguration configuration: Configuration,
+        navigationDecider: (any NavigationDeciding)?,
+        dialogPresenter: (any DialogPresenting)?,
     ) {
-        self.configuration = _configuration
+        self.configuration = configuration
 
-        let (downloadStream, downloadContinuation) = AsyncStream.makeStream(of: DownloadEvent.self)
-        downloads = Downloads(source: downloadStream)
-
-        backingDownloadDelegate = WKDownloadDelegateAdapter(
-            downloadProgressContinuation: downloadContinuation,
-            downloadCoordinator: downloadCoordinator
-        )
         backingUIDelegate = WKUIDelegateAdapter(
             dialogPresenter: dialogPresenter
         )
         backingNavigationDelegate = WKNavigationDelegateAdapter(
-            downloadProgressContinuation: downloadContinuation,
             navigationDecider: navigationDecider
         )
 
         backingUIDelegate.owner = self
         backingNavigationDelegate.owner = self
-        backingDownloadDelegate.owner = self
     }
 
-    @_spi(Private)
-    public convenience init(
-        configuration: Configuration = Configuration(),
-        navigationDecider: some NavigationDeciding,
-        dialogPresenter: some DialogPresenting,
-        downloadCoordinator: some DownloadCoordinator
-    ) {
-        self.init(_configuration: configuration, _navigationDecider: navigationDecider, _dialogPresenter: dialogPresenter, _downloadCoordinator: downloadCoordinator)
-    }
-
-    @_spi(Private)
+    /// Create a new WebPage.
+    ///
+    /// - Parameters:
+    ///   - configuration: A ``WebPage/Configuration`` value to use when initializing the page.
+    ///   - navigationDecider: A navigation decider used to customize navigations that happen within the page.
+    ///   - dialogPresenter: A dialog presenter which controls how JavaScript dialogs are handled.
     public convenience init(
         configuration: Configuration = Configuration(),
         navigationDecider: some NavigationDeciding,
         dialogPresenter: some DialogPresenting
     ) {
-        self.init(_configuration: configuration, _navigationDecider: navigationDecider, _dialogPresenter: dialogPresenter, _downloadCoordinator: nil)
+        self.init(internalHelperWithConfiguration: configuration, navigationDecider: navigationDecider, dialogPresenter: dialogPresenter)
     }
 
-    @_spi(Private)
-    public convenience init(
-        configuration: Configuration = Configuration(),
-        navigationDecider: some NavigationDeciding,
-        downloadCoordinator: some DownloadCoordinator
-    ) {
-        self.init(_configuration: configuration, _navigationDecider: navigationDecider, _dialogPresenter: nil, _downloadCoordinator: downloadCoordinator)
-    }
-
-    @_spi(Private)
-    public convenience init(
-        configuration: Configuration = Configuration(),
-        dialogPresenter: some DialogPresenting,
-        downloadCoordinator: some DownloadCoordinator
-    ) {
-        self.init(_configuration: configuration, _navigationDecider: nil, _dialogPresenter: dialogPresenter, _downloadCoordinator: downloadCoordinator)
-    }
-
-    @_spi(Private)
+    /// Create a new WebPage.
+    ///
+    /// - Parameters:
+    ///   - configuration: A ``WebPage/Configuration`` value to use when initializing the page.
+    ///   - dialogPresenter: A dialog presenter which controls how JavaScript dialogs are handled.
     public convenience init(
         configuration: Configuration = Configuration(),
         dialogPresenter: some DialogPresenting
     ) {
-        self.init(_configuration: configuration, _navigationDecider: nil, _dialogPresenter: dialogPresenter, _downloadCoordinator: nil)
+        self.init(internalHelperWithConfiguration: configuration, navigationDecider: nil, dialogPresenter: dialogPresenter)
     }
 
-    @_spi(Private)
+    /// Create a new WebPage.
+    ///
+    /// - Parameters:
+    ///   - configuration: A ``WebPage/Configuration`` value to use when initializing the page.
+    ///   - navigationDecider: A navigation decider used to customize navigations that happen within the page.
     public convenience init(
         configuration: Configuration = Configuration(),
         navigationDecider: some NavigationDeciding
     ) {
-        self.init(_configuration: configuration, _navigationDecider: navigationDecider, _dialogPresenter: nil, _downloadCoordinator: nil)
+        self.init(internalHelperWithConfiguration: configuration, navigationDecider: navigationDecider, dialogPresenter: nil)
     }
 
-    @_spi(Private)
-    public convenience init(
-        configuration: Configuration = Configuration(),
-        downloadCoordinator: some DownloadCoordinator
-    ) {
-        self.init(_configuration: configuration, _navigationDecider: nil, _dialogPresenter: nil, _downloadCoordinator: downloadCoordinator)
-    }
-
-    @_spi(Private)
+    /// Create a new WebPage.
+    ///
+    /// - Parameter configuration: A ``WebPage/Configuration`` value to use when initializing the page.
     public convenience init(
         configuration: Configuration = Configuration(),
     ) {
-        self.init(_configuration: configuration, _navigationDecider: nil, _dialogPresenter: nil, _downloadCoordinator: nil)
+        self.init(internalHelperWithConfiguration: configuration, navigationDecider: nil, dialogPresenter: nil)
     }
 
     // MARK: Properties
 
-    /// The current navigation event, or `nil` if there have been no navigations so far.
-    ///
-    /// This property may be used to observe changes to both an individual navigation, and across navigations.
-    ///
-    /// A new navigation begins when a `NavigationEvent` has a type of `startedProvisionalNavigation`, and is finished once a
-    /// navigation event with a type of `.finished`, `.failedProvisionalNavigation`, or `.failed`.
-    public internal(set) var currentNavigationEvent: WebPage.NavigationEvent? = nil
-
-    @_spi(Private)
-    public let downloads: Downloads
-
-    @_spi(Private)
-    public let configuration: Configuration
+    let configuration: Configuration
 
     /// The webpage's back-forward list.
     public internal(set) var backForwardList: BackForwardList = BackForwardList()
+
+    /// A sequence of all the navigation events that occur throughout the webpage, including both user navigation
+    /// and programmatic navigation.
+    ///
+    /// A specific navigation is comprised of a sequential set of ``NavigationEvent``s; a new navigation begins when an
+    /// event is ``NavigationEvent/startedProvisionalNavigation``.
+    ///
+    /// This property produces a new sequence each time it is called, and starts tracking events as soon as it is created.
+    /// The sequence is indefinite, but may be terminated under several circumstances:
+    ///
+    /// * The owning ``WebPage``'s lifetime ends.
+    /// * An error occurs during navigation, at which point the sequence will throw the error and terminate.
+    /// * The ``Task`` enclosing iteration of the sequence is cancelled.
+    ///
+    /// To track a specific programmatic navigation, use the return value of one of the loading APIs.
+    public var navigations: some AsyncSequence<NavigationEvent, any Error> {
+        createIndefiniteNavigationSequence()
+    }
 
     /// The URL for the current webpage.
     ///
     /// This property contains the URL for the webpage currently being presented. Use this URL in places
     /// where you reflect the webpage address in your app’s user interface. If the webpage has not loaded
     /// any content yet, this value will be `nil`.
-    public var url: URL? {
+    public var url: Foundation.URL? {
         backingProperty(\.url, backedBy: \.url)
     }
 
     /// The page title.
-    public var title: String {
+    public var title: Swift.String {
         backingProperty(\.title, backedBy: \.title) { backingValue in
             // The title property is annotated as optional in WKWebView, but is never actually `nil`.
+            // swift-format-ignore: NeverForceUnwrap
             backingValue!
         }
     }
@@ -317,7 +268,7 @@ final public class WebPage {
 
     /// Indicates whether the webpage is currently loading content.
     ///
-    /// - Returns: `true` if the receiver is still loading content, otherwise, `false`.
+    /// - Returns: `true` if the page is still loading content, otherwise, `false`.
     public var isLoading: Bool {
         backingProperty(\.isLoading, backedBy: \.isLoading)
     }
@@ -325,6 +276,8 @@ final public class WebPage {
     /// The trust management object you use to evaluate trust for the current webpage.
     ///
     /// Use the object in this property to validate the webpage’s certificate and associated credentials.
+    /// See <doc://com.apple.documentation/documentation/security/evaluating-a-trust-and-parsing-the-result>
+    /// for more details on how to use the trust.
     public var serverTrust: SecTrust? {
         backingProperty(\.serverTrust, backedBy: \.serverTrust)
     }
@@ -334,9 +287,15 @@ final public class WebPage {
         backingProperty(\.hasOnlySecureContent, backedBy: \.hasOnlySecureContent)
     }
 
-    /// Indicates whether Writing Tools is active for the view.
+    /// Indicates whether Writing Tools is active for the page.
     public var isWritingToolsActive: Bool {
         backingProperty(\.isWritingToolsActive, backedBy: \.isWritingToolsActive)
+    }
+
+    /// Indicates whether Screen Time blocking has occurred.
+    @available(visionOS, unavailable)
+    public var isBlockedByScreenTime: Bool {
+        backingProperty(\.isBlockedByScreenTime, backedBy: \.isBlockedByScreenTime)
     }
 
     /// The fullscreen state the page is currently in.
@@ -356,11 +315,14 @@ final public class WebPage {
         backingProperty(\.microphoneCaptureState, backedBy: \.microphoneCaptureState)
     }
 
-    /// The media type for the contents of the web view.
+    /// The media type for the contents of the webpage.
     ///
     /// When the value of this property is `nil`, the webpage derives the current media type from the CSS
     /// media property of its content. If you assign a value other than `nil` to this property, the webpage
     /// uses the value you provide instead.
+    ///
+    /// For example, you can use this property to configure a page for viewing as a print preview by setting
+    /// it to ``WebPage/CSSMediaType/print``.
     ///
     /// The default value of this property is `nil`.
     public var mediaType: WebPage.CSSMediaType? {
@@ -373,14 +335,14 @@ final public class WebPage {
     /// Use this property to specify a custom user agent string for the webpage.
     ///
     /// The default value of this property is `nil`.
-    public var customUserAgent: String? {
+    public var customUserAgent: Swift.String? {
         get { backingWebView.customUserAgent }
         set { backingWebView.customUserAgent = newValue }
     }
 
-    /// Indicates whether you can inspect the view with Safari Web Inspector.
+    /// Indicates whether you can inspect the page with Safari Web Inspector.
     ///
-    /// Set to true at any point in the view’s lifetime to allow Safari Web Inspector access to inspect the view’s content.
+    /// Set to `true` at any point in the page's lifetime to allow Safari Web Inspector access to inspect the view’s content.
     /// Then, select your view in Safari’s Develop menu for either your computer or an attached device to inspect it.
     ///
     /// If you set this value to false during inspection, the system immediately closes Safari Web Inspector and does not
@@ -394,35 +356,71 @@ final public class WebPage {
 
     let backingUIDelegate: WKUIDelegateAdapter
     private let backingNavigationDelegate: WKNavigationDelegateAdapter
-    let backingDownloadDelegate: WKDownloadDelegateAdapter
 
-#if os(macOS)
+    #if os(macOS)
+    // SPI for the cross-import overlay.
+    // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
     @_spi(CrossImportOverlay)
-    public func setMenuBuilder(_ menuBuilder: ((WebPage.ElementInfo) -> NSMenu)?) {
+    public func setMenuBuilder(_ menuBuilder: ((WKContextMenuElementInfoAdapter) -> NSMenu)?) {
         backingUIDelegate.menuBuilder = menuBuilder
     }
-#endif
+    #endif
 
     @ObservationIgnored
     private var observations = KeyValueObservations()
 
+    // SPI for the cross-import overlay.
+    // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
     @ObservationIgnored
     @_spi(CrossImportOverlay)
-    public var isBoundToWebView = false
+    public var isBoundToWebView = false {
+        didSet {
+            backingWebView.frame = isBoundToWebView ? .zero : Self.defaultFrame
+        }
+    }
 
+    // SPI for the cross-import overlay.
+    // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
     @ObservationIgnored
     @_spi(CrossImportOverlay)
     public lazy var backingWebView: WebPageWebView = {
-        let webView = WebPageWebView(frame: .zero, configuration: WKWebViewConfiguration(configuration))
+        let webView = WebPageWebView(frame: Self.defaultFrame, configuration: WKWebViewConfiguration(configuration))
         webView.navigationDelegate = backingNavigationDelegate
         webView.uiDelegate = backingUIDelegate
-#if os(macOS)
+        #if os(macOS)
         webView._usePlatformFindUI = false
-#endif
+        #endif
         return webView
     }()
 
     // MARK: Loading functions
+    
+    @ObservationIgnored
+    private var scopedNavigations: [ObjectIdentifier : AsyncThrowingStream<NavigationEvent, any Error>.Continuation] = [:]
+
+    @ObservationIgnored
+    private var scopedStreams: [ObjectIdentifier : AsyncThrowingStream<NavigationEvent, any Error>] = [:]
+
+    @ObservationIgnored
+    private var indefiniteNavigations: [UUID : AsyncThrowingStream<NavigationEvent, any Error>.Continuation] = [:]
+
+    /// Loads the web content that the specified URL references and navigates to that content.
+    ///
+    /// Use this method to load a page from a local or network-based URL. For example, you might use this method
+    /// to navigate to a network-based webpage.
+    ///
+    /// - Parameter url: The URL to load. If this is `nil`, an error will be immediately thrown from the returned sequence.
+    /// - Returns: An async sequence you use to track the loading progress of the navigation. If the `Task` enclosing the sequence is cancelled, the page will stop loading all resources.
+    @discardableResult
+    public func load(_ url: Foundation.URL?) -> some AsyncSequence<NavigationEvent, any Error> {
+        guard let url else {
+            return AsyncThrowingStream { continuation in
+                continuation.finish(throwing: NavigationError.invalidURL)
+            }
+        }
+
+        return toNavigationSequence { $0.load(URLRequest(url: url)) }
+    }
 
     /// Loads the web content that the specified URL request object references and navigates to that content.
     ///
@@ -432,10 +430,10 @@ final public class WebPage {
     /// Provide the source of this load request for app activity data by setting the attribution parameter on your request.
     ///
     /// - Parameter request: A URL request that specifies the resource to display.
-    /// - Returns: A navigation identifier you use to track the loading progress of the request.
+    /// - Returns: An async sequence you use to track the loading progress of the navigation. If the `Task` enclosing the sequence is cancelled, the page will stop loading all resources.
     @discardableResult
-    public func load(_ request: URLRequest) -> NavigationID? {
-        backingWebView.load(request).map(NavigationID.init(_:))
+    public func load(_ request: URLRequest) -> some AsyncSequence<NavigationEvent, any Error> {
+        toNavigationSequence { $0.load(request) }
     }
 
     /// Loads the content of the specified data object and navigates to it.
@@ -446,11 +444,16 @@ final public class WebPage {
     /// - Parameters:
     ///   - data: The data to use as the contents of the webpage.
     ///   - mimeType: The MIME type of the information in the data parameter. This parameter must not contain an empty string.
-    ///   - encoding: The data's character encoding.
+    ///   - characterEncoding: The data's character encoding.
     ///   - baseURL: A URL that you use to resolve relative URLs within the document.
-    /// - Returns: A navigation identifier you use to track the loading progress of the request.
+    /// - Returns: An async sequence you use to track the loading progress of the navigation. If the `Task` enclosing the sequence is cancelled, the page will stop loading all resources.
     @discardableResult
-    public func load(_ data: Data, mimeType: String, characterEncoding: String.Encoding, baseURL: URL) -> NavigationID? {
+    public func load(
+        _ data: Data,
+        mimeType: Swift.String,
+        characterEncoding: Swift.String.Encoding,
+        baseURL: Foundation.URL
+    ) -> some AsyncSequence<NavigationEvent, any Error> {
         let cfEncoding = CFStringConvertNSStringEncodingToEncoding(characterEncoding.rawValue)
         guard cfEncoding != kCFStringEncodingInvalidId else {
             preconditionFailure("\(characterEncoding) is not a valid character encoding")
@@ -459,8 +462,10 @@ final public class WebPage {
         guard let convertedEncoding = CFStringConvertEncodingToIANACharSetName(cfEncoding) as? String else {
             preconditionFailure("\(characterEncoding) is not a valid character encoding")
         }
-
-        return backingWebView.load(data, mimeType: mimeType, characterEncodingName: convertedEncoding, baseURL: baseURL).map(NavigationID.init(_:))
+        
+        return toNavigationSequence {
+            $0.load(data, mimeType: mimeType, characterEncodingName: convertedEncoding, baseURL: baseURL)
+        }
     }
 
     /// Loads the contents of the specified HTML string and navigates to it.
@@ -472,44 +477,17 @@ final public class WebPage {
     ///
     /// - Parameters:
     ///   - html: The string to use as the contents of the webpage.
-    ///   - baseURL: The base URL to use when the system resolves relative URLs within the HTML string.
-    /// - Returns: A navigation identifier you use to track the loading progress of the request.
+    ///   - baseURL: The base URL to use when the system resolves relative URLs within the HTML string. By default, this is `about:blank`.
+    /// - Returns: An async sequence you use to track the loading progress of the navigation. If the `Task` enclosing the sequence is cancelled, the page will stop loading all resources.
+    // swift-format-ignore: NeverForceUnwrap
     @discardableResult
-    public func load(html: String, baseURL: URL) -> NavigationID? {
-        backingWebView.loadHTMLString(html, baseURL: baseURL).map(NavigationID.init(_:))
-    }
-
-    /// Loads the web content from the specified file and navigates to it.
-    ///
-    /// - Parameters:
-    ///   - fileURL: The URL of a file that contains web content. This URL must be a file-based URL.
-    ///   - readAccessURL: The URL of a file or directory containing web content that you grant the system permission
-    ///   to read. This URL must be a file-based URL and must not be empty. To prevent WebKit from reading any other
-    ///   content, specify the same value as the URL parameter. To read additional files related to the content file,
-    ///   specify a directory.
-    /// - Returns: A navigation identifier you use to track the loading progress of the request.
-    @discardableResult
-    public func load(fileURL url: URL, allowingReadAccessTo readAccessURL: URL) -> NavigationID? {
-        backingWebView.loadFileURL(url, allowingReadAccessTo: readAccessURL).map(NavigationID.init(_:))
-    }
-
-    /// Loads the web content from the file the URL request object specifies and navigates to that content.
-    ///
-    /// Provide the source of this load request for app activity data by setting the `attribution` parameter on your request.
-    ///
-    /// - Parameters:
-    ///   - request: A URL request that specifies the file to display. The URL in this request must be a file-based URL.
-    ///   - readAccessURL: The URL of a file or directory containing web content that you grant the system permission
-    ///   to read. This URL must be a file-based URL and must not be empty. To prevent WebKit from reading any other
-    ///   content, specify the same value as the URL parameter. To read additional files related to the content file,
-    ///   specify a directory.
-    /// - Returns: A navigation identifier you use to track the loading progress of the request.
-    @discardableResult
-    public func load(fileRequest request: URLRequest, allowingReadAccessTo readAccessURL: URL) -> NavigationID? {
-        // `WKWebView` annotates this method as returning non-nil, but it may return nil.
-
-        let navigation = backingWebView.loadFileRequest(request, allowingReadAccessTo: readAccessURL) as WKNavigation?
-        return navigation.map(NavigationID.init(_:))
+    public func load(
+        html: Swift.String,
+        baseURL: Foundation.URL = Foundation.URL(string: "about:blank")!
+    ) -> some AsyncSequence<NavigationEvent, any Error> {
+        toNavigationSequence {
+            $0.loadHTMLString(html, baseURL: baseURL)
+        }
     }
 
     /// Loads the web content from the data you provide as if the data were the response to the request.
@@ -518,13 +496,13 @@ final public class WebPage {
     ///   - request: A URL request that specifies the base URL and other loading details the system uses to interpret the data you provide.
     ///   - response: A response the system uses to interpret the data you provide.
     ///   - responseData: The data to use as the contents of the webpage.
-    /// - Returns: A navigation identifier you use to track the loading progress of the request.
+    /// - Returns: An async sequence you use to track the loading progress of the navigation. If the `Task` enclosing the sequence is cancelled, the page will stop loading all resources.
     @discardableResult
-    public func load(simulatedRequest request: URLRequest, response: URLResponse, responseData: Data) -> NavigationID? {
-        // `WKWebView` annotates this method as returning non-nil, but it may return nil.
-
-        let navigation = backingWebView.loadSimulatedRequest(request, response: response, responseData: responseData) as WKNavigation?
-        return navigation.map(NavigationID.init(_:))
+    public func load(simulatedRequest request: URLRequest, response: URLResponse, responseData: Data) -> some AsyncSequence<NavigationEvent, any Error> {
+        toNavigationSequence {
+            // `WKWebView` annotates this method as returning non-nil, but it may return nil.
+            $0.loadSimulatedRequest(request, response: response, responseData: responseData) as WKNavigation?
+        }
     }
 
     /// Loads the web content from the HTML you provide as if the HTML were the response to the request.
@@ -532,34 +510,39 @@ final public class WebPage {
     /// - Parameters:
     ///   - request: A URL request that specifies the base URL and other loading details the system uses to interpret the HTML you provide.
     ///   - htmlString: The HTML code you provide in a string to use as the contents of the webpage.
-    /// - Returns: A navigation identifier you use to track the loading progress of the request.
+    /// - Returns: An async sequence you use to track the loading progress of the navigation. If the `Task` enclosing the sequence is cancelled, the page will stop loading all resources.
     @discardableResult
-    public func load(simulatedRequest request: URLRequest, responseHTML htmlString: String) -> NavigationID? {
-        // `WKWebView` annotates this method as returning non-nil, but it may return nil.
-
-        let navigation = backingWebView.loadSimulatedRequest(request, responseHTML: htmlString) as WKNavigation?
-        return navigation.map(NavigationID.init(_:))
+    public func load(
+        simulatedRequest request: URLRequest,
+        responseHTML htmlString: Swift.String
+    ) -> some AsyncSequence<NavigationEvent, any Error> {
+        toNavigationSequence {
+            // `WKWebView` annotates this method as returning non-nil, but it may return nil.
+            $0.loadSimulatedRequest(request, responseHTML: htmlString) as WKNavigation?
+        }
     }
 
     /// Navigates to an item from the back-forward list and sets it as the current item.
     ///
-    /// - Parameters:
-    ///   - item: The item to navigate to. The item must be in the webpage's back-forward list.
-    /// - Returns: A navigation identifier you use to track the loading progress of the request.
+    /// - Parameter item: The item to navigate to. The item must be in the webpage's back-forward list.
+    /// - Returns: An async sequence you use to track the loading progress of the navigation. If the `Task` enclosing the sequence is cancelled, the page will stop loading all resources.
     @discardableResult
-    public func load(_ item: BackForwardList.Item) -> NavigationID? {
-        backingWebView.go(to: item.wrapped).map(NavigationID.init(_:))
+    public func load(_ item: BackForwardList.Item) -> some AsyncSequence<NavigationEvent, any Error> {
+        toNavigationSequence {
+            $0.go(to: item.wrapped)
+        }
     }
 
     /// Reloads the current webpage.
     ///
     /// - Parameter fromOrigin: If `true`, end-to-end revalidation of the content using cache-validating conditionals
     /// is performed, if possible.
-    /// - Returns: A navigation identifier you use to track the loading progress of the request.
+    /// - Returns: An async sequence you use to track the loading progress of the navigation. If the `Task` enclosing the sequence is cancelled, the page will stop loading all resources.
     @discardableResult
-    public func reload(fromOrigin: Bool = false) -> NavigationID? {
-        let navigation = fromOrigin ? backingWebView.reloadFromOrigin() : backingWebView.reload()
-        return navigation.map(NavigationID.init(_:))
+    public func reload(fromOrigin: Bool = false) -> some AsyncSequence<NavigationEvent, any Error> {
+        toNavigationSequence {
+            fromOrigin ? $0.reloadFromOrigin() : $0.reload()
+        }
     }
 
     /// Stops loading all resources on the current page.
@@ -611,26 +594,29 @@ final public class WebPage {
     ///   you make in the underlying web content, such as the document's DOM structure. Those changes remain visible to
     ///   all scripts, regardless of which content world you specify. For more information about content worlds, see `WKContentWorld`.
     ///
-    /// - Returns: The result of the script evaluation. If your function body doesn't return an explicit value, `nil` is returned.
-    ///  If your function body explicitly returns `null`, then `NSNull` is returned.
-    public func callJavaScript(_ functionBody: String, arguments: [String : Any] = [:], in frame: FrameInfo? = nil, contentWorld: WKContentWorld? = nil) async throws -> Any? {
-        try await backingWebView.callAsyncJavaScript(functionBody, arguments: arguments, in: frame?.wrapped, contentWorld: contentWorld ?? .page)
-    }
+    /// - Returns: The result of the script evaluation. If your function body doesn't return an explicit value, `nil` is returned. If your function body explicitly returns `null`, then `NSNull` is returned.
+    /// - Throws: An error if a problem occurred while evaluating the JavaScript.
+    @discardableResult
+    public func callJavaScript(
+        _ functionBody: Swift.String,
+        arguments: [Swift.String: Any] = [:],
+        in frame: FrameInfo? = nil,
+        contentWorld: WKContentWorld? = nil
+    ) async throws -> sending Any? {
+        let result = try await backingWebView.callAsyncJavaScript(
+            functionBody,
+            arguments: arguments,
+            in: frame?.wrapped,
+            contentWorld: contentWorld ?? .page
+        )
 
-    /// Generates PDF data from the webpage's contents
-    /// - Parameter configuration: The object that specifies the portion of the web view to capture as PDF data.
-    /// - Returns: A data object that contains the PDF data to use for rendering the contents of the webpage.
-    public func pdf(configuration: WKPDFConfiguration = .init()) async throws -> Data {
-        try await backingWebView.pdf(configuration: configuration)
-    }
-
-    /// Creates a web archive of the webpage's current contents.
-    public func webArchiveData() async throws -> Data {
-        try await withCheckedThrowingContinuation { continuation in
-            backingWebView.createWebArchiveData {
-                continuation.resume(with: $0)
-            }
+        guard let result else {
+            return nil
         }
+
+        // Safe force-unwrap because all plist types are Sendable.
+        // swift-format-ignore: NeverForceUnwrap
+        return result as! any Sendable
     }
 
     // MARK: Media functions
@@ -669,26 +655,77 @@ final public class WebPage {
         await backingWebView.setMicrophoneCaptureState(state)
     }
 
-    // MARK: Downloads
+    // MARK: Helper functions
 
-    // For these to work, a custom implementation of `DownloadCoordinator.destination(forDownload:response:suggestedFilename:) async -> URL?`
-    // must be provided so that the downloads are not immediately cancelled.
+    func addNavigationEvent(_ event: Result<NavigationEvent, any Error>, for cocoaNavigation: WKNavigation?) {
+        if let cocoaNavigation {
+            scopedNavigations[ObjectIdentifier(cocoaNavigation)]?.yield(with: event)
 
-    @_spi(Private)
-    public func startDownload(using request: URLRequest) async -> WebPage.DownloadID {
-        let cocoaDownload = await backingWebView.startDownload(using: request)
-        return WebPage.DownloadID(cocoaDownload)
+            if case .success(.finished) = event {
+                scopedNavigations[ObjectIdentifier(cocoaNavigation)]?.finish()
+            }
+        } else {
+            for continuation in scopedNavigations.values {
+                continuation.yield(with: event)
+            }
+        }
+
+        for continuation in indefiniteNavigations.values {
+            continuation.yield(with: event)
+        }
     }
 
-    @_spi(Private)
-    public func resumeDownload(fromResumeData resumeData: Data) async -> WebPage.DownloadID {
-        let cocoaDownload = await backingWebView.resumeDownload(fromResumeData: resumeData)
-        return WebPage.DownloadID(cocoaDownload)
+    private func createIndefiniteNavigationSequence() -> some AsyncSequence<NavigationEvent, any Error> {
+        let id = UUID()
+
+        let (stream, continuation) = AsyncThrowingStream.makeStream(of: NavigationEvent.self, throwing: (any Error).self)
+        continuation.onTermination = { [weak self] termination in
+            guard let self else {
+                return
+            }
+            Task { @MainActor in
+                // `stopLoading` is intentionally not called here because the semantics of doing
+                // so would not be well-defined in the case of multiple navigation sequences.
+                indefiniteNavigations[id] = nil
+            }
+        }
+
+        indefiniteNavigations[id] = continuation
+        return stream
     }
 
-    // MARK: Private helper functions
+    private func toNavigationSequence(_ load: (WKWebView) -> WKNavigation?) -> AsyncThrowingStream<NavigationEvent, any Error> {
+        guard let id = load(backingWebView) else {
+            return AsyncThrowingStream { continuation in
+                continuation.finish(throwing: NavigationError.pageClosed)
+            }
+        }
 
-    private func createObservation<Value, BackingValue>(for keyPath: KeyPath<WebPage, Value>, backedBy backingKeyPath: KeyPath<WebPageWebView, BackingValue>) -> NSKeyValueObservation {
+        let (stream, continuation) = AsyncThrowingStream.makeStream(of: NavigationEvent.self, throwing: (any Error).self)
+        continuation.onTermination = { [weak self] termination in
+            guard let self else {
+                return
+            }
+            Task { @MainActor in
+                if case .cancelled = termination {
+                    stopLoading()
+                }
+                scopedNavigations[ObjectIdentifier(id)] = nil
+                scopedStreams[ObjectIdentifier(id)] = nil
+            }
+        }
+
+        scopedNavigations[ObjectIdentifier(id)] = continuation
+        scopedStreams[ObjectIdentifier(id)] = stream
+        return stream
+    }
+
+    private func createObservation<Value, BackingValue>(
+        for keyPath: KeyPath<WebPage, Value>,
+        backedBy backingKeyPath: KeyPath<WebPageWebView, BackingValue>
+    ) -> NSKeyValueObservation {
+        // The key path used within `createObservation` must be Sendable.
+        // This is safe as long as it is not used for object subscripting and isn't created with captured subscript key paths.
         let boxed = UncheckedSendableKeyPathBox(keyPath: keyPath)
 
         return backingWebView.observe(backingKeyPath, options: [.prior, .old, .new]) { [_$observationRegistrar, unowned self] _, change in
@@ -700,8 +737,14 @@ final public class WebPage {
         }
     }
 
+    // SPI for the cross-import overlay.
+    // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
     @_spi(CrossImportOverlay)
-    public func backingProperty<Value, BackingValue>(_ keyPath: KeyPath<WebPage, Value>, backedBy backingKeyPath: KeyPath<WebPageWebView, BackingValue>, _ transform: (BackingValue) -> Value) -> Value {
+    public func backingProperty<Value, BackingValue>(
+        _ keyPath: KeyPath<WebPage, Value>,
+        backedBy backingKeyPath: KeyPath<WebPageWebView, BackingValue>,
+        _ transform: (BackingValue) -> Value
+    ) -> Value {
         if observations.contents[keyPath] == nil {
             observations.contents[keyPath] = createObservation(for: keyPath, backedBy: backingKeyPath)
         }
@@ -712,28 +755,32 @@ final public class WebPage {
         return transform(backingValue)
     }
 
+    // SPI for the cross-import overlay.
+    // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
     @_spi(CrossImportOverlay)
-    public func backingProperty<Value>(_ keyPath: KeyPath<WebPage, Value>, backedBy backingKeyPath: KeyPath<WebPageWebView, Value>) -> Value {
+    public func backingProperty<Value>(_ keyPath: KeyPath<WebPage, Value>, backedBy backingKeyPath: KeyPath<WebPageWebView, Value>) -> Value
+    {
         backingProperty(keyPath, backedBy: backingKeyPath) { $0 }
     }
 }
 
 extension WebPage.FullscreenState {
     init(_ wrapped: WKWebView.FullscreenState) {
-        self = switch wrapped {
-        case .enteringFullscreen: .enteringFullscreen
-        case .exitingFullscreen: .exitingFullscreen
-        case .inFullscreen: .inFullscreen
-        case .notInFullscreen: .notInFullscreen
-        @unknown default:
-            fatalError()
-        }
+        self =
+            switch wrapped {
+            case .enteringFullscreen: .enteringFullscreen
+            case .exitingFullscreen: .exitingFullscreen
+            case .inFullscreen: .inFullscreen
+            case .notInFullscreen: .notInFullscreen
+            @unknown default:
+                fatalError()
+            }
     }
 }
 
 extension WebPage {
     private struct KeyValueObservations: ~Copyable {
-        var contents: [PartialKeyPath<WebPage> : NSKeyValueObservation] = [:]
+        var contents: [PartialKeyPath<WebPage>: NSKeyValueObservation] = [:]
 
         deinit {
             for (_, observation) in contents {
@@ -743,10 +790,13 @@ extension WebPage {
     }
 }
 
-/// The key path used within `createObservation` must be Sendable.
-/// This is safe as long as it is not used for object subscripting and isn't created with captured subscript key paths.
-fileprivate struct UncheckedSendableKeyPathBox<Root, Value>: @unchecked Sendable {
-    let keyPath: KeyPath<Root, Value>
+extension WebPage {
+    // SPI for testing.
+    // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
+    @_spi(Testing)
+    public func terminateWebContentProcess() {
+        backingWebView._killWebContentProcess()
+    }
 }
 
 #endif

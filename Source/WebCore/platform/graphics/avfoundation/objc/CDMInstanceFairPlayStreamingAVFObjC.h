@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -40,6 +40,7 @@ OBJC_CLASS AVContentKeyReportGroup;
 OBJC_CLASS AVContentKeyRequest;
 OBJC_CLASS AVContentKeySession;
 OBJC_CLASS NSData;
+OBJC_CLASS NSDictionary;
 OBJC_CLASS NSError;
 OBJC_CLASS NSURL;
 OBJC_CLASS WebCoreFPSContentKeySessionDelegate;
@@ -169,12 +170,12 @@ private:
     bool m_persistentStateAllowed { true };
     RetainPtr<NSURL> m_storageURL;
     Vector<WeakPtr<CDMInstanceSessionFairPlayStreamingAVFObjC>> m_sessions;
-    UncheckedKeyHashSet<RetainPtr<AVContentKeyRequest>> m_unexpectedKeyRequests;
+    HashSet<RetainPtr<AVContentKeyRequest>> m_unexpectedKeyRequests;
     WeakHashSet<KeyStatusesChangedObserver> m_keyStatusChangedObservers;
     String m_mediaKeysHashSalt;
 
 #if !RELEASE_LOG_DISABLED
-    Ref<const Logger> m_logger;
+    const Ref<const Logger> m_logger;
     uint64_t m_logIdentifier { 0 };
 #endif
 };
@@ -234,6 +235,8 @@ public:
 
     void attachContentKeyToSample(const MediaSampleAVFObjC&);
 
+    static RetainPtr<NSDictionary> optionsForKeyRequestWithHashSalt(const String&);
+
 private:
     bool ensureSessionOrGroup(KeyGroupingStrategy);
     bool isLicenseTypeSupported(LicenseType) const;
@@ -267,11 +270,11 @@ private:
     WTFLogChannel& contentKeyGroupDataSourceLogChannel() const final;
 #endif // !RELEASE_LOG_DISABLED
 
-    Ref<CDMInstanceFairPlayStreamingAVFObjC> m_instance;
-    RetainPtr<WebAVContentKeyGrouping> m_group;
+    const Ref<CDMInstanceFairPlayStreamingAVFObjC> m_instance;
+    const RetainPtr<WebAVContentKeyGrouping> m_group;
     RetainPtr<AVContentKeySession> m_session;
     std::optional<Request> m_currentRequest;
-    RetainPtr<WebCoreFPSContentKeySessionDelegate> m_delegate;
+    const RetainPtr<WebCoreFPSContentKeySessionDelegate> m_delegate;
     Vector<RetainPtr<NSData>> m_expiredSessions;
     WeakPtr<CDMInstanceSessionClient> m_client;
     String m_sessionId;
@@ -291,7 +294,7 @@ private:
     RemoveSessionDataCallback m_removeSessionDataCallback;
 
 #if !RELEASE_LOG_DISABLED
-    Ref<const Logger> m_logger;
+    const Ref<const Logger> m_logger;
     uint64_t m_logIdentifier { 0 };
 #endif
 };

@@ -1,4 +1,4 @@
-# Copyright (C) 2018-2024 Apple Inc. All rights reserved.
+# Copyright (C) 2018-2025 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -79,3 +79,10 @@ def get_custom_suffix():
     if 'uat' in hostname:
         return '-uat'
     return ''
+
+
+def get_cibuilds_for_queue(change, queue):
+    builds = [build for build in change.cibuild_set.all() if build.builder_display_name == queue]
+    if builds:
+        builds.sort(key=lambda build: build.created, reverse=True)
+    return builds

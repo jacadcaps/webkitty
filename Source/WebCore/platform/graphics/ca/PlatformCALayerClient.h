@@ -27,6 +27,10 @@
 
 #include "GraphicsLayer.h"
 
+#if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
+#include  "DynamicContentScalingDisplayList.h"
+#endif
+
 namespace WebCore {
 
 class FloatRect;
@@ -77,10 +81,16 @@ public:
     virtual bool drawsHDRContent() const { return false; }
 #endif
 
+    virtual OptionSet<ContentsFormat> screenContentsFormats() const = 0;
+
     virtual void platformCALayerLogFilledVisibleFreshTile(unsigned /* blankPixelCount */) { }
 
 #if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
+    // Returns true if DCS structures should be generated during paintContents for the PlatformCALayer.
     virtual bool platformCALayerAllowsDynamicContentScaling(const PlatformCALayer*) const { return true; }
+
+    // Returns the explicit DCS structures if the layer provides them.
+    virtual std::optional<DynamicContentScalingDisplayList> platformCALayerDynamicContentScalingDisplayList(const PlatformCALayer*) const { return std::nullopt; }
 #endif
 
     virtual bool platformCALayerShouldPaintUsingCompositeCopy() const { return false; }

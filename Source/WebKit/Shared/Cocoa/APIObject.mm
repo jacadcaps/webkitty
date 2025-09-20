@@ -28,7 +28,6 @@
 
 #import "WKBackForwardListInternal.h"
 #import "WKBackForwardListItemInternal.h"
-#import "WKBrowsingContextControllerInternal.h"
 #import "WKContentRuleListInternal.h"
 #import "WKContentRuleListStoreInternal.h"
 #import "WKContentWorldInternal.h"
@@ -84,10 +83,12 @@
 #import "_WKInspectorConfigurationInternal.h"
 #import "_WKInspectorDebuggableInfoInternal.h"
 #import "_WKInspectorInternal.h"
+#import "_WKNodeInfoInternal.h"
 #import "_WKProcessPoolConfigurationInternal.h"
 #import "_WKResourceLoadInfoInternal.h"
 #import "_WKResourceLoadStatisticsFirstPartyInternal.h"
 #import "_WKResourceLoadStatisticsThirdPartyInternal.h"
+#import "_WKSerializedNodeInternal.h"
 #import "_WKTargetedElementInfoInternal.h"
 #import "_WKTargetedElementRequestInternal.h"
 #import "_WKTextRunInternal.h"
@@ -152,7 +153,7 @@ API::Object& Object::fromWKObjectExtraSpace(id <WKObject> obj)
 
 void* Object::newObject(size_t size, Type type)
 {
-    id <WKObject> wrapper;
+    SUPPRESS_UNRETAINED_LOCAL id<WKObject> wrapper;
 
     // Wrappers that inherit from WKObject store the API::Object in their extra bytes, so they are
     // allocated using NSAllocatedObject. The other wrapper classes contain inline storage for the
@@ -216,11 +217,15 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         break;
 
     case Type::ProcessPool:
+        ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         wrapper = [WKProcessPool alloc];
+        ALLOW_DEPRECATED_DECLARATIONS_END
         break;
 
     case Type::ProcessPoolConfiguration:
+        ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         wrapper = [_WKProcessPoolConfiguration alloc];
+        ALLOW_DEPRECATED_DECLARATIONS_END
         break;
 
     case Type::PageConfiguration:
@@ -517,16 +522,21 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         wrapper = [WKWebProcessPlugInScriptWorld alloc];
         break;
 
+    case Type::NodeInfo:
+        wrapper = [_WKNodeInfo alloc];
+        break;
+
+    case Type::SerializedNode:
+        wrapper = [_WKSerializedNode alloc];
+        break;
+
     default:
         wrapper = allocateWKObject([WKObject class], size);
         break;
     }
 
-    Object& object = wrapper._apiObject;
-
-    apiObjectsUnderConstruction().add(&object, (__bridge CFTypeRef)wrapper);
-
-    return &object;
+    apiObjectsUnderConstruction().add(&wrapper._apiObject, (__bridge CFTypeRef)wrapper);
+    return &wrapper._apiObject;
 }
 
 void* Object::wrap(API::Object* object)
@@ -552,8 +562,8 @@ RetainPtr<NSObject<NSSecureCoding>> Object::toNSObject()
         auto& dictionary = downcast<API::Dictionary>(*this);
         auto result = adoptNS([[NSMutableDictionary alloc] initWithCapacity:dictionary.size()]);
         for (auto& pair : dictionary.map()) {
-            if (auto nsObject = pair.value ? pair.value->toNSObject() : RetainPtr<NSObject<NSSecureCoding>>())
-                [result setObject:nsObject.get() forKey:(NSString *)pair.key];
+            if (auto nsObject = pair.value ? Ref { *pair.value }->toNSObject() : RetainPtr<NSObject<NSSecureCoding>>())
+                [result setObject:nsObject.get() forKey:pair.key.createNSString().get()];
         }
         return result;
     }
@@ -577,7 +587,7 @@ RetainPtr<NSObject<NSSecureCoding>> Object::toNSObject()
     case Object::Type::Data:
         return API::wrapper(downcast<API::Data>(*this));
     case Object::Type::String:
-        return (NSString *)downcast<API::String>(*this).string();
+        return downcast<API::String>(*this).string().createNSString();
     default:
         // Other API::Object::Types are intentionally not supported.
         break;

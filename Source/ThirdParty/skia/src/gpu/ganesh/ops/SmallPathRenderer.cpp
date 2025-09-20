@@ -19,7 +19,6 @@
 #include "include/core/SkScalar.h"
 #include "include/core/SkString.h"
 #include "include/gpu/ganesh/GrRecordingContext.h"
-#include "include/private/SkColorData.h"
 #include "include/private/base/SkAssert.h"
 #include "include/private/base/SkDebug.h"
 #include "include/private/base/SkMalloc.h"
@@ -29,6 +28,7 @@
 #include "include/private/gpu/ganesh/GrTypesPriv.h"
 #include "src/base/SkAutoMalloc.h"
 #include "src/core/SkAutoPixmapStorage.h"
+#include "src/core/SkColorData.h"
 #include "src/core/SkDistanceFieldGen.h"
 #include "src/core/SkDraw.h"
 #include "src/core/SkMatrixPriv.h"
@@ -577,7 +577,7 @@ private:
             SkPoint pts[4];
             SkPoint3 out[4];
             translatedBounds.toQuad(pts);
-            ctm.mapHomogeneousPoints(out, pts, 4);
+            ctm.mapPointsToHomogeneous(out, pts);
 
             vertices << out[0] << color << texCoords.l << texCoords.t;
             vertices << out[3] << color << texCoords.l << texCoords.b;

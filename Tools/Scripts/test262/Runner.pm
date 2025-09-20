@@ -319,8 +319,16 @@ sub processCLI {
     print "---\n\n";
 }
 
+sub setupEnvironment()
+{
+    if ($^O eq "linux") {
+        setupUnixWebKitEnvironment(productDir());
+    }
+}
+
 sub main {
     processCLI();
+    setupEnvironment();
 
     my @defaultHarnessFiles = (
         "$harnessDir/sta.js",
@@ -824,18 +832,20 @@ sub runTest {
     my $defaultHarness = '';
     $defaultHarness = $deffile if $scenario ne 'raw';
 
-    my $prefix = !isWindows() && $DYLD_FRAMEWORK_PATH ? qq(DYLD_FRAMEWORK_PATH=$DYLD_FRAMEWORK_PATH) : "";
+    my $tz = $ENV{TZ} ? "TZ=$ENV{TZ}" : "TZ=PST";
+    my $prefix = !isWindows() && $DYLD_FRAMEWORK_PATH ? qq(DYLD_FRAMEWORK_PATH=$DYLD_FRAMEWORK_PATH $tz) : $tz;
     my $execTimeStart = time();
 
-    my $result = qx($prefix $JSC $args $defaultHarness $asyncHarness $includesfile $prefixFile$filename);
+    my $result = qx($prefix $JSC $args $defaultHarness $asyncHarness $includesfile $prefixFile$filename 2>&1);
+    my $exitCode = $? >> 8;
     my $execTime = time() - $execTimeStart;
 
     chomp $result;
 
-    if ($?) {
-        return ($?, $result, $execTime);
+    if ($exitCode) {
+        return ($exitCode, $result, $execTime);
     } else {
-        return ($?, 0, $execTime);
+        return ($exitCode, 0, $execTime);
     }
 }
 
@@ -858,6 +868,13 @@ sub processResult {
 
     my $exitSignalNumber = $exitCode & 0x7f if $scenario ne 'skip';
 
+    # JSC exits with code 3 if the program throws an uncaught exception.
+    # So, set $exitSignalNumber to 0 to indicate that the program
+    # didn't crash.
+    if ($scenario ne 'skip' && $exitSignalNumber == 3) {
+        $exitSignalNumber = 0;
+    }
+
     if ($scenario ne 'skip' && ($currentfailure || $exitSignalNumber)) {
 
         # We have a new failure if the process crashed OR we haven't loaded
@@ -873,9 +890,9 @@ sub processResult {
 
         my $newFail = '';
         $newFail = '! NEW ' if $isnewfailure;
-        $newFail = "$newFail (Exit code: $exitCode) " if $exitSignalNumber;
+        $newFail = "$newFail" if $exitSignalNumber;
         my $failMsg = '';
-        $failMsg = "FAIL $file ($scenario)\n";
+        $failMsg = "FAIL $file ($scenario) (Exit code: $exitCode)\n";
 
         my $featuresList = '';
 

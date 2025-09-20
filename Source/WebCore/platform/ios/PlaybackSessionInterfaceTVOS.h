@@ -32,7 +32,7 @@
 namespace WebCore {
 
 class PlaybackSessionInterfaceTVOS final : public PlaybackSessionInterfaceIOS {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(PlaybackSessionInterfaceTVOS);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(PlaybackSessionInterfaceTVOS);
 public:
     WEBCORE_EXPORT static Ref<PlaybackSessionInterfaceTVOS> create(PlaybackSessionModel&);
@@ -44,7 +44,7 @@ public:
     void currentTimeChanged(double, double) final { }
     void bufferedTimeChanged(double) final { }
     void rateChanged(OptionSet<PlaybackSessionModel::PlaybackState>, double, double) final { }
-    void seekableRangesChanged(const TimeRanges&, double, double) final { }
+    void seekableRangesChanged(const PlatformTimeRanges&, double, double) final { }
     void canPlayFastReverseChanged(bool) final { }
     void audioMediaSelectionOptionsChanged(const Vector<MediaSelectionOption>&, uint64_t) final { }
     void legibleMediaSelectionOptionsChanged(const Vector<MediaSelectionOption>&, uint64_t) final { }

@@ -190,7 +190,7 @@ void DisplayLink::notifyObserversDisplayDidRefresh()
 
     tracePoint(DisplayLinkUpdate);
 
-    auto maxFramesPerSecond = [](const Vector<ObserverInfo>& observers) {
+    auto maxFramesPerSecond = [](const Vector<ObserverInfo, 1>& observers) {
         std::optional<FramesPerSecond> observersMaxFramesPerSecond;
         for (const auto& observer : observers)
             observersMaxFramesPerSecond = std::max(observersMaxFramesPerSecond.value_or(0), observer.preferredFramesPerSecond);
@@ -211,7 +211,7 @@ void DisplayLink::notifyObserversDisplayDidRefresh()
             << " observers, maxFramesPerSecond " << observersMaxFramesPerSecond << " full speed client count " << clientInfo.fullSpeedUpdatesClientCount << " relevant " << anyObserverWantsCallback);
 
         if (clientInfo.fullSpeedUpdatesClientCount || anyObserverWantsCallback)
-            client->displayLinkFired(m_displayID, m_currentUpdate, clientInfo.fullSpeedUpdatesClientCount, anyObserverWantsCallback);
+            CheckedRef { client }->displayLinkFired(m_displayID, m_currentUpdate, clientInfo.fullSpeedUpdatesClientCount, anyObserverWantsCallback);
     }
 
     m_currentUpdate = m_currentUpdate.nextUpdate();

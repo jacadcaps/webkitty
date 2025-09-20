@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -39,6 +39,10 @@ static inline ::testing::AssertionResult assertNSObjectsAreEqual(const char* exp
     return ::testing::internal::EqFailure(expectedExpression, actualExpression, toSTD([expected description]), toSTD([actual description]), false /* ignoring_case */);
 }
 
+#if PLATFORM(IOS_FAMILY)
+void instantiateUIApplicationIfNeeded(Class customApplicationClass = nil);
+#endif
+
 } // namespace Util
 } // namespace TestWebKitAPI
 
@@ -47,17 +51,14 @@ static inline ::testing::AssertionResult assertNSObjectsAreEqual(const char* exp
 
 #if USE(CG)
 
+std::ostream& operator<<(std::ostream&, const CGPoint&);
+bool operator==(const CGPoint&, const CGPoint&);
+std::ostream& operator<<(std::ostream&, const CGSize&);
+bool operator==(const CGSize&, const CGSize&);
 std::ostream& operator<<(std::ostream&, const CGRect&);
 bool operator==(const CGRect&, const CGRect&);
 
 constexpr CGFloat redColorComponents[4] = { 1, 0, 0, 1 };
 constexpr CGFloat blueColorComponents[4] = { 0, 0, 1, 1 };
-
-#endif
-
-#if PLATFORM(MAC) && !defined(NSGEOMETRY_TYPES_SAME_AS_CGGEOMETRY_TYPES)
-
-std::ostream& operator<<(std::ostream&, const NSRect&);
-bool operator==(const NSRect&, const NSRect&);
 
 #endif

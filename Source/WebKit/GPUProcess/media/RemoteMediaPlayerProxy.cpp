@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -55,8 +55,10 @@
 #include <WebCore/MediaPlayer.h>
 #include <WebCore/MediaPlayerPrivate.h>
 #include <WebCore/NotImplemented.h>
+#include <WebCore/ResourceError.h>
 #include <WebCore/SecurityOrigin.h>
 #include <wtf/TZoneMallocInlines.h>
+#include <wtf/MemoryFootprint.h>
 
 #if ENABLE(ENCRYPTED_MEDIA)
 #include "RemoteCDMFactoryProxy.h"
@@ -90,7 +92,7 @@ RemoteMediaPlayerProxy::RemoteMediaPlayerProxy(RemoteMediaPlayerManagerProxy& ma
     , m_webProcessConnection(WTFMove(connection))
     , m_manager(manager)
     , m_engineIdentifier(engineIdentifier)
-    , m_updateCachedStateMessageTimer(RunLoop::main(), this, &RemoteMediaPlayerProxy::timerFired)
+    , m_updateCachedStateMessageTimer(RunLoop::mainSingleton(), "RemoteMediaPlayerProxy::UpdateCachedStateMessageTimer"_s, this, &RemoteMediaPlayerProxy::timerFired)
     , m_configuration(configuration)
     , m_renderingResourcesRequest(ScopedRenderingResourcesRequest::acquire())
     , m_videoFrameObjectHeap(videoFrameObjectHeap)
@@ -106,6 +108,9 @@ RemoteMediaPlayerProxy::RemoteMediaPlayerProxy(RemoteMediaPlayerManagerProxy& ma
     RefPtr player = m_player;
     player->setResourceOwner(resourceOwner);
     player->setPresentationSize(m_configuration.presentationSize);
+#if HAVE(SPATIAL_AUDIO_EXPERIENCE)
+    player->setPrefersSpatialAudioExperience(m_configuration.prefersSpatialAudioExperience);
+#endif
 }
 
 RemoteMediaPlayerProxy::~RemoteMediaPlayerProxy()
@@ -114,7 +119,7 @@ RemoteMediaPlayerProxy::~RemoteMediaPlayerProxy()
         m_performTaskAtTimeCompletionHandler(std::nullopt);
     setShouldEnableAudioSourceProvider(false);
 
-    for (auto& request : std::exchange(m_layerHostingContextIDRequests, { }))
+    for (auto& request : std::exchange(m_layerHostingContextRequests, { }))
         request({ });
 }
 
@@ -198,10 +203,6 @@ void RemoteMediaPlayerProxy::loadMediaSource(URL&& url, const MediaPlayer::LoadO
         m_mediaSourceProxy = adoptRef(*new RemoteMediaSourceProxy(*manager, mediaSourceIdentifier, *this));
 
     RefPtr player = m_player;
-#if USE(AVFOUNDATION) && ENABLE(MEDIA_SOURCE)
-    if (auto preferences = sharedPreferencesForWebProcess())
-        player->setDecompressionSessionPreferences(preferences->mediaSourcePrefersDecompressionSession, preferences->mediaSourceCanFallbackToDecompressionSession);
-#endif
     player->load(url, options, *protectedMediaSourceProxy());
 
     if (reattached)
@@ -217,7 +218,7 @@ void RemoteMediaPlayerProxy::cancelLoad()
     protectedPlayer()->cancelLoad();
 }
 
-void RemoteMediaPlayerProxy::prepareForPlayback(bool privateMode, WebCore::MediaPlayerEnums::Preload preload, bool preservesPitch, WebCore::MediaPlayerEnums::PitchCorrectionAlgorithm pitchCorrectionAlgorithm, bool prepareToPlay, bool prepareForRendering, WebCore::IntSize presentationSize, float videoContentScale, WebCore::DynamicRangeMode preferredDynamicRangeMode)
+void RemoteMediaPlayerProxy::prepareForPlayback(bool privateMode, WebCore::MediaPlayerEnums::Preload preload, bool preservesPitch, WebCore::MediaPlayerEnums::PitchCorrectionAlgorithm pitchCorrectionAlgorithm, bool prepareToPlay, bool prepareForRendering, WebCore::IntSize presentationSize, float videoContentScale, bool isFullscreen, WebCore::DynamicRangeMode preferredDynamicRangeMode, PlatformDynamicRangeLimit platformDynamicRangeLimit)
 {
     RefPtr player = m_player;
     player->setPrivateBrowsingMode(privateMode);
@@ -225,7 +226,9 @@ void RemoteMediaPlayerProxy::prepareForPlayback(bool privateMode, WebCore::Media
     player->setPreservesPitch(preservesPitch);
     player->setPitchCorrectionAlgorithm(pitchCorrectionAlgorithm);
     player->setPreferredDynamicRangeMode(preferredDynamicRangeMode);
+    player->setPlatformDynamicRangeLimit(platformDynamicRangeLimit);
     player->setPresentationSize(presentationSize);
+    player->setInFullscreenOrPictureInPicture(isFullscreen);
     if (prepareToPlay)
         player->prepareToPlay();
     if (prepareForRendering)
@@ -341,6 +344,8 @@ void RemoteMediaPlayerProxy::setRate(double rate)
 void RemoteMediaPlayerProxy::didLoadingProgress(CompletionHandler<void(bool)>&& completionHandler)
 {
     protectedPlayer()->didLoadingProgress(WTFMove(completionHandler));
+
+    protectedConnection()->send(Messages::MediaPlayerPrivateRemote::ReportGPUMemoryFootprint(WTF::memoryFootprint()), m_id);
 }
 
 void RemoteMediaPlayerProxy::setPresentationSize(const WebCore::IntSize& size)
@@ -415,6 +420,11 @@ void RemoteMediaPlayerProxy::accessLog(CompletionHandler<void(String)>&& complet
 void RemoteMediaPlayerProxy::errorLog(CompletionHandler<void(String)>&& completionHandler)
 {
     completionHandler(protectedPlayer()->errorLog());
+}
+
+void RemoteMediaPlayerProxy::setSceneIdentifier(String&& identifier)
+{
+    protectedPlayer()->setSceneIdentifier(identifier);
 }
 #endif
 
@@ -634,7 +644,7 @@ void RemoteMediaPlayerProxy::mediaPlayerRenderingModeChanged()
     protectedConnection()->send(Messages::MediaPlayerPrivateRemote::RenderingModeChanged(), m_id);
 }
 
-void RemoteMediaPlayerProxy::requestHostingContextID(LayerHostingContextIDCallback&& completionHandler)
+void RemoteMediaPlayerProxy::requestHostingContext(LayerHostingContextCallback&& completionHandler)
 {
     completionHandler({ });
 }
@@ -1073,7 +1083,7 @@ void RemoteMediaPlayerProxy::cdmInstanceAttached(RemoteCDMInstanceIdentifier&& i
         return;
 
     if (RefPtr instanceProxy = manager->gpuConnectionToWebProcess()->protectedCdmFactoryProxy()->getInstance(instanceId))
-        protectedPlayer()->cdmInstanceAttached(instanceProxy->protectedInstance());
+        protectedPlayer()->cdmInstanceAttached(instanceProxy->instance());
 }
 
 void RemoteMediaPlayerProxy::cdmInstanceDetached(RemoteCDMInstanceIdentifier&& instanceId)
@@ -1084,7 +1094,7 @@ void RemoteMediaPlayerProxy::cdmInstanceDetached(RemoteCDMInstanceIdentifier&& i
         return;
 
     if (RefPtr instanceProxy = manager->gpuConnectionToWebProcess()->protectedCdmFactoryProxy()->getInstance(instanceId))
-        protectedPlayer()->cdmInstanceDetached(instanceProxy->protectedInstance());
+        protectedPlayer()->cdmInstanceDetached(instanceProxy->instance());
 }
 
 void RemoteMediaPlayerProxy::attemptToDecryptWithInstance(RemoteCDMInstanceIdentifier&& instanceId)
@@ -1095,7 +1105,7 @@ void RemoteMediaPlayerProxy::attemptToDecryptWithInstance(RemoteCDMInstanceIdent
         return;
 
     if (RefPtr instanceProxy = manager->gpuConnectionToWebProcess()->protectedCdmFactoryProxy()->getInstance(instanceId))
-        protectedPlayer()->attemptToDecryptWithInstance(instanceProxy->protectedInstance());
+        protectedPlayer()->attemptToDecryptWithInstance(instanceProxy->instance());
 }
 #endif
 
@@ -1200,7 +1210,7 @@ void RemoteMediaPlayerProxy::updateCachedVideoMetrics()
     if (m_hasPlaybackMetricsUpdatePending)
         return;
     m_hasPlaybackMetricsUpdatePending = true;
-    protectedPlayer()->asyncVideoPlaybackQualityMetrics()->whenSettled(RunLoop::protectedCurrent(), [weakThis = WeakPtr { *this }](auto&& result) {
+    protectedPlayer()->asyncVideoPlaybackQualityMetrics()->whenSettled(RunLoop::currentSingleton(), [weakThis = WeakPtr { *this }](auto&& result) {
         RefPtr protectedThis = weakThis.get();
         if (!protectedThis)
             return;
@@ -1217,6 +1227,12 @@ void RemoteMediaPlayerProxy::setPreferredDynamicRangeMode(DynamicRangeMode mode)
 {
     if (RefPtr player = m_player)
         player->setPreferredDynamicRangeMode(mode);
+}
+
+void RemoteMediaPlayerProxy::setPlatformDynamicRangeLimit(PlatformDynamicRangeLimit platformDynamicRangeLimit)
+{
+    if (RefPtr player = m_player)
+        player->setPlatformDynamicRangeLimit(platformDynamicRangeLimit);
 }
 
 void RemoteMediaPlayerProxy::createAudioSourceProvider()
@@ -1293,6 +1309,14 @@ void RemoteMediaPlayerProxy::setSpatialTrackingLabel(const String& spatialTracki
 {
     protectedPlayer()->setSpatialTrackingLabel(spatialTrackingLabel);
 }
+
+#endif
+
+#if HAVE(SPATIAL_AUDIO_EXPERIENCE)
+void RemoteMediaPlayerProxy::setPrefersSpatialAudioExperience(bool value)
+{
+    protectedPlayer()->setPrefersSpatialAudioExperience(value);
+}
 #endif
 
 void RemoteMediaPlayerProxy::isInFullscreenOrPictureInPictureChanged(bool isInFullscreenOrPictureInPicture)
@@ -1337,6 +1361,25 @@ void RemoteMediaPlayerProxy::audioOutputDeviceChanged(String&& deviceId)
     Ref audioSession = connection->audioSessionProxy();
     audioSession->setPreferredSpeakerID(m_configuration.audioOutputDeviceId);
 #endif
+}
+
+void RemoteMediaPlayerProxy::setSoundStageSize(SoundStageSize size)
+{
+    if (m_soundStageSize == size)
+        return;
+    m_soundStageSize = size;
+
+    protectedPlayer()->soundStageSizeDidChange();
+}
+
+void RemoteMediaPlayerProxy::setHasMessageClientForTesting(bool hasClient)
+{
+    protectedPlayer()->setMessageClientForTesting(hasClient ? this : nullptr);
+}
+
+void RemoteMediaPlayerProxy::sendInternalMessage(const WebCore::MessageForTesting& message)
+{
+    protectedConnection()->send(Messages::MediaPlayerPrivateRemote::SendInternalMessage { message }, m_id);
 }
 
 } // namespace WebKit

@@ -91,8 +91,7 @@ private:
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
     
     // Respond to UI process changes.
-    void scrollPositionChangedForNode(WebCore::ScrollingNodeID, const WebCore::FloatPoint& scrollPosition, std::optional<WebCore::FloatPoint> layoutViewportOrigin, bool syncLayerPosition, CompletionHandler<void()>&&);
-    void animatedScrollDidEndForNode(WebCore::ScrollingNodeID);
+    void scrollUpdateForNode(WebCore::ScrollUpdate, CompletionHandler<void()>&&);
     void currentSnapPointIndicesChangedForNode(WebCore::ScrollingNodeID, std::optional<unsigned> horizontal, std::optional<unsigned> vertical);
 
     void receivedWheelEventWithPhases(WebCore::PlatformWheelEventPhase phase, WebCore::PlatformWheelEventPhase momentumPhase);
@@ -104,6 +103,8 @@ private:
     WebCore::WheelEventHandlingResult handleWheelEventForScrolling(const WebCore::PlatformWheelEvent&, WebCore::ScrollingNodeID, std::optional<WebCore::WheelScrollGestureState>) override;
 
     WeakPtr<WebPage> m_webPage;
+
+    WebCore::PageIdentifier m_pageIdentifier;
 
     HashSet<WebCore::ScrollingNodeID> m_nodesWithActiveRubberBanding;
     HashSet<WebCore::ScrollingNodeID> m_nodesWithActiveScrollSnap;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -57,38 +57,28 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(DrawingArea);
 
 RefPtr<DrawingArea> DrawingArea::create(WebPage& webPage, const WebPageCreationParameters& parameters)
 {
-#if PLATFORM(MAC)
+#if ENABLE(TILED_CA_DRAWING_AREA)
     SandboxExtension::consumePermanently(parameters.renderServerMachExtensionHandle);
-#endif
-
     switch (parameters.drawingAreaType) {
-#if PLATFORM(COCOA)
-#if !PLATFORM(IOS_FAMILY)
     case DrawingAreaType::TiledCoreAnimation:
         return TiledCoreAnimationDrawingArea::create(webPage, parameters);
-#endif
     case DrawingAreaType::RemoteLayerTree:
-#if PLATFORM(MAC)
         return RemoteLayerTreeDrawingAreaMac::create(webPage, parameters);
-#else
-        return RemoteLayerTreeDrawingArea::create(webPage, parameters);
-#endif
-#elif USE(COORDINATED_GRAPHICS) || USE(TEXTURE_MAPPER)
-    case DrawingAreaType::CoordinatedGraphics:
-        return DrawingAreaCoordinatedGraphics::create(webPage, parameters);
-#endif
-#if USE(GRAPHICS_LAYER_WC)
-    case DrawingAreaType::WC:
-        return DrawingAreaWC::create(webPage, parameters);
-#endif
     }
-
-    return nullptr;
+    RELEASE_ASSERT_NOT_REACHED();
+#elif PLATFORM(MAC)
+    return RemoteLayerTreeDrawingAreaMac::create(webPage, parameters);
+#elif PLATFORM(IOS_FAMILY)
+    return RemoteLayerTreeDrawingArea::create(webPage, parameters);
+#elif USE(GRAPHICS_LAYER_WC)
+    return DrawingAreaWC::create(webPage, parameters);
+#elif USE(COORDINATED_GRAPHICS) || USE(TEXTURE_MAPPER)
+    return DrawingAreaCoordinatedGraphics::create(webPage, parameters);
+#endif
 }
 
-DrawingArea::DrawingArea(DrawingAreaType type, DrawingAreaIdentifier identifier, WebPage& webPage)
-    : m_type(type)
-    , m_identifier(identifier)
+DrawingArea::DrawingArea(DrawingAreaIdentifier identifier, WebPage& webPage)
+    : m_identifier(identifier)
     , m_webPage(webPage)
 {
     WebProcess::singleton().addMessageReceiver(Messages::DrawingArea::messageReceiverName(), m_identifier, *this);
@@ -143,32 +133,36 @@ void DrawingArea::didCompleteRenderingFrame()
     Ref { m_webPage.get() }->didCompleteRenderingFrame();
 }
 
+#if ENABLE(TILED_CA_DRAWING_AREA)
 bool DrawingArea::supportsGPUProcessRendering(DrawingAreaType type)
 {
     switch (type) {
-#if PLATFORM(COCOA)
-#if !PLATFORM(IOS_FAMILY)
     case DrawingAreaType::TiledCoreAnimation:
         return false;
-#endif
     case DrawingAreaType::RemoteLayerTree:
         return true;
-#elif USE(COORDINATED_GRAPHICS) || USE(TEXTURE_MAPPER)
-    case DrawingAreaType::CoordinatedGraphics:
-        return false;
-#endif
-#if USE(GRAPHICS_LAYER_WC)
-    case DrawingAreaType::WC:
-        return true;
-#endif
-    default:
-        return false;
     }
+    RELEASE_ASSERT_NOT_REACHED();
 }
+
+#else // ENABLE(TILED_CA_DRAWING_AREA)
+
+bool DrawingArea::supportsGPUProcessRendering()
+{
+#if PLATFORM(COCOA)
+    return true;
+#elif USE(GRAPHICS_LAYER_WC)
+    return true;
+#elif USE(COORDINATED_GRAPHICS) || USE(TEXTURE_MAPPER)
+    return false;
+#endif
+}
+
+#endif // ENABLE(TILED_CA_DRAWING_AREA)
 
 WebCore::TiledBacking* DrawingArea::mainFrameTiledBacking() const
 {
-    RefPtr frameView = m_webPage->localMainFrameView();
+    RefPtr frameView = protectedWebPage()->localMainFrameView();
     return frameView ? frameView->tiledBacking() : nullptr;
 }
 
@@ -176,7 +170,7 @@ void DrawingArea::prepopulateRectForZoom(double scale, WebCore::FloatPoint origi
 {
     Ref webPage = m_webPage.get();
     double currentPageScale = webPage->totalScaleFactor();
-    auto* frameView = webPage->localMainFrameView();
+    RefPtr frameView = webPage->localMainFrameView();
     if (!frameView)
         return;
 
@@ -184,7 +178,7 @@ void DrawingArea::prepopulateRectForZoom(double scale, WebCore::FloatPoint origi
     tileCoverageRect.moveBy(-origin);
     tileCoverageRect.scale(currentPageScale / scale);
 
-    if (auto* tiledBacking = mainFrameTiledBacking())
+    if (CheckedPtr tiledBacking = mainFrameTiledBacking())
         tiledBacking->prepopulateRect(tileCoverageRect);
 }
 
@@ -200,11 +194,16 @@ void DrawingArea::scaleViewToFitDocumentIfNeeded()
     Ref webPage = m_webPage.get();
     webPage->layoutIfNeeded();
 
-    if (!webPage->localMainFrameView() || !webPage->localMainFrameView()->renderView())
+    RefPtr frameView = webPage->localMainFrameView();
+    if (!frameView)
+        return;
+
+    CheckedPtr renderView = frameView->renderView();
+    if (!renderView)
         return;
 
     int viewWidth = webPage->size().width();
-    int documentWidth = webPage->localMainFrameView()->renderView()->unscaledDocumentRect().width();
+    int documentWidth = renderView->unscaledDocumentRect().width();
 
     bool documentWidthChanged = m_lastDocumentSizeForScaleToFit.width() != documentWidth;
     bool viewWidthChanged = m_lastViewSizeForScaleToFit.width() != viewWidth;
@@ -250,10 +249,15 @@ void DrawingArea::scaleViewToFitDocumentIfNeeded()
     webPage->setUseFixedLayout(false);
     webPage->layoutIfNeeded();
 
-    if (!webPage->localMainFrameView() || !webPage->localMainFrameView()->renderView())
+    frameView = webPage->localMainFrameView();
+    if (!frameView)
         return;
 
-    IntSize documentSize = webPage->localMainFrameView()->renderView()->unscaledDocumentRect().size();
+    renderView = frameView->renderView();
+    if (!renderView)
+        return;
+
+    auto documentSize = renderView->unscaledDocumentRect().size();
     m_lastViewSizeForScaleToFit = webPage->size();
     m_lastDocumentSizeForScaleToFit = documentSize;
 

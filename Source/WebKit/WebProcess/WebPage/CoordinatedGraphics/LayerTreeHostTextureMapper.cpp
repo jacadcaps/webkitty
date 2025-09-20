@@ -35,9 +35,10 @@
 #include <WebCore/Document.h>
 #include <WebCore/GraphicsContext.h>
 #include <WebCore/GraphicsLayerTextureMapper.h>
-#include <WebCore/LocalFrame.h>
+#include <WebCore/LocalFrameInlines.h>
 #include <WebCore/LocalFrameView.h>
 #include <WebCore/Page.h>
+#include <WebCore/PlatformDisplay.h>
 #include <WebCore/Settings.h>
 #include <WebCore/TextureMapper.h>
 #include <WebCore/TextureMapperLayer.h>
@@ -124,7 +125,7 @@ LayerTreeHost::LayerTreeHost(WebPage& webPage)
     applyDeviceScaleFactor();
 
     // The creation of the TextureMapper needs an active OpenGL context.
-    m_context = GLContext::create(window(), PlatformDisplay::sharedDisplay());
+    m_context = GLContext::create(PlatformDisplay::sharedDisplay(), window());
 
     if (!m_context)
         return;

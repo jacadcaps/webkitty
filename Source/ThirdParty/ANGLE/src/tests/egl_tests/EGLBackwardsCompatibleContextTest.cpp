@@ -16,16 +16,6 @@
 namespace angle
 {
 
-namespace
-{
-std::pair<EGLint, EGLint> GetCurrentContextVersion()
-{
-    const char *versionString = reinterpret_cast<const char *>(glGetString(GL_VERSION));
-    EXPECT_TRUE(strstr(versionString, "OpenGL ES") != nullptr);
-    return {versionString[10] - '0', versionString[12] - '0'};
-}
-}  // anonymous namespace
-
 class EGLBackwardsCompatibleContextTest : public ANGLETest<>
 {
   public:
@@ -33,9 +23,9 @@ class EGLBackwardsCompatibleContextTest : public ANGLETest<>
 
     void testSetUp() override
     {
-        EGLint dispattrs[] = {EGL_PLATFORM_ANGLE_TYPE_ANGLE, GetParam().getRenderer(), EGL_NONE};
-        mDisplay           = eglGetPlatformDisplayEXT(
-                      EGL_PLATFORM_ANGLE_ANGLE, reinterpret_cast<void *>(EGL_DEFAULT_DISPLAY), dispattrs);
+        EGLAttrib dispattrs[] = {EGL_PLATFORM_ANGLE_TYPE_ANGLE, GetParam().getRenderer(), EGL_NONE};
+        mDisplay              = eglGetPlatformDisplay(GetEglPlatform(),
+                                                      reinterpret_cast<void *>(EGL_DEFAULT_DISPLAY), dispattrs);
         ASSERT_TRUE(mDisplay != EGL_NO_DISPLAY);
 
         ASSERT_EGL_TRUE(eglInitialize(mDisplay, nullptr, nullptr));

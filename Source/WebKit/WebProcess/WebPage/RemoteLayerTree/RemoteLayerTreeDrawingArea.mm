@@ -44,6 +44,7 @@
 #import "WebProcess.h"
 #import <QuartzCore/QuartzCore.h>
 #import <WebCore/DebugPageOverlays.h>
+#import <WebCore/FrameInlines.h>
 #import <WebCore/LocalFrame.h>
 #import <WebCore/LocalFrameView.h>
 #import <WebCore/PageOverlayController.h>
@@ -68,7 +69,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteLayerTreeDrawingArea);
 constexpr FramesPerSecond DefaultPreferredFramesPerSecond = 60;
 
 RemoteLayerTreeDrawingArea::RemoteLayerTreeDrawingArea(WebPage& webPage, const WebPageCreationParameters& parameters)
-    : DrawingArea(DrawingAreaType::RemoteLayerTree, parameters.drawingAreaIdentifier, webPage)
+    : DrawingArea(parameters.drawingAreaIdentifier, webPage)
     , m_remoteLayerTreeContext(RemoteLayerTreeContext::create(webPage))
     , m_updateRenderingTimer(*this, &RemoteLayerTreeDrawingArea::updateRendering)
     , m_commitQueue(WorkQueue::create("com.apple.WebKit.WebContent.RemoteLayerTreeDrawingArea.CommitQueue"_s, WorkQueue::QOS::UserInteractive))
@@ -410,10 +411,11 @@ void RemoteLayerTreeDrawingArea::updateRendering()
     Vector<std::unique_ptr<ThreadSafeImageBufferSetFlusher>> flushers;
     for (auto& transaction : transactions)
         flushers.appendVector(backingStoreCollection->didFlushLayers(transaction.first));
-    bool haveFlushers = flushers.size();
 
-    if (haveFlushers)
-        webPage->didPaintLayers();
+    OptionSet<WebPage::DidUpdateRenderingFlags> didUpdateRenderingFlags;
+    if (flushers.size())
+        didUpdateRenderingFlags.add(WebPage::DidUpdateRenderingFlags::PaintedLayers);
+    webPage->didUpdateRendering(didUpdateRenderingFlags);
 
     m_backingStoreFlusher->markHasPendingFlush();
 
@@ -421,7 +423,7 @@ void RemoteLayerTreeDrawingArea::updateRendering()
     m_commitQueue->dispatch([backingStoreFlusher = m_backingStoreFlusher, commitEncoder = WTFMove(commitEncoder), flushers = WTFMove(flushers), pageID] () mutable {
         bool flushSucceeded = backingStoreFlusher->flush(WTFMove(commitEncoder), WTFMove(flushers));
 
-        RunLoop::protectedMain()->dispatch([pageID, flushSucceeded] () mutable {
+        RunLoop::mainSingleton().dispatch([pageID, flushSucceeded] () mutable {
             if (RefPtr webPage = WebProcess::singleton().webPage(pageID)) {
                 if (RefPtr drawingArea = dynamicDowncast<RemoteLayerTreeDrawingArea>(webPage->drawingArea())) {
                     drawingArea->didCompleteRenderingUpdateDisplayFlush(flushSucceeded);
@@ -481,7 +483,7 @@ void RemoteLayerTreeDrawingArea::mainFrameContentSizeChanged(WebCore::FrameIdent
 
 void RemoteLayerTreeDrawingArea::tryMarkLayersVolatile(CompletionHandler<void(bool)>&& completionFunction)
 {
-    m_remoteLayerTreeContext->protectedBackingStoreCollection()->tryMarkAllBackingStoreVolatile(WTFMove(completionFunction));
+    m_remoteLayerTreeContext->backingStoreCollection().tryMarkAllBackingStoreVolatile(WTFMove(completionFunction));
 }
 
 Ref<RemoteLayerTreeDrawingArea::BackingStoreFlusher> RemoteLayerTreeDrawingArea::BackingStoreFlusher::create(Ref<IPC::Connection>&& connection)

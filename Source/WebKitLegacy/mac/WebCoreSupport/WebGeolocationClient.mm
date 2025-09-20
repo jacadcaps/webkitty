@@ -35,7 +35,7 @@
 #import "WebViewInternal.h"
 #import <WebCore/Document.h>
 #import <WebCore/Geolocation.h>
-#import <WebCore/LocalFrame.h>
+#import <WebCore/LocalFrameInlines.h>
 #import <wtf/BlockObjCExceptions.h>
 #import <wtf/NakedPtr.h>
 #import <wtf/TZoneMallocInlines.h>
@@ -78,11 +78,6 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(WebGeolocationClient);
 WebGeolocationClient::WebGeolocationClient(WebView *webView)
     : m_webView(webView)
 {
-}
-
-void WebGeolocationClient::geolocationDestroyed()
-{
-    delete this;
 }
 
 void WebGeolocationClient::startUpdating(const String& authorizationToken, bool enableHighAccuracy)
@@ -153,7 +148,7 @@ std::optional<GeolocationPositionData> WebGeolocationClient::lastPosition()
 {
     if (!(self = [super init]))
         return nil;
-    _geolocation = &geolocation.get();
+    _geolocation = geolocation.get();
     return self;
 }
 
@@ -219,7 +214,7 @@ std::optional<GeolocationPositionData> WebGeolocationClient::lastPosition()
 {
     self = [super init];
     if (self)
-        m_geolocation = &geolocation.get();
+        m_geolocation = geolocation.get();
     return self;
 }
 

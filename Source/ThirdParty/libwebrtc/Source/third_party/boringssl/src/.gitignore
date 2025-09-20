@@ -24,6 +24,7 @@
 /util/bot/libcxx
 /util/bot/libcxxabi
 /util/bot/llvm-build
+/util/bot/llvm-libc
 /util/bot/nasm-win32.exe
 /util/bot/ninja
 /util/bot/perl-win32
@@ -32,8 +33,8 @@
 /util/bot/sde-linux64.tar.xz
 /util/bot/sde-win32
 /util/bot/sde-win32.tar.xz
-/util/bot/win_toolchain
-/util/bot/win_toolchain.json
+/util/bot/tools
+/util/bot/windows_sdk
 
 # Ignore target under any directory.
 target/

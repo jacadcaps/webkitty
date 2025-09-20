@@ -103,6 +103,7 @@ struct _WPESettingsPrivate {
             { WPE_SETTING_DOUBLE_CLICK_DISTANCE, G_VARIANT_TYPE_UINT32, g_variant_ref_sink(g_variant_new_uint32(5)) },
             { WPE_SETTING_DOUBLE_CLICK_TIME, G_VARIANT_TYPE_UINT32, g_variant_ref_sink(g_variant_new_uint32(400)) },
             { WPE_SETTING_DRAG_THRESHOLD, G_VARIANT_TYPE_UINT32, g_variant_ref_sink(g_variant_new_uint32(8)) },
+            { WPE_SETTING_CREATE_VIEWS_WITH_A_TOPLEVEL, G_VARIANT_TYPE_BOOLEAN, g_variant_ref_sink(g_variant_new_boolean(true)) },
         };
 
         for (auto& setting : defaultSettings)
@@ -369,7 +370,7 @@ GVariant* wpe_settings_get_value(WPESettings* settingsObject, const char* key, G
         return nullptr;
     }
 
-    return iter->value.value().get();
+    return iter->value.value().getUncheckedLifetime();
 }
 
 #define g_variant_get_string(str) g_variant_get_string(str, nullptr)

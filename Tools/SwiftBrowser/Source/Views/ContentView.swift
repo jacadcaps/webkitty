@@ -23,8 +23,8 @@
 
 import SwiftUI
 import UniformTypeIdentifiers
-@_spi(Private) import WebKit
-@_spi(Private) import _WebKit_SwiftUI
+import WebKit
+import _WebKit_SwiftUI
 
 private struct ToolbarBackForwardMenuView: View {
     struct LabelConfiguration {
@@ -211,7 +211,6 @@ struct ContentView: View {
     let initialRequest: URLRequest
 
     @State private var findNavigatorIsPresented = false
-    @State private var downloadsSheetPresented = false
 
     @Environment(\.openWindow) private var openWindow
     @Environment(BrowserViewModel.self) private var viewModel
@@ -233,14 +232,15 @@ struct ContentView: View {
                 .webViewBackForwardNavigationGestures(.enabled)
                 .webViewLinkPreviews(.enabled)
                 .webViewTextSelection(.enabled)
-                .webViewAllowsElementFullscreen()
-                .webViewFindNavigator(isPresented: $findNavigatorIsPresented)
+                .webViewElementFullscreenBehavior(.enabled)
+                .findNavigator(isPresented: $findNavigatorIsPresented)
                 .task {
-                    // FIXME: Observe navigation changes.
-                }
-                .task {
-                    for await event in viewModel.page.downloads {
-                        viewModel.downloadCoordinator.didReceiveDownloadEvent(event)
+                    do {
+                        for try await event in viewModel.page.navigations {
+                            print(event)
+                        }
+                    } catch {
+                        print(error)
                     }
                 }
                 .onAppear {
@@ -271,24 +271,14 @@ struct ContentView: View {
                 } message: { dialog in
                     DialogMessageView(dialog: dialog)
                 }
-                .sheet(isPresented: $downloadsSheetPresented) {
-                    DownloadsList(downloads: viewModel.downloadCoordinator.downloads)
-                        .presentationDetents([.medium, .large])
-                }
                 .scrollBounceBehavior(scrollBounceBehaviorBasedOnSize == true ? .basedOnSize : .automatic)
                 .webViewContentBackground(backgroundHidden == true ? .hidden : .automatic)
+#if os(macOS)
                 .webViewContextMenu { element in
                     if let url = element.linkURL {
                         Button("Open Link in New Window") {
                             let request = URLRequest(url: url)
                             openWindow(value: CodableURLRequest(request))
-                        }
-
-                        Button("Download Linked File") {
-                            let request = URLRequest(url: url)
-                            Task {
-                                await viewModel.page.startDownload(using: request)
-                            }
                         }
                     } else {
                         if let previousItem = viewModel.page.backForwardList.backList.last {
@@ -308,6 +298,7 @@ struct ContentView: View {
                         }
                     }
                 }
+#endif
                 .toolbar {
                     ToolbarItemGroup(placement: Self.navigationToolbarItemPlacement) {
                         ToolbarBackForwardMenuView(
@@ -327,19 +318,6 @@ struct ContentView: View {
                         ) {
                             viewModel.page.load($0)
                         }
-
-                        #if os(iOS)
-
-                        Spacer()
-
-                        Button {
-                            downloadsSheetPresented.toggle()
-                        } label: {
-                            Label("Downloads", systemImage: "square.and.arrow.down")
-                                .labelStyle(.iconOnly)
-                        }
-
-                        #endif
 
                         Spacer()
 

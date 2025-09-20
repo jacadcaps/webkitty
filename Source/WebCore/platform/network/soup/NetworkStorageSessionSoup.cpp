@@ -77,8 +77,43 @@ NetworkStorageSession::NetworkStorageSession(PAL::SessionID sessionID, IsInMemor
 
 NetworkStorageSession::~NetworkStorageSession()
 {
+    clearCookiesVersionChangeCallbacks();
     g_signal_handlers_disconnect_matched(m_cookieStorage.get(), G_SIGNAL_MATCH_DATA, 0, 0, nullptr, nullptr, this);
 }
+
+#if HAVE(COOKIE_CHANGE_LISTENER_API)
+void NetworkStorageSession::notifyCookie(SoupCookie* cookie, bool added)
+{
+    if (soup_cookie_get_http_only(cookie))
+        return;
+
+    for (const auto& host : m_cookieChangeObservers.keys()) {
+        if (!soup_cookie_domain_matches(cookie, host.utf8().data()))
+            continue;
+
+        auto observers = m_cookieChangeObservers.getOptional(host);
+        if (!observers)
+            continue;
+
+        for (auto& observer : *observers) {
+            if (added)
+                observer.cookiesAdded(host, { Cookie(cookie) });
+            else
+                observer.cookiesDeleted(host, { Cookie(cookie) });
+        }
+    }
+}
+
+void NetworkStorageSession::notifyCookieAdded(SoupCookie* newCookie)
+{
+    notifyCookie(newCookie, true);
+}
+
+void NetworkStorageSession::notifyCookieDeleted(SoupCookie* oldCookie)
+{
+    notifyCookie(oldCookie, false);
+}
+#endif
 
 void NetworkStorageSession::cookiesDidChange(NetworkStorageSession* session, SoupCookie* oldCookie, SoupCookie* newCookie, SoupCookieJar*)
 {
@@ -94,31 +129,12 @@ void NetworkStorageSession::cookiesDidChange(NetworkStorageSession* session, Sou
     // In the case of a new cookie *or* an updated cookie we notify the observer.
     // Adding a cookie that matches (name & path) the old one to the cookie-jar replaces it.
     if (newCookie) {
-        if (soup_cookie_get_http_only(newCookie))
-            return;
-
-        auto host = String::fromUTF8(soup_cookie_get_domain(newCookie));
-        auto observers = session->m_cookieChangeObservers.getOptional(host);
-        if (!observers)
-            return;
-
-        for (auto& observer : *observers)
-            observer.cookiesAdded(host, { Cookie(newCookie) });
-
+        session->notifyCookieAdded(newCookie);
         return;
     }
 
     if (oldCookie) {
-        if (soup_cookie_get_http_only(oldCookie))
-            return;
-
-        auto host = String::fromUTF8(soup_cookie_get_domain(oldCookie));
-        auto observers = session->m_cookieChangeObservers.getOptional(host);
-        if (!observers)
-            return;
-
-        for (auto& observer : *observers)
-            observer.cookiesDeleted(host, { Cookie(oldCookie) });
+        session->notifyCookieDeleted(oldCookie);
         return;
     }
 
@@ -142,6 +158,12 @@ void NetworkStorageSession::setCookieStorage(GRefPtr<SoupCookieJar>&& jar)
         for (auto& observer : observers)
             observer.allCookiesDeleted();
     }
+
+    CookieList cookies(soup_cookie_jar_all_cookies(m_cookieStorage.get()));
+    for (GSList* item = cookies.get(); item; item = g_slist_next(item)) {
+        auto* soupCookie = static_cast<SoupCookie*>(item->data);
+        notifyCookieAdded(soupCookie);
+    }
 #endif
 }
 
@@ -151,56 +173,55 @@ void NetworkStorageSession::setCookieObserverHandler(Function<void ()>&& handler
 }
 
 #if USE(LIBSECRET)
-static const char* schemeFromProtectionSpaceServerType(ProtectionSpace::ServerType serverType)
+static ASCIILiteral schemeFromProtectionSpaceServerType(ProtectionSpace::ServerType serverType)
 {
     switch (serverType) {
     case ProtectionSpace::ServerType::HTTP:
     case ProtectionSpace::ServerType::ProxyHTTP:
-        return "http";
+        return "http"_s;
     case ProtectionSpace::ServerType::HTTPS:
     case ProtectionSpace::ServerType::ProxyHTTPS:
-        return "https";
+        return "https"_s;
     case ProtectionSpace::ServerType::FTP:
     case ProtectionSpace::ServerType::ProxyFTP:
-        return "ftp";
+        return "ftp"_s;
     case ProtectionSpace::ServerType::FTPS:
     case ProtectionSpace::ServerType::ProxySOCKS:
         break;
     }
-
     RELEASE_ASSERT_NOT_REACHED();
 }
 
-static const char* authTypeFromProtectionSpaceAuthenticationScheme(ProtectionSpace::AuthenticationScheme scheme)
+static ASCIILiteral authTypeFromProtectionSpaceAuthenticationScheme(ProtectionSpace::AuthenticationScheme scheme)
 {
     switch (scheme) {
     case ProtectionSpace::AuthenticationScheme::Default:
     case ProtectionSpace::AuthenticationScheme::HTTPBasic:
-        return "Basic";
+        return "Basic"_s;
     case ProtectionSpace::AuthenticationScheme::HTTPDigest:
-        return "Digest";
+        return "Digest"_s;
     case ProtectionSpace::AuthenticationScheme::NTLM:
-        return "NTLM";
+        return "NTLM"_s;
     case ProtectionSpace::AuthenticationScheme::Negotiate:
-        return "Negotiate";
+        return "Negotiate"_s;
     case ProtectionSpace::AuthenticationScheme::HTMLForm:
     case ProtectionSpace::AuthenticationScheme::ClientCertificateRequested:
     case ProtectionSpace::AuthenticationScheme::ServerTrustEvaluationRequested:
         ASSERT_NOT_REACHED();
         break;
     case ProtectionSpace::AuthenticationScheme::ClientCertificatePINRequested:
-        return "Certificate PIN";
+        return "Certificate PIN"_s;
     case ProtectionSpace::AuthenticationScheme::OAuth:
-        return "OAuth";
+        return "OAuth"_s;
     case ProtectionSpace::AuthenticationScheme::Unknown:
-        return "unknown";
+        return "unknown"_s;
     }
 
     RELEASE_ASSERT_NOT_REACHED();
 }
 
 struct SecretServiceSearchData {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(SecretServiceSearchData);
     SecretServiceSearchData(GCancellable* cancellable, Function<void (Credential&&)>&& completionHandler)
         : cancellable(cancellable)
         , completionHandler(WTFMove(completionHandler))
@@ -234,8 +255,8 @@ void NetworkStorageSession::getCredentialFromPersistentStorage(const ProtectionS
         "domain", realm.utf8().data(),
         "server", protectionSpace.host().utf8().data(),
         "port", protectionSpace.port(),
-        "protocol", schemeFromProtectionSpaceServerType(protectionSpace.serverType()),
-        "authtype", authTypeFromProtectionSpaceAuthenticationScheme(protectionSpace.authenticationScheme()),
+        "protocol", schemeFromProtectionSpaceServerType(protectionSpace.serverType()).characters(),
+        "authtype", authTypeFromProtectionSpaceAuthenticationScheme(protectionSpace.authenticationScheme()).characters(),
         nullptr));
     if (!attributes) {
         completionHandler({ });
@@ -294,8 +315,8 @@ void NetworkStorageSession::saveCredentialToPersistentStorage(const ProtectionSp
         "domain", realm.utf8().data(),
         "server", protectionSpace.host().utf8().data(),
         "port", protectionSpace.port(),
-        "protocol", schemeFromProtectionSpaceServerType(protectionSpace.serverType()),
-        "authtype", authTypeFromProtectionSpaceAuthenticationScheme(protectionSpace.authenticationScheme()),
+        "protocol", schemeFromProtectionSpaceServerType(protectionSpace.serverType()).characters(),
+        "authtype", authTypeFromProtectionSpaceAuthenticationScheme(protectionSpace.authenticationScheme()).characters(),
         nullptr));
     if (!attributes)
         return;
@@ -332,7 +353,7 @@ void NetworkStorageSession::setCookieAcceptPolicy(HTTPCookieAcceptPolicy policy)
         soupPolicy = SOUP_COOKIE_JAR_ACCEPT_GRANDFATHERED_THIRD_PARTY;
         break;
 #else
-        FALLTHROUGH;
+        [[fallthrough]];
 #endif
     case HTTPCookieAcceptPolicy::ExclusivelyFromMainDocumentDomain:
         soupPolicy = SOUP_COOKIE_JAR_ACCEPT_NO_THIRD_PARTY;
@@ -386,7 +407,7 @@ static inline bool httpOnlyCookieExists(const GSList* cookies, const gchar* name
     return false;
 }
 
-void NetworkStorageSession::setCookiesFromDOM(const URL& firstParty, const SameSiteInfo&, const URL& url, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, ApplyTrackingPrevention applyTrackingPrevention, RequiresScriptTelemetry requiresScriptTelemetry, const String& value, ShouldRelaxThirdPartyCookieBlocking relaxThirdPartyCookieBlocking) const
+void NetworkStorageSession::setCookiesFromDOM(const URL& firstParty, const SameSiteInfo&, const URL& url, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, ApplyTrackingPrevention applyTrackingPrevention, RequiresScriptTrackingPrivacy requiresScriptTrackingPrivacy, const String& value, ShouldRelaxThirdPartyCookieBlocking relaxThirdPartyCookieBlocking) const
 {
     if (applyTrackingPrevention == ApplyTrackingPrevention::Yes && shouldBlockCookies(firstParty, url, frameID, pageID, relaxThirdPartyCookieBlocking))
         return;
@@ -399,7 +420,7 @@ void NetworkStorageSession::setCookiesFromDOM(const URL& firstParty, const SameS
     if (!firstPartyURI)
         return;
 
-    auto cappedLifetime = clientSideCookieCap(RegistrableDomain { firstParty }, requiresScriptTelemetry, pageID);
+    auto cappedLifetime = clientSideCookieCap(RegistrableDomain { firstParty }, requiresScriptTrackingPrivacy, pageID);
 
     // Get existing cookies for this origin.
     SoupCookieJar* jar = cookieStorage();
@@ -442,7 +463,7 @@ void NetworkStorageSession::setCookiesFromDOM(const URL& firstParty, const SameS
     soup_cookies_free(existingCookies);
 }
 
-bool NetworkStorageSession::setCookieFromDOM(const URL& firstParty, const SameSiteInfo& sameSiteInfo, const URL& url, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, ApplyTrackingPrevention applyTrackingPrevention, RequiresScriptTelemetry, const Cookie& cookie, ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking) const
+bool NetworkStorageSession::setCookieFromDOM(const URL& firstParty, const SameSiteInfo& sameSiteInfo, const URL& url, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, ApplyTrackingPrevention applyTrackingPrevention, RequiresScriptTrackingPrivacy, const Cookie& cookie, ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking) const
 {
     if (applyTrackingPrevention == ApplyTrackingPrevention::Yes && shouldBlockCookies(firstParty, url, frameID, pageID, shouldRelaxThirdPartyCookieBlocking))
         return false;

@@ -32,7 +32,6 @@
 #include <WebCore/FetchOptions.h>
 #include <WebCore/NetworkLoadInformation.h>
 #include <pal/SessionID.h>
-#include <variant>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
@@ -84,7 +83,7 @@ public:
         WebCore::ResourceResponse redirectResponse;
     };
 
-    using RequestOrRedirectionTripletOrError = std::variant<WebCore::ResourceRequest, RedirectionTriplet, WebCore::ResourceError>;
+    using RequestOrRedirectionTripletOrError = Variant<WebCore::ResourceRequest, RedirectionTriplet, WebCore::ResourceError>;
     using ValidationHandler = CompletionHandler<void(RequestOrRedirectionTripletOrError&&)>;
     void check(WebCore::ResourceRequest&&, WebCore::ContentSecurityPolicyClient*, ValidationHandler&&);
 
@@ -168,7 +167,7 @@ private:
     bool m_allowPrivacyProxy;
     OptionSet<WebCore::AdvancedPrivacyProtections> m_advancedPrivacyProtections;
     PAL::SessionID m_sessionID;
-    Ref<NetworkProcess> m_networkProcess;
+    const Ref<NetworkProcess> m_networkProcess;
     Markable<WebPageProxyIdentifier> m_webPageProxyID;
     WebCore::HTTPHeaderMap m_originalRequestHeaders; // Needed for CORS checks.
     WebCore::HTTPHeaderMap m_firstRequestHeaders; // Needed for CORS checks.

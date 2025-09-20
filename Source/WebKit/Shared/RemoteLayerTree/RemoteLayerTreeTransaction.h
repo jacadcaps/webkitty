@@ -41,6 +41,7 @@
 #include <WebCore/MediaPlayerEnums.h>
 #include <WebCore/PlatformCALayer.h>
 #include <WebCore/ScrollTypes.h>
+#include <WebCore/ViewportArguments.h>
 #include <wtf/CheckedPtr.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
@@ -63,6 +64,10 @@
 
 #if ENABLE(MODEL_PROCESS)
 #include <WebCore/ModelContext.h>
+#endif
+
+#if ENABLE(MACH_PORT_LAYER_HOSTING)
+#include <wtf/MachSendRightAnnotated.h>
 #endif
 
 namespace WebKit {
@@ -89,6 +94,9 @@ public:
         struct NoAdditionalData { };
         struct CustomData {
             uint32_t hostingContextID { 0 };
+#if ENABLE(MACH_PORT_LAYER_HOSTING)
+            std::optional<WTF::MachSendRightAnnotated> sendRightAnnotated;
+#endif
             float hostingDeviceScaleFactor { 1 };
             bool preservesFlip { false };
         };
@@ -97,7 +105,7 @@ public:
             WebCore::FloatSize initialSize;
             WebCore::FloatSize naturalSize;
         };
-        using AdditionalData = std::variant<
+        using AdditionalData = Variant<
             NoAdditionalData, // PlatformCALayerRemote and PlatformCALayerRemoteTiledBacking
             CustomData, // PlatformCALayerRemoteCustom
 #if ENABLE(MODEL_ELEMENT)
@@ -121,6 +129,9 @@ public:
 
         std::optional<WebCore::LayerHostingContextIdentifier> hostIdentifier() const;
         uint32_t hostingContextID() const;
+#if ENABLE(MACH_PORT_LAYER_HOSTING)
+        std::optional<WTF::MachSendRightAnnotated> sendRightAnnotated() const;
+#endif
         bool preservesFlip() const;
         float hostingDeviceScaleFactor() const;
 
@@ -164,6 +175,9 @@ public:
     WebCore::IntSize contentsSize() const { return m_contentsSize; }
     void setContentsSize(const WebCore::IntSize& size) { m_contentsSize = size; };
 
+    WebCore::IntSize scrollGeometryContentSize() const { return m_scrollGeometryContentSize; }
+    void setScrollGeometryContentSize(const WebCore::IntSize& size) { m_scrollGeometryContentSize = size; };
+
     WebCore::IntPoint scrollOrigin() const { return m_scrollOrigin; }
     void setScrollOrigin(const WebCore::IntPoint& origin) { m_scrollOrigin = origin; };
 
@@ -200,7 +214,10 @@ public:
 
     std::optional<WebCore::PlatformLayerIdentifier> scrolledContentsLayerID() const { return m_scrolledContentsLayerID.asOptional(); }
     void setScrolledContentsLayerID(std::optional<WebCore::PlatformLayerIdentifier> layerID) { m_scrolledContentsLayerID = layerID; }
-#endif
+
+    std::optional<WebCore::PlatformLayerIdentifier> mainFrameClipLayerID() const { return m_mainFrameClipLayerID.asOptional(); }
+    void setMainFrameClipLayerID(std::optional<WebCore::PlatformLayerIdentifier> layerID) { m_mainFrameClipLayerID = layerID; }
+#endif // PLATFORM(MAC)
 
     uint64_t renderTreeSize() const { return m_renderTreeSize; }
     void setRenderTreeSize(uint64_t renderTreeSize) { m_renderTreeSize = renderTreeSize; }
@@ -213,6 +230,9 @@ public:
 
     double initialScaleFactor() const { return m_initialScaleFactor; }
     void setInitialScaleFactor(double scale) { m_initialScaleFactor = scale; }
+
+    WebCore::InteractiveWidget viewportMetaTagInteractiveWidget() const { return m_viewportMetaTagInteractiveWidget; }
+    void setViewportMetaTagInteractiveWidget(WebCore::InteractiveWidget interactiveWidgetValue) { m_viewportMetaTagInteractiveWidget = interactiveWidgetValue; }
 
     double viewportMetaTagWidth() const { return m_viewportMetaTagWidth; }
     void setViewportMetaTagWidth(double width) { m_viewportMetaTagWidth = width; }
@@ -258,8 +278,8 @@ public:
     void setAcceleratedTimelineTimeOrigin(Seconds timeOrigin) { m_acceleratedTimelineTimeOrigin = timeOrigin; }
 #endif
 
-    const WebCore::FixedContainerEdges& fixedContainerEdges() const { return m_fixedContainerEdges; }
-    void setFixedContainerEdges(WebCore::FixedContainerEdges&& edges) { m_fixedContainerEdges = WTFMove(edges); }
+    const std::optional<WebCore::FixedContainerEdges>& fixedContainerEdges() const { return m_fixedContainerEdges; }
+    void setFixedContainerEdges(const WebCore::FixedContainerEdges& edges) { m_fixedContainerEdges = edges; }
 
 private:
     friend struct IPC::ArgumentCoder<RemoteLayerTreeTransaction, void>;
@@ -280,6 +300,7 @@ private:
     Vector<TransactionCallbackID> m_callbackIDs;
 
     WebCore::IntSize m_contentsSize;
+    WebCore::IntSize m_scrollGeometryContentSize;
     WebCore::IntPoint m_scrollOrigin;
     WebCore::LayoutSize m_baseLayoutViewportSize;
     WebCore::LayoutPoint m_minStableLayoutViewportOrigin;
@@ -288,11 +309,12 @@ private:
     WebCore::Color m_themeColor;
     WebCore::Color m_pageExtendedBackgroundColor;
     WebCore::Color m_sampledPageTopColor;
-    WebCore::FixedContainerEdges m_fixedContainerEdges;
+    std::optional<WebCore::FixedContainerEdges> m_fixedContainerEdges;
 
 #if PLATFORM(MAC)
     Markable<WebCore::PlatformLayerIdentifier> m_pageScalingLayerID; // Only used for non-delegated scaling.
     Markable<WebCore::PlatformLayerIdentifier> m_scrolledContentsLayerID;
+    Markable<WebCore::PlatformLayerIdentifier> m_mainFrameClipLayerID;
 #endif
 
     double m_pageScaleFactor { 1 };
@@ -310,6 +332,7 @@ private:
     bool m_viewportMetaTagWidthWasExplicit { false };
     bool m_viewportMetaTagCameFromImageDocument { false };
     bool m_isInStableState { false };
+    WebCore::InteractiveWidget m_viewportMetaTagInteractiveWidget { WebCore::InteractiveWidget::ResizesVisual };
 
     std::optional<EditorState> m_editorState;
 #if PLATFORM(IOS_FAMILY)

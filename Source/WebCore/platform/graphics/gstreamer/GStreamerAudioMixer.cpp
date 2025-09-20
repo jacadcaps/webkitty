@@ -32,7 +32,7 @@ GST_DEBUG_CATEGORY_STATIC(webkit_media_gst_audio_mixer_debug);
 
 bool GStreamerAudioMixer::isAvailable()
 {
-    return isGStreamerPluginAvailable("inter") && isGStreamerPluginAvailable("audiomixer");
+    return isGStreamerPluginAvailable("inter"_s) && isGStreamerPluginAvailable("audiomixer"_s);
 }
 
 GStreamerAudioMixer& GStreamerAudioMixer::singleton()
@@ -48,7 +48,7 @@ GStreamerAudioMixer::GStreamerAudioMixer()
     registerActivePipeline(m_pipeline);
     connectSimpleBusMessageCallback(m_pipeline.get());
 
-    m_mixer = makeGStreamerElement("audiomixer", nullptr);
+    m_mixer = makeGStreamerElement("audiomixer"_s);
     auto* audioSink = createAutoAudioSink({ });
 
     gst_bin_add_many(GST_BIN_CAST(m_pipeline.get()), m_mixer.get(), audioSink, nullptr);
@@ -86,17 +86,27 @@ void GStreamerAudioMixer::ensureState(GstStateChange stateChange)
     }
 }
 
-GRefPtr<GstPad> GStreamerAudioMixer::registerProducer(GstElement* interaudioSink)
+GRefPtr<GstPad> GStreamerAudioMixer::registerProducer(GstElement* interaudioSink, std::optional<int> forcedSampleRate)
 {
-    GstElement* src = makeGStreamerElement("interaudiosrc", nullptr);
+    auto name = StringView::fromLatin1(GST_ELEMENT_NAME(interaudioSink));
+    GstElement* src = makeGStreamerElement("interaudiosrc"_s, name.toStringWithoutCopying());
+
     g_object_set(src, "channel", GST_ELEMENT_NAME(interaudioSink), nullptr);
     g_object_set(interaudioSink, "channel", GST_ELEMENT_NAME(interaudioSink), nullptr);
 
     auto bin = gst_bin_new(nullptr);
-    auto audioResample = makeGStreamerElement("audioresample", nullptr);
-    auto audioConvert = makeGStreamerElement("audioconvert", nullptr);
+    auto audioResample = makeGStreamerElement("audioresample"_s);
+    auto audioConvert = makeGStreamerElement("audioconvert"_s);
     gst_bin_add_many(GST_BIN_CAST(bin), audioResample, audioConvert, nullptr);
     gst_element_link(audioConvert, audioResample);
+
+    if (forcedSampleRate) {
+        auto capsfilter = gst_element_factory_make("capsfilter", nullptr);
+        auto caps = adoptGRef(gst_caps_new_simple("audio/x-raw", "rate", G_TYPE_INT, *forcedSampleRate, nullptr));
+        g_object_set(capsfilter, "caps", caps.get(), nullptr);
+        gst_bin_add(GST_BIN_CAST(bin), capsfilter);
+        gst_element_link(audioResample, capsfilter);
+    }
 
     if (auto pad = adoptGRef(gst_bin_find_unlinked_pad(GST_BIN_CAST(bin), GST_PAD_SRC)))
         gst_element_add_pad(GST_ELEMENT_CAST(bin), gst_ghost_pad_new("src", pad.get()));
@@ -133,10 +143,8 @@ void GStreamerAudioMixer::unregisterProducer(const GRefPtr<GstPad>& mixerPad)
     auto interaudioSrc = adoptGRef(gst_pad_get_parent_element(srcPad.get()));
     GST_LOG_OBJECT(m_pipeline.get(), "interaudiosrc: %" GST_PTR_FORMAT, interaudioSrc.get());
 
-    gst_element_set_locked_state(interaudioSrc.get(), true);
-    gst_element_set_state(interaudioSrc.get(), GST_STATE_NULL);
-    gst_element_set_state(bin.get(), GST_STATE_NULL);
-
+    gstElementLockAndSetState(interaudioSrc.get(), GST_STATE_NULL);
+    gstElementLockAndSetState(bin.get(), GST_STATE_NULL);
     gst_pad_unlink(peer.get(), mixerPad.get());
     gst_element_unlink(interaudioSrc.get(), bin.get());
 
@@ -148,6 +156,15 @@ void GStreamerAudioMixer::unregisterProducer(const GRefPtr<GstPad>& mixerPad)
         gst_element_set_state(m_pipeline.get(), GST_STATE_NULL);
 
     GST_DEBUG_BIN_TO_DOT_FILE_WITH_TS(GST_BIN_CAST(m_pipeline.get()), GST_DEBUG_GRAPH_SHOW_ALL, "audio-mixer-after-producer-unregistration");
+}
+
+void GStreamerAudioMixer::configureSourcePeriodTime(StringView sourceName, uint64_t periodTime)
+{
+    auto src = adoptGRef(gst_bin_get_by_name(GST_BIN_CAST(m_pipeline.get()), sourceName.toStringWithoutCopying().ascii().data()));
+    if (!src) [[unlikely]]
+        return;
+
+    g_object_set(src.get(), "period-time", periodTime, nullptr);
 }
 
 #undef GST_CAT_DEFAULT

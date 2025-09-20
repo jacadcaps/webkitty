@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2008 Collin Jackson  <collinj@webkit.org>
- * Copyright (C) 2009-2023 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2009-2023 Apple Inc. All rights reserved.
  * Copyright (C) 2012 Igalia S.L.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,6 +31,7 @@
 #include "Timer.h"
 #include <dns_sd.h>
 #include <pal/spi/cf/CFNetworkSPI.h>
+#include <pal/spi/cocoa/NetworkSPI.h>
 #include <wtf/BlockPtr.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/HashSet.h>
@@ -39,6 +40,7 @@
 #include <wtf/StdLibExtras.h>
 #include <wtf/URL.h>
 #include <wtf/cf/VectorCF.h>
+#include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #include <wtf/posix/SocketPOSIX.h>
 #include <wtf/text/StringHash.h>
 
@@ -116,9 +118,16 @@ void DNSResolveQueueCFNet::performDNSLookup(const String& hostname, Ref<Completi
     RetainPtr hostEndpoint = adoptCF(nw_endpoint_create_host(hostname.utf8().data(), "0"));
     RetainPtr context = adoptCF(nw_context_create("WebKit DNS Lookup"));
     RetainPtr parameters = adoptCF(nw_parameters_create());
+
+    auto bundleID = applicationBundleIdentifier();
+    if (!bundleID.isEmpty())
+        nw_parameters_set_source_application_by_bundle_id(parameters.get(), bundleID.ascii().data());
+
     nw_context_set_privacy_level(context.get(), nw_context_privacy_level_silent);
     nw_parameters_set_context(parameters.get(), context.get());
-    RetainPtr resolver = adoptCF(nw_resolver_create_with_endpoint(hostEndpoint.get(), parameters.get()));
+    RetainPtr pathEvaluator = adoptCF(nw_path_create_evaluator_for_endpoint(hostEndpoint.get(), parameters.get()));
+    RetainPtr path = adoptCF(nw_path_evaluator_copy_path(pathEvaluator.get()));
+    RetainPtr resolver = adoptCF(nw_resolver_create_with_path(path.get()));
 
     RELEASE_ASSERT_WITH_MESSAGE(isMainThread(), "Always create timer on the main thread.");
     auto timeoutTimer = makeUnique<Timer>([resolver, completionHandler]() mutable {
@@ -130,6 +139,10 @@ void DNSResolveQueueCFNet::performDNSLookup(const String& hostname, Ref<Completi
     nw_resolver_set_update_handler(resolver.get(), dispatch_get_main_queue(), makeBlockPtr([resolver = WTFMove(resolver), completionHandler = WTFMove(completionHandler), timeoutTimer = WTFMove(timeoutTimer)] (nw_resolver_status_t status, nw_array_t resolvedEndpoints) mutable {
         if (status != nw_resolver_status_complete)
             return;
+
+#if PLATFORM(IOS_FAMILY)
+        WebThreadLock();
+#endif
 
         auto callCompletionHandler = [resolver = WTFMove(resolver), completionHandler = WTFMove(completionHandler), timeoutTimer = WTFMove(timeoutTimer)](DNSAddressesOrError&& result) mutable {
             timeoutTimer->stop();

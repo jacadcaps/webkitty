@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -182,7 +182,11 @@ public:
     template<typename T>
     void addSupplementWithoutRefCountedCheck()
     {
-        m_supplements.add(T::supplementName(), makeUniqueWithoutRefCountedCheck<T>(*this));
+        // NetworkProcessSupplement objects forward their ref-counting to the NetworkProcess. The NetworkProcess
+        // stores this in a HashMap. It is currently safe because we only ever add to the HashMap, never remove.
+        // However, the current design is fragile and the need to const_cast here is annoying so it would be good
+        // to find a better pattern.
+        m_supplements.add(T::supplementName(), const_cast<std::unique_ptr<NetworkProcessSupplement>&&>(makeUniqueWithoutRefCountedCheck<T, NetworkProcessSupplement>(*this)));
     }
 
     void removeNetworkConnectionToWebProcess(NetworkConnectionToWebProcess&);
@@ -194,12 +198,15 @@ public:
 
     void setSession(PAL::SessionID, std::unique_ptr<NetworkSession>&&);
     NetworkSession* networkSession(PAL::SessionID) const final;
+    CheckedPtr<NetworkSession> checkedNetworkSession(PAL::SessionID) const;
     void destroySession(PAL::SessionID, CompletionHandler<void()>&& = [] { });
+    void ensureSessionWithDataStoreIdentifierRemoved(WTF::UUID, CompletionHandler<void()>&&);
 
     void forEachNetworkSession(NOESCAPE const Function<void(NetworkSession&)>&);
 
     void forEachNetworkStorageSession(NOESCAPE const Function<void(WebCore::NetworkStorageSession&)>&);
     WebCore::NetworkStorageSession* storageSession(PAL::SessionID) const;
+    CheckedPtr<WebCore::NetworkStorageSession> checkedStorageSession(PAL::SessionID) const;
     std::unique_ptr<WebCore::NetworkStorageSession> newTestingSession(PAL::SessionID);
     void addStorageSession(PAL::SessionID, const WebsiteDataStoreParameters&);
 
@@ -232,7 +239,7 @@ public:
 
     void addWebsiteDataStore(WebsiteDataStoreParameters&&);
 
-    void registrableDomainsWithLastAccessedTime(PAL::SessionID, CompletionHandler<void(std::optional<HashMap<RegistrableDomain, WallTime>>)>&&);
+    void registrableDomainsWithLastAccessedTime(PAL::SessionID, CompletionHandler<void(std::optional<HashMap<RegistrableDomain, WallTime>>&&)>&&);
     void registrableDomainsExemptFromWebsiteDataDeletion(PAL::SessionID, CompletionHandler<void(HashSet<RegistrableDomain>)>&&);
     void clearPrevalentResource(PAL::SessionID, RegistrableDomain&&, CompletionHandler<void()>&&);
     void clearUserInteraction(PAL::SessionID, RegistrableDomain&&, CompletionHandler<void()>&&);
@@ -292,6 +299,7 @@ public:
     void setCrossSiteLoadWithLinkDecorationForTesting(PAL::SessionID, RegistrableDomain&& fromDomain, RegistrableDomain&& toDomain, DidFilterKnownLinkDecoration, CompletionHandler<void()>&&);
     void resetCrossSiteLoadsWithLinkDecorationForTesting(PAL::SessionID, CompletionHandler<void()>&&);
     void grantStorageAccessForTesting(PAL::SessionID, Vector<WebCore::RegistrableDomain>&& subFrameDomains, WebCore::RegistrableDomain&& topFrameDomain, CompletionHandler<void(void)>&&);
+    void setStorageAccessPermissionForTesting(PAL::SessionID, bool, WebCore::RegistrableDomain&& topFrameDomain, WebCore::RegistrableDomain&& subFrameDomain, CompletionHandler<void()>&&);
     void hasIsolatedSession(PAL::SessionID, const WebCore::RegistrableDomain&, CompletionHandler<void(bool)>&&) const;
     void closeITPDatabase(PAL::SessionID, CompletionHandler<void()>&&);
 #if ENABLE(APP_BOUND_DOMAINS)
@@ -314,13 +322,12 @@ public:
     bool privateClickMeasurementEnabled() const;
     void setPrivateClickMeasurementDebugMode(PAL::SessionID, bool);
 
-    void setBlobRegistryTopOriginPartitioningEnabled(PAL::SessionID, bool) const;
     void setShouldSendPrivateTokenIPCForTesting(PAL::SessionID, bool) const;
 #if HAVE(ALLOW_ONLY_PARTITIONED_COOKIES)
     void setOptInCookiePartitioningEnabled(PAL::SessionID, bool) const;
 #endif
 
-    void preconnectTo(PAL::SessionID, WebPageProxyIdentifier, WebCore::PageIdentifier, WebCore::ResourceRequest&&, WebCore::StoredCredentialsPolicy, std::optional<NavigatingToAppBoundDomain>);
+    void preconnectTo(PAL::SessionID, WebPageProxyIdentifier, WebCore::PageIdentifier, WebCore::ResourceRequest&&, WebCore::StoredCredentialsPolicy, std::optional<NavigatingToAppBoundDomain>, uint64_t requiredCookiesVersion);
 
     void setSessionIsControlledByAutomation(PAL::SessionID, bool);
     bool sessionIsControlledByAutomation(PAL::SessionID) const;
@@ -381,8 +388,10 @@ public:
     const OptionSet<NetworkCache::CacheOption>& cacheOptions() const { return m_cacheOptions; }
 
     NetworkConnectionToWebProcess* webProcessConnection(WebCore::ProcessIdentifier) const;
+    RefPtr<NetworkConnectionToWebProcess> protectedWebProcessConnection(WebCore::ProcessIdentifier) const;
     NetworkConnectionToWebProcess* webProcessConnection(const IPC::Connection&) const;
     WebCore::MessagePortChannelRegistry& messagePortChannelRegistry() { return m_messagePortChannelRegistry; }
+    CheckedRef<WebCore::MessagePortChannelRegistry> checkedMessagePortChannelRegistry() { return m_messagePortChannelRegistry; }
 
     void setServiceWorkerFetchTimeoutForTesting(Seconds, CompletionHandler<void()>&&);
     void resetServiceWorkerFetchTimeoutForTesting(CompletionHandler<void()>&&);
@@ -459,10 +468,10 @@ public:
 
     bool enableModernDownloadProgress() const { return m_enableModernDownloadProgress; }
 
-    void fetchLocalStorage(PAL::SessionID, CompletionHandler<void(HashMap<WebCore::ClientOrigin, HashMap<String, String>>&&)>&&);
+    void fetchLocalStorage(PAL::SessionID, CompletionHandler<void(std::optional<HashMap<WebCore::ClientOrigin, HashMap<String, String>>>&&)>&&);
     void restoreLocalStorage(PAL::SessionID, HashMap<WebCore::ClientOrigin, HashMap<String, String>>&&, CompletionHandler<void(bool)>&&);
 
-    void fetchSessionStorage(PAL::SessionID, WebPageProxyIdentifier, CompletionHandler<void(HashMap<WebCore::ClientOrigin, HashMap<String, String>>&&)>&&);
+    void fetchSessionStorage(PAL::SessionID, WebPageProxyIdentifier, CompletionHandler<void(std::optional<HashMap<WebCore::ClientOrigin, HashMap<String, String>>>&&)>&&);
     void restoreSessionStorage(PAL::SessionID, WebPageProxyIdentifier, HashMap<WebCore::ClientOrigin, HashMap<String, String>>&&, CompletionHandler<void(bool)>&&);
 
     WebCore::ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlockingForPage(std::optional<WebPageProxyIdentifier>) const;
@@ -536,11 +545,11 @@ private:
 
     void addWebPageNetworkParameters(PAL::SessionID, WebPageProxyIdentifier, WebPageNetworkParameters&&);
     void removeWebPageNetworkParameters(PAL::SessionID, WebPageProxyIdentifier);
-    void countNonDefaultSessionSets(PAL::SessionID, CompletionHandler<void(size_t)>&&);
+    void countNonDefaultSessionSets(PAL::SessionID, CompletionHandler<void(uint64_t)>&&);
 
 #if HAVE(NW_PROXY_CONFIG)
     void clearProxyConfigData(PAL::SessionID);
-    void setProxyConfigData(PAL::SessionID, Vector<std::pair<Vector<uint8_t>, WTF::UUID>>&& proxyConfigurations);
+    void setProxyConfigData(PAL::SessionID, Vector<std::pair<Vector<uint8_t>, std::optional<WTF::UUID>>>&& proxyConfigurations);
 #endif
     
 #if USE(SOUP)
@@ -565,7 +574,9 @@ private:
     void registerURLSchemeAsSecure(const String&) const;
     void registerURLSchemeAsBypassingContentSecurityPolicy(const String&) const;
     void registerURLSchemeAsLocal(const String&) const;
+#if ENABLE(ALL_LEGACY_REGISTERED_SPECIAL_URL_SCHEMES)
     void registerURLSchemeAsNoAccess(const String&) const;
+#endif
     void registerURLSchemeAsCORSEnabled(const String&) const;
 
 #if USE(RUNNINGBOARD)
@@ -581,12 +592,13 @@ private:
 
     struct TaskIdentifierType;
     using TaskIdentifier = ObjectIdentifier<TaskIdentifierType>;
-    void performDeleteWebsiteDataTask(TaskIdentifier);
+    enum class TaskTrigger : bool { Timer, Connection };
+    void performDeleteWebsiteDataTask(TaskIdentifier, TaskTrigger = TaskTrigger::Connection);
     void deleteWebsiteDataImpl(PAL::SessionID, OptionSet<WebsiteDataType>, WallTime, CompletionHandler<void()>&&);
 
     // Connections to WebProcesses.
     HashMap<WebCore::ProcessIdentifier, Ref<NetworkConnectionToWebProcess>> m_webProcessConnections;
-    HashMap<WebCore::ProcessIdentifier, CompletionHandler<void()>> m_webProcessConnectionCloseHandlers;
+    HashMap<WebCore::ProcessIdentifier, Vector<CompletionHandler<void()>>> m_webProcessConnectionCloseHandlers;
 
     bool m_hasSetCacheModel { false };
     CacheModel m_cacheModel { CacheModel::DocumentViewer };
@@ -632,7 +644,7 @@ private:
     Seconds m_serviceWorkerFetchTimeout { defaultServiceWorkerFetchTimeout };
 
     HashMap<WebCore::PageIdentifier, Vector<WebCore::UserContentURLPattern>> m_extensionCORSDisablingPatterns;
-    HashSet<RefPtr<NetworkStorageManager>> m_closingStorageManagers;
+    HashSet<Ref<NetworkStorageManager>> m_closingStorageManagers;
     HashSet<String> m_localhostAliasesForTesting;
     HashSet<WebPageProxyIdentifier> m_pagesWithRelaxedThirdPartyCookieBlocking;
 

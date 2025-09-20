@@ -71,7 +71,7 @@ void RemoteRealtimeMediaSource::createRemoteMediaSource()
 
         m_proxy.setAsReady();
         if (m_proxy.shouldCaptureInGPUProcess())
-            WebProcess::singleton().ensureGPUProcessConnection().addClient(*this);
+            WebProcess::singleton().ensureProtectedGPUProcessConnection()->addClient(*this);
     }, m_proxy.shouldCaptureInGPUProcess() && m_manager->shouldUseGPUProcessRemoteFrames());
 }
 
@@ -108,16 +108,21 @@ void RemoteRealtimeMediaSource::configurationChanged(String&& persistentID, WebC
     setSettings(WTFMove(settings));
     setCapabilities(WTFMove(capabilities));
     setName(m_settings.label());
-    
-    forEachObserver([](auto& observer) {
-        observer.sourceConfigurationChanged();
-    });
+
+    RealtimeMediaSource::configurationChanged();
 }
 
 void RemoteRealtimeMediaSource::applyConstraintsSucceeded(WebCore::RealtimeMediaSourceSettings&& settings)
 {
     setSettings(WTFMove(settings));
     m_proxy.applyConstraintsSucceeded();
+}
+
+void RemoteRealtimeMediaSource::stopProducingData()
+{
+    if (isAudio())
+        m_manager->protectedRemoteCaptureSampleManager()->audioSourceWillBeStopped(identifier());
+    m_proxy.stopProducingData();
 }
 
 void RemoteRealtimeMediaSource::didEnd()
@@ -127,7 +132,7 @@ void RemoteRealtimeMediaSource::didEnd()
 
     m_proxy.end();
     m_manager->removeSource(identifier());
-    m_manager->remoteCaptureSampleManager().removeSource(identifier());
+    m_manager->protectedRemoteCaptureSampleManager()->removeSource(identifier());
 }
 
 void RemoteRealtimeMediaSource::captureStopped(bool didFail)
@@ -153,7 +158,7 @@ void RemoteRealtimeMediaSource::gpuProcessConnectionDidClose(GPUProcessConnectio
         return;
 
     m_proxy.updateConnection();
-    m_manager->remoteCaptureSampleManager().didUpdateSourceConnection(Ref { m_proxy.connection() });
+    m_manager->protectedRemoteCaptureSampleManager()->didUpdateSourceConnection(Ref { m_proxy.connection() });
     m_proxy.resetReady();
     createRemoteMediaSource();
 
@@ -163,7 +168,11 @@ void RemoteRealtimeMediaSource::gpuProcessConnectionDidClose(GPUProcessConnectio
 
     if (isProducingData())
         startProducingData();
-
+    else if (isAudio() && !interrupted()) {
+        // To be able to reenable voice detection, we have to restart the source.
+        startProducingData();
+        stopProducingData();
+    }
 }
 #endif
 

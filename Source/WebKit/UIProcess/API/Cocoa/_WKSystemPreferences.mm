@@ -29,8 +29,8 @@
 #import <wtf/Assertions.h>
 #import <wtf/RetainPtr.h>
 
-#if HAVE(LOCKDOWN_MODE_FRAMEWORK)
-#import <pal/cocoa/LockdownModeSoftLink.h>
+#if ENABLE(LOCKDOWN_MODE_API)
+#import <pal/cocoa/LockdownModeCocoa.h>
 #endif
 
 constexpr auto CaptivePortalConfigurationIgnoreFileName = @"com.apple.WebKit.cpmconfig_ignore";

@@ -38,7 +38,7 @@
 #include <WebCore/BackForwardCache.h>
 #include <WebCore/HistoryController.h>
 #include <WebCore/HistoryItem.h>
-#include <WebCore/LocalFrame.h>
+#include <WebCore/LocalFrameInlines.h>
 #include <WebCore/Page.h>
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
@@ -81,28 +81,6 @@ void WebBackForwardListProxy::goToItem(HistoryItem& item)
         return;
 
     auto sendResult = m_page->sendSync(Messages::WebPageProxy::BackForwardGoToItem(item.itemID()));
-    auto [backForwardListCounts] = sendResult.takeReplyOr(WebBackForwardListCounts { });
-    m_cachedBackForwardListCounts = backForwardListCounts;
-}
-
-void WebBackForwardListProxy::goToProvisionalItem(const HistoryItem& item)
-{
-    RefPtr page = m_page.get();
-    if (!page)
-        return;
-
-    auto sendResult = page->sendSync(Messages::WebPageProxy::BackForwardGoToProvisionalItem(item.itemID()));
-    auto [backForwardListCounts] = sendResult.takeReplyOr(WebBackForwardListCounts { });
-    m_cachedBackForwardListCounts = backForwardListCounts;
-}
-
-void WebBackForwardListProxy::clearProvisionalItem(const HistoryItem& item)
-{
-    RefPtr page = m_page.get();
-    if (!page)
-        return;
-
-    auto sendResult = page->sendSync(Messages::WebPageProxy::BackForwardClearProvisionalItem(item.itemID(), item.frameItemID()));
     auto [backForwardListCounts] = sendResult.takeReplyOr(WebBackForwardListCounts { });
     m_cachedBackForwardListCounts = backForwardListCounts;
 }

@@ -58,7 +58,9 @@ public:
     void setAllowAutofill();
     void setAllowElementUserInfo();
     void makeAllShadowRootsOpen();
+    void exposeClosedShadowRootsForExtensions();
     void disableOverrideBuiltinsBehavior();
+    void setNodeInfoEnabled();
 
     const String& name() const { return m_name; }
 
@@ -70,5 +72,9 @@ private:
 };
 
 } // namespace WebKit
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::InjectedBundleScriptWorld)
+static bool isType(const API::Object& object) { return object.type() == API::Object::Type::BundleScriptWorld; }
+SPECIALIZE_TYPE_TRAITS_END()
 
 #endif // InjectedBundleScriptWorld_h

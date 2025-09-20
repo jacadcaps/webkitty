@@ -77,7 +77,7 @@ WK_OBJECT_DISABLE_DISABLE_KVC_IVAR_ACCESS;
     if (_contentWorld->name().isNull())
         return nil;
 
-    return _contentWorld->name();
+    return _contentWorld->name().createNSString().autorelease();
 }
 
 #pragma mark WKObject protocol implementation
@@ -109,6 +109,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         optionSet.add(WebKit::ContentWorldOption::AllowElementUserInfo);
     if (configuration.disableLegacyBuiltinOverrides)
         optionSet.add(WebKit::ContentWorldOption::DisableLegacyBuiltinOverrides);
+    if (configuration.allowNodeInfo)
+        optionSet.add(WebKit::ContentWorldOption::AllowNodeInfo);
     Ref world = API::ContentWorld::sharedWorldWithName(configuration.name, optionSet);
     checkContentWorldOptions(world, configuration);
     return wrapper(WTFMove(world)).autorelease();

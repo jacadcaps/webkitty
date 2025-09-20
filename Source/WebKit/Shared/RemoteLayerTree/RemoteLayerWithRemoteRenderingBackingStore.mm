@@ -50,7 +50,7 @@ RemoteLayerWithRemoteRenderingBackingStore::RemoteLayerWithRemoteRenderingBackin
         return;
     }
 
-    m_bufferSet = collection->layerTreeContext().ensureRemoteRenderingBackendProxy().createRemoteImageBufferSet();
+    lazyInitialize(m_bufferSet, collection->protectedLayerTreeContext()->ensureProtectedRemoteRenderingBackendProxy()->createImageBufferSet(*CheckedPtr { this }.get()));
 }
 
 RemoteLayerWithRemoteRenderingBackingStore::~RemoteLayerWithRemoteRenderingBackingStore()
@@ -73,12 +73,27 @@ bool RemoteLayerWithRemoteRenderingBackingStore::frontBufferMayBeVolatile() cons
 
 void RemoteLayerWithRemoteRenderingBackingStore::prepareToDisplay()
 {
+    if (performDelegatedLayerDisplay())
+        return;
+
+    RefPtr bufferSet = this->bufferSet();
+    if (!bufferSet)
+        return;
+
+    if (!hasFrontBuffer() || !supportsPartialRepaint())
+        setNeedsDisplay();
+
+    bufferSet->prepareToDisplay(dirtyRegion(), supportsPartialRepaint(), hasEmptyDirtyRegion(), drawingRequiresClearedPixels());
     m_contentsBufferHandle = std::nullopt;
+
+    if (!hasFrontBuffer() || !supportsPartialRepaint())
+        setNeedsDisplay();
+
+    dirtyRepaintCounterIfNecessary();
 }
 
 void RemoteLayerWithRemoteRenderingBackingStore::clearBackingStore()
 {
-    m_contentsBufferHandle = std::nullopt;
     m_cleared = true;
 }
 
@@ -91,7 +106,7 @@ std::unique_ptr<ThreadSafeImageBufferSetFlusher> RemoteLayerWithRemoteRenderingB
 
 void RemoteLayerWithRemoteRenderingBackingStore::createContextAndPaintContents()
 {
-    auto bufferSet = protectedBufferSet();
+    RefPtr bufferSet = m_bufferSet;
     if (!bufferSet)
         return;
 
@@ -110,13 +125,19 @@ void RemoteLayerWithRemoteRenderingBackingStore::ensureBackingStore(const Parame
         return;
 
     m_parameters = parameters;
-    m_cleared = true;
+    clearBackingStore();
+
+    auto useLosslessCompression = UseLosslessCompression::No;
+    if (RefPtr context = m_layer->context())
+        useLosslessCompression = context->useIOSurfaceLosslessCompression();
+
     if (m_bufferSet) {
         RemoteImageBufferSetConfiguration configuration {
             .logicalSize = size(),
             .resolutionScale = scale(),
             .colorSpace = colorSpace(),
-            .pixelFormat = pixelFormat(),
+            .contentsFormat = contentsFormat(),
+            .bufferFormat = { pixelFormat(), useLosslessCompression },
             .renderingMode = type() == RemoteLayerBackingStore::Type::IOSurface ? RenderingMode::Accelerated : RenderingMode::Unaccelerated,
             .renderingPurpose = WebCore::RenderingPurpose::LayerBacking,
 #if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
@@ -150,18 +171,29 @@ std::optional<RemoteImageBufferSetIdentifier> RemoteLayerWithRemoteRenderingBack
     return m_bufferSet->identifier();
 }
 
-#if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
-std::optional<ImageBufferBackendHandle> RemoteLayerWithRemoteRenderingBackingStore::displayListHandle() const
+void RemoteLayerWithRemoteRenderingBackingStore::setNeedsDisplay()
 {
+    RemoteLayerBackingStore::setNeedsDisplay();
+}
+
+#if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
+std::optional<DynamicContentScalingDisplayList> RemoteLayerWithRemoteRenderingBackingStore::displayListHandle() const
+{
+    if (auto list = m_layer->owner()->platformCALayerDynamicContentScalingDisplayList(m_layer.ptr()))
+        return list;
     return m_bufferSet ? m_bufferSet->dynamicContentScalingDisplayList() : std::nullopt;
 }
 #endif
 
 void RemoteLayerWithRemoteRenderingBackingStore::dump(WTF::TextStream& ts) const
 {
-    ts.dumpProperty("buffer set", m_bufferSet);
-    ts.dumpProperty("cache identifiers", m_bufferCacheIdentifiers);
-    ts.dumpProperty("is opaque", isOpaque());
+    ts.dumpProperty("buffer set"_s, m_bufferSet);
+    ts.dumpProperty("cache identifiers"_s, m_bufferCacheIdentifiers);
+    ts.dumpProperty("is opaque"_s, isOpaque());
+#if HAVE(SUPPORT_HDR_DISPLAY)
+    ts.dumpProperty("requested-headroom", m_maxRequestedEDRHeadroom);
+    ts.dumpProperty("painted-headroom", m_maxPaintedEDRHeadroom);
+#endif
 }
 
 } // namespace WebKit

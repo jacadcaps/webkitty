@@ -143,7 +143,6 @@ void executeScript(const SourcePairs& scriptPairs, WKWebView *webView, API::Cont
             return;
         }
 
-        auto *world = executionWorld->wrapper();
         auto *frames = getFrames(mainFrame, parameters);
 
         for (_WKFrameTreeNode *frame in frames) {
@@ -156,10 +155,10 @@ void executeScript(const SourcePairs& scriptPairs, WKWebView *webView, API::Cont
             }
 
             if (parameters.function) {
-                NSString *javaScript = [NSString stringWithFormat:@"return (%@)(...arguments)", (NSString *)parameters.function.value()];
+                RetainPtr javaScript = adoptNS([[NSString alloc] initWithFormat:@"return (%@)(...arguments)", parameters.function.value().createNSString().get()]);
                 NSArray *arguments = parameters.arguments ? parseJSON(parameters.arguments.value(), JSONOptions::FragmentsAllowed) : @[ ];
 
-                [webView _callAsyncJavaScript:javaScript arguments:@{ @"arguments": arguments } inFrame:frameInfo inContentWorld:world completionHandler:makeBlockPtr([injectionResults, aggregator, frameInfo](id resultOfExecution, NSError *error) mutable {
+                [webView _callAsyncJavaScript:javaScript.get() arguments:@{ @"arguments": arguments } inFrame:frameInfo inContentWorld:executionWorld->wrapper() completionHandler:makeBlockPtr([injectionResults, aggregator, frameInfo](id resultOfExecution, NSError *error) mutable {
                     injectionResults->results.append(toInjectionResultParameters(resultOfExecution, frameInfo, error.localizedDescription));
                 }).get()];
 
@@ -167,7 +166,7 @@ void executeScript(const SourcePairs& scriptPairs, WKWebView *webView, API::Cont
             }
 
             for (auto& script : scriptPairs) {
-                [webView _evaluateJavaScript:script.first withSourceURL:script.second inFrame:frameInfo inContentWorld:executionWorld->wrapper() completionHandler:makeBlockPtr([injectionResults, aggregator, frameInfo](id resultOfExecution, NSError *error) mutable {
+                [webView _evaluateJavaScript:script.first.createNSString().get() withSourceURL:script.second.createNSURL().get() inFrame:frameInfo inContentWorld:executionWorld->wrapper() completionHandler:makeBlockPtr([injectionResults, aggregator, frameInfo](id resultOfExecution, NSError *error) mutable {
                     injectionResults->results.append(toInjectionResultParameters(resultOfExecution, frameInfo, error.localizedDescription));
                 }).get()];
             }
@@ -181,7 +180,7 @@ void injectStyleSheets(const SourcePairs& styleSheetPairs, WKWebView *webView, A
     auto pageID = page->webPageIDInMainFrameProcess();
 
     for (auto& styleSheet : styleSheetPairs) {
-        auto userStyleSheet = API::UserStyleSheet::create(WebCore::UserStyleSheet { styleSheet.first, styleSheet.second, Vector<String> { }, Vector<String> { }, injectedFrames, styleLevel, pageID }, executionWorld);
+        auto userStyleSheet = API::UserStyleSheet::create(WebCore::UserStyleSheet { styleSheet.first, styleSheet.second, { }, { }, injectedFrames, WebCore::UserContentMatchParentFrame::Never, styleLevel, pageID }, executionWorld);
 
         Ref controller = page.get()->userContentController();
         controller->addUserStyleSheet(userStyleSheet);
@@ -244,22 +243,25 @@ void WebExtensionRegisteredScript::merge(WebExtensionRegisteredScriptParameters&
     if (!parameters.js && m_parameters.js)
         parameters.js = m_parameters.js.value();
 
-    if (!parameters.injectionTime)
+    if (!parameters.injectionTime && m_parameters.injectionTime)
         parameters.injectionTime = m_parameters.injectionTime.value();
 
     if (!parameters.excludeMatchPatterns && m_parameters.excludeMatchPatterns)
         parameters.excludeMatchPatterns = m_parameters.excludeMatchPatterns.value();
 
-    if (!parameters.matchPatterns)
+    if (!parameters.matchPatterns && m_parameters.matchPatterns)
         parameters.matchPatterns = m_parameters.matchPatterns.value();
 
-    if (!parameters.allFrames)
+    if (!parameters.allFrames && m_parameters.allFrames)
         parameters.allFrames = m_parameters.allFrames.value();
 
-    if (!parameters.persistent)
+    if (!parameters.matchParentFrame && m_parameters.matchParentFrame)
+        parameters.matchParentFrame = m_parameters.matchParentFrame.value();
+
+    if (!parameters.persistent && m_parameters.persistent)
         parameters.persistent = m_parameters.persistent.value();
 
-    if (!parameters.world)
+    if (!parameters.world && m_parameters.world)
         parameters.world = m_parameters.world.value();
 }
 

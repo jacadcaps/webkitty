@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,13 +26,49 @@
 #import "config.h"
 #import "TestCocoa.h"
 
+#if PLATFORM(IOS_FAMILY)
+#import "UIKitSPIForTesting.h"
+#endif
+
 template<typename T>
 static inline std::ostream& ostreamRectCommon(std::ostream& os, const T& rect)
 {
-    return os << "(origin = (x = " << rect.origin.x << ", y = " << rect.origin.y << "), size = (width = " << rect.size.width << ", height = " << rect.size.height << "))";
+    return os << "(origin = " << rect.origin << ", size = " << rect.size << ")";
+}
+
+template<typename T>
+static inline std::ostream& ostreamPointCommon(std::ostream& os, const T& point)
+{
+    return os << "(x = " << point.x << ", y = " << point.y << ")";
+}
+
+template<typename T>
+static inline std::ostream& ostreamSizeCommon(std::ostream& os, const T& size)
+{
+    return os << "(width = " << size.width << ", height = " << size.height << ")";
 }
 
 #if USE(CG)
+
+std::ostream& operator<<(std::ostream& os, const CGPoint& point)
+{
+    return ostreamPointCommon(os, point);
+}
+
+bool operator==(const CGPoint& a, const CGPoint& b)
+{
+    return CGPointEqualToPoint(a, b);
+}
+
+std::ostream& operator<<(std::ostream& os, const CGSize& size)
+{
+    return ostreamSizeCommon(os, size);
+}
+
+bool operator==(const CGSize& a, const CGSize& b)
+{
+    return CGSizeEqualToSize(a, b);
+}
 
 std::ostream& operator<<(std::ostream& os, const CGRect& rect)
 {
@@ -46,16 +82,15 @@ bool operator==(const CGRect& a, const CGRect& b)
 
 #endif
 
-#if PLATFORM(MAC) && !defined(NSGEOMETRY_TYPES_SAME_AS_CGGEOMETRY_TYPES)
+#if PLATFORM(IOS_FAMILY)
 
-std::ostream& operator<<(std::ostream& os, const NSRect& rect)
+void TestWebKitAPI::Util::instantiateUIApplicationIfNeeded(Class customApplicationClass)
 {
-    return ostreamRectCommon(os, rect);
-}
+    if (UIApplication.sharedApplication)
+        return;
 
-bool operator==(const NSRect& a, const NSRect& b)
-{
-    return NSEqualRects(a, b);
+    UIApplicationInitialize();
+    UIApplicationInstantiateSingleton(customApplicationClass ?: UIApplication.class);
 }
 
 #endif

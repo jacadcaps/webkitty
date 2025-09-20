@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -42,11 +42,9 @@
 #import "SmartMagnificationController.h"
 #import "UIKitSPI.h"
 #import "VisibleContentRectUpdateInfo.h"
-#import "WKBrowsingContextControllerInternal.h"
 #import "WKBrowsingContextGroupPrivate.h"
 #import "WKInspectorHighlightView.h"
 #import "WKPreferencesInternal.h"
-#import "WKProcessGroupPrivate.h"
 #import "WKUIDelegatePrivate.h"
 #import "WKVisibilityPropagationView.h"
 #import "WKWebViewConfiguration.h"
@@ -55,6 +53,7 @@
 #import "WebKit2Initialize.h"
 #import "WebPageGroup.h"
 #import "WebPageMessages.h"
+#import "WebPageProxy.h"
 #import "WebPageProxyMessages.h"
 #import "WebProcessPool.h"
 #import "_WKFrameHandleInternal.h"
@@ -70,12 +69,10 @@
 #import <WebCore/Quirks.h>
 #import <WebCore/Site.h>
 #import <WebCore/VelocityData.h>
-#import <objc/message.h>
 #import <pal/spi/cocoa/NSAccessibilitySPI.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <wtf/Condition.h>
 #import <wtf/RetainPtr.h>
-#import <wtf/RuntimeApplicationChecks.h>
 #import <wtf/UUID.h>
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #import <wtf/cocoa/SpanCocoa.h>
@@ -83,12 +80,17 @@
 #import <wtf/text/MakeString.h>
 #import <wtf/text/TextStream.h>
 #import <wtf/threads/BinarySemaphore.h>
-#import "AppKitSoftLink.h"
 
 #if USE(EXTENSIONKIT)
 #import <UIKit/UIInteraction.h>
 #import "ExtensionKitSPI.h"
 #endif
+
+#if ENABLE(MODEL_PROCESS)
+#import "ModelPresentationManagerProxy.h"
+#endif
+
+#import "AppKitSoftLink.h"
 
 @interface _WKPrintFormattingAttributes : NSObject
 @property (nonatomic, readonly) size_t pageCount;
@@ -204,10 +206,7 @@ typedef NS_ENUM(NSInteger, _WKPrintRenderingCallbackType) {
 @end
 
 @implementation WKContentView {
-    std::unique_ptr<WebKit::PageClientImpl> _pageClient;
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    RetainPtr<WKBrowsingContextController> _browsingContextController;
-ALLOW_DEPRECATED_DECLARATIONS_END
+    const std::unique_ptr<WebKit::PageClientImpl> _pageClient;
 
     RetainPtr<UIView> _rootContentView;
     RetainPtr<UIView> _fixedClippingView;
@@ -250,15 +249,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     _WKPrintRenderingCallbackType _printRenderingCallbackType;
 
     Vector<RetainPtr<NSURL>> _temporaryURLsToDeleteWhenDeallocated;
-}
-
-// Evernote expects to swizzle -keyCommands on WKContentView or they crash. Remove this hack
-// as soon as reasonably possible. See <rdar://problem/51759247>.
-static NSArray *keyCommandsPlaceholderHackForEvernote(id self, SEL _cmd)
-{
-    struct objc_super super = { self, class_getSuperclass(object_getClass(self)) };
-    using SuperKeyCommandsFunction = NSArray *(*)(struct objc_super*, SEL);
-    return reinterpret_cast<SuperKeyCommandsFunction>(&objc_msgSendSuper)(&super, @selector(keyCommands));
 }
 
 - (instancetype)_commonInitializationWithProcessPool:(WebKit::WebProcessPool&)processPool configuration:(Ref<API::PageConfiguration>&&)configuration
@@ -315,14 +305,20 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 #endif
 
 #if HAVE(SPATIAL_TRACKING_LABEL)
-    _spatialTrackingView = adoptNS([[UIView alloc] init]);
-    [_spatialTrackingView layer].separatedState = kCALayerSeparatedStateTracked;
-    _spatialTrackingLabel = makeString("WKContentView Label: "_s, createVersion4UUIDString());
-    [[_spatialTrackingView layer] setValue:(NSString *)_spatialTrackingLabel forKeyPath:@"separatedOptions.STSLabel"];
-    [_spatialTrackingView setAutoresizingMask:UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin];
-    [_spatialTrackingView setFrame:CGRectMake(CGRectGetMidX(self.bounds), CGRectGetMidY(self.bounds), 0, 0)];
-    [_spatialTrackingView setUserInteractionEnabled:NO];
-    [self addSubview:_spatialTrackingView.get()];
+#if HAVE(SPATIAL_AUDIO_EXPERIENCE)
+    if (!_page->preferences().preferSpatialAudioExperience()) {
+#endif
+        _spatialTrackingView = adoptNS([[UIView alloc] init]);
+        [_spatialTrackingView layer].separatedState = kCALayerSeparatedStateTracked;
+        _spatialTrackingLabel = makeString("WKContentView Label: "_s, createVersion4UUIDString());
+        [[_spatialTrackingView layer] setValue:_spatialTrackingLabel.createNSString().get() forKeyPath:@"separatedOptions.STSLabel"];
+        [_spatialTrackingView setAutoresizingMask:UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin];
+        [_spatialTrackingView setFrame:CGRectMake(CGRectGetMidX(self.bounds), CGRectGetMidY(self.bounds), 0, 0)];
+        [_spatialTrackingView setUserInteractionEnabled:NO];
+        [self addSubview:_spatialTrackingView.get()];
+#if HAVE(SPATIAL_AUDIO_EXPERIENCE)
+    }
+#endif
 #endif
 
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(_applicationWillResignActive:) name:UIApplicationWillResignActiveNotification object:[UIApplication sharedApplication]];
@@ -333,9 +329,6 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     // FIXME: <rdar://131638772> UIScreen.mainScreen is deprecated.
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(_screenCapturedDidChange:) name:UIScreenCapturedDidChangeNotification object:[UIScreen mainScreen]];
 ALLOW_DEPRECATED_DECLARATIONS_END
-
-    if (WTF::IOSApplication::isEvernote() && !linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::WKContentViewDoesNotOverrideKeyCommands))
-        class_addMethod(self.class, @selector(keyCommands), reinterpret_cast<IMP>(&keyCommandsPlaceholderHackForEvernote), method_getTypeEncoding(class_getInstanceMethod(self.class, @selector(keyCommands))));
 
     return self;
 }
@@ -379,7 +372,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     // Propagate the view's visibility state to the WebContent process so that it is marked as "Foreground Running" when necessary.
 #if HAVE(NON_HOSTING_VISIBILITY_PROPAGATION_VIEW)
     auto environmentIdentifier = _page->legacyMainFrameProcess().environmentIdentifier();
-    _visibilityPropagationViewForWebProcess = adoptNS([[_UINonHostingVisibilityPropagationView alloc] initWithFrame:CGRectZero pid:processID environmentIdentifier:environmentIdentifier]);
+    _visibilityPropagationViewForWebProcess = adoptNS([[_UINonHostingVisibilityPropagationView alloc] initWithFrame:CGRectZero pid:processID environmentIdentifier:environmentIdentifier.createNSString().get()]);
 #else
     _visibilityPropagationViewForWebProcess = adoptNS([[_UILayerHostView alloc] initWithFrame:CGRectZero pid:processID contextID:contextID]);
 #endif
@@ -491,7 +484,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     WebKit::InitializeWebKit2();
 
-    _pageClient = makeUniqueWithoutRefCountedCheck<WebKit::PageClientImpl>(self, webView);
+    lazyInitialize(_pageClient, makeUniqueWithoutRefCountedCheck<WebKit::PageClientImpl>(self, webView));
     _webView = webView;
 
     return [self _commonInitializationWithProcessPool:processPool configuration:WTFMove(configuration)];
@@ -584,23 +577,24 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     _cachedHasCustomTintColor = std::nullopt;
 
-    if (self.window) {
-        [self setUpInteraction];
-        _page->setScreenIsBeingCaptured([self screenIsBeingCaptured]);
-    }
-    else
+    if (!self.window) {
         [self cleanUpInteractionPreviewContainers];
-}
+        return;
+    }
 
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-- (WKBrowsingContextController *)browsingContextController
-{
-    if (!_browsingContextController)
-        _browsingContextController = adoptNS([[WKBrowsingContextController alloc] _initWithPageRef:toAPI(_page.get())]);
+    [self setUpInteraction];
+    _page->setScreenIsBeingCaptured([self screenIsBeingCaptured]);
 
-    return _browsingContextController.get();
+#if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
+    RunLoop::mainSingleton().dispatch([strongSelf = retainPtr(self)] {
+        if (![strongSelf window])
+            return;
+
+        // FIXME: This is only necessary to work around rdar://153991882.
+        [strongSelf->_webView _updateHiddenScrollPocketEdges];
+    });
+#endif // ENABLE(CONTENT_INSET_BACKGROUND_FILL)
 }
-ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (WKPageRef)_pageRef
 {
@@ -694,7 +688,7 @@ static WebCore::FloatBoxExtent floatBoxExtent(UIEdgeInsets insets)
     enclosedInScrollableAncestorView:(BOOL)enclosedInScrollableAncestorView
     sendEvenIfUnchanged:(BOOL)sendEvenIfUnchanged
 {
-    auto drawingArea = _page->drawingArea();
+    RefPtr drawingArea = _page->drawingArea();
     if (!drawingArea)
         return;
 
@@ -789,7 +783,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (UIInterfaceOrientation)interfaceOrientation
 {
-    return self.window.windowScene.interfaceOrientation;
+    return self.window.windowScene.effectiveGeometry.interfaceOrientation;
 }
 
 #if HAVE(SPATIAL_TRACKING_LABEL)
@@ -1095,6 +1089,14 @@ static void storeAccessibilityRemoteConnectionInformation(id element, pid_t pid,
 {
     return [_webView _targetContentZoomScaleForRect:targetRect currentScale:currentScale fitEntireRect:fitEntireRect minimumScale:minimumScale maximumScale:maximumScale];
 }
+
+#if ENABLE(MODEL_PROCESS)
+- (void)_setTransform3DForModelViews:(CGFloat)newScale
+{
+    if (RefPtr modelPresentationManager = _page->modelPresentationManagerProxy())
+        modelPresentationManager->pageScaleDidChange(newScale);
+}
+#endif
 
 - (void)_applicationWillResignActive:(NSNotification*)notification
 {

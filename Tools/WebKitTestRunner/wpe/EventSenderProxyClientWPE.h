@@ -26,8 +26,8 @@
 #pragma once
 
 #if ENABLE(WPE_PLATFORM)
-
 #include "EventSenderProxyClient.h"
+#include <wtf/Vector.h>
 
 namespace WTR {
 
@@ -39,12 +39,37 @@ public:
     ~EventSenderProxyClientWPE();
 
 private:
-    void mouseDown(unsigned, double, WKEventModifiers, double, double, unsigned&) override;
+    void mouseDown(unsigned, double, WKEventModifiers, double, double, int /*clickCount*/, unsigned&) override;
     void mouseUp(unsigned, double, WKEventModifiers, double, double, unsigned&) override;
     void mouseMoveTo(double, double, double, WKEventMouseButton, unsigned) override;
     void mouseScrollBy(int, int, double, double, double) override;
 
     void keyDown(WKStringRef, double, WKEventModifiers, unsigned) override;
+
+#if ENABLE(TOUCH_EVENTS)
+    void addTouchPoint(int, int, double) override;
+    void updateTouchPoint(int, int, int, double) override;
+    void releaseTouchPoint(int, double) override;
+    void cancelTouchPoint(int, double) override;
+    void clearTouchPoints() override;
+    void touchStart(double) override;
+    void touchMove(double) override;
+    void touchEnd(double) override;
+    void touchCancel(double) override;
+    void setTouchModifier(WKEventModifiers, bool);
+
+    struct TouchPoint {
+        enum class State { Down, Up, Move, Cancel, Stationary };
+
+        uint32_t id { 0 };
+        State state { State::Stationary };
+        int x { 0 };
+        int y { 0 };
+    };
+
+    Vector<TouchPoint> m_touchPoints;
+    unsigned m_touchModifiers { 0 };
+#endif // ENABLE(TOUCH_EVENTS)
 };
 
 } // namespace WTR

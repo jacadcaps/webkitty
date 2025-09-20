@@ -25,7 +25,7 @@
 
 #pragma once
 
-#if !PLATFORM(IOS_FAMILY)
+#if ENABLE(TILED_CA_DRAWING_AREA)
 
 #include "DrawingAreaProxy.h"
 #include <wtf/RefCounted.h>
@@ -46,6 +46,10 @@ public:
 private:
     TiledCoreAnimationDrawingAreaProxy(WebPageProxy&, WebProcessProxy&);
 
+#if ENABLE(TILED_CA_DRAWING_AREA)
+    DrawingAreaType type() const final { return DrawingAreaType::TiledCoreAnimation; }
+#endif
+
     // DrawingAreaProxy
     void deviceScaleFactorDidChange(CompletionHandler<void()>&&) override;
     void sizeDidChange() override;
@@ -57,8 +61,8 @@ private:
     void updateAcceleratedCompositingMode(uint64_t backingStoreStateID, const LayerTreeContext&) override;
     void didFirstLayerFlush(uint64_t /* backingStoreStateID */, const LayerTreeContext&) override;
 
-    void adjustTransientZoom(double scale, WebCore::FloatPoint origin) override;
-    void commitTransientZoom(double scale, WebCore::FloatPoint origin) override;
+    void adjustTransientZoom(double scale, WebCore::FloatPoint originInLayerForPageScale, WebCore::FloatPoint originInVisibleRect) override;
+    void commitTransientZoom(double scale, WebCore::FloatPoint originInLayerForPageScale) override;
 
     void waitForDidUpdateActivityState(ActivityStateChangeID) override;
     void dispatchPresentationCallbacksAfterFlushingLayers(IPC::Connection&, Vector<IPC::AsyncReplyID>&&) final;
@@ -92,4 +96,4 @@ private:
 
 SPECIALIZE_TYPE_TRAITS_DRAWING_AREA_PROXY(TiledCoreAnimationDrawingAreaProxy, DrawingAreaType::TiledCoreAnimation)
 
-#endif // !PLATFORM(IOS_FAMILY)
+#endif // ENABLE(TILED_CA_DRAWING_AREA)

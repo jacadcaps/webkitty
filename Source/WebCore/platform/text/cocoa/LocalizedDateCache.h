@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2011 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -42,7 +42,7 @@ public:
 class LocalizedDateCache {
 public:
     NSDateFormatter *formatterForDateType(DateComponentsType);
-    float maximumWidthForDateType(DateComponentsType, const FontCascade&, const MeasureTextClient&);
+    float estimatedMaximumWidthForDateType(DateComponentsType, const FontCascade&, const MeasureTextClient&);
     void localeChanged();
 
 private:
@@ -50,13 +50,13 @@ private:
     ~LocalizedDateCache();
 
     RetainPtr<NSDateFormatter> createFormatterForType(DateComponentsType);
-    float calculateMaximumWidth(DateComponentsType, const MeasureTextClient&);
+    float estimateMaximumWidth(DateComponentsType, const MeasureTextClient&);
 
     // Using int instead of DateComponentsType for the key because the enum
     // does not have a default hash and hash traits. Usage of the maps
     // casts the DateComponents::Type into an int as the key.
-    typedef UncheckedKeyHashMap<int, RetainPtr<NSDateFormatter>> DateTypeFormatterMap;
-    typedef UncheckedKeyHashMap<int, float> DateTypeMaxWidthMap;
+    using DateTypeFormatterMap = HashMap<int, RetainPtr<NSDateFormatter>>;
+    using DateTypeMaxWidthMap = HashMap<int, float>;
     DateTypeFormatterMap m_formatterMap;
     DateTypeMaxWidthMap m_maxWidthMap;
     FontCascade m_font;

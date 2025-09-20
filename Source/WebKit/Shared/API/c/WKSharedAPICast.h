@@ -68,7 +68,6 @@ class Data;
 class Point;
 class Rect;
 class SecurityOrigin;
-class SerializedScriptValue;
 class Size;
 class UserContentURLPattern;
 class WebArchive;
@@ -102,7 +101,6 @@ WK_ADD_API_MAPPING(WKImageRef, WebImage)
 WK_ADD_API_MAPPING(WKPointRef, API::Point)
 WK_ADD_API_MAPPING(WKRectRef, API::Rect)
 WK_ADD_API_MAPPING(WKSecurityOriginRef, API::SecurityOrigin)
-WK_ADD_API_MAPPING(WKSerializedScriptValueRef, API::SerializedScriptValue)
 WK_ADD_API_MAPPING(WKSizeRef, API::Size)
 WK_ADD_API_MAPPING(WKStringRef, API::String)
 WK_ADD_API_MAPPING(WKTypeRef, API::Object)
@@ -133,25 +131,34 @@ auto toAPI(T* t) -> APIType
 template<typename T, typename APIType = typename ImplTypeInfo<T>::APIType>
 auto toAPILeakingRef(RefPtr<T>&& t) -> APIType
 {
-    return reinterpret_cast<APIType>(API::Object::wrap(t.leakRef()));
+    SUPPRESS_UNCOUNTED_ARG return reinterpret_cast<APIType>(API::Object::wrap(t.leakRef()));
 }
 
 template<typename T, typename APIType = typename ImplTypeInfo<T>::APIType>
 auto toAPI(T& t) -> APIType
 {
-    return reinterpret_cast<APIType>(API::Object::wrap(&t));
+    SUPPRESS_UNCOUNTED_ARG return reinterpret_cast<APIType>(API::Object::wrap(&t));
 }
 
 template<typename T, typename APIType = typename ImplTypeInfo<T>::APIType>
 auto toAPILeakingRef(Ref<T>&& t) -> APIType
 {
-    return reinterpret_cast<APIType>(API::Object::wrap(&t.leakRef()));
+    SUPPRESS_UNCOUNTED_ARG return reinterpret_cast<APIType>(API::Object::wrap(&t.leakRef()));
 }
 
 template<typename T, typename ImplType = typename APITypeInfo<T>::ImplType>
 auto toImpl(T t) -> ImplType*
 {
-    return static_cast<ImplType*>(API::Object::unwrap(static_cast<void*>(const_cast<typename std::remove_const<typename std::remove_pointer<T>::type>::type*>(t))));
+    if constexpr (std::is_same_v<ImplType, API::Object>)
+        return API::Object::unwrap(static_cast<void*>(const_cast<typename std::remove_const<typename std::remove_pointer<T>::type>::type*>(t)));
+    else
+        return downcast<ImplType>(API::Object::unwrap(static_cast<void*>(const_cast<typename std::remove_const<typename std::remove_pointer<T>::type>::type*>(t))));
+}
+
+template<typename T, typename ImplType = typename APITypeInfo<T>::ImplType>
+auto toProtectedImpl(T t) -> RefPtr<ImplType>
+{
+    return toImpl<T>(t);
 }
 
 template<typename ImplType, typename APIType = typename ImplTypeInfo<ImplType>::APIType>
@@ -182,7 +189,7 @@ inline ProxyingRefPtr<API::String> toAPI(StringImpl* string)
 
 inline WKStringRef toCopiedAPI(const String& string)
 {
-    return toAPI(&API::String::create(string).leakRef());
+    return toAPILeakingRef(API::String::create(string));
 }
 
 inline ProxyingRefPtr<API::URL> toURLRef(StringImpl* string)
@@ -196,7 +203,7 @@ inline WKURLRef toCopiedURLAPI(const String& string)
 {
     if (!string)
         return nullptr;
-    return toAPI(&API::URL::create(string).leakRef());
+    return toAPILeakingRef(API::URL::create(string));
 }
 
 inline WKURLRef toCopiedURLAPI(const URL& url)
@@ -208,14 +215,14 @@ inline String toWTFString(WKStringRef stringRef)
 {
     if (!stringRef)
         return String();
-    return toImpl(stringRef)->string();
+    return toProtectedImpl(stringRef)->string();
 }
 
 inline String toWTFString(WKURLRef urlRef)
 {
     if (!urlRef)
         return String();
-    return toImpl(urlRef)->string();
+    return toProtectedImpl(urlRef)->string();
 }
 
 inline ProxyingRefPtr<API::Error> toAPI(const WebCore::ResourceError& error)
@@ -237,7 +244,7 @@ inline WKSecurityOriginRef toCopiedAPI(WebCore::SecurityOrigin* origin)
 {
     if (!origin)
         return nullptr;
-    return toAPI(&API::SecurityOrigin::create(*origin).leakRef());
+    return toAPILeakingRef(API::SecurityOrigin::create(*origin));
 }
 
 /* Geometry conversions */
@@ -594,6 +601,12 @@ inline WKContextMenuItemTag toAPI(WebCore::ContextMenuAction action)
         return kWKContextMenuItemTagTranslate;
     case WebCore::ContextMenuItemTagWritingTools:
         return kWKContextMenuItemTagWritingTools;
+    case WebCore::ContextMenuItemTagProofread:
+        return kWKContextMenuItemTagProofread;
+    case WebCore::ContextMenuItemTagRewrite:
+        return kWKContextMenuItemTagRewrite;
+    case WebCore::ContextMenuItemTagSummarize:
+        return kWKContextMenuItemTagSummarize;
     case WebCore::ContextMenuItemTagCopySubject:
         return kWKContextMenuItemTagCopyCroppedImage;
     default:
@@ -814,6 +827,12 @@ inline WebCore::ContextMenuAction toImpl(WKContextMenuItemTag tag)
         return WebCore::ContextMenuItemTagTranslate;
     case kWKContextMenuItemTagWritingTools:
         return WebCore::ContextMenuItemTagWritingTools;
+    case kWKContextMenuItemTagProofread:
+        return WebCore::ContextMenuItemTagProofread;
+    case kWKContextMenuItemTagRewrite:
+        return WebCore::ContextMenuItemTagRewrite;
+    case kWKContextMenuItemTagSummarize:
+        return WebCore::ContextMenuItemTagSummarize;
     case kWKContextMenuItemTagCopyCroppedImage:
         return WebCore::ContextMenuItemTagCopySubject;
     case kWKContextMenuItemTagOpenLinkInThisWindow:

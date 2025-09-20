@@ -27,6 +27,7 @@
 
 #include "Test.h"
 #include <limits>
+#include <numbers>
 #include <sstream>
 #include <wtf/MathExtras.h>
 #include <wtf/text/CString.h>
@@ -100,8 +101,8 @@ TEST(WTF, StringNumberFixedPrecision)
     EXPECT_STREQ("-1.79769e+308", testStringNumberFixedPrecision(Limits::lowest()));
     EXPECT_STREQ("1.79769e+308", testStringNumberFixedPrecision(Limits::max()));
 
-    EXPECT_STREQ("3.14159", testStringNumberFixedPrecision(piDouble));
-    EXPECT_STREQ("3.14159", testStringNumberFixedPrecision(piFloat));
+    EXPECT_STREQ("3.14159", testStringNumberFixedPrecision(std::numbers::pi));
+    EXPECT_STREQ("3.14159", testStringNumberFixedPrecision(std::numbers::pi_v<float>));
     EXPECT_STREQ("1.5708", testStringNumberFixedPrecision(piOverTwoDouble));
     EXPECT_STREQ("1.5708", testStringNumberFixedPrecision(piOverTwoFloat));
     EXPECT_STREQ("0.785398", testStringNumberFixedPrecision(piOverFourDouble));
@@ -149,8 +150,8 @@ TEST(WTF, StringNumberFixedWidth)
     EXPECT_STREQ("", testStringNumberFixedWidth(Limits::lowest()));
     EXPECT_STREQ("", testStringNumberFixedWidth(Limits::max()));
 
-    EXPECT_STREQ("3.141593", testStringNumberFixedWidth(piDouble));
-    EXPECT_STREQ("3.141593", testStringNumberFixedWidth(piFloat));
+    EXPECT_STREQ("3.141593", testStringNumberFixedWidth(std::numbers::pi));
+    EXPECT_STREQ("3.141593", testStringNumberFixedWidth(std::numbers::pi_v<float>));
     EXPECT_STREQ("1.570796", testStringNumberFixedWidth(piOverTwoDouble));
     EXPECT_STREQ("1.570796", testStringNumberFixedWidth(piOverTwoFloat));
     EXPECT_STREQ("0.785398", testStringNumberFixedWidth(piOverFourDouble));
@@ -196,8 +197,8 @@ TEST(WTF, StringNumber)
     EXPECT_STREQ("-1.7976931348623157e+308", testStringNumber(Limits::lowest()));
     EXPECT_STREQ("1.7976931348623157e+308", testStringNumber(Limits::max()));
 
-    EXPECT_STREQ("3.141592653589793", testStringNumber(piDouble));
-    EXPECT_STREQ("3.1415927410125732", testStringNumber(piFloat));
+    EXPECT_STREQ("3.141592653589793", testStringNumber(std::numbers::pi));
+    EXPECT_STREQ("3.1415927410125732", testStringNumber(std::numbers::pi_v<float>));
     EXPECT_STREQ("1.5707963267948966", testStringNumber(piOverTwoDouble));
     EXPECT_STREQ("1.5707963705062866", testStringNumber(piOverTwoFloat));
     EXPECT_STREQ("0.7853981633974483", testStringNumber(piOverFourDouble));
@@ -261,12 +262,12 @@ TEST(WTF, StringReplaceWithLiteral)
     // Cases for 16Bit source.
     testString = String::fromUTF8("résumé");
     EXPECT_FALSE(testString.is8Bit());
-    testString = makeStringByReplacingAll(testString, UChar(0x00E9 /*U+00E9 is 'é'*/), "e"_s);
+    testString = makeStringByReplacingAll(testString, char16_t(0x00E9 /*U+00E9 is 'é'*/), "e"_s);
     EXPECT_STREQ("resume", testString.utf8().data());
 
     testString = String::fromUTF8("résumé");
     EXPECT_FALSE(testString.is8Bit());
-    testString = makeStringByReplacingAll(testString, UChar(0x00E9 /*U+00E9 is 'é'*/), ""_s);
+    testString = makeStringByReplacingAll(testString, char16_t(0x00E9 /*U+00E9 is 'é'*/), ""_s);
     EXPECT_STREQ("rsum", testString.utf8().data());
 
     testString = String::fromUTF8("résumé");
@@ -367,10 +368,10 @@ TEST(WTF, StringUnicodeEqualUCharArray)
     String string1("abc"_s);
     EXPECT_FALSE(string1.isNull());
     EXPECT_TRUE(string1.is8Bit());
-    UChar ab[] = { 'a', 'b' };
-    UChar abc[] = { 'a', 'b', 'c' };
-    UChar abcd[] = { 'a', 'b', 'c', 'd' };
-    UChar aBc[] = { 'a', 'B', 'c' };
+    char16_t ab[] = { 'a', 'b' };
+    char16_t abc[] = { 'a', 'b', 'c' };
+    char16_t abcd[] = { 'a', 'b', 'c', 'd' };
+    char16_t aBc[] = { 'a', 'B', 'c' };
     EXPECT_FALSE(equal(string1, ab));
     EXPECT_TRUE(equal(string1, abc));
     EXPECT_FALSE(equal(string1, abcd));

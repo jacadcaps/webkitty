@@ -89,10 +89,14 @@ static void testWebKitSettings(Test*, gconstpointer)
     webkit_settings_set_javascript_can_open_windows_automatically(settings, TRUE);
     g_assert_true(webkit_settings_get_javascript_can_open_windows_automatically(settings));
 
-    // By default hyper link auditing is enabled.
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    // Hyperlink auditing is deprecated and always enabled.
+    Test::removeLogFatalFlag(G_LOG_LEVEL_WARNING);
     g_assert_true(webkit_settings_get_enable_hyperlink_auditing(settings));
     webkit_settings_set_enable_hyperlink_auditing(settings, FALSE);
-    g_assert_false(webkit_settings_get_enable_hyperlink_auditing(settings));
+    g_assert_true(webkit_settings_get_enable_hyperlink_auditing(settings));
+    Test::addLogFatalFlag(G_LOG_LEVEL_WARNING);
+    ALLOW_DEPRECATED_DECLARATIONS_END
 
     // Default font family is "sans-serif".
     g_assert_cmpstr(webkit_settings_get_default_font_family(settings), ==, "sans-serif");
@@ -206,6 +210,16 @@ static void testWebKitSettings(Test*, gconstpointer)
     webkit_settings_set_enable_tabs_to_links(settings, FALSE);
     g_assert_false(webkit_settings_get_enable_tabs_to_links(settings));
 
+    // DNS prefetching is deprecated and always false.
+    // Make warnings non-fatal for this test to make it pass.
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    Test::removeLogFatalFlag(G_LOG_LEVEL_WARNING);
+    g_assert_false(webkit_settings_get_enable_dns_prefetching(settings));
+    webkit_settings_set_enable_dns_prefetching(settings, TRUE);
+    g_assert_false(webkit_settings_get_enable_dns_prefetching(settings));
+    Test::addLogFatalFlag(G_LOG_LEVEL_WARNING);
+    ALLOW_DEPRECATED_DECLARATIONS_END
+
     // Caret browsing is disabled by default.
     g_assert_false(webkit_settings_get_enable_caret_browsing(settings));
     webkit_settings_set_enable_caret_browsing(settings, TRUE);
@@ -312,10 +326,10 @@ static void testWebKitSettings(Test*, gconstpointer)
     webkit_settings_set_enable_encrypted_media(settings, TRUE);
     g_assert_true(webkit_settings_get_enable_encrypted_media(settings));
 
-    // MediaCapabilities is disabled by default
-    g_assert_false(webkit_settings_get_enable_media_capabilities(settings));
-    webkit_settings_set_enable_media_capabilities(settings, TRUE);
+    // MediaCapabilities is enabled by default
     g_assert_true(webkit_settings_get_enable_media_capabilities(settings));
+    webkit_settings_set_enable_media_capabilities(settings, FALSE);
+    g_assert_false(webkit_settings_get_enable_media_capabilities(settings));
 
     // File access from file URLs is not allowed by default.
     g_assert_false(webkit_settings_get_allow_file_access_from_file_urls(settings));
@@ -578,7 +592,7 @@ static void testWebKitSettingsUserAgent(WebViewTest* test, gconstpointer)
 {
     GRefPtr<WebKitSettings> settings = adoptGRef(webkit_settings_new());
     CString defaultUserAgent = webkit_settings_get_user_agent(settings.get());
-    webkit_web_view_set_settings(test->m_webView, settings.get());
+    webkit_web_view_set_settings(test->webView(), settings.get());
 
     g_assert_nonnull(g_strstr_len(defaultUserAgent.data(), -1, "AppleWebKit"));
     g_assert_nonnull(g_strstr_len(defaultUserAgent.data(), -1, "Safari"));
@@ -615,7 +629,7 @@ static void testWebKitSettingsUserAgent(WebViewTest* test, gconstpointer)
 
 static void testWebKitSettingsJavaScriptMarkup(WebViewTest* test, gconstpointer)
 {
-    webkit_settings_set_enable_javascript_markup(webkit_web_view_get_settings(test->m_webView), FALSE);
+    webkit_settings_set_enable_javascript_markup(webkit_web_view_get_settings(test->webView()), FALSE);
     static const char* html =
         "<html>"
         " <head>"
@@ -630,12 +644,12 @@ static void testWebKitSettingsJavaScriptMarkup(WebViewTest* test, gconstpointer)
     test->loadHtml(html, nullptr);
     test->waitUntilTitleChanged();
 
-    g_assert_cmpstr(webkit_web_view_get_title(test->m_webView), ==, "No JavaScript allowed");
+    g_assert_cmpstr(webkit_web_view_get_title(test->webView()), ==, "No JavaScript allowed");
     auto* jsResult = test->runJavaScriptAndWaitUntilFinished("document.getElementsByTagName('script').length", nullptr);
     g_assert(jsResult);
     g_assert_cmpfloat(WebViewTest::javascriptResultToNumber(jsResult), ==, 0);
 
-    webkit_settings_set_enable_javascript_markup(webkit_web_view_get_settings(test->m_webView), TRUE);
+    webkit_settings_set_enable_javascript_markup(webkit_web_view_get_settings(test->webView()), TRUE);
 }
 
 #if USE(SOUP2)

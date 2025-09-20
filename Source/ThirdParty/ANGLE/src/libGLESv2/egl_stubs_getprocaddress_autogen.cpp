@@ -150,7 +150,6 @@ const ProcEntry g_procTable[] = {
     {"eglSurfaceAttrib", P(EGL_SurfaceAttrib)},
     {"eglSwapBuffers", P(EGL_SwapBuffers)},
     {"eglSwapBuffersWithDamageKHR", P(EGL_SwapBuffersWithDamageKHR)},
-    {"eglSwapBuffersWithFrameTokenANGLE", P(EGL_SwapBuffersWithFrameTokenANGLE)},
     {"eglSwapInterval", P(EGL_SwapInterval)},
     {"eglTerminate", P(EGL_Terminate)},
     {"eglUnlockSurfaceKHR", P(EGL_UnlockSurfaceKHR)},
@@ -362,7 +361,6 @@ const ProcEntry g_procTable[] = {
     {"glEGLImageTargetRenderbufferStorageOES", P(GL_EGLImageTargetRenderbufferStorageOES)},
     {"glEGLImageTargetTexStorageEXT", P(GL_EGLImageTargetTexStorageEXT)},
     {"glEGLImageTargetTexture2DOES", P(GL_EGLImageTargetTexture2DOES)},
-    {"glEGLImageTargetTextureStorageEXT", P(GL_EGLImageTargetTextureStorageEXT)},
     {"glEnable", P(GL_Enable)},
     {"glEnableClientState", P(GL_EnableClientState)},
     {"glEnableVertexAttribArray", P(GL_EnableVertexAttribArray)},
@@ -399,6 +397,7 @@ const ProcEntry g_procTable[] = {
     {"glFramebufferRenderbuffer", P(GL_FramebufferRenderbuffer)},
     {"glFramebufferRenderbufferOES", P(GL_FramebufferRenderbufferOES)},
     {"glFramebufferResolveRenderbufferWEBKIT", P(GL_FramebufferResolveRenderbufferWEBKIT)},
+    {"glFramebufferShadingRateEXT", P(GL_FramebufferShadingRateEXT)},
     {"glFramebufferTexture", P(GL_FramebufferTexture)},
     {"glFramebufferTexture2D", P(GL_FramebufferTexture2D)},
     {"glFramebufferTexture2DMultisampleEXT", P(GL_FramebufferTexture2DMultisampleEXT)},
@@ -462,6 +461,7 @@ const ProcEntry g_procTable[] = {
     {"glGetFloatvRobustANGLE", P(GL_GetFloatvRobustANGLE)},
     {"glGetFragDataIndexEXT", P(GL_GetFragDataIndexEXT)},
     {"glGetFragDataLocation", P(GL_GetFragDataLocation)},
+    {"glGetFragmentShadingRatesEXT", P(GL_GetFragmentShadingRatesEXT)},
     {"glGetFramebufferAttachmentParameteriv", P(GL_GetFramebufferAttachmentParameteriv)},
     {"glGetFramebufferAttachmentParameterivOES", P(GL_GetFramebufferAttachmentParameterivOES)},
     {"glGetFramebufferAttachmentParameterivRobustANGLE", P(GL_GetFramebufferAttachmentParameterivRobustANGLE)},
@@ -692,17 +692,18 @@ const ProcEntry g_procTable[] = {
     {"glMultMatrixf", P(GL_MultMatrixf)},
     {"glMultMatrixx", P(GL_MultMatrixx)},
     {"glMultiDrawArraysANGLE", P(GL_MultiDrawArraysANGLE)},
+    {"glMultiDrawArraysEXT", P(GL_MultiDrawArraysEXT)},
     {"glMultiDrawArraysIndirectEXT", P(GL_MultiDrawArraysIndirectEXT)},
     {"glMultiDrawArraysInstancedANGLE", P(GL_MultiDrawArraysInstancedANGLE)},
     {"glMultiDrawArraysInstancedBaseInstanceANGLE", P(GL_MultiDrawArraysInstancedBaseInstanceANGLE)},
     {"glMultiDrawElementsANGLE", P(GL_MultiDrawElementsANGLE)},
     {"glMultiDrawElementsBaseVertexEXT", P(GL_MultiDrawElementsBaseVertexEXT)},
+    {"glMultiDrawElementsEXT", P(GL_MultiDrawElementsEXT)},
     {"glMultiDrawElementsIndirectEXT", P(GL_MultiDrawElementsIndirectEXT)},
     {"glMultiDrawElementsInstancedANGLE", P(GL_MultiDrawElementsInstancedANGLE)},
     {"glMultiDrawElementsInstancedBaseVertexBaseInstanceANGLE", P(GL_MultiDrawElementsInstancedBaseVertexBaseInstanceANGLE)},
     {"glMultiTexCoord4f", P(GL_MultiTexCoord4f)},
     {"glMultiTexCoord4x", P(GL_MultiTexCoord4x)},
-    {"glNamedBufferStorageExternalEXT", P(GL_NamedBufferStorageExternalEXT)},
     {"glNormal3f", P(GL_Normal3f)},
     {"glNormal3x", P(GL_Normal3x)},
     {"glNormalPointer", P(GL_NormalPointer)},
@@ -859,6 +860,8 @@ const ProcEntry g_procTable[] = {
     {"glShadeModel", P(GL_ShadeModel)},
     {"glShaderBinary", P(GL_ShaderBinary)},
     {"glShaderSource", P(GL_ShaderSource)},
+    {"glShadingRateCombinerOpsEXT", P(GL_ShadingRateCombinerOpsEXT)},
+    {"glShadingRateEXT", P(GL_ShadingRateEXT)},
     {"glShadingRateQCOM", P(GL_ShadingRateQCOM)},
     {"glSignalSemaphoreEXT", P(GL_SignalSemaphoreEXT)},
     {"glStartTilingQCOM", P(GL_StartTilingQCOM)},
@@ -910,7 +913,6 @@ const ProcEntry g_procTable[] = {
     {"glTexParameterivRobustANGLE", P(GL_TexParameterivRobustANGLE)},
     {"glTexParameterx", P(GL_TexParameterx)},
     {"glTexParameterxv", P(GL_TexParameterxv)},
-    {"glTexStorage1DEXT", P(GL_TexStorage1DEXT)},
     {"glTexStorage2D", P(GL_TexStorage2D)},
     {"glTexStorage2DEXT", P(GL_TexStorage2DEXT)},
     {"glTexStorage2DMultisample", P(GL_TexStorage2DMultisample)},
@@ -1012,6 +1014,11 @@ const ProcEntry g_procTable[] = {
 
 __eglMustCastToProperFunctionPointerType GetProcAddress(Thread *thread, const char *procname)
 {
+    if (procname == nullptr)
+    {
+        return nullptr;
+    }
+
     const ProcEntry *entry =
         std::lower_bound(std::begin(g_procTable), std::end(g_procTable), procname, CompareProc);
 

@@ -28,6 +28,7 @@
 #if ENABLE(WK_WEB_EXTENSIONS)
 
 #import "HTTPServer.h"
+#import "TestUIDelegate.h"
 #import "WebExtensionUtilities.h"
 
 namespace TestWebKitAPI {
@@ -956,7 +957,12 @@ TEST(WKWebExtensionAPIRuntime, SendMessageWithNaNValue)
     [manager run];
 }
 
+// FIXME rdar://147858640
+#if PLATFORM(IOS) && !defined(NDEBUG)
+TEST(WKWebExtensionAPIRuntime, DISABLED_ConnectFromContentScript)
+#else
 TEST(WKWebExtensionAPIRuntime, ConnectFromContentScript)
+#endif
 {
     TestWebKitAPI::HTTPServer server({
         { "/"_s, { { { "Content-Type"_s, "text/html"_s } }, ""_s } },
@@ -1008,7 +1014,12 @@ TEST(WKWebExtensionAPIRuntime, ConnectFromContentScript)
     [manager run];
 }
 
+// rdar://145509206 https://bugs.webkit.org/show_bug.cgi?id=288410
+#if PLATFORM(IOS) && !defined(NDEBUG)
+TEST(WKWebExtensionAPIRuntime, DISABLED_ConnectFromContentScriptWithImmediateMessage)
+#else
 TEST(WKWebExtensionAPIRuntime, ConnectFromContentScriptWithImmediateMessage)
+#endif
 {
     TestWebKitAPI::HTTPServer server({
         { "/"_s, { { { "Content-Type"_s, "text/html"_s } }, ""_s } },
@@ -1130,7 +1141,12 @@ TEST(WKWebExtensionAPIRuntime, ConnectFromSubframe)
     [manager run];
 }
 
+// FIXME rdar://147858640
+#if PLATFORM(IOS) && !defined(NDEBUG)
+TEST(WKWebExtensionAPIRuntime, DISABLED_ConnectFromContentScriptWithMultipleListeners)
+#else
 TEST(WKWebExtensionAPIRuntime, ConnectFromContentScriptWithMultipleListeners)
+#endif
 {
     TestWebKitAPI::HTTPServer server({
         { "/"_s, { { { "Content-Type"_s, "text/html"_s } }, ""_s } },
@@ -1202,7 +1218,12 @@ TEST(WKWebExtensionAPIRuntime, ConnectFromContentScriptWithMultipleListeners)
     [manager run];
 }
 
+// FIXME rdar://147858640
+#if PLATFORM(IOS) && !defined(NDEBUG)
+TEST(WKWebExtensionAPIRuntime, DISABLED_PortDisconnectFromContentScript)
+#else
 TEST(WKWebExtensionAPIRuntime, PortDisconnectFromContentScript)
+#endif
 {
     TestWebKitAPI::HTTPServer server({
         { "/"_s, { { { "Content-Type"_s, "text/html"_s } }, ""_s } },
@@ -1250,7 +1271,12 @@ TEST(WKWebExtensionAPIRuntime, PortDisconnectFromContentScript)
     [manager run];
 }
 
+// FIXME rdar://147858640
+#if PLATFORM(IOS) && !defined(NDEBUG)
+TEST(WKWebExtensionAPIRuntime, DISABLED_PortDisconnectFromContentScriptWithMultipleListeners)
+#else
 TEST(WKWebExtensionAPIRuntime, PortDisconnectFromContentScriptWithMultipleListeners)
+#endif
 {
     TestWebKitAPI::HTTPServer server({
         { "/"_s, { { { "Content-Type"_s, "text/html"_s } }, ""_s } },

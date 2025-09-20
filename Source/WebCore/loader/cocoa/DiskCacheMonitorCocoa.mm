@@ -44,11 +44,11 @@ static const double diskCacheMonitorTimeout = 20;
 
 RefPtr<SharedBuffer> DiskCacheMonitor::tryGetFileBackedSharedBufferFromCFURLCachedResponse(CFCachedURLResponseRef cachedResponse)
 {
-    auto data = _CFCachedURLResponseGetMemMappedData(cachedResponse);
+    RetainPtr data = _CFCachedURLResponseGetMemMappedData(cachedResponse);
     if (!data)
         return nullptr;
 
-    return SharedBuffer::create(data);
+    return SharedBuffer::create(data.get());
 }
 
 void DiskCacheMonitor::monitorFileBackingStoreCreation(const ResourceRequest& request, PAL::SessionID sessionID, CFCachedURLResponseRef cachedResponse)

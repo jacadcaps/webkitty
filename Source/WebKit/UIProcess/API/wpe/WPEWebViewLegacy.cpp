@@ -239,7 +239,7 @@ ViewLegacy::ViewLegacy(struct wpe_view_backend* backend, const API::PageConfigur
                     });
             }
 
-            page.handleTouchEvent(touchEvent);
+            page.handleTouchEvent(nullptr, touchEvent);
 #endif
         },
         // padding
@@ -296,6 +296,11 @@ ViewLegacy::~ViewLegacy()
     // unregister it prior to 1.14.2 (see https://github.com/WebPlatformForEmbedded/libwpe/pull/129).
 #if ENABLE(FULLSCREEN_API) && WPE_CHECK_VERSION(1, 14, 2)
     wpe_view_backend_set_fullscreen_client(m_backend, nullptr, nullptr);
+#endif
+
+#if USE(ATK)
+    if (m_accessible)
+        webkitWebViewAccessibleSetWebView(m_accessible.get(), nullptr);
 #endif
 
     viewsVector().removeAll(this);
@@ -405,5 +410,14 @@ void ViewLegacy::callAfterNextPresentationUpdate(CompletionHandler<void()>&& cal
 
     downcast<DrawingAreaProxyCoordinatedGraphics>(*m_pageProxy->drawingArea()).dispatchAfterEnsuringDrawing(WTFMove(callback));
 }
+
+#if USE(ATK)
+WebKitWebViewAccessible* ViewLegacy::accessible() const
+{
+    if (!m_accessible)
+        m_accessible = webkitWebViewAccessibleNew(const_cast<ViewLegacy*>(this));
+    return m_accessible.get();
+}
+#endif
 
 } // namespace WKWPE

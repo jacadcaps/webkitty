@@ -50,6 +50,7 @@ public:
     bool useServiceWorkerShortTimeout() const { return boolWebPreferenceFeatureValue("ShouldUseServiceWorkerShortTimeout", false); }
     bool accessibilityIsolatedTreeMode() const { return boolWebPreferenceFeatureValue("IsAccessibilityIsolatedTreeEnabled", false); }
     bool siteIsolationEnabled() const { return boolWebPreferenceFeatureValue("SiteIsolationEnabled", false); }
+    bool lockdownModeEnabled() const { return boolWebPreferenceFeatureValue("LockdownModeEnabled", false); }
 
     bool allowsLinkPreview() const { return boolTestRunnerFeatureValue("allowsLinkPreview"); }
     bool appHighlightsEnabled() const { return boolTestRunnerFeatureValue("appHighlightsEnabled"); }
@@ -89,8 +90,10 @@ public:
     bool shouldIgnoreWebProcessTermination() const { return boolTestRunnerFeatureValue("ignoreWebProcessTermination"); }
     bool enableMetalDebugDevice() const { return boolTestRunnerFeatureValue("enableMetalDebugDevice"); }
     bool enableMetalShaderValidation() const { return boolTestRunnerFeatureValue("enableMetalShaderValidation"); }
+    bool pageTopColorSamplingEnabled() const { return boolTestRunnerFeatureValue("pageTopColorSamplingEnabled"); }
     double contentInsetTop() const { return doubleTestRunnerFeatureValue("contentInset.top"); }
     double obscuredInsetTop() const { return doubleTestRunnerFeatureValue("obscuredInset.top"); }
+    double obscuredInsetLeft() const { return doubleTestRunnerFeatureValue("obscuredInset.left"); }
     double horizontalSystemMinimumLayoutMargin() const { return doubleTestRunnerFeatureValue("horizontalSystemMinimumLayoutMargin"); }
     double deviceScaleFactor() const { return doubleTestRunnerFeatureValue("deviceScaleFactor"); }
     double viewHeight() const { return doubleTestRunnerFeatureValue("viewHeight"); }

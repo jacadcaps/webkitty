@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005, 2006, 2007 Apple Inc. All rights reserved.
+ * Copyright (C) 2005-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -45,10 +45,10 @@
 #import <JavaScriptCore/RegularExpression.h>
 #import <WebCore/Document.h>
 #import <WebCore/DocumentLoader.h>
+#import <WebCore/EditingHTMLConverter.h>
 #import <WebCore/Editor.h>
 #import <WebCore/ElementInlines.h>
 #import <WebCore/FrameLoader.h>
-#import <WebCore/HTMLConverter.h>
 #import <WebCore/HTMLFormControlElement.h>
 #import <WebCore/HTMLFormElement.h>
 #import <WebCore/HTMLInputElement.h>
@@ -57,9 +57,11 @@
 #import <WebCore/LocalFrame.h>
 #import <WebCore/LocalFrameLoaderClient.h>
 #import <WebCore/MIMETypeRegistry.h>
+#import <WebCore/NodeHTMLConverter.h>
 #import <WebCore/NodeTraversal.h>
 #import <WebCore/Range.h>
 #import <WebCore/RenderElement.h>
+#import <WebCore/RenderText.h>
 #import <WebCore/ScriptDisallowedScope.h>
 #import <WebCore/TextResourceDecoder.h>
 #import <WebKitLegacy/DOMHTMLInputElement.h>
@@ -241,7 +243,7 @@ using JSC::Yarr::RegularExpression;
     NSData *data = [_private->dataSource data];
     if (!data)
         return nil;
-    return decoder->encoding().decode(span(data));
+    return decoder->encoding().decode(span(data)).createNSString().autorelease();
 }
 
 - (NSString *)title
@@ -388,7 +390,7 @@ static RegularExpression* regExpForLabels(NSArray *labels)
         if (cacheHit != NSNotFound) {
             // remove from old spot
             [regExpLabels.get() removeObjectAtIndex:cacheHit];
-            regExps.get().remove(cacheHit);
+            regExps.get().removeAt(cacheHit);
         }
         // add to start
         [regExpLabels.get() insertObject:labels atIndex:0];
@@ -405,7 +407,7 @@ static RegularExpression* regExpForLabels(NSArray *labels)
 }
 
 // FIXME: This should take an Element&.
-static NSString* searchForLabelsBeforeElement(LocalFrame* frame, NSArray* labels, Element* element, size_t* resultDistance, bool* resultIsInCellAbove)
+static RetainPtr<NSString> searchForLabelsBeforeElement(LocalFrame* frame, NSArray* labels, Element* element, size_t* resultDistance, bool* resultIsInCellAbove)
 {
     ASSERT(element);
     RegularExpression* regExp = regExpForLabels(labels);
@@ -432,16 +434,16 @@ static NSString* searchForLabelsBeforeElement(LocalFrame* frame, NSArray* labels
             break;
         }
         if (n->hasTagName(tdTag) && !startingTableCell) {
-            startingTableCell = static_cast<HTMLTableCellElement*>(n);
+            startingTableCell = downcast<HTMLTableCellElement>(n);
         } else if (n->hasTagName(trTag) && startingTableCell) {
-            NSString *result = frame->searchForLabelsAboveCell(*regExp, startingTableCell, resultDistance);
+            RetainPtr result = frame->searchForLabelsAboveCell(*regExp, startingTableCell, resultDistance).createNSString();
             if ([result length]) {
                 if (resultIsInCellAbove)
                     *resultIsInCellAbove = true;
                 return result;
             }
             searchedCellAbove = true;
-        } else if (n->isTextNode() && n->renderer() && n->renderer()->style().usedVisibility() == Visibility::Visible) {
+        } else if (auto* renderText = dynamicDowncast<RenderText>(n->renderer()); renderText && renderText->style().usedVisibility() == Visibility::Visible) {
             // For each text chunk, run the regexp
             String nodeString = n->nodeValue();
             // add 100 for slop, to make it more likely that we'll search whole nodes
@@ -451,7 +453,7 @@ static NSString* searchForLabelsBeforeElement(LocalFrame* frame, NSArray* labels
             if (pos >= 0) {
                 if (resultDistance)
                     *resultDistance = lengthSearched;
-                return nodeString.substring(pos, regExp->matchedLength());
+                return nodeString.substring(pos, regExp->matchedLength()).createNSString();
             }
             lengthSearched += nodeString.length();
         }
@@ -460,7 +462,7 @@ static NSString* searchForLabelsBeforeElement(LocalFrame* frame, NSArray* labels
     // If we started in a cell, but bailed because we found the start of the form or the
     // previous element, we still might need to search the row above us for a label.
     if (startingTableCell && !searchedCellAbove) {
-        NSString *result = frame->searchForLabelsAboveCell(*regExp, startingTableCell, resultDistance);
+        RetainPtr result = frame->searchForLabelsAboveCell(*regExp, startingTableCell, resultDistance).createNSString();
         if ([result length]) {
             if (resultIsInCellAbove)
                 *resultIsInCellAbove = true;
@@ -471,7 +473,7 @@ static NSString* searchForLabelsBeforeElement(LocalFrame* frame, NSArray* labels
     return nil;
 }
 
-static NSString *matchLabelsAgainstString(NSArray *labels, const String& stringToMatch)
+static RetainPtr<NSString> matchLabelsAgainstString(NSArray *labels, const String& stringToMatch)
 {
     if (stringToMatch.isEmpty())
         return nil;
@@ -502,19 +504,19 @@ static NSString *matchLabelsAgainstString(NSArray *labels, const String& stringT
     } while (pos != -1);
     
     if (bestPos != -1)
-        return mutableStringToMatch.substring(bestPos, bestLength);
+        return mutableStringToMatch.substring(bestPos, bestLength).createNSString();
     return nil;
 }
 
-static NSString *matchLabelsAgainstElement(NSArray *labels, Element* element)
+static RetainPtr<NSString> matchLabelsAgainstElement(NSArray *labels, Element* element)
 {
     if (!element)
         return nil;
 
     // Match against the name element, then against the id element if no match is found for the name element.
     // See 7538330 for one popular site that benefits from the id element check.
-    auto resultFromNameAttribute = matchLabelsAgainstString(labels, element->attributeWithoutSynchronization(nameAttr));
-    if (resultFromNameAttribute.length)
+    RetainPtr resultFromNameAttribute = matchLabelsAgainstString(labels, element->attributeWithoutSynchronization(nameAttr));
+    if (resultFromNameAttribute.get().length)
         return resultFromNameAttribute;
 
     return matchLabelsAgainstString(labels, element->attributeWithoutSynchronization(idAttr));
@@ -531,7 +533,7 @@ static NSString *matchLabelsAgainstElement(NSArray *labels, Element* element)
     size_t distance;
     bool isInCellAbove;
     
-    NSString *result = searchForLabelsBeforeElement(core([_private->dataSource webFrame]), labels, core(element), &distance, &isInCellAbove);
+    RetainPtr result = searchForLabelsBeforeElement(core([_private->dataSource webFrame]), labels, core(element), &distance, &isInCellAbove);
     
     if (outDistance) {
         if (distance == notFound)
@@ -543,12 +545,12 @@ static NSString *matchLabelsAgainstElement(NSArray *labels, Element* element)
     if (outIsInCellAbove)
         *outIsInCellAbove = isInCellAbove;
     
-    return result;
+    return result.autorelease();
 }
 
 - (NSString *)matchLabels:(NSArray *)labels againstElement:(DOMElement *)element
 {
-    return matchLabelsAgainstElement(labels, core(element));
+    return matchLabelsAgainstElement(labels, core(element)).autorelease();
 }
 
 @end

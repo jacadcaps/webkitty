@@ -105,17 +105,21 @@ def run_adb_shell_command(cmd):
     return android_helper._AdbShell(cmd).decode()
 
 
+def run_adb_shell_command_with_run_as(cmd):
+    return android_helper._AdbShellWithRunAs(cmd).decode()
+
+
 def run_async_adb_command(args):
     return run_async_command('adb ' + args)
 
 
 def cleanup():
-    run_adb_shell_command('rm -f ' + _global.storage_dir + '/out.txt ' + _global.storage_dir +
-                          '/gpumem.txt')
+    run_adb_shell_command_with_run_as('rm -f ' + _global.storage_dir + '/out.txt ' +
+                                      _global.storage_dir + '/gpumem.txt')
 
 
 def clear_blob_cache():
-    run_adb_shell_command('run-as com.android.angle.test rm -rf ' + _global.cache_dir)
+    run_adb_shell_command_with_run_as('rm -rf ' + _global.cache_dir)
 
 
 def select_device(device_arg):
@@ -192,12 +196,15 @@ def pull_screenshot(args, screenshot_device_dir, renderer):
 
     # There might not be a screenshot if the test was skipped
     files = list(filter(None, (f.strip() for f in files)))  # Remove empty strings and whitespace
-    if files:
-        assert len(files) == 1, 'Multiple files(%s) in %s, expected 1: %s' % (
-            len(files), screenshot_device_dir, files)
+
+    # We should only look for png files as tmp dir might contain other files too
+    png_files = [f for f in files if f.lower().endswith('.png')]
+    if png_files:
+        assert len(png_files) == 1, 'Multiple PNG files(%s) in %s, expected 1: %s' % (
+            len(png_files), screenshot_device_dir, png_files)
 
         # Grab the single screenshot
-        src_file = files[0]
+        src_file = png_files[0]
 
         # Rename the file to reflect renderer, since we force everything through the platform using "native"
         dst_file = src_file.replace("native", renderer)
@@ -298,8 +305,8 @@ am instrument -w \
 
 def get_test_time():
     # Pull the results from the device and parse
-    result = run_adb_shell_command('cat ' + _global.storage_dir +
-                                   '/out.txt | grep -v Error | grep -v Frame')
+    result = run_adb_shell_command_with_run_as('cat ' + _global.storage_dir +
+                                               '/out.txt | grep -v Error | grep -v Frame')
 
     measured_time = None
 
@@ -320,7 +327,7 @@ def get_test_time():
             break
 
     if measured_time is None:
-        if '[  PASSED  ]' in result.stdout:
+        if '[  PASSED  ]' in result:
             measured_time = 'missing'
         else:
             measured_time = 'crashed'
@@ -330,7 +337,8 @@ def get_test_time():
 
 def get_gpu_memory(trace_duration):
     # Pull the results from the device and parse
-    result = run_adb_shell_command('cat ' + _global.storage_dir + '/gpumem.txt | awk "NF"')
+    result = run_adb_shell_command_with_run_as('cat ' + _global.storage_dir +
+                                               '/gpumem.txt | awk "NF"')
 
     # The gpumem script grabs snapshots of memory per process
     # Output looks like this, repeated once per sleep_duration of the test:
@@ -398,7 +406,7 @@ def get_gpu_memory(trace_duration):
 
 def get_proc_memory():
     # Pull the results from the device and parse
-    result = run_adb_shell_command('cat ' + _global.storage_dir + '/out.txt')
+    result = run_adb_shell_command_with_run_as('cat ' + _global.storage_dir + '/out.txt')
     memory_median = ''
     memory_max = ''
 
@@ -419,7 +427,7 @@ def get_proc_memory():
 
 def get_gpu_time():
     # Pull the results from the device and parse
-    result = run_adb_shell_command('cat ' + _global.storage_dir + '/out.txt')
+    result = run_adb_shell_command_with_run_as('cat ' + _global.storage_dir + '/out.txt')
     gpu_time = '0'
 
     for line in result.splitlines():
@@ -435,7 +443,7 @@ def get_gpu_time():
 
 def get_cpu_time():
     # Pull the results from the device and parse
-    result = run_adb_shell_command('cat ' + _global.storage_dir + '/out.txt')
+    result = run_adb_shell_command_with_run_as('cat ' + _global.storage_dir + '/out.txt')
     cpu_time = '0'
 
     for line in result.splitlines():
@@ -451,8 +459,8 @@ def get_cpu_time():
 
 def get_frame_count():
     # Pull the results from the device and parse
-    result = run_adb_shell_command('cat ' + _global.storage_dir +
-                                   '/out.txt | grep -v Error | grep -v Frame')
+    result = run_adb_shell_command_with_run_as('cat ' + _global.storage_dir +
+                                               '/out.txt | grep -v Error | grep -v Frame')
 
     frame_count = 0
 
@@ -588,6 +596,7 @@ def get_thermal_info():
     out = run_adb_shell_command('dumpsys android.hardware.thermal.IThermal/default')
     result = []
     for line in out.splitlines():
+        logging.debug('Checking line in get_thermal_info: %a', line)
         if 'ThrottlingStatus:' in line:
             name = re.search('Name: ([^ ]*)', line).group(1)
             if ('VIRTUAL-SKIN' in name and

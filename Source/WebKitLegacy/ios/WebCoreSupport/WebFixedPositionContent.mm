@@ -51,7 +51,7 @@ using namespace WebCore;
 static Lock webFixedPositionContentDataLock;
 
 struct ViewportConstrainedLayerData {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(ViewportConstrainedLayerData);
     ViewportConstrainedLayerData()
         : m_enclosingAcceleratedScrollLayer(nil)
     { }
@@ -62,7 +62,7 @@ struct ViewportConstrainedLayerData {
 typedef HashMap<RetainPtr<CALayer>, std::unique_ptr<ViewportConstrainedLayerData>> LayerInfoMap;
 
 struct WebFixedPositionContentData {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(WebFixedPositionContentData);
 public:
     WebFixedPositionContentData(WebView *);
     ~WebFixedPositionContentData();
@@ -111,29 +111,29 @@ WebFixedPositionContentData::~WebFixedPositionContentData()
 
         switch (constraints.constraintType()) {
         case ViewportConstraints::FixedPositionConstraint: {
-                const FixedPositionViewportConstraints& fixedConstraints = static_cast<const FixedPositionViewportConstraints&>(constraints);
+            auto& fixedConstraints = downcast<FixedPositionViewportConstraints>(constraints);
 
-                FloatPoint layerPosition = fixedConstraints.layerPositionForViewportRect(positionedObjectsRect);
+            auto layerPosition = fixedConstraints.viewportRelativeLayerPosition(positionedObjectsRect);
             
-                CGRect layerBounds = [layer bounds];
-                CGPoint anchorPoint = [layer anchorPoint];
-                CGPoint newPosition = CGPointMake(layerPosition.x() - constraints.alignmentOffset().width() + anchorPoint.x * layerBounds.size.width,
-                                                  layerPosition.y() - constraints.alignmentOffset().height() + anchorPoint.y * layerBounds.size.height);
-                [layer setPosition:newPosition];
-                break;
-            }
+            CGRect layerBounds = [layer bounds];
+            CGPoint anchorPoint = [layer anchorPoint];
+            CGPoint newPosition = CGPointMake(layerPosition.x() - constraints.alignmentOffset().width() + anchorPoint.x * layerBounds.size.width,
+                layerPosition.y() - constraints.alignmentOffset().height() + anchorPoint.y * layerBounds.size.height);
+            [layer setPosition:newPosition];
+            break;
+        }
         case ViewportConstraints::StickyPositionConstraint: {
-                const StickyPositionViewportConstraints& stickyConstraints = static_cast<const StickyPositionViewportConstraints&>(constraints);
+            auto& stickyConstraints = downcast<StickyPositionViewportConstraints>(constraints);
 
-                FloatPoint layerPosition = stickyConstraints.layerPositionForConstrainingRect(positionedObjectsRect);
+            FloatPoint layerPosition = stickyConstraints.anchorLayerPositionForConstrainingRect(positionedObjectsRect);
 
-                CGRect layerBounds = [layer bounds];
-                CGPoint anchorPoint = [layer anchorPoint];
-                CGPoint newPosition = CGPointMake(layerPosition.x() - constraints.alignmentOffset().width() + anchorPoint.x * layerBounds.size.width,
-                                                  layerPosition.y() - constraints.alignmentOffset().height() + anchorPoint.y * layerBounds.size.height);
-                [layer setPosition:newPosition];
-                break;
-            }
+            CGRect layerBounds = [layer bounds];
+            CGPoint anchorPoint = [layer anchorPoint];
+            CGPoint newPosition = CGPointMake(layerPosition.x() - constraints.alignmentOffset().width() + anchorPoint.x * layerBounds.size.width,
+                layerPosition.y() - constraints.alignmentOffset().height() + anchorPoint.y * layerBounds.size.height);
+            [layer setPosition:newPosition];
+            break;
+        }
         }
     }
 }
@@ -151,7 +151,7 @@ WebFixedPositionContentData::~WebFixedPositionContentData()
             const StickyPositionViewportConstraints& stickyConstraints = static_cast<const StickyPositionViewportConstraints&>(*(constraintData->m_viewportConstraints.get()));
             FloatRect constrainingRectAtLastLayout = stickyConstraints.constrainingRectAtLastLayout();
             FloatRect scrolledConstrainingRect = FloatRect(scrollPosition.x, scrollPosition.y, constrainingRectAtLastLayout.width(), constrainingRectAtLastLayout.height());
-            FloatPoint layerPosition = stickyConstraints.layerPositionForConstrainingRect(scrolledConstrainingRect);
+            FloatPoint layerPosition = stickyConstraints.anchorLayerPositionForConstrainingRect(scrolledConstrainingRect);
 
             CGRect layerBounds = [layer bounds];
             CGPoint anchorPoint = [layer anchorPoint];

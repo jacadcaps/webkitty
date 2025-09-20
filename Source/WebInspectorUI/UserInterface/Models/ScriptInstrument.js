@@ -39,8 +39,7 @@ WI.ScriptInstrument = class ScriptInstrument extends WI.Instrument
 
         if (!initiatedByBackend) {
             for (let target of WI.targets) {
-                if (target.type === WI.TargetType.Worker && !WI.settings.experimentalEnableWorkerTimelineRecording.value)
-                    continue;
+                // COMPATIBILITY (iOS 26.0, macOS 26.0): `ScriptProfiler.startTracking` did not exist yet in Worker targets.
                 if (target.hasDomain("ScriptProfiler"))
                     target.ScriptProfilerAgent.startTracking(includeSamples);
             }
@@ -51,8 +50,7 @@ WI.ScriptInstrument = class ScriptInstrument extends WI.Instrument
     {
         if (!initiatedByBackend) {
             for (let target of WI.targets) {
-                if (target.type === WI.TargetType.Worker && !WI.settings.experimentalEnableWorkerTimelineRecording.value)
-                    continue;
+                // COMPATIBILITY (iOS 26.0, macOS 26.0): `ScriptProfiler.stopTracking` did not exist yet for Worker targets.
                 if (target.hasDomain("ScriptProfiler"))
                     target.ScriptProfilerAgent.stopTracking();
             }

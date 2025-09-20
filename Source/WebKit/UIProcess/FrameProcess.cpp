@@ -34,7 +34,7 @@
 
 namespace WebKit {
 
-FrameProcess::FrameProcess(WebProcessProxy& process, BrowsingContextGroup& group, const WebCore::Site& site, const WebPreferences& preferences, InjectBrowsingContextIntoProcess injectBrowsingContextIntoProcess)
+FrameProcess::FrameProcess(WebProcessProxy& process, BrowsingContextGroup& group, const std::optional<WebCore::Site>& site, const WebPreferences& preferences, InjectBrowsingContextIntoProcess injectBrowsingContextIntoProcess)
     : m_process(process)
     , m_browsingContextGroup(group)
     , m_site(site)
@@ -49,8 +49,8 @@ FrameProcess::FrameProcess(WebProcessProxy& process, BrowsingContextGroup& group
 
 FrameProcess::~FrameProcess()
 {
-    if (m_browsingContextGroup)
-        m_browsingContextGroup->removeFrameProcess(*this);
+    if (RefPtr group = m_browsingContextGroup.get())
+        group->removeFrameProcess(*this);
 }
 
 }

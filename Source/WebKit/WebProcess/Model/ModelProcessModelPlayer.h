@@ -30,7 +30,9 @@
 #import "ModelIdentifier.h"
 #import "WebPage.h"
 #import "WebPageProxyMessages.h"
+#import "WebProcess.h"
 #import <WebCore/ModelPlayer.h>
+#import <WebCore/ModelPlayerAnimationState.h>
 #import <WebCore/ModelPlayerClient.h>
 #import <WebCore/ModelPlayerIdentifier.h>
 #import <WebCore/StageModeOperations.h>
@@ -51,6 +53,12 @@ public:
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
 
     std::optional<WebCore::LayerHostingContextIdentifier> layerHostingContextIdentifier() { return m_layerHostingContextIdentifier; };
+    void didUnload();
+
+    void disableUnloadDelayForTesting();
+
+    std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const { return WebProcess::singleton().sharedPreferencesForWebProcess(); }
+    const SharedPreferencesForWebProcess& sharedPreferencesForWebProcessValue() const { return WebProcess::singleton().sharedPreferencesForWebProcessValue(); }
 
 private:
     explicit ModelProcessModelPlayer(WebCore::ModelPlayerIdentifier, WebPage&, WebCore::ModelPlayerClient&);
@@ -66,18 +74,26 @@ private:
     // Messages
     void didCreateLayer(WebCore::LayerHostingContextIdentifier);
     void didFinishLoading(const WebCore::FloatPoint3D&, const WebCore::FloatPoint3D&);
+    void didFailLoading();
     void didUpdateEntityTransform(const WebCore::TransformationMatrix&);
     void didUpdateAnimationPlaybackState(bool isPaused, double playbackRate, Seconds duration, Seconds currentTime, MonotonicTime clockTimestamp);
     void didFinishEnvironmentMapLoading(bool succeeded);
 
     // WebCore::ModelPlayer overrides.
     WebCore::ModelPlayerIdentifier identifier() const final { return m_id; }
+    std::optional<WebCore::ModelPlayerAnimationState> currentAnimationState() const final;
+    std::optional<std::unique_ptr<WebCore::ModelPlayerTransformState>> currentTransformState() const final;
     void load(WebCore::Model&, WebCore::LayoutSize) final;
+    void reload(WebCore::Model&, WebCore::LayoutSize, WebCore::ModelPlayerAnimationState&, std::unique_ptr<WebCore::ModelPlayerTransformState>&&) final;
+    void visibilityStateDidChange() final;
     void sizeDidChange(WebCore::LayoutSize) final;
     PlatformLayer* layer() final;
     void handleMouseDown(const WebCore::LayoutPoint&, MonotonicTime) final;
     void handleMouseMove(const WebCore::LayoutPoint&, MonotonicTime) final;
     void handleMouseUp(const WebCore::LayoutPoint&, MonotonicTime) final;
+    std::optional<WebCore::FloatPoint3D> boundingBoxCenter() const final;
+    std::optional<WebCore::FloatPoint3D> boundingBoxExtents() const final;
+    std::optional<WebCore::TransformationMatrix> entityTransform() const final;
     void setEntityTransform(WebCore::TransformationMatrix) final;
     bool supportsTransform(WebCore::TransformationMatrix) final;
     void enterFullscreen() final;
@@ -108,6 +124,8 @@ private:
     void beginStageModeTransform(const WebCore::TransformationMatrix&) final;
     void updateStageModeTransform(const WebCore::TransformationMatrix&) final;
     void endStageModeInteraction() final;
+    void animateModelToFitPortal(CompletionHandler<void(bool)>&&) final;
+    void resetModelTransformAfterDrag() final;
 
     WebCore::ModelPlayerIdentifier m_id;
     WeakPtr<WebPage> m_page;
@@ -115,18 +133,16 @@ private:
 
     std::optional<WebCore::LayerHostingContextIdentifier> m_layerHostingContextIdentifier;
 
+    std::optional<WebCore::TransformationMatrix> m_entityTransform;
+    std::optional<WebCore::FloatPoint3D> m_boundingBoxCenter;
+    std::optional<WebCore::FloatPoint3D> m_boundingBoxExtents;
     bool m_hasPortal { true };
-    bool m_autoplay { false };
-    bool m_loop { false };
+    WebCore::StageModeOperation m_stageModeOperation { WebCore::StageModeOperation::None };
     double m_requestedPlaybackRate { 1.0 };
-    std::optional<double> m_effectivePlaybackRate;
-    Seconds m_duration { 0_s };
-    bool m_paused { true };
     std::optional<Seconds> m_pendingCurrentTime;
     std::optional<MonotonicTime> m_clockTimestampOfLastCurrentTimeSet;
-    std::optional<Seconds> m_lastCachedCurrentTime;
-    std::optional<MonotonicTime> m_lastCachedClockTimestamp;
-    WebCore::StageModeOperation m_stageModeOperation { WebCore::StageModeOperation::None };
+    WebCore::ModelPlayerAnimationState m_animationState;
+    SharedPreferencesForWebProcess m_sharedPreferencesForWebProcess;
 };
 
 }

@@ -379,6 +379,15 @@ class Setup(Command):
             sys.stderr.write('Failed to use {} as the merge strategy for this repository\n'.format('merge commits' if args.merge else 'rebase'))
             result += 1
 
+        if not local_config.get('webkitscmpy.auto-update-changelog'):
+            log.info('Setting auto-updates for commit message changelogs when amending...')
+            if run(
+                [local.Git.executable(), 'config', 'webkitscmpy.auto-update-changelog', 'true'],
+                cwd=repository.root_path,
+            ).returncode:
+                sys.stderr.write('Failed to set auto-updates for commit message changelog\n')
+                result += 1
+
         need_prompt_auto_update = args.all or not local_config.get('webkitscmpy.auto-rebase-branch')
         if not args.merge and not args.defaults and need_prompt_auto_update:
             log.info('Setting auto update on PR creation...')
@@ -617,6 +626,17 @@ Automation may create pull requests and forks in unexpected locations
                     if not Terminal.open_url(info_url):
                         sys.stderr.write("Failed to open '{}' in the browser, continuing\n".format(info_url))
                 print('\n')
+
+            if repository.branch not in repository.DEFAULT_BRANCHES:
+                print(f'Setup is currently being run on {repository.branch}. This may result in undefined behavior.\nPlease ensure your branch is up-to-date with main or switch to main and rerun `git-webkit setup`.')
+                response = Terminal.choose(
+                    'Would you like to continue setup?',
+                    options=('No', 'Yes'),
+                    default='No',
+                )
+                if response == 'No':
+                    print('Setup cancelled')
+                    return 1
 
             result = cls.git(args, repository, **kwargs)
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2018 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -63,7 +63,7 @@ static PlatformDisplayID displayID(Widget* widget)
     if (!widget)
         return 0;
 
-    auto* view = widget->root();
+    RefPtr view = widget->root();
     if (!view)
         return 0;
 
@@ -175,6 +175,10 @@ ScreenProperties collectScreenProperties()
         screenData.screenSize = FloatSize { CGDisplayScreenSize(displayID) };
         screenData.scaleFactor = screen.backingScaleFactor;
         screenData.screenSupportsHighDynamicRange = screenSupportsHighDynamicRange(displayID, screenData.preferredDynamicRangeMode);
+#if HAVE(SUPPORT_HDR_DISPLAY)
+        screenData.maxEDRHeadroom = [screen maximumPotentialExtendedDynamicRangeColorComponentValue];
+        screenData.currentEDRHeadroom = [screen maximumExtendedDynamicRangeColorComponentValue];
+#endif
 
         screenProperties.screenDataMap.set(displayID, WTFMove(screenData));
         if (!screenProperties.primaryDisplayID)
@@ -321,6 +325,34 @@ FloatRect screenRectForPrimaryScreen()
     return screenRectForDisplay(primaryScreenDisplayID());
 }
 
+#if HAVE(SUPPORT_HDR_DISPLAY)
+float currentEDRHeadroomForDisplay(PlatformDisplayID displayID)
+{
+    if (auto data = screenData(displayID))
+        return data->currentEDRHeadroom;
+
+    ASSERT(hasProcessPrivilege(ProcessPrivilege::CanCommunicateWithWindowServer));
+    return screen(displayID).maximumExtendedDynamicRangeColorComponentValue;
+}
+
+float maxEDRHeadroomForDisplay(PlatformDisplayID displayID)
+{
+    if (auto data = screenData(displayID))
+        return data->maxEDRHeadroom;
+
+    ASSERT(hasProcessPrivilege(ProcessPrivilege::CanCommunicateWithWindowServer));
+    return screen(displayID).maximumPotentialExtendedDynamicRangeColorComponentValue;
+}
+
+bool suppressEDRForDisplay(PlatformDisplayID displayID)
+{
+    if (auto data = screenData(displayID))
+        return data->suppressEDR;
+
+    return false;
+}
+#endif
+
 FloatRect screenRect(Widget* widget)
 {
     if (auto data = screenProperties(widget))
@@ -398,20 +430,23 @@ bool screenSupportsExtendedColor(Widget* widget)
 
 bool screenSupportsHighDynamicRange(Widget* widget)
 {
+    return screenSupportsHighDynamicRange(displayID(widget));
+}
+
+bool screenSupportsHighDynamicRange(PlatformDisplayID displayID)
+{
 #if HAVE(SUPPORT_HDR_DISPLAY) && ENABLE(PIXEL_FORMAT_RGBA16F)
     if (screenContentsFormatsForTesting().contains(ContentsFormat::RGBA16F))
         return true;
 #endif
 
-    if (auto data = screenProperties(widget))
+    if (auto data = screenData(displayID))
         return data->screenSupportsHighDynamicRange;
 
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanCommunicateWithWindowServer));
 #if USE(MEDIATOOLBOX)
-    if (PAL::isMediaToolboxFrameworkAvailable() && PAL::canLoad_MediaToolbox_MTShouldPlayHDRVideo()) {
-        auto displayID = WebCore::displayID(screen(widget));
+    if (PAL::isMediaToolboxFrameworkAvailable() && PAL::canLoad_MediaToolbox_MTShouldPlayHDRVideo())
         return PAL::softLink_MediaToolbox_MTShouldPlayHDRVideo((__bridge CFArrayRef)@[ @(displayID) ]);
-    }
 #endif
     return false;
 }
@@ -470,11 +505,9 @@ NSPoint flipScreenPoint(const NSPoint& screenPoint, NSScreen *screen)
 FloatRect safeScreenFrame(NSScreen* screen)
 {
     FloatRect frame = screen.frame;
-#if HAVE(NSSCREEN_SAFE_AREA)
     auto insets = screen.safeAreaInsets;
     frame.contract(insets.left + insets.right, insets.top + insets.bottom);
     frame.move(insets.left, insets.bottom);
-#endif
     return frame;
 }
 

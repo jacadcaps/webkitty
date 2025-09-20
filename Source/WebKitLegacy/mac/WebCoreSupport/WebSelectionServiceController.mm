@@ -29,7 +29,8 @@
 
 #import "WebViewInternal.h"
 #import <WebCore/FrameSelection.h>
-#import <WebCore/HTMLConverter.h>
+#import <WebCore/NodeHTMLConverter.h>
+#import <WebCore/Page.h>
 #import <WebCore/Range.h>
 #import <WebCore/markup.h>
 #import <pal/spi/mac/NSSharingServiceSPI.h>

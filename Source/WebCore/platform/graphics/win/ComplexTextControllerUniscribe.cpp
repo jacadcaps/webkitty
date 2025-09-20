@@ -32,7 +32,7 @@
 
 namespace WebCore {
 
-static bool shapeByUniscribe(const UChar* str, int len, SCRIPT_ITEM& item, const Font* fontData,
+static bool shapeByUniscribe(const char16_t* str, int len, SCRIPT_ITEM& item, const Font* fontData,
     Vector<WORD>& glyphs, Vector<WORD>& clusters,
     Vector<SCRIPT_VISATTR>& visualAttributes)
 {
@@ -103,8 +103,7 @@ public:
 
         void operator++() { ++m_logicalIndex; }
         T& operator*() { return m_range.m_data[index()]; }
-        bool operator==(const Iterator& other) { return m_logicalIndex == other.m_logicalIndex; }
-        bool operator!=(const Iterator& other) { return m_logicalIndex != other.m_logicalIndex; }
+        bool operator==(const Iterator& other) const { return m_logicalIndex == other.m_logicalIndex; }
         unsigned index()
         {
             ASSERT(m_logicalIndex < m_range.m_length);
@@ -169,11 +168,11 @@ static Vector<unsigned> stringIndicesFromClusters(const Vector<WORD>& clusters, 
     return stringIndices;
 }
 
-void ComplexTextController::collectComplexTextRunsForCharacters(std::span<const UChar> cp, unsigned stringLocation, const Font* font)
+void ComplexTextController::collectComplexTextRunsForCharacters(std::span<const char16_t> cp, unsigned stringLocation, const Font* font)
 {
     if (!font) {
         // Create a run of missing glyphs from the primary font.
-        m_complexTextRuns.append(ComplexTextRun::create(m_font.primaryFont(), cp, stringLocation, 0, cp.size(), m_run.ltr()));
+        m_complexTextRuns.append(ComplexTextRun::create(m_fontCascade->primaryFont(), cp, stringLocation, 0, cp.size(), m_run->ltr()));
         return;
     }
 
@@ -184,9 +183,9 @@ void ComplexTextController::collectComplexTextRunsForCharacters(std::span<const 
         SCRIPT_STATE state { };
         control.fMergeNeutralItems = true;
         // Set up the correct direction for the run.
-        state.uBidiLevel = m_run.rtl();
+        state.uBidiLevel = m_run->rtl();
         // Lock the correct directional override.
-        state.fOverrideDirection = m_run.directionalOverride();
+        state.fOverrideDirection = m_run->directionalOverride();
 
         // ScriptItemize may write (cMaxItems + 1) SCRIPT_ITEM.
         HRESULT hr = ScriptItemize(wcharFrom(cp.data()), cp.size(), items.size() - 1, &control, &state, items.data(), &numItems);
@@ -200,7 +199,7 @@ void ComplexTextController::collectComplexTextRunsForCharacters(std::span<const 
 
     for (int i = 0; i < numItems; i++) {
         // Determine the string for this item.
-        const UChar* str = cp.data() + items[i].iCharPos;
+        const char16_t* str = cp.data() + items[i].iCharPos;
         int length = items[i+1].iCharPos - items[i].iCharPos;
         SCRIPT_ITEM& item = items[i];
 

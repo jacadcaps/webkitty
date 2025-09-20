@@ -56,12 +56,6 @@ struct FeaturesGL : FeatureSetBase
         &members,
     };
 
-    FeatureInfo doWhileGLSLCausesGPUHang = {
-        "doWhileGLSLCausesGPUHang",
-        FeatureCategory::OpenGLWorkarounds,
-        &members,
-    };
-
     FeatureInfo vertexIDDoesNotIncludeBaseVertex = {
         "vertexIDDoesNotIncludeBaseVertex",
         FeatureCategory::OpenGLWorkarounds,
@@ -122,12 +116,6 @@ struct FeaturesGL : FeatureSetBase
         &members,
     };
 
-    FeatureInfo emulateIsnanFloat = {
-        "emulateIsnanFloat",
-        FeatureCategory::OpenGLWorkarounds,
-        &members,
-    };
-
     FeatureInfo useUnusedBlocksWithStandardOrSharedLayout = {
         "useUnusedBlocksWithStandardOrSharedLayout",
         FeatureCategory::OpenGLWorkarounds,
@@ -136,12 +124,6 @@ struct FeaturesGL : FeatureSetBase
 
     FeatureInfo removeInvariantAndCentroidForESSL3 = {
         "removeInvariantAndCentroidForESSL3",
-        FeatureCategory::OpenGLWorkarounds,
-        &members,
-    };
-
-    FeatureInfo rewriteFloatUnaryMinusOperator = {
-        "rewriteFloatUnaryMinusOperator",
         FeatureCategory::OpenGLWorkarounds,
         &members,
     };
@@ -176,6 +158,12 @@ struct FeaturesGL : FeatureSetBase
         &members,
     };
 
+    FeatureInfo forceMaxCombinedShaderOutputResources = {
+        "forceMaxCombinedShaderOutputResources",
+        FeatureCategory::OpenGLFeatures,
+        &members,
+    };
+
     FeatureInfo dontUseLoopsToInitializeVariables = {
         "dontUseLoopsToInitializeVariables",
         FeatureCategory::OpenGLWorkarounds,
@@ -196,12 +184,6 @@ struct FeaturesGL : FeatureSetBase
 
     FeatureInfo preTransformTextureCubeGradDerivatives = {
         "preTransformTextureCubeGradDerivatives",
-        FeatureCategory::OpenGLWorkarounds,
-        &members,
-    };
-
-    FeatureInfo disableBlendFuncExtended = {
-        "disableBlendFuncExtended",
         FeatureCategory::OpenGLWorkarounds,
         &members,
     };
@@ -250,12 +232,6 @@ struct FeaturesGL : FeatureSetBase
 
     FeatureInfo resetTexImage2DBaseLevel = {
         "resetTexImage2DBaseLevel",
-        FeatureCategory::OpenGLWorkarounds,
-        &members,
-    };
-
-    FeatureInfo clearToZeroOrOneBroken = {
-        "clearToZeroOrOneBroken",
         FeatureCategory::OpenGLWorkarounds,
         &members,
     };
@@ -646,6 +622,12 @@ struct FeaturesGL : FeatureSetBase
 
     FeatureInfo disableBlendEquationAdvanced = {
         "disableBlendEquationAdvanced",
+        FeatureCategory::OpenGLWorkarounds,
+        &members,
+    };
+
+    FeatureInfo resetSampleCoverageOnFBOChange = {
+        "resetSampleCoverageOnFBOChange",
         FeatureCategory::OpenGLWorkarounds,
         &members,
     };

@@ -46,24 +46,18 @@
 #define Webgpuhdr_feature_status Preview
 #endif
 
-#if defined(ENABLE_WEBXR_WEBGPU_BY_DEFAULT) && ENABLE_WEBXR_WEBGPU_BY_DEFAULT && PLATFORM(VISION)
-#define Webxr_layers_feature_status Stable
+#if defined(ENABLE_SUPPORT_HDR_DISPLAY_BY_DEFAULT) && ENABLE_SUPPORT_HDR_DISPLAY_BY_DEFAULT && defined(HAVE_SUPPORT_HDR_DISPLAY) && HAVE_SUPPORT_HDR_DISPLAY
+#define Supporthdrdisplay_feature_status Stable
 #else
-#define Webxr_layers_feature_status Unstable
+#define Supporthdrdisplay_feature_status Testable
 #endif
 
-#if defined(ENABLE_WEBXR_WEBGPU_BY_DEFAULT) && ENABLE_WEBXR_WEBGPU_BY_DEFAULT && PLATFORM(VISION)
+#define Webxr_layers_feature_status Unstable
+
+#if defined(ENABLE_WEBXR_WEBGPU) && ENABLE_WEBXR_WEBGPU && PLATFORM(VISION)
 #define Webgpu_webxr_feature_status Stable
 #else
 #define Webgpu_webxr_feature_status Unstable
-#endif
-
-#if defined(ENABLE_UNIFIED_PDF_BY_DEFAULT) && ENABLE_UNIFIED_PDF_BY_DEFAULT
-#define Unifiedpdf_feature_status Mature
-#elif defined(ENABLE_UNIFIED_PDF_AS_PREVIEW) && ENABLE_UNIFIED_PDF_AS_PREVIEW
-#define Unifiedpdf_feature_status Preview
-#else
-#define Unifiedpdf_feature_status Internal
 #endif
 
 #if defined(ENABLE_UNPREFIXED_BACKDROP_FILTER) && ENABLE_UNPREFIXED_BACKDROP_FILTER
@@ -72,11 +66,21 @@
 #define Backdropfilter_feature_status Testable
 #endif
 
+#if defined(ENABLE_MODEL_ELEMENT) && ENABLE_MODEL_ELEMENT && PLATFORM(VISION)
+#define Modelelement_feature_status Stable
+#else
+#define Modelelement_feature_status Testable
+#endif
+
 namespace WebKit {
+
+#if HAVE(LIQUID_GLASS)
+bool isLiquidGlassEnabled();
+void setLiquidGlassEnabled(bool);
+#endif
 
 #if PLATFORM(IOS_FAMILY)
 bool defaultPassiveTouchListenersAsDefaultOnDocument();
-bool defaultCSSOMViewScrollingAPIEnabled();
 bool defaultShouldPrintBackgrounds();
 bool defaultUseAsyncUIKitInteractions();
 bool defaultWriteRichTextDataWhenCopyingOrDragging();
@@ -96,13 +100,8 @@ bool defaultWheelEventGesturesBecomeNonBlocking();
 bool defaultAppleMailPaginationQuirkEnabled();
 #endif
 
-#if PLATFORM(COCOA)
-bool defaultFixedContainerEdgeSamplingEnabled();
-#endif
-
 #if ENABLE(MEDIA_STREAM)
 bool defaultCaptureAudioInGPUProcessEnabled();
-bool defaultCaptureAudioInUIProcessEnabled();
 bool defaultManageCaptureStatusBarInGPUProcessEnabled();
 #endif
 
@@ -131,6 +130,10 @@ bool defaultRemoveBackgroundEnabled();
 bool defaultGamepadVibrationActuatorEnabled();
 #endif
 
+#if ENABLE(WEB_AUTHN)
+bool defaultDigitalCredentialsEnabled();
+#endif
+
 #if PLATFORM(IOS_FAMILY)
 bool defaultAutomaticLiveResizeEnabled();
 bool defaultVisuallyContiguousBidiTextSelectionEnabled();
@@ -142,15 +145,10 @@ bool defaultShouldDropNearSuspendedAssertionAfterDelay();
 bool defaultShouldTakeNearSuspendedAssertion();
 bool defaultShowModalDialogEnabled();
 bool defaultLinearMediaPlayerEnabled();
-bool defaultLiveRangeSelectionEnabled();
 
 bool defaultShouldEnableScreenOrientationAPI();
 bool defaultPopoverAttributeEnabled();
 bool defaultUseGPUProcessForDOMRenderingEnabled();
-
-#if HAVE(SC_CONTENT_SHARING_PICKER)
-bool defaultUseSCContentSharingPicker();
-#endif
 
 #if USE(LIBWEBRTC)
 bool defaultPeerConnectionEnabledAvailable();
@@ -160,16 +158,43 @@ bool defaultPeerConnectionEnabledAvailable();
 bool defaultBuiltInNotificationsEnabled();
 #endif
 
+#if ENABLE(DEVICE_ORIENTATION)
+bool defaultDeviceOrientationPermissionAPIEnabled();
+#endif
+
+#if ENABLE(REQUIRES_PAGE_VISIBILITY_FOR_NOW_PLAYING)
 bool defaultRequiresPageVisibilityForVideoToBeNowPlaying();
+#endif
 
 bool defaultCookieStoreAPIEnabled();
 
-#if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
 bool defaultContentInsetBackgroundFillEnabled();
+bool defaultTopContentInsetBackgroundCanChangeAfterScrolling();
+
+#if ENABLE(SCREEN_TIME)
+bool defaultScreenTimeEnabled();
 #endif
 
 #if ENABLE(CONTENT_EXTENSIONS)
 bool defaultIFrameResourceMonitoringEnabled();
+#endif
+
+#if HAVE(SPATIAL_AUDIO_EXPERIENCE)
+bool defaultPreferSpatialAudioExperience();
+#endif
+
+bool defaultMutationEventsEnabled();
+
+bool defaultTrustedTypesEnabled();
+
+#if HAVE(MATERIAL_HOSTING)
+bool defaultHostedBlurMaterialInMediaControlsEnabled();
+#endif
+
+bool defaultIOSurfaceLosslessCompressionEnabled();
+
+#if ENABLE(UNIFIED_PDF)
+bool defaultUnifiedPDFEnabled();
 #endif
 
 } // namespace WebKit

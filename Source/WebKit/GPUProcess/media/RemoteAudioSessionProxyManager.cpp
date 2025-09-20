@@ -51,16 +51,14 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteAudioSessionProxyManager);
 RemoteAudioSessionProxyManager::RemoteAudioSessionProxyManager(GPUProcess& gpuProcess)
     : m_gpuProcess(gpuProcess)
 {
-    Ref session = AudioSession::sharedSession();
-    session->addInterruptionObserver(*this);
-    session->addConfigurationChangeObserver(*this);
+    AudioSession::singleton().addInterruptionObserver(*this);
+    AudioSession::singleton().addConfigurationChangeObserver(*this);
 }
 
 RemoteAudioSessionProxyManager::~RemoteAudioSessionProxyManager()
 {
-    Ref session = AudioSession::sharedSession();
-    session->removeInterruptionObserver(*this);
-    session->removeConfigurationChangeObserver(*this);
+    AudioSession::singleton().removeInterruptionObserver(*this);
+    AudioSession::singleton().removeConfigurationChangeObserver(*this);
 }
 
 void RemoteAudioSessionProxyManager::addProxy(RemoteAudioSessionProxy& proxy, std::optional<audit_token_t> auditToken)
@@ -70,7 +68,7 @@ void RemoteAudioSessionProxyManager::addProxy(RemoteAudioSessionProxy& proxy, st
     updateCategory();
 
     if (auditToken)
-        AudioSession::protectedSharedSession()->setHostProcessAttribution(*auditToken);
+        AudioSession::singleton().setHostProcessAttribution(*auditToken);
 }
 
 void RemoteAudioSessionProxyManager::removeProxy(RemoteAudioSessionProxy& proxy)
@@ -119,7 +117,7 @@ void RemoteAudioSessionProxyManager::updateCategory()
     else if (policyCounts.contains(RouteSharingPolicy::Independent))
         ASSERT_NOT_REACHED();
 
-    AudioSession::protectedSharedSession()->setCategory(category, mode, policy);
+    AudioSession::singleton().setCategory(category, mode, policy);
 }
 
 void RemoteAudioSessionProxyManager::updatePreferredBufferSizeForProcess()
@@ -131,7 +129,7 @@ void RemoteAudioSessionProxyManager::updatePreferredBufferSizeForProcess()
     }
 
     if (preferredBufferSize != std::numeric_limits<size_t>::max())
-        AudioSession::protectedSharedSession()->setPreferredBufferSize(preferredBufferSize);
+        AudioSession::singleton().setPreferredBufferSize(preferredBufferSize);
 }
 
 void RemoteAudioSessionProxyManager::updateSpatialExperience()
@@ -148,9 +146,8 @@ void RemoteAudioSessionProxyManager::updateSpatialExperience()
         }
     }
 
-    Ref session = AudioSession::sharedSession();
-    session->setSceneIdentifier(sceneIdentifier);
-    session->setSoundStageSize(maxSize.value_or(AudioSession::SoundStageSize::Automatic));
+    AudioSession::singleton().setSceneIdentifier(sceneIdentifier);
+    AudioSession::singleton().setSoundStageSize(maxSize.value_or(AudioSession::SoundStageSize::Automatic));
 }
 
 bool RemoteAudioSessionProxyManager::hasOtherActiveProxyThan(RemoteAudioSessionProxy& proxyToExclude)
@@ -185,13 +182,13 @@ bool RemoteAudioSessionProxyManager::tryToSetActiveForProcess(RemoteAudioSession
         // This proxy wants to de-activate, and is the last remaining active
         // proxy. Deactivate the session, and return whether that deactivation
         // was sucessful.
-        return AudioSession::protectedSharedSession()->tryToSetActive(false);
+        return AudioSession::singleton().tryToSetActive(false);
     }
 
     if (!hasActiveNotInterruptedProxy()) {
         // This proxy and only this proxy wants to become active. Activate
         // the session, and return whether that activation was successful.
-        return AudioSession::protectedSharedSession()->tryToSetActive(active);
+        return AudioSession::singleton().tryToSetActive(active);
     }
 
     // If this proxy is Ambient, and the session is already active, this
@@ -222,15 +219,8 @@ bool RemoteAudioSessionProxyManager::tryToSetActiveForProcess(RemoteAudioSession
 
 void RemoteAudioSessionProxyManager::updatePresentingProcesses()
 {
-#if ENABLE(EXTENSION_CAPABILITIES)
-    if (PlatformMediaSessionManager::mediaCapabilityGrantsEnabled())
-        return;
-#endif
-
     Vector<audit_token_t> presentingProcesses;
-
-    if (auto token = m_gpuProcess->protectedParentProcessConnection()->getAuditToken())
-        presentingProcesses.append(*token);
+    bool shouldAppendParentProcess = false;
 
     // AVAudioSession will take out an assertion on all the "presenting applications"
     // when it moves to a "playing" state. But it's possible that (e.g.) multiple
@@ -238,12 +228,23 @@ void RemoteAudioSessionProxyManager::updatePresentingProcesses()
     // tokens from those proxies whose sessions are currently "active". Only their
     // presenting applications will be kept from becoming "suspended" during playback.
     m_proxies.forEach([&](auto& proxy) {
+        Ref gpuConnectionToWebProcess = *proxy.gpuConnectionToWebProcess();
+#if ENABLE(EXTENSION_CAPABILITIES)
+        if (gpuConnectionToWebProcess->sharedPreferencesForWebProcessValue().mediaCapabilityGrantsEnabled)
+            return;
+#endif
+        shouldAppendParentProcess = true;
         if (!proxy.isActive())
             return;
-        for (auto& token : proxy.gpuConnectionToWebProcess()->presentingApplicationAuditTokens().values())
+        for (auto& token : gpuConnectionToWebProcess->presentingApplicationAuditTokens().values())
             presentingProcesses.append(token.auditToken());
     });
-    AudioSession::protectedSharedSession()->setPresentingProcesses(WTFMove(presentingProcesses));
+
+    if (auto token = m_gpuProcess->protectedParentProcessConnection()->getAuditToken(); token && shouldAppendParentProcess)
+        presentingProcesses.append(*token);
+
+    if (!presentingProcesses.isEmpty())
+        AudioSession::singleton().setPresentingProcesses(WTFMove(presentingProcesses));
 }
 
 void RemoteAudioSessionProxyManager::beginInterruptionRemote()

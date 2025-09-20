@@ -25,57 +25,210 @@
 
 #pragma once
 
+#import <wtf/Compiler.h>
+#import <wtf/Platform.h>
+
+DECLARE_SYSTEM_HEADER
+
 #if ENABLE(WRITING_TOOLS)
 
-#if USE(APPLE_INTERNAL_SDK)
+// FIXME: (rdar://149216417) Import WritingTools when using the internal SDK instead of using forward declarations.
 
-#import <WritingTools/WTSession_Private.h>
-#import <WritingTools/WritingTools.h>
+#import <Foundation/Foundation.h>
 
-#if PLATFORM(MAC)
+NS_ASSUME_NONNULL_BEGIN
 
-using PlatformWritingToolsBehavior = NSWritingToolsBehavior;
+@protocol BSXPCCoding;
+@protocol BSXPCSecureCoding;
 
-constexpr auto PlatformWritingToolsBehaviorNone = NSWritingToolsBehaviorNone;
-constexpr auto PlatformWritingToolsBehaviorDefault = NSWritingToolsBehaviorDefault;
-constexpr auto PlatformWritingToolsBehaviorLimited = NSWritingToolsBehaviorLimited;
-constexpr auto PlatformWritingToolsBehaviorComplete = NSWritingToolsBehaviorComplete;
+extern NSAttributedStringKey const WTWritingToolsPreservedAttributeName;
 
-// FIXME: (rdar://130540028) Remove uses of the old WritingToolsAllowedInputOptions API in favor of the new WritingToolsResultOptions API, and remove staging.
+typedef NS_ENUM(NSInteger, WTRequestedTool) {
+    WTRequestedToolIndex = 0,
 
-using PlatformWritingToolsResultOptions = NSUInteger;
+    WTRequestedToolProofread = 1,
+    WTRequestedToolRewrite = 2,
+    WTRequestedToolRewriteProofread = 3,
 
-constexpr auto PlatformWritingToolsResultPlainText = (PlatformWritingToolsResultOptions)(1 << 0);
-constexpr auto PlatformWritingToolsResultRichText = (PlatformWritingToolsResultOptions)(1 << 1);
-constexpr auto PlatformWritingToolsResultList = (PlatformWritingToolsResultOptions)(1 << 2);
-constexpr auto PlatformWritingToolsResultTable = (PlatformWritingToolsResultOptions)(1 << 3);
+    WTRequestedToolRewriteFriendly = 11,
+    WTRequestedToolRewriteProfessional = 12,
+    WTRequestedToolRewriteConcise = 13,
+    WTRequestedToolRewriteOpenEnded = 19,
 
+    WTRequestedToolTransformSummary = 21,
+    WTRequestedToolTransformKeyPoints = 22,
+    WTRequestedToolTransformList = 23,
+    WTRequestedToolTransformTable = 24,
+
+    WTRequestedToolSmartReply = 101,
+
+    WTRequestedToolCompose = 201,
+};
+
+// MARK: WTContext
+
+@protocol WTTextViewDelegate_Proposed_v1;
+@protocol WTTextViewDelegate;
+
+@interface WTContext : NSObject<NSSecureCoding, NSCopying>
+
+@property (nonatomic, readonly) NSUUID *uuid;
+
+@property (nonatomic, readonly) NSAttributedString *attributedText;
+
+@property (nonatomic) NSRange range;
+
+- (instancetype)initWithAttributedText:(NSAttributedString *)attributedText range:(NSRange)range;
+
+@end
+
+// MARK: WTSession
+
+typedef NS_ENUM(NSInteger, WTCompositionSessionType) {
+    WTCompositionSessionTypeNone,
+    WTCompositionSessionTypeMagic,
+    WTCompositionSessionTypeFriendly,
+    WTCompositionSessionTypeProfessional,
+    WTCompositionSessionTypeConcise,
+    WTCompositionSessionTypeOpenEnded,
+    WTCompositionSessionTypeSummary,
+    WTCompositionSessionTypeKeyPoints,
+    WTCompositionSessionTypeList,
+    WTCompositionSessionTypeTable,
+    WTCompositionSessionTypeCompose,
+    WTCompositionSessionTypeSmartReply,
+    WTCompositionSessionTypeProofread,
+};
+
+typedef NS_ENUM(NSInteger, WTSessionType) {
+    WTSessionTypeProofreading = 1,
+    WTSessionTypeComposition,
+};
+
+@interface WTSession : NSObject<BSXPCSecureCoding, NSSecureCoding>
+
+@property (nonatomic, readonly) NSUUID *uuid;
+@property (nonatomic, readonly) WTSessionType type;
+
+@property (nonatomic, weak) id<WTTextViewDelegate_Proposed_v1> textViewDelegate;
+
+- (instancetype)initWithType:(WTSessionType)type textViewDelegate:(id<WTTextViewDelegate> _Nullable)textViewDelegate;
+
+@end
+
+@interface WTSession (Private)
+
+@property (nonatomic) WTCompositionSessionType compositionSessionType;
+@property (nonatomic, readonly) WTRequestedTool requestedTool;
+
+@end
+
+// MARK: WTTextSuggestion
+
+typedef NS_ENUM(NSInteger, WTTextSuggestionState) {
+    WTTextSuggestionStatePending = 0,
+    WTTextSuggestionStateReviewing = 1,
+    WTTextSuggestionStateRejected = 3,
+    WTTextSuggestionStateInvalid = 4,
+
+    WTTextSuggestionStateAccepted = 2,
+};
+
+@interface WTTextSuggestion : NSObject<BSXPCCoding, NSSecureCoding>
+
+@property (nonatomic, readonly) NSUUID *uuid;
+
+@property (nonatomic, readonly) NSRange originalRange;
+
+@property (nonatomic, readonly) NSString *replacement;
+
+@property (nonatomic, nullable, readonly) NSString *suggestionCategory;
+@property (nonatomic, nullable, readonly) NSString *suggestionShortDescription;
+@property (nonatomic, nullable, readonly) NSString *suggestionDescription;
+
+@property (nonatomic) WTTextSuggestionState state;
+
+- (instancetype)init NS_UNAVAILABLE;
+
+- (instancetype)initWithOriginalRange:(NSRange)originalRange replacement:(NSString *)replacement suggestionCategory:(NSString * _Nullable)suggestionCategory suggestionDescription:(NSString * _Nullable)suggestionDescription NS_DESIGNATED_INITIALIZER;
+
+- (instancetype)initWithOriginalRange:(NSRange)originalRange replacement:(NSString *)replacement suggestionCategory:(NSString * _Nullable)suggestionCategory suggestionShortDescription:(NSString * _Nullable)suggestionShortDescription suggestionDescription:(NSString * _Nullable)suggestionDescription;
+
+- (instancetype)initWithOriginalRange:(NSRange)originalRange replacement:(NSString *)replacement;
+
+- (instancetype)initWithOriginalRange:(NSRange)originalRange replacement:(NSString *)replacement suggestionDescription:(NSString *)suggestionDescription;
+
+@end
+
+// MARK: WTTextViewDelegate
+
+#if PLATFORM(IOS_FAMILY)
+@class UIView;
 #else
-
-#import <UIKit/UIKit.h>
-
-using PlatformWritingToolsBehavior = UIWritingToolsBehavior;
-
-constexpr auto PlatformWritingToolsBehaviorNone = UIWritingToolsBehaviorNone;
-constexpr auto PlatformWritingToolsBehaviorDefault = UIWritingToolsBehaviorDefault;
-constexpr auto PlatformWritingToolsBehaviorLimited = UIWritingToolsBehaviorLimited;
-constexpr auto PlatformWritingToolsBehaviorComplete = UIWritingToolsBehaviorComplete;
-
-// FIXME: (rdar://130540028) Remove uses of the old WritingToolsAllowedInputOptions API in favor of the new WritingToolsResultOptions API, and remove staging.
-
-using PlatformWritingToolsResultOptions = NSUInteger;
-
-constexpr auto PlatformWritingToolsResultPlainText = (PlatformWritingToolsResultOptions)(1 << 0);
-constexpr auto PlatformWritingToolsResultRichText = (PlatformWritingToolsResultOptions)(1 << 1);
-constexpr auto PlatformWritingToolsResultList = (PlatformWritingToolsResultOptions)(1 << 2);
-constexpr auto PlatformWritingToolsResultTable = (PlatformWritingToolsResultOptions)(1 << 3);
-
+@class NSView;
 #endif
 
+@protocol WTTextViewDelegate_Proposed_v1
+
+- (void)proofreadingSessionWithUUID:(NSUUID *)sessionUUID updateState:(WTTextSuggestionState)state forSuggestionWithUUID:(NSUUID *)suggestionUUID;
+
+#if PLATFORM(IOS_FAMILY)
+- (void)proofreadingSessionWithUUID:(NSUUID *)sessionUUID showDetailsForSuggestionWithUUID:(NSUUID *)suggestionUUID relativeToRect:(CGRect)rect inView:(UIView *)sourceView;
 #else
+- (void)proofreadingSessionWithUUID:(NSUUID *)sessionUUID showDetailsForSuggestionWithUUID:(NSUUID *)suggestionUUID relativeToRect:(NSRect)rect inView:(NSView *)sourceView;
+#endif
 
-#error Symbols must be forward declared once used with non-internal SDKS.
+- (void)textSystemWillBeginEditingDuringSessionWithUUID:(NSUUID *)sessionUUID;
 
-#endif // USE(APPLE_INTERNAL_SDK)
+@end
+
+@protocol WTTextViewDelegate <WTTextViewDelegate_Proposed_v1>
+
+@end
+
+// MARK: WTWritingToolsDelegate
+
+@protocol WTWritingToolsDelegate_Proposed_v3
+
+- (void)willBeginWritingToolsSession:(nullable WTSession *)session requestContexts:(void (^)(NSArray<WTContext *> *contexts))completion;
+
+- (void)didBeginWritingToolsSession:(WTSession *)session contexts:(NSArray<WTContext *> *)contexts;
+
+typedef NS_ENUM(NSInteger, WTAction) {
+    WTActionShowOriginal = 1,
+    WTActionShowRewritten,
+    WTActionCompositionRestart,
+    WTActionCompositionRefine,
+};
+
+typedef NS_ENUM(NSInteger, WTFormSheetUIType) {
+    WTFormSheetUITypeUnspecified,
+    WTFormSheetUITypeEnrollment,
+    WTFormSheetUITypeShareSheet,
+};
+
+- (void)writingToolsSession:(WTSession *)session didReceiveAction:(WTAction)action;
+
+- (void)didEndWritingToolsSession:(WTSession *)session accepted:(BOOL)accepted;
+
+- (void)proofreadingSession:(WTSession *)session didReceiveSuggestions:(NSArray<WTTextSuggestion *> *)suggestions processedRange:(NSRange)range inContext:(WTContext *)context finished:(BOOL)finished;
+
+- (void)proofreadingSession:(WTSession *)session didUpdateState:(WTTextSuggestionState)state forSuggestionWithUUID:(NSUUID *)uuid inContext:(WTContext *)context;
+
+- (void)compositionSession:(WTSession *)session didReceiveText:(NSAttributedString *)attributedText replacementRange:(NSRange)range inContext:(WTContext *)context finished:(BOOL)finished;
+
+@optional
+
+- (BOOL)supportsWritingToolsAction:(WTAction)action;
+
+@property (readonly, nonatomic) BOOL includesTextListMarkers;
+
+@end
+
+@protocol WTWritingToolsDelegate <WTWritingToolsDelegate_Proposed_v3>
+
+@end
+
+NS_ASSUME_NONNULL_END
 
 #endif // ENABLE(WRITING_TOOLS)

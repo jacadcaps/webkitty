@@ -190,6 +190,8 @@ DEF_TEST(Fontations_TableTags, reporter) {
     SkFourByteTag firstTag = SkSetFourByteTag('O', 'S', '/', '2');
     SkFourByteTag lastTag = SkSetFourByteTag('p', 'o', 's', 't');
 
+    // Keep these in the old ptr style (not readTableTags) until we're sure
+    // we've tested that adaptor through chrome (e.g. on 32bit machines)
     REPORTER_ASSERT(reporter, testTypeface->getTableTags(nullptr) == kNumTags);
 
     REPORTER_ASSERT(reporter, testTypeface->getTableTags(tagsBuffer) == kNumTags);
@@ -292,7 +294,7 @@ DEF_TEST(Fontations_SyntheticCapHeight, reporter) {
     REPORTER_ASSERT(reporter, metrics.fCapHeight == kHCharHeight);
 
     capHeightFontNoHx.getMetrics(&metrics);
-    unsigned glyphId = noCapHeightNoHxTypeface->unicharToGlyph('H');
+    SkGlyphID glyphId = noCapHeightNoHxTypeface->unicharToGlyph('H');
     REPORTER_ASSERT(reporter, glyphId == 0, "Glyph lookup for H should fail, but was: %u", glyphId);
 
     const SkScalar kExpected = 11.138672;
@@ -324,7 +326,7 @@ DEF_TEST(Fontations_SyntheticXHeight, reporter) {
                     metrics.fXHeight);
 
     xHeightFontNoHx.getMetrics(&metrics);
-    unsigned glyphId = noXHeightNoHxTypeface->unicharToGlyph('x');
+    SkGlyphID glyphId = noXHeightNoHxTypeface->unicharToGlyph('x');
     REPORTER_ASSERT(reporter, glyphId == 0, "Glyph lookup for x should fail, but was: %u", glyphId);
 
     // xHeight falls back to ascent as well.

@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,18 +36,11 @@
 
 namespace WebCore {
 
-String AccessibilityObject::speechHintAttributeValue() const
+OptionSet<SpeakAs> AccessibilityObject::speakAs() const
 {
-    auto speak = speakAsProperty();
-    NSMutableArray<NSString *> *hints = [NSMutableArray array];
-    [hints addObject:(speak & SpeakAs::SpellOut) ? @"spell-out" : @"normal"];
-    if (speak & SpeakAs::Digits)
-        [hints addObject:@"digits"];
-    if (speak & SpeakAs::LiteralPunctuation)
-        [hints addObject:@"literal-punctuation"];
-    if (speak & SpeakAs::NoPunctuation)
-        [hints addObject:@"no-punctuation"];
-    return [hints componentsJoinedByString:@" "];
+    if (auto* style = this->style())
+        return style->speakAs();
+    return { };
 }
 
 FloatPoint AccessibilityObject::screenRelativePosition() const
@@ -73,6 +67,17 @@ AXTextMarkerRange AccessibilityObject::textMarkerRangeForNSRange(const NSRange& 
         return cache->rangeForUnorderedCharacterOffsets(start, end);
     }
     return { };
+}
+
+std::optional<NSRange> AccessibilityObject::visibleCharacterRange() const
+{
+    std::optional range = simpleRange();
+    if (!range)
+        return std::nullopt;
+
+    auto contentRect = unobscuredContentRect();
+    auto elementRect = snappedIntRect(this->elementRect());
+    return makeNSRange(visibleCharacterRangeInternal(*range, contentRect, elementRect));
 }
 
 // NSAttributedString support.
@@ -127,22 +132,22 @@ RetainPtr<NSArray> AccessibilityObject::contentForRange(const SimpleRange& range
     // Iterate over the range to build the AX attributed strings.
     TextIterator it = textIteratorIgnoringFullSizeKana(range);
     for (; !it.atEnd(); it.advance()) {
-        Node& node = it.range().start.container;
+        Ref node = it.range().start.container;
 
         // Non-zero length means textual node, zero length means replaced node (AKA "attachments" in AX).
         if (it.text().length()) {
-            auto listMarkerText = listMarkerTextForNodeAndPosition(&node, makeContainerOffsetPosition(it.range().start));
+            auto listMarkerText = listMarkerTextForNodeAndPosition(node.ptr(), makeContainerOffsetPosition(it.range().start));
             if (!listMarkerText.isEmpty()) {
-                if (auto attrString = attributedStringCreate(node, listMarkerText, it.range(), SpellCheck::No))
+                if (auto attrString = attributedStringCreate(node.get(), listMarkerText, it.range(), SpellCheck::No))
                     [result addObject:attrString.get()];
             }
 
-            if (auto attrString = attributedStringCreate(node, it.text(), it.range(), spellCheck))
+            if (auto attrString = attributedStringCreate(node.get(), it.text(), it.range(), spellCheck))
                 [result addObject:attrString.get()];
         } else {
             if (RefPtr replacedNode = it.node()) {
                 auto* cache = axObjectCache();
-                if (auto* object = cache ? cache->getOrCreate(replacedNode->renderer()) : nullptr)
+                if (RefPtr object = cache ? cache->getOrCreate(replacedNode->renderer()) : nullptr)
                     addObjectWrapperToArray(*object, result.get());
             }
         }
@@ -203,6 +208,15 @@ RetainPtr<CTFontRef> AccessibilityObject::font() const
     return style ? fontFrom(*style) : nil;
 }
 
+#if ENABLE(AX_THREAD_TEXT_APIS)
+FontOrientation AccessibilityObject::fontOrientation() const
+{
+    if (CheckedPtr style = this->style())
+        return const_cast<RenderStyle*>(style.get())->fontAndGlyphOrientation().first;
+    return FontOrientation::Horizontal;
+}
+#endif
+
 Color AccessibilityObject::textColor() const
 {
     const auto* style = this->style();
@@ -218,19 +232,19 @@ Color AccessibilityObject::backgroundColor() const
 bool AccessibilityObject::isSubscript() const
 {
     const auto* style = this->style();
-    return style && style->verticalAlign() == VerticalAlign::Sub;
+    return style && WTF::holdsAlternative<CSS::Keyword::Sub>(style->verticalAlign());
 }
 
 bool AccessibilityObject::isSuperscript() const
 {
     const auto* style = this->style();
-    return style && style->verticalAlign() == VerticalAlign::Super;
+    return style && WTF::holdsAlternative<CSS::Keyword::Super>(style->verticalAlign());
 }
 
 bool AccessibilityObject::hasTextShadow() const
 {
     const auto* style = this->style();
-    return style && style->textShadow();
+    return style && style->hasTextShadow();
 }
 
 LineDecorationStyle AccessibilityObject::lineDecorationStyle() const
@@ -245,14 +259,14 @@ AttributedStringStyle AccessibilityObject::stylesForAttributedString() const
     if (!style)
         return { };
 
-    auto alignment = style->verticalAlign();
+    auto& alignment = style->verticalAlign();
     return {
         fontFrom(*style),
         textColorFrom(*style),
         backgroundColorFrom(*style),
-        alignment == VerticalAlign::Sub,
-        alignment == VerticalAlign::Super,
-        !!style->textShadow(),
+        WTF::holdsAlternative<CSS::Keyword::Sub>(alignment),
+        WTF::holdsAlternative<CSS::Keyword::Super>(alignment),
+        style->hasTextShadow(),
         lineDecorationStyle()
     };
 }

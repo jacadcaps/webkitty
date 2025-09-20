@@ -34,6 +34,7 @@
 #import "WKBrowserEngineDefinitions.h"
 #import "WKContentViewInteraction.h"
 #import "WKDeferringGestureRecognizer.h"
+#import "WKUIScrollEdgeEffect.h"
 #import "WKWebViewIOS.h"
 #import "WebPage.h"
 #import <pal/spi/cg/CoreGraphicsSPI.h>
@@ -153,6 +154,11 @@ static BOOL shouldForwardScrollViewDelegateMethodToExternalDelegate(SEL selector
     std::optional<UIEdgeInsets> _contentScrollInsetInternal;
 #if ENABLE(OVERLAY_REGIONS_IN_EVENT_REGION)
     Vector<CGRect> _overlayRegions;
+#endif
+#if HAVE(LIQUID_GLASS)
+    WebCore::RectEdges<RetainPtr<WKUIScrollEdgeEffect>> _edgeEffectWrappers;
+    RetainPtr<UIColor> _topPocketColorSetInternally;
+    RetainPtr<UIColor> _topPocketColorSetByClient;
 #endif
 }
 
@@ -577,6 +583,116 @@ static inline bool valuesAreWithinOnePixel(CGFloat a, CGFloat b)
 }
 
 #endif // HAVE(PEPPER_UI_CORE)
+
+#if HAVE(LIQUID_GLASS)
+
+- (UIScrollEdgeEffect *)topEdgeEffect
+{
+    return static_cast<UIScrollEdgeEffect *>(self._wk_topEdgeEffect);
+}
+
+- (UIScrollEdgeEffect *)leftEdgeEffect
+{
+    return static_cast<UIScrollEdgeEffect *>(self._wk_leftEdgeEffect);
+}
+
+- (UIScrollEdgeEffect *)bottomEdgeEffect
+{
+    return static_cast<UIScrollEdgeEffect *>(self._wk_bottomEdgeEffect);
+}
+
+- (UIScrollEdgeEffect *)rightEdgeEffect
+{
+    return static_cast<UIScrollEdgeEffect *>(self._wk_rightEdgeEffect);
+}
+
+- (WKUIScrollEdgeEffect *)_wk_topEdgeEffect
+{
+    RetainPtr wrapper = _edgeEffectWrappers.at(WebCore::BoxSide::Top);
+    if (!wrapper) {
+        RetainPtr originalEffect = [super topEdgeEffect];
+        if (!originalEffect)
+            return nil;
+
+        wrapper = adoptNS([[WKUIScrollEdgeEffect alloc] initWithScrollEdgeEffect:originalEffect.get() boxSide:WebCore::BoxSide::Top]);
+        _edgeEffectWrappers.setAt(WebCore::BoxSide::Top, wrapper);
+    }
+    return wrapper.get();
+}
+
+- (WKUIScrollEdgeEffect *)_wk_leftEdgeEffect
+{
+    RetainPtr wrapper = _edgeEffectWrappers.at(WebCore::BoxSide::Left);
+    if (!wrapper) {
+        RetainPtr originalEffect = [super leftEdgeEffect];
+        if (!originalEffect)
+            return nil;
+
+        wrapper = adoptNS([[WKUIScrollEdgeEffect alloc] initWithScrollEdgeEffect:originalEffect.get() boxSide:WebCore::BoxSide::Left]);
+        _edgeEffectWrappers.setAt(WebCore::BoxSide::Left, wrapper);
+    }
+    return wrapper.get();
+}
+
+- (WKUIScrollEdgeEffect *)_wk_rightEdgeEffect
+{
+    RetainPtr wrapper = _edgeEffectWrappers.at(WebCore::BoxSide::Right);
+    if (!wrapper) {
+        RetainPtr originalEffect = [super rightEdgeEffect];
+        if (!originalEffect)
+            return nil;
+
+        wrapper = adoptNS([[WKUIScrollEdgeEffect alloc] initWithScrollEdgeEffect:originalEffect.get() boxSide:WebCore::BoxSide::Right]);
+        _edgeEffectWrappers.setAt(WebCore::BoxSide::Right, wrapper);
+    }
+    return wrapper.get();
+}
+
+- (WKUIScrollEdgeEffect *)_wk_bottomEdgeEffect
+{
+    RetainPtr wrapper = _edgeEffectWrappers.at(WebCore::BoxSide::Bottom);
+    if (!wrapper) {
+        RetainPtr originalEffect = [super bottomEdgeEffect];
+        if (!originalEffect)
+            return nil;
+
+        wrapper = adoptNS([[WKUIScrollEdgeEffect alloc] initWithScrollEdgeEffect:originalEffect.get() boxSide:WebCore::BoxSide::Bottom]);
+        _edgeEffectWrappers.setAt(WebCore::BoxSide::Bottom, wrapper);
+    }
+    return wrapper.get();
+}
+
+- (void)_setInternalTopPocketColor:(UIColor *)color
+{
+    _topPocketColorSetInternally = color;
+
+    [self _updateTopPocketColor];
+}
+
+- (void)_setPocketColor:(UIColor *)color forEdge:(UIRectEdge)edge
+{
+    if (edge != UIRectEdgeTop) {
+        [super _setPocketColor:color forEdge:edge];
+        return;
+    }
+
+    _topPocketColorSetByClient = color;
+
+    [self _updateTopPocketColor];
+}
+
+- (void)_updateTopPocketColor
+{
+    RetainPtr colorToSet = _topPocketColorSetByClient ?: _topPocketColorSetInternally;
+    [super _setPocketColor:colorToSet.get() forEdge:UIRectEdgeTop];
+}
+
+- (BOOL)_usesHardTopScrollEdgeEffect
+{
+    return [[self _wk_topEdgeEffect] usesHardStyle];
+}
+
+#endif // HAVE(LIQUID_GLASS)
 
 @end
 

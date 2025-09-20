@@ -157,7 +157,7 @@ bool ScrollingEffectsController::handleWheelEvent(const PlatformWheelEvent& whee
         return true;
     }
 
-    bool isMomentumScrollEvent = (wheelEvent.momentumPhase() != PlatformWheelEventPhase::None);
+    bool isMomentumScrollEvent = wheelEvent.isMomentumEvent();
     if (m_ignoreMomentumScrolls && (isMomentumScrollEvent || m_isAnimatingRubberBand)) {
         if (wheelEvent.momentumPhase() == PlatformWheelEventPhase::Ended) {
             m_ignoreMomentumScrolls = false;
@@ -532,6 +532,7 @@ enum class WheelEventStatus {
     UserScrollBegin,
     UserScrolling,
     UserScrollEnd,
+    MomentumScrollWillBegin,
     MomentumScrollBegin,
     MomentumScrolling,
     MomentumScrollEnd,
@@ -555,11 +556,14 @@ static inline WheelEventStatus toWheelEventStatus(PlatformWheelEventPhase phase,
         case PlatformWheelEventPhase::None:
             return WheelEventStatus::DiscreteScrollEvent;
 
+        case PlatformWheelEventPhase::WillBegin:
+            return WheelEventStatus::MomentumScrollWillBegin;
+
         default:
             return WheelEventStatus::Unknown;
         }
     }
-    if (momentumPhase == PlatformWheelEventPhase::None) {
+    if (momentumPhase == PlatformWheelEventPhase::None || momentumPhase == PlatformWheelEventPhase::WillBegin) {
         switch (phase) {
         case PlatformWheelEventPhase::Began:
         case PlatformWheelEventPhase::MayBegin:
@@ -571,7 +575,8 @@ static inline WheelEventStatus toWheelEventStatus(PlatformWheelEventPhase phase,
         case PlatformWheelEventPhase::Ended:
         case PlatformWheelEventPhase::Cancelled:
             return WheelEventStatus::UserScrollEnd;
-                
+        case PlatformWheelEventPhase::WillBegin:
+            return WheelEventStatus::MomentumScrollWillBegin;
         default:
             return WheelEventStatus::Unknown;
         }
@@ -583,14 +588,15 @@ static inline WheelEventStatus toWheelEventStatus(PlatformWheelEventPhase phase,
 static TextStream& operator<<(TextStream& ts, WheelEventStatus status)
 {
     switch (status) {
-    case WheelEventStatus::UserScrollBegin: ts << "UserScrollBegin"; break;
-    case WheelEventStatus::UserScrolling: ts << "UserScrolling"; break;
-    case WheelEventStatus::UserScrollEnd: ts << "UserScrollEnd"; break;
-    case WheelEventStatus::MomentumScrollBegin: ts << "MomentumScrollBegin"; break;
-    case WheelEventStatus::MomentumScrolling: ts << "MomentumScrolling"; break;
-    case WheelEventStatus::MomentumScrollEnd: ts << "MomentumScrollEnd"; break;
-    case WheelEventStatus::DiscreteScrollEvent: ts << "DiscreteScrollEvent"; break;
-    case WheelEventStatus::Unknown: ts << "Unknown"; break;
+    case WheelEventStatus::UserScrollBegin: ts << "UserScrollBegin"_s; break;
+    case WheelEventStatus::UserScrolling: ts << "UserScrolling"_s; break;
+    case WheelEventStatus::UserScrollEnd: ts << "UserScrollEnd"_s; break;
+    case WheelEventStatus::MomentumScrollWillBegin: ts << "MomentumScrollWillBegin"_s; break;
+    case WheelEventStatus::MomentumScrollBegin: ts << "MomentumScrollBegin"_s; break;
+    case WheelEventStatus::MomentumScrolling: ts << "MomentumScrolling"_s; break;
+    case WheelEventStatus::MomentumScrollEnd: ts << "MomentumScrollEnd"_s; break;
+    case WheelEventStatus::DiscreteScrollEvent: ts << "DiscreteScrollEvent"_s; break;
+    case WheelEventStatus::Unknown: ts << "Unknown"_s; break;
     }
     return ts;
 }
@@ -700,6 +706,8 @@ bool ScrollingEffectsController::processWheelEventForScrollSnap(const PlatformWh
     case WheelEventStatus::DiscreteScrollEvent:
         m_scrollSnapState->transitionToUserInteractionState();
         scheduleDiscreteScrollSnap(wheelEvent.delta());
+        break;
+    case WheelEventStatus::MomentumScrollWillBegin:
         break;
     case WheelEventStatus::Unknown:
         ASSERT_NOT_REACHED();

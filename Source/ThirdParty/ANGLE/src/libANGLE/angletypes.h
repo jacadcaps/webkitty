@@ -108,6 +108,7 @@ enum class Command
     Invalidate,
     ReadPixels,
     TexImage,
+    GetMultisample,
     Other,
 };
 
@@ -116,6 +117,8 @@ enum CommandBlitBuffer
     CommandBlitBufferColor   = 0x1,
     CommandBlitBufferDepth   = 0x2,
     CommandBlitBufferStencil = 0x4,
+
+    CommandBlitBufferDepthStencil = CommandBlitBufferDepth | CommandBlitBufferStencil,
 };
 
 enum class InitState
@@ -538,18 +541,37 @@ struct PixelPackState : PixelStoreStateBase
     bool reverseRowOrder = false;
 };
 
-// Used in VertexArray.
-using VertexArrayBufferBindingMask = angle::BitSet<MAX_VERTEX_ATTRIB_BINDINGS>;
+// Used in VertexArray. For ease of tracking, we add vertex array element buffer to the end of
+// vertex array buffer bindings.
+constexpr uint32_t kElementArrayBufferIndex = MAX_VERTEX_ATTRIB_BINDINGS;
+using VertexArrayBufferBindingMask          = angle::BitSet<kElementArrayBufferIndex + 1>;
 
 // Used in Program and VertexArray.
 using AttributesMask = angle::BitSet<MAX_VERTEX_ATTRIBS>;
 
 // Used in Program
-using ProgramUniformBlockMask = angle::BitSet<IMPLEMENTATION_MAX_COMBINED_SHADER_UNIFORM_BUFFERS>;
+static_assert(IMPLEMENTATION_MAX_SHADER_STORAGE_BUFFER_BINDINGS >
+                  IMPLEMENTATION_MAX_COMBINED_SHADER_UNIFORM_BUFFERS,
+              "maxCombinedShaderStorageBlocks must be greater than maxCombinedUniformBlocks");
+using ProgramBufferBlockMask  = angle::BitSet<IMPLEMENTATION_MAX_SHADER_STORAGE_BUFFER_BINDINGS>;
+using ProgramUniformBlockMask = ProgramBufferBlockMask;
+using ProgramStorageBlockMask = ProgramBufferBlockMask;
 template <typename T>
 using ProgramUniformBlockArray = std::array<T, IMPLEMENTATION_MAX_COMBINED_SHADER_UNIFORM_BUFFERS>;
 template <typename T>
 using UniformBufferBindingArray = std::array<T, IMPLEMENTATION_MAX_UNIFORM_BUFFER_BINDINGS>;
+
+// Fine grained dirty type for buffers updates.
+enum class BufferDirtyType
+{
+    Binding,
+    Offset,
+    Size,
+
+    InvalidEnum,
+    EnumCount = InvalidEnum,
+};
+using BufferDirtyTypeBitMask = angle::PackedEnumBitSet<BufferDirtyType>;
 
 // Used in Framebuffer / Program
 using DrawBufferMask = angle::BitSet8<IMPLEMENTATION_MAX_DRAW_BUFFERS>;
@@ -700,6 +722,8 @@ class BlendStateExt final
     void setEnabledIndexed(const size_t index, const bool enabled);
 
     ///////// Color Write Mask /////////
+
+    constexpr static uint8_t kColorMaskRGBA = 0xf;
 
     static constexpr size_t PackColorMask(const bool red,
                                           const bool green,
@@ -992,10 +1016,10 @@ ANGLE_INLINE DrawBufferMask GetComponentTypeMaskDiff(ComponentTypeMask mask1,
     return DrawBufferMask(static_cast<uint8_t>(diff | (diff >> gl::kMaxComponentTypeMaskIndex)));
 }
 
-bool ValidateComponentTypeMasks(unsigned long outputTypes,
-                                unsigned long inputTypes,
-                                unsigned long outputMask,
-                                unsigned long inputMask);
+bool ValidateComponentTypeMasks(uint64_t outputTypes,
+                                uint64_t inputTypes,
+                                uint64_t outputMask,
+                                uint64_t inputMask);
 
 // Helpers for performing WebGL 2.0 clear validation
 // Extracted component type has always one of these four values:
@@ -1274,6 +1298,7 @@ enum class NativeWindowSystem
     X11,
     Wayland,
     Gbm,
+    NullCompute,
     Other,
 };
 
@@ -1551,6 +1576,14 @@ class FoveationState
     static constexpr size_t kMaxFocalPoints =
         IMPLEMENTATION_MAX_NUM_LAYERS * IMPLEMENTATION_MAX_FOCAL_POINTS;
     std::array<FocalPoint, kMaxFocalPoints> mFocalPoints;
+};
+
+enum class BufferStorage : bool
+{
+    // The buffer storage is mutable
+    Mutable,
+    // The buffer storage is immutable
+    Immutable,
 };
 
 }  // namespace gl

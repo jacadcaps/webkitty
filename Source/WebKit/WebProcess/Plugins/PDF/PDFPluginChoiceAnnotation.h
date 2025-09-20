@@ -25,7 +25,7 @@
 
 #pragma once
 
-#if ENABLE(PDF_PLUGIN) && PLATFORM(MAC)
+#if ENABLE(PDF_PLUGIN)
 
 #include "PDFPluginAnnotation.h"
 
@@ -36,7 +36,7 @@ class Element;
 namespace WebKit {
 
 class PDFPluginChoiceAnnotation : public PDFPluginAnnotation {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(PDFPluginChoiceAnnotation);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(PDFPluginChoiceAnnotation);
 public:
     static Ref<PDFPluginChoiceAnnotation> create(PDFAnnotation *, PDFPluginBase*);
@@ -55,4 +55,4 @@ private:
 
 } // namespace WebKit
 
-#endif // ENABLE(PDF_PLUGIN) && PLATFORM(MAC)
+#endif // ENABLE(PDF_PLUGIN)

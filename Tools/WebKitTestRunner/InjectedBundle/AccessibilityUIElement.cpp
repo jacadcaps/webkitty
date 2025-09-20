@@ -125,6 +125,8 @@ RefPtr<AccessibilityTextMarkerRange> AccessibilityUIElement::textMarkerRangeForR
 RefPtr<AccessibilityTextMarkerRange> AccessibilityUIElement::selectedTextMarkerRange() { return nullptr; }
 void AccessibilityUIElement::resetSelectedTextMarkerRange() { }
 RefPtr<AccessibilityTextMarkerRange> AccessibilityUIElement::textInputMarkedTextMarkerRange() const { return nullptr; }
+JSRetainPtr<JSStringRef> AccessibilityUIElement::textMarkerDebugDescription(AccessibilityTextMarker*) { return nullptr; }
+JSRetainPtr<JSStringRef> AccessibilityUIElement::textMarkerRangeDebugDescription(AccessibilityTextMarkerRange*) { return nullptr; }
 void AccessibilityUIElement::setBoolAttributeValue(JSStringRef, bool) { }
 void AccessibilityUIElement::setValue(JSStringRef) { }
 JSValueRef AccessibilityUIElement::searchTextWithCriteria(JSContextRef, JSValueRef, JSStringRef, JSStringRef) { return nullptr; }
@@ -148,8 +150,6 @@ JSRetainPtr<JSStringRef> AccessibilityUIElement::customContent() const { return 
 JSRetainPtr<JSStringRef> AccessibilityUIElement::brailleLabel() const { return nullptr; }
 JSRetainPtr<JSStringRef> AccessibilityUIElement::brailleRoleDescription() const { return nullptr; }
 
-bool AccessibilityUIElement::hasDocumentRoleAncestor() const { return false; }
-bool AccessibilityUIElement::hasWebApplicationAncestor() const { return false; }
 bool AccessibilityUIElement::isInDescriptionListDetail() const { return false; }
 bool AccessibilityUIElement::isInDescriptionListTerm() const { return false; }
 bool AccessibilityUIElement::isInCell() const { return false; }
@@ -168,7 +168,7 @@ RefPtr<AccessibilityTextMarker> AccessibilityUIElement::nextSentenceEndTextMarke
 RefPtr<AccessibilityTextMarker> AccessibilityUIElement::previousSentenceStartTextMarkerForTextMarker(AccessibilityTextMarker*) { return nullptr; }
 RefPtr<AccessibilityTextMarkerRange> AccessibilityUIElement::textMarkerRangeForSearchPredicate(JSContextRef, AccessibilityTextMarkerRange*, bool, JSValueRef, JSStringRef, bool, bool) { return nullptr; }
 RefPtr<AccessibilityTextMarkerRange> AccessibilityUIElement::misspellingTextMarkerRange(AccessibilityTextMarkerRange*, bool) { return nullptr; }
-void AccessibilityUIElement::dismiss() { }
+bool AccessibilityUIElement::dismiss() { return false; }
 JSValueRef AccessibilityUIElement::children(JSContextRef) { return { }; }
 JSValueRef AccessibilityUIElement::imageOverlayElements(JSContextRef) { return { }; }
 JSRetainPtr<JSStringRef> AccessibilityUIElement::embeddedImageDescription() const { return nullptr; }

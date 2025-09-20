@@ -50,12 +50,8 @@ typedef NSWindow *PlatformWindow;
 typedef WKViewRef PlatformWKView;
 typedef GtkWidget *PlatformWindow;
 #elif PLATFORM(WPE)
-namespace WPEToolingBackends {
-class HeadlessViewBackend;
-}
-struct wpe_view_backend;
 typedef WKViewRef PlatformWKView;
-typedef WPEToolingBackends::HeadlessViewBackend *PlatformWindow;
+typedef void* PlatformWindow;
 #elif PLATFORM(WIN)
 typedef WKViewRef PlatformWKView;
 typedef HWND PlatformWindow;
@@ -68,7 +64,7 @@ typedef uint32_t WKEventModifiers;
 namespace TestWebKitAPI {
 
 class PlatformWebView {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(PlatformWebView);
     WTF_MAKE_NONCOPYABLE(PlatformWebView);
 public:
     explicit PlatformWebView(WKPageConfigurationRef);

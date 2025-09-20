@@ -28,9 +28,9 @@
 #if USE(SYSTEM_PREVIEW)
 
 #include "ProcessThrottler.h"
-#include <WebCore/FrameLoaderTypes.h>
 #include <WebCore/IntRect.h>
 #include <WebCore/ResourceError.h>
+#include <WebCore/SystemPreviewInfo.h>
 #include <wtf/BlockPtr.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/RetainPtr.h>
@@ -74,7 +74,7 @@ public:
 
     void triggerSystemPreviewAction();
 
-    void triggerSystemPreviewActionWithTargetForTesting(uint64_t elementID, NSString* documentID, uint64_t pageID);
+    void triggerSystemPreviewActionWithTargetForTesting(uint64_t nodeID, NSString* documentID, uint64_t pageID);
     void setCompletionHandlerForLoadTesting(CompletionHandler<void(bool)>&&);
 
 private:

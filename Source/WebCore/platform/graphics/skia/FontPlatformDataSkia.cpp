@@ -57,7 +57,7 @@ FontPlatformData::FontPlatformData(float size, FontOrientation&& orientation, Fo
     platformDataInit();
 }
 
-static bool skiaTypefaceHasAnySupportedColorTable(const SkTypeface& typeface)
+bool FontPlatformData::skiaTypefaceHasAnySupportedColorTable(const SkTypeface& typeface)
 {
     const int tablesCount = typeface.countTables();
     if (!tablesCount)
@@ -211,7 +211,7 @@ RefPtr<SharedBuffer> FontPlatformData::openTypeTable(uint32_t table) const
         return nullptr;
 
     Vector<uint8_t> data(tableSize);
-    if (typeface->getTableData(tag, 0, tableSize, data.data()) != tableSize)
+    if (typeface->getTableData(tag, 0, tableSize, data.mutableSpan().data()) != tableSize)
         return nullptr;
 
     return SharedBuffer::create(WTFMove(data));
@@ -224,7 +224,7 @@ FontPlatformData FontPlatformData::create(const Attributes& data, const FontCust
         sk_sp<SkTypeface> typeface = custom->m_typeface;
         return { WTFMove(typeface), data.m_size, data.m_syntheticBold, data.m_syntheticOblique, data.m_orientation, data.m_widthVariant, data.m_textRenderingMode, WTFMove(features), custom };
     }
-    sk_sp<SkTypeface> typeface = FontCache::forCurrentThread().fontManager().matchFamilyStyle(data.m_familyName.c_str(), data.m_style);
+    sk_sp<SkTypeface> typeface = FontCache::forCurrentThread()->fontManager().matchFamilyStyle(data.m_familyName.c_str(), data.m_style);
     return { WTFMove(typeface), data.m_size, data.m_syntheticBold, data.m_syntheticOblique, data.m_orientation, data.m_widthVariant, data.m_textRenderingMode, WTFMove(features) };
 }
 

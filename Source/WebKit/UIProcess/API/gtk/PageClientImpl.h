@@ -1,7 +1,7 @@
 
 /*
- * Copyright (C) 2010-2024 Apple Inc. All rights reserved.
- * Portions Copyright (c) 2010 Motorola Mobility, Inc.  All rights reserved.
+ * Copyright (C) 2010-2025 Apple Inc. All rights reserved.
+ * Portions Copyright (c) 2010 Motorola Mobility, Inc. All rights reserved.
  * Copyright (C) 2011 Igalia S.L.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -73,7 +73,7 @@ private:
     WebCore::IntSize viewSize() override;
     bool isViewWindowActive() override;
     bool isViewFocused() override;
-    bool isViewVisible() override;
+    bool isActiveViewVisible() override;
     bool isViewInWindow() override;
     void processWillSwap() override;
     void processDidExit() override;
@@ -102,7 +102,7 @@ private:
     RefPtr<WebColorPicker> createColorPicker(WebPageProxy&, const WebCore::Color& initialColor, const WebCore::IntRect&, ColorControlSupportsAlpha, Vector<WebCore::Color>&&) override;
     RefPtr<WebDateTimePicker> createDateTimePicker(WebPageProxy&) override;
     RefPtr<WebDataListSuggestionsDropdown> createDataListSuggestionsDropdown(WebPageProxy&) override;
-    Ref<WebCore::ValidationBubble> createValidationBubble(const String& message, const WebCore::ValidationBubble::Settings&) final;
+    Ref<WebCore::ValidationBubble> createValidationBubble(String&& message, const WebCore::ValidationBubble::Settings&) final;
     void selectionDidChange() override;
     RefPtr<ViewSnapshot> takeViewSnapshot(std::optional<WebCore::IntRect>&&) override;
 #if ENABLE(DRAG_SUPPORT)
@@ -148,12 +148,13 @@ private:
     void didRemoveNavigationGestureSnapshot() override;
 
 #if ENABLE(TOUCH_EVENTS)
-    void doneWithTouchEvent(const NativeWebTouchEvent&, bool wasEventHandled) override;
+    void doneWithTouchEvent(const WebTouchEvent&, bool wasEventHandled) override;
 #endif
 
     void wheelEventWasNotHandledByWebCore(const NativeWebWheelEvent&) override;
 
     void didChangeBackgroundColor() override;
+    void themeColorDidChange() override;
 
     void refView() override;
     void derefView() override;

@@ -37,6 +37,7 @@
 #import <CoreText/CoreText.h>
 #import <QuartzCore/CALayer.h>
 #import <QuartzCore/CATransaction.h>
+#import <numbers>
 #import <wtf/MainThread.h>
 #import <wtf/MathExtras.h>
 #import <wtf/MemoryFootprint.h>
@@ -124,7 +125,7 @@ private:
 static RetainPtr<CGColorRef> createColor(float r, float g, float b, float a)
 {
     CGFloat components[4] = { r, g, b, a };
-    return adoptCF(CGColorCreate(sRGBColorSpaceRef(), components));
+    return adoptCF(CGColorCreate(sRGBColorSpaceSingleton(), components));
 }
 
 struct HistoricMemoryCategoryInfo {
@@ -148,7 +149,7 @@ struct HistoricMemoryCategoryInfo {
 };
 
 struct HistoricResourceUsageData {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(HistoricResourceUsageData);
     HistoricResourceUsageData();
 
     RingBuffer<float> cpu;
@@ -221,9 +222,9 @@ static void appendDataToHistory(const ResourceUsageData& data)
 
 void ResourceUsageOverlay::platformInitialize()
 {
-    m_layer = adoptNS([[WebResourceUsageOverlayLayer alloc] initWithResourceUsageOverlay:this]);
+    lazyInitialize(m_layer, adoptNS([[WebResourceUsageOverlayLayer alloc] initWithResourceUsageOverlay:this]));
 
-    m_containerLayer = adoptNS([[CALayer alloc] init]);
+    lazyInitialize(m_containerLayer, adoptNS([[CALayer alloc] init]));
     [m_containerLayer addSublayer:m_layer.get()];
 
     [m_containerLayer setAnchorPoint:CGPointZero];
@@ -373,7 +374,7 @@ static void drawMemHistory(CGContextRef context, float x1, float y1, float y2, H
     CGContextSetLineWidth(context, 1);
 
     struct ColorAndSize {
-        CGColorRef color;
+        RetainPtr<CGColorRef> color;
         size_t size;
     };
 
@@ -396,7 +397,7 @@ static void drawMemHistory(CGContextRef context, float x1, float y1, float y2, H
             CGContextBeginPath(context);
             CGContextMoveToPoint(context, x1 + i, currentY2);
             CGContextAddLineToPoint(context, x1 + i, nextY2);
-            CGContextSetStrokeColorWithColor(context, colorAndSize.color);
+            CGContextSetStrokeColorWithColor(context, colorAndSize.color.get());
             CGContextStrokePath(context);
             currentY2 = nextY2;
         }
@@ -406,7 +407,7 @@ static void drawMemHistory(CGContextRef context, float x1, float y1, float y2, H
     drawGraphLabel(context, x1, y2, "Mem"_s);
 }
 
-static const float fullCircleInRadians = piFloat * 2;
+static const float fullCircleInRadians = std::numbers::pi_v<float> * 2;
 
 static void drawSlice(CGContextRef context, FloatPoint center, float& angle, float radius, size_t sliceSize, size_t totalSize, CGColorRef color)
 {
@@ -461,7 +462,6 @@ void ResourceUsageOverlay::platformDraw(CGContextRef context)
     CGContextSetShouldAntialias(context, false);
     CGContextSetShouldSmoothFonts(context, false);
 
-    RefPtr overlay = m_overlay.get();
     CGRect viewBounds = m_overlay->bounds();
     CGContextClearRect(context, viewBounds);
 

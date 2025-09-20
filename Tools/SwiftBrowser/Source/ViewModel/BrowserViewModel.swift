@@ -64,14 +64,13 @@ final class BrowserViewModel {
         var configuration = WebPage.Configuration()
         configuration.deviceSensorAuthorization = WebPage.DeviceSensorAuthorization(decisionHandler: Self.decideSensorAuthorization(permission:frame:origin:))
 
-        self.page = WebPage(configuration: configuration, navigationDecider: self.navigationDecider, dialogPresenter: self.dialogPresenter, downloadCoordinator: self.downloadCoordinator)
+        self.page = WebPage(configuration: configuration, navigationDecider: self.navigationDecider, dialogPresenter: self.dialogPresenter)
 
         self.navigationDecider.owner = self
         self.dialogPresenter.owner = self
     }
 
     let page: WebPage
-    let downloadCoordinator = DownloadCoordinator()
 
     private let dialogPresenter = DialogPresenter()
     private let navigationDecider = NavigationDecider()
@@ -131,13 +130,14 @@ final class BrowserViewModel {
     func openURL(_ url: URL) {
         assert(url.isFileURL)
 
-        page.load(fileURL: url, allowingReadAccessTo: url.deletingLastPathComponent())
+        let data = try! Data(contentsOf: url)
+        page.load(data, mimeType: "text/html", characterEncoding: .utf8, baseURL: URL(string: "about:blank")!)
     }
 
     func didReceiveNavigationEvent(_ event: WebPage.NavigationEvent) {
-        Self.logger.info("Did receive navigation event \(String(describing: event.kind)) for navigation \(String(describing: event.navigationID))")
+        Self.logger.info("Did receive navigation event \(String(describing: event))")
 
-        if case .committed = event.kind {
+        if event == .committed {
             displayedURL = page.url?.absoluteString ?? ""
         }
     }
@@ -153,7 +153,7 @@ final class BrowserViewModel {
 
     func exportAsPDF() {
         Task {
-            let data = try await page.pdf()
+            let data = try await page.exported(as: .pdf)
             exportedPDF = PDF(data: data, title: !page.title.isEmpty ? page.title : nil)
         }
     }
@@ -173,7 +173,7 @@ final class BrowserViewModel {
 
         switch result {
         case let .success(urls):
-            currentFilePicker!.completion(.ok(urls))
+            currentFilePicker!.completion(.selected(urls))
 
         case .failure:
             currentFilePicker!.completion(.cancel)

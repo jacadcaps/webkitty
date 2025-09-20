@@ -31,6 +31,7 @@
 #include "IOSurfaceDrawingBuffer.h"
 #include "ProcessIdentity.h"
 #include <array>
+#include <wtf/CheckedPtr.h>
 
 #if ENABLE(MEDIA_STREAM)
 #include <memory>
@@ -72,7 +73,9 @@ private:
     void* m_pbuffer { nullptr };
 };
 
-class WEBCORE_EXPORT GraphicsContextGLCocoa : public GraphicsContextGLANGLE {
+class WEBCORE_EXPORT GraphicsContextGLCocoa : public GraphicsContextGLANGLE, public CanMakeCheckedPtr<GraphicsContextGLCocoa> {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(WEBCORE_EXPORT);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(GraphicsContextGLCocoa);
 public:
     static RefPtr<GraphicsContextGLCocoa> create(WebCore::GraphicsContextGLAttributes&&, ProcessIdentity&& resourceOwner);
     ~GraphicsContextGLCocoa();
@@ -96,10 +99,6 @@ public:
 
     RetainPtr<id> newSharedEventWithMachPort(mach_port_t);
     GCGLExternalSync createExternalSync(ExternalSyncSource&&) final;
-#endif
-    GCGLExternalSync createExternalSync(id, uint64_t);
-
-#if ENABLE(WEBXR)
     bool enableRequiredWebXRExtensions() final;
 
     // GL_EXT_discard_framebuffer
@@ -153,6 +152,7 @@ protected:
 #if ENABLE(VIDEO)
     GraphicsContextGLCV* cvContext();
 #endif
+    void* createMetalSharedEventEGLSync(id, uint64_t);
 
     ProcessIdentity m_resourceOwner;
     DestinationColorSpace m_drawingBufferColorSpace;

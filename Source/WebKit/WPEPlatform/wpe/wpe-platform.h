@@ -27,17 +27,21 @@
 
 #define __WPE_PLATFORM_H_INSIDE__
 
-#include <wpe/WPEEnumTypes.h>
-#include <wpe/WPEEvent.h>
 #include <wpe/WPEBuffer.h>
 #include <wpe/WPEBufferDMABuf.h>
 #include <wpe/WPEBufferDMABufFormats.h>
 #include <wpe/WPEBufferSHM.h>
+#include <wpe/WPEClipboard.h>
 #include <wpe/WPEColor.h>
 #include <wpe/WPEConfig.h>
+#include <wpe/WPEDRMDevice.h>
 #include <wpe/WPEDefines.h>
 #include <wpe/WPEDisplay.h>
 #include <wpe/WPEEGLError.h>
+#include <wpe/WPEEnumTypes.h>
+#include <wpe/WPEEvent.h>
+#include <wpe/WPEGamepad.h>
+#include <wpe/WPEGamepadManager.h>
 #include <wpe/WPEGestureController.h>
 #include <wpe/WPEInputMethodContext.h>
 #include <wpe/WPEKeymap.h>
@@ -47,9 +51,15 @@
 #include <wpe/WPEKeysyms.h>
 #include <wpe/WPERectangle.h>
 #include <wpe/WPEScreen.h>
+#include <wpe/WPEScreenSyncObserver.h>
 #include <wpe/WPEToplevel.h>
 #include <wpe/WPEVersion.h>
 #include <wpe/WPEView.h>
+#include <wpe/WPEViewAccessible.h>
+
+#ifdef WPE_PLATFORM_BUFFER_ANDROID
+#include <wpe/WPEBufferAndroid.h>
+#endif
 
 #undef __WPE_PLATFORM_H_INSIDE__
 

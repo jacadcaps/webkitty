@@ -70,9 +70,9 @@ skia_codec_rust_png_ffi_crate_root = "$_experimental/rust_png/ffi/FFI.rs"
 `
 
 // The footer written to gn/core.gni.
-const coreGNIFooter = `skia_core_sources += skia_pathops_sources
+const coreGNIFooter = `skia_core_sources += skia_legacy_pathops_sources
 
-skia_core_public += skia_pathops_public
+skia_core_public += skia_legacy_pathops_public
 `
 
 // The footer written to gn/sksl_tests.gni.
@@ -113,10 +113,6 @@ declare_args() {
 const portsFooter = `
 skia_fontations_path_bridge_sources = [
   "$_src/ports/fontations/src/skpath_bridge.h"
-]
-
-skia_fontations_bridge_sources = [
-  "$_src/ports/fontations/src/ffi.rs"
 ]
 
 skia_fontations_bridge_root = "$_src/ports/fontations/src/ffi.rs"

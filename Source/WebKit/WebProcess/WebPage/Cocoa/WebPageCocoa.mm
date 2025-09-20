@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -42,6 +42,7 @@
 #import "WebPageProxyMessages.h"
 #import "WebPasteboardOverrides.h"
 #import "WebPaymentCoordinator.h"
+#import "WebPreferencesKeys.h"
 #import "WebProcess.h"
 #import "WebRemoteObjectRegistry.h"
 #import <WebCore/Chrome.h>
@@ -52,15 +53,16 @@
 #import <WebCore/DocumentMarkerController.h>
 #import <WebCore/DragImage.h>
 #import <WebCore/Editing.h>
+#import <WebCore/EditingHTMLConverter.h>
 #import <WebCore/Editor.h>
 #import <WebCore/EventHandler.h>
 #import <WebCore/EventNames.h>
+#import <WebCore/FixedContainerEdges.h>
 #import <WebCore/FocusController.h>
 #import <WebCore/FrameLoader.h>
 #import <WebCore/FrameView.h>
 #import <WebCore/GraphicsContextCG.h>
 #import <WebCore/HTMLBodyElement.h>
-#import <WebCore/HTMLConverter.h>
 #import <WebCore/HTMLImageElement.h>
 #import <WebCore/HTMLOListElement.h>
 #import <WebCore/HTMLTextFormControlElement.h>
@@ -68,10 +70,12 @@
 #import <WebCore/HitTestResult.h>
 #import <WebCore/ImageOverlay.h>
 #import <WebCore/ImageUtilities.h>
+#import <WebCore/LegacyWebArchive.h>
 #import <WebCore/LocalFrameView.h>
 #import <WebCore/MIMETypeRegistry.h>
 #import <WebCore/MutableStyleProperties.h>
 #import <WebCore/NetworkExtensionContentFilter.h>
+#import <WebCore/NodeHTMLConverter.h>
 #import <WebCore/NodeRenderStyle.h>
 #import <WebCore/NotImplemented.h>
 #import <WebCore/NowPlayingInfo.h>
@@ -93,6 +97,7 @@
 #import <wtf/cf/VectorCF.h>
 #import <wtf/cocoa/SpanCocoa.h>
 #import <wtf/spi/darwin/SandboxSPI.h>
+#import <wtf/text/StringToIntegerConversion.h>
 
 #if ENABLE(GPU_PROCESS) && PLATFORM(COCOA)
 #include "LibWebRTCCodecs.h"
@@ -118,7 +123,13 @@ using namespace WebCore;
 
 void WebPage::platformInitialize(const WebPageCreationParameters& parameters)
 {
-    platformInitializeAccessibility();
+#if ENABLE(INITIALIZE_ACCESSIBILITY_ON_DEMAND)
+    bool shouldInitializeAccessibility = WebProcess::singleton().shouldInitializeAccessibility() || !parameters.store.getBoolValueForKey(WebPreferencesKey::enableAccessibilityOnDemandKey());
+#else
+    bool shouldInitializeAccessibility = false;
+#endif
+
+    platformInitializeAccessibility(shouldInitializeAccessibility ? ShouldInitializeNSAccessibility::Yes : ShouldInitializeNSAccessibility::No);
 
 #if ENABLE(MEDIA_STREAM)
     if (RefPtr captureManager = WebProcess::singleton().supplement<UserMediaCaptureManager>()) {
@@ -166,7 +177,7 @@ void WebPage::setHasLaunchedWebContentProcess()
         auto auditToken = WebProcess::singleton().auditTokenForSelf();
 #if USE(EXTENSIONKIT)
         if (WKProcessExtension.sharedInstance)
-            [WKProcessExtension.sharedInstance lockdownSandbox:@"1.0"];
+            [WKProcessExtension.sharedInstance lockdownSandbox:@"2.0"];
 #endif
         sandbox_enable_state_flag("local:WebContentProcessLaunched", *auditToken);
         hasSetLaunchVariable = true;
@@ -182,9 +193,9 @@ void WebPage::platformDidReceiveLoadParameters(const LoadParameters& parameters)
 
 void WebPage::requestActiveNowPlayingSessionInfo(CompletionHandler<void(bool, WebCore::NowPlayingInfo&&)>&& completionHandler)
 {
-    if (RefPtr sharedManager = WebCore::PlatformMediaSessionManager::singletonIfExists()) {
-        if (auto nowPlayingInfo = sharedManager->nowPlayingInfo()) {
-            bool registeredAsNowPlayingApplication = sharedManager->registeredAsNowPlayingApplication();
+    if (RefPtr manager = mediaSessionManagerIfExists()) {
+        if (auto nowPlayingInfo = manager->nowPlayingInfo()) {
+            bool registeredAsNowPlayingApplication = manager->registeredAsNowPlayingApplication();
             completionHandler(registeredAsNowPlayingApplication, WTFMove(*nowPlayingInfo));
             return;
         }
@@ -231,7 +242,7 @@ void WebPage::performDictionaryLookupAtLocation(const FloatPoint& floatPoint)
     constexpr OptionSet<HitTestRequest::Type> hitType { HitTestRequest::Type::ReadOnly, HitTestRequest::Type::Active, HitTestRequest::Type::DisallowUserAgentShadowContent, HitTestRequest::Type::AllowChildFrameContent };
     auto result = localMainFrame->eventHandler().hitTestResultAtPoint(localMainFrame->protectedView()->windowToContents(roundedIntPoint(floatPoint)), hitType);
 
-    RefPtr frame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : protectedCorePage()->checkedFocusController()->focusedOrMainFrame();
+    RefPtr frame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : corePage()->focusController().focusedOrMainFrame();
     if (!frame)
         return;
 
@@ -276,7 +287,7 @@ DictionaryPopupInfo WebPage::dictionaryPopupInfoForRange(LocalFrame& frame, cons
 
     IntRect rangeRect = frame.protectedView()->contentsToWindow(quads[0].enclosingBoundingBox());
 
-    const RenderStyle* style = range.protectedStartContainer()->renderStyle();
+    const CheckedPtr style = range.protectedStartContainer()->renderStyle();
     float scaledAscent = style ? style->metricsOfPrimaryFont().intAscent() * pageScaleFactor() : 0;
     dictionaryPopupInfo.origin = FloatPoint(rangeRect.x(), rangeRect.y() + scaledAscent);
 
@@ -308,11 +319,21 @@ DictionaryPopupInfo WebPage::dictionaryPopupInfoForRange(LocalFrame& frame, cons
         return dictionaryPopupInfo;
     }
 
-    dictionaryPopupInfo.textIndicator = textIndicator->data();
+    dictionaryPopupInfo.textIndicator = textIndicator;
 #if PLATFORM(MAC)
+#if ENABLE(LEGACY_PDFKIT_PLUGIN)
     dictionaryPopupInfo.platformData.attributedString = WebCore::AttributedString::fromNSAttributedString(scaledAttributedString);
+#else
+    dictionaryPopupInfo.text = [scaledAttributedString string];
+#endif
+
 #elif PLATFORM(MACCATALYST)
-    dictionaryPopupInfo.platformData.attributedString = WebCore::AttributedString::fromNSAttributedString(adoptNS([[NSMutableAttributedString alloc] initWithString:plainText(range)]));
+#if ENABLE(LEGACY_PDFKIT_PLUGIN)
+    dictionaryPopupInfo.platformData.attributedString = WebCore::AttributedString::fromNSAttributedString(adoptNS([[NSMutableAttributedString alloc] initWithString:plainText(range).createNSString().get()]));
+#else
+    dictionaryPopupInfo.text = plainText(range);
+#endif
+
 #endif
 
     editor->setIsGettingDictionaryPopupInfo(false);
@@ -321,7 +342,7 @@ DictionaryPopupInfo WebPage::dictionaryPopupInfoForRange(LocalFrame& frame, cons
 
 void WebPage::insertDictatedTextAsync(const String& text, const EditingRange& replacementEditingRange, const Vector<WebCore::DictationAlternative>& dictationAlternativeLocations, InsertTextOptions&& options)
 {
-    RefPtr frame = protectedCorePage()->checkedFocusController()->focusedOrMainFrame();
+    RefPtr frame = corePage()->focusController().focusedOrMainFrame();
     if (!frame)
         return;
 
@@ -351,7 +372,7 @@ void WebPage::insertDictatedTextAsync(const String& text, const EditingRange& re
 
 void WebPage::addDictationAlternative(const String& text, DictationContext context, CompletionHandler<void(bool)>&& completion)
 {
-    RefPtr frame = protectedCorePage()->checkedFocusController()->focusedOrMainFrame();
+    RefPtr frame = corePage()->focusController().focusedOrMainFrame();
     if (!frame)
         return;
 
@@ -390,7 +411,7 @@ void WebPage::addDictationAlternative(const String& text, DictationContext conte
 
 void WebPage::dictationAlternativesAtSelection(CompletionHandler<void(Vector<DictationContext>&&)>&& completion)
 {
-    RefPtr frame = protectedCorePage()->checkedFocusController()->focusedOrMainFrame();
+    RefPtr frame = corePage()->focusController().focusedOrMainFrame();
     if (!frame)
         return;
 
@@ -418,7 +439,7 @@ void WebPage::dictationAlternativesAtSelection(CompletionHandler<void(Vector<Dic
 
 void WebPage::clearDictationAlternatives(Vector<DictationContext>&& contexts)
 {
-    RefPtr frame = protectedCorePage()->checkedFocusController()->focusedOrMainFrame();
+    RefPtr frame = corePage()->focusController().focusedOrMainFrame();
     if (!frame)
         return;
 
@@ -471,8 +492,7 @@ void WebPage::bindRemoteAccessibilityFrames(int processIdentifier, WebCore::Fram
         return completionHandler({ }, 0);
     }
 
-    auto* renderer = coreLocalFrame->contentRenderer();
-    if (!renderer) {
+    if (!coreLocalFrame->contentRenderer()) {
         ASSERT_NOT_REACHED();
         return completionHandler({ }, 0);
     }
@@ -493,7 +513,7 @@ void WebPage::resolveAccessibilityHitTestForTesting(WebCore::FrameIdentifier fra
     if (!webFrame)
         return completionHandler("NULL"_s);
 #if PLATFORM(MAC)
-    if (id coreObject = [m_mockAccessibilityElement accessibilityRootObjectWrapper:webFrame->coreLocalFrame()]) {
+    if (RetainPtr coreObject = [m_mockAccessibilityElement accessibilityRootObjectWrapper:webFrame->protectedCoreLocalFrame().get()]) {
         if (id hitTestResult = [coreObject accessibilityHitTest:point]) {
             ALLOW_DEPRECATED_DECLARATIONS_BEGIN
             completionHandler([hitTestResult accessibilityAttributeValue:@"AXInfoStringForTesting"]);
@@ -505,6 +525,39 @@ void WebPage::resolveAccessibilityHitTestForTesting(WebCore::FrameIdentifier fra
     UNUSED_PARAM(point);
     completionHandler("NULL"_s);
 }
+
+#if PLATFORM(MAC)
+void WebPage::getAccessibilityWebProcessDebugInfo(CompletionHandler<void(WebCore::AXDebugInfo)>&& completionHandler)
+{
+    if (!AXObjectCache::isAppleInternalInstall()) {
+        completionHandler({ });
+        return;
+    }
+
+    if (auto treeData = protectedCorePage()->accessibilityTreeData(IncludeDOMInfo::No)) {
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+        completionHandler({ WebCore::AXObjectCache::accessibilityEnabled(), WebCore::AXObjectCache::isAXThreadInitialized(), treeData->liveTree, treeData->isolatedTree, [m_mockAccessibilityElement remoteTokenHash], [accessibilityRemoteTokenData() hash] });
+#else
+        completionHandler({ WebCore::AXObjectCache::accessibilityEnabled(), false, treeData->liveTree, treeData->isolatedTree, [m_mockAccessibilityElement remoteTokenHash], [accessibilityRemoteTokenData() hash] });
+#endif
+        return;
+    }
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+    completionHandler({ WebCore::AXObjectCache::accessibilityEnabled(), WebCore::AXObjectCache::isAXThreadInitialized(), { }, { }, 0, 0 });
+#else
+    completionHandler({ WebCore::AXObjectCache::accessibilityEnabled(), false, { }, { }, 0, 0 });
+#endif
+}
+
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+void WebPage::clearAccessibilityIsolatedTree()
+{
+    if (RefPtr page = m_page)
+        page->clearAccessibilityIsolatedTree();
+}
+#endif
+
+#endif // PLATFORM(MAC)
 
 #if ENABLE(APPLE_PAY)
 WebPaymentCoordinator* WebPage::paymentCoordinator()
@@ -635,14 +688,14 @@ void WebPage::getPlatformEditorStateCommon(const LocalFrame& frame, EditorState&
     auto& postLayoutData = *result.postLayoutData;
 
     if (result.isContentEditable) {
-        if (auto editingStyle = EditingStyle::styleAtSelectionStart(selection)) {
-            if (editingStyle->hasStyle(CSSPropertyFontWeight, "bold"_s))
+        if (auto editingStyle = EditingStyle::styleAtSelectionStart(selection, false, EditingStyle::PropertiesToInclude::PostLayoutProperties)) {
+            if (editingStyle->fontWeightIsBold())
                 postLayoutData.typingAttributes.add(TypingAttribute::Bold);
 
-            if (editingStyle->hasStyle(CSSPropertyFontStyle, "italic"_s) || editingStyle->hasStyle(CSSPropertyFontStyle, "oblique"_s))
+            if (editingStyle->fontStyleIsItalic())
                 postLayoutData.typingAttributes.add(TypingAttribute::Italics);
 
-            if (editingStyle->hasStyle(CSSPropertyWebkitTextDecorationsInEffect, "underline"_s))
+            if (editingStyle->webkitTextDecorationsInEffectIsUnderline())
                 postLayoutData.typingAttributes.add(TypingAttribute::Underline);
 
             if (RefPtr styleProperties = editingStyle->style()) {
@@ -772,7 +825,7 @@ private:
 
 void WebPage::replaceImageForRemoveBackground(const ElementContext& elementContext, const Vector<String>& types, std::span<const uint8_t> data)
 {
-    RefPtr frame = protectedCorePage()->checkedFocusController()->focusedOrMainFrame();
+    RefPtr frame = corePage()->focusController().focusedOrMainFrame();
     if (!frame)
         return;
 
@@ -885,26 +938,30 @@ std::pair<URL, DidFilterLinkDecoration> WebPage::applyLinkDecorationFilteringWit
         if (!loader)
             return false;
         auto effectivePolicies = trigger == LinkDecorationFilteringTrigger::Navigation ? loader->navigationalAdvancedPrivacyProtections() : loader->advancedPrivacyProtections();
-        return effectivePolicies.contains(AdvancedPrivacyProtections::LinkDecorationFiltering) || m_page->settings().filterLinkDecorationByDefaultEnabled();
+        return effectivePolicies.contains(AdvancedPrivacyProtections::LinkDecorationFiltering);
     };
 
-    bool shouldApplyLinkDecorationFiltering = [&] {
+    bool hasOptedInToLinkDecorationFiltering = [&] {
         if (isLinkDecorationFilteringEnabled(RefPtr { mainFrame->loader().activeDocumentLoader() }.get()))
             return true;
 
         return isLinkDecorationFilteringEnabled(RefPtr { mainFrame->loader().policyDocumentLoader() }.get());
     }();
 
-    if (!shouldApplyLinkDecorationFiltering)
+    if (!hasOptedInToLinkDecorationFiltering && !m_page->settings().filterLinkDecorationByDefaultEnabled())
         return { url, DidFilterLinkDecoration::No };
 
     if (!url.hasQuery())
         return { url, DidFilterLinkDecoration::No };
 
     auto sanitizedURL = url;
-    auto removedParameters = WTF::removeQueryParameters(sanitizedURL, [&](auto& parameter) {
-        auto it = m_internals->linkDecorationFilteringData.find(parameter);
+    auto removedParameters = WTF::removeQueryParameters(sanitizedURL, [&](auto& key, auto& value) {
+        auto it = m_internals->linkDecorationFilteringData.find(key);
         if (it == m_internals->linkDecorationFilteringData.end())
+            return false;
+
+        constexpr auto base = 10;
+        if (value.length() == 3 && !hasOptedInToLinkDecorationFiltering && WTF::parseInteger<uint8_t>(value, base, WTF::ParseIntegerWhitespacePolicy::Disallow))
             return false;
 
         const auto& conditionals = it->value;
@@ -948,8 +1005,8 @@ URL WebPage::allowedQueryParametersForAdvancedPrivacyProtections(const URL& url)
     if (!allowedParameters.contains("#"_s))
         sanitizedURL.removeFragmentIdentifier();
 
-    WTF::removeQueryParameters(sanitizedURL, [&](auto& parameter) {
-        return !allowedParameters.contains(parameter);
+    WTF::removeQueryParameters(sanitizedURL, [&](auto& key, auto&) {
+        return !allowedParameters.contains(key);
     });
 
     return sanitizedURL;
@@ -970,45 +1027,45 @@ void WebPage::setMediaEnvironment(const String& mediaEnvironment)
 #if ENABLE(WRITING_TOOLS)
 void WebPage::willBeginWritingToolsSession(const std::optional<WebCore::WritingTools::Session>& session, CompletionHandler<void(const Vector<WebCore::WritingTools::Context>&)>&& completionHandler)
 {
-    corePage()->willBeginWritingToolsSession(session, WTFMove(completionHandler));
+    protectedCorePage()->willBeginWritingToolsSession(session, WTFMove(completionHandler));
 }
 
 void WebPage::didBeginWritingToolsSession(const WebCore::WritingTools::Session& session, const Vector<WebCore::WritingTools::Context>& contexts)
 {
-    corePage()->didBeginWritingToolsSession(session, contexts);
+    protectedCorePage()->didBeginWritingToolsSession(session, contexts);
 }
 
 void WebPage::proofreadingSessionDidReceiveSuggestions(const WebCore::WritingTools::Session& session, const Vector<WebCore::WritingTools::TextSuggestion>& suggestions, const WebCore::CharacterRange& processedRange, const WebCore::WritingTools::Context& context, bool finished, CompletionHandler<void()>&& completionHandler)
 {
-    corePage()->proofreadingSessionDidReceiveSuggestions(session, suggestions, processedRange, context, finished);
+    protectedCorePage()->proofreadingSessionDidReceiveSuggestions(session, suggestions, processedRange, context, finished);
     completionHandler();
 }
 
 void WebPage::proofreadingSessionDidUpdateStateForSuggestion(const WebCore::WritingTools::Session& session, WebCore::WritingTools::TextSuggestion::State state, const WebCore::WritingTools::TextSuggestion& suggestion, const WebCore::WritingTools::Context& context)
 {
-    corePage()->proofreadingSessionDidUpdateStateForSuggestion(session, state, suggestion, context);
+    protectedCorePage()->proofreadingSessionDidUpdateStateForSuggestion(session, state, suggestion, context);
 }
 
 void WebPage::willEndWritingToolsSession(const WebCore::WritingTools::Session& session, bool accepted, CompletionHandler<void()>&& completionHandler)
 {
-    corePage()->willEndWritingToolsSession(session, accepted);
+    protectedCorePage()->willEndWritingToolsSession(session, accepted);
     completionHandler();
 }
 
 void WebPage::didEndWritingToolsSession(const WebCore::WritingTools::Session& session, bool accepted)
 {
-    corePage()->didEndWritingToolsSession(session, accepted);
+    protectedCorePage()->didEndWritingToolsSession(session, accepted);
 }
 
 void WebPage::compositionSessionDidReceiveTextWithReplacementRange(const WebCore::WritingTools::Session& session, const WebCore::AttributedString& attributedText, const WebCore::CharacterRange& range, const WebCore::WritingTools::Context& context, bool finished, CompletionHandler<void()>&& completionHandler)
 {
-    corePage()->compositionSessionDidReceiveTextWithReplacementRange(session, attributedText, range, context, finished);
+    protectedCorePage()->compositionSessionDidReceiveTextWithReplacementRange(session, attributedText, range, context, finished);
     completionHandler();
 }
 
 void WebPage::writingToolsSessionDidReceiveAction(const WritingTools::Session& session, WebCore::WritingTools::Action action)
 {
-    corePage()->writingToolsSessionDidReceiveAction(session, action);
+    protectedCorePage()->writingToolsSessionDidReceiveAction(session, action);
 }
 
 void WebPage::proofreadingSessionShowDetailsForSuggestionWithIDRelativeToRect(const WebCore::WritingTools::TextSuggestion::ID& replacementID, WebCore::IntRect rect)
@@ -1021,12 +1078,12 @@ void WebPage::proofreadingSessionUpdateStateForSuggestionWithID(WebCore::Writing
     send(Messages::WebPageProxy::ProofreadingSessionUpdateStateForSuggestionWithID(state, replacementID));
 }
 
-void WebPage::addTextAnimationForAnimationID(const WTF::UUID& uuid, const WebCore::TextAnimationData& styleData, const WebCore::TextIndicatorData& indicatorData, CompletionHandler<void(WebCore::TextAnimationRunMode)>&& completionHandler)
+void WebPage::addTextAnimationForAnimationID(const WTF::UUID& uuid, const WebCore::TextAnimationData& styleData, const RefPtr<WebCore::TextIndicator> textIndicator, CompletionHandler<void(WebCore::TextAnimationRunMode)>&& completionHandler)
 {
     if (completionHandler)
-        sendWithAsyncReply(Messages::WebPageProxy::AddTextAnimationForAnimationIDWithCompletionHandler(uuid, styleData, indicatorData), WTFMove(completionHandler));
+        sendWithAsyncReply(Messages::WebPageProxy::AddTextAnimationForAnimationIDWithCompletionHandler(uuid, styleData, textIndicator), WTFMove(completionHandler));
     else
-        send(Messages::WebPageProxy::AddTextAnimationForAnimationID(uuid, styleData, indicatorData));
+        send(Messages::WebPageProxy::AddTextAnimationForAnimationID(uuid, styleData, textIndicator));
 }
 
 void WebPage::removeTextAnimationForAnimationID(const WTF::UUID& uuid)
@@ -1064,7 +1121,7 @@ void WebPage::clearAnimationsForActiveWritingToolsSession()
     m_textAnimationController->clearAnimationsForActiveWritingToolsSession();
 }
 
-void WebPage::createTextIndicatorForTextAnimationID(const WTF::UUID& uuid, CompletionHandler<void(std::optional<WebCore::TextIndicatorData>&&)>&& completionHandler)
+void WebPage::createTextIndicatorForTextAnimationID(const WTF::UUID& uuid, CompletionHandler<void(RefPtr<WebCore::TextIndicator>&&)>&& completionHandler)
 {
     m_textAnimationController->createTextIndicatorForTextAnimationID(uuid, WTFMove(completionHandler));
 }
@@ -1076,37 +1133,37 @@ void WebPage::updateUnderlyingTextVisibilityForTextAnimationID(const WTF::UUID& 
 
 void WebPage::proofreadingSessionSuggestionTextRectsInRootViewCoordinates(const WebCore::CharacterRange& enclosingRangeRelativeToSessionRange, CompletionHandler<void(Vector<FloatRect>&&)>&& completionHandler) const
 {
-    auto rects = corePage()->proofreadingSessionSuggestionTextRectsInRootViewCoordinates(enclosingRangeRelativeToSessionRange);
+    auto rects = protectedCorePage()->proofreadingSessionSuggestionTextRectsInRootViewCoordinates(enclosingRangeRelativeToSessionRange);
     completionHandler(WTFMove(rects));
 }
 
 void WebPage::updateTextVisibilityForActiveWritingToolsSession(const WebCore::CharacterRange& rangeRelativeToSessionRange, bool visible, const WTF::UUID& identifier, CompletionHandler<void()>&& completionHandler)
 {
-    corePage()->updateTextVisibilityForActiveWritingToolsSession(rangeRelativeToSessionRange, visible, identifier);
+    protectedCorePage()->updateTextVisibilityForActiveWritingToolsSession(rangeRelativeToSessionRange, visible, identifier);
     completionHandler();
 }
 
-void WebPage::textPreviewDataForActiveWritingToolsSession(const WebCore::CharacterRange& rangeRelativeToSessionRange, CompletionHandler<void(std::optional<WebCore::TextIndicatorData>&&)>&& completionHandler)
+void WebPage::textPreviewDataForActiveWritingToolsSession(const WebCore::CharacterRange& rangeRelativeToSessionRange, CompletionHandler<void(RefPtr<WebCore::TextIndicator>&&)>&& completionHandler)
 {
-    auto data = corePage()->textPreviewDataForActiveWritingToolsSession(rangeRelativeToSessionRange);
-    completionHandler(WTFMove(data));
+    RefPtr textIndicator = protectedCorePage()->textPreviewDataForActiveWritingToolsSession(rangeRelativeToSessionRange);
+    completionHandler(WTFMove(textIndicator));
 }
 
 void WebPage::decorateTextReplacementsForActiveWritingToolsSession(const WebCore::CharacterRange& rangeRelativeToSessionRange, CompletionHandler<void(void)>&& completionHandler)
 {
-    corePage()->decorateTextReplacementsForActiveWritingToolsSession(rangeRelativeToSessionRange);
+    protectedCorePage()->decorateTextReplacementsForActiveWritingToolsSession(rangeRelativeToSessionRange);
     completionHandler();
 }
 
 void WebPage::setSelectionForActiveWritingToolsSession(const WebCore::CharacterRange& rangeRelativeToSessionRange, CompletionHandler<void(void)>&& completionHandler)
 {
-    corePage()->setSelectionForActiveWritingToolsSession(rangeRelativeToSessionRange);
+    protectedCorePage()->setSelectionForActiveWritingToolsSession(rangeRelativeToSessionRange);
     completionHandler();
 }
 
 void WebPage::intelligenceTextAnimationsDidComplete()
 {
-    corePage()->intelligenceTextAnimationsDidComplete();
+    protectedCorePage()->intelligenceTextAnimationsDidComplete();
 }
 
 void WebPage::didEndPartialIntelligenceTextAnimation()
@@ -1131,7 +1188,7 @@ static std::optional<bool> elementHasHiddenVisibility(StyledElement* styledEleme
 
 void WebPage::createTextIndicatorForElementWithID(const String& elementID, CompletionHandler<void(std::optional<WebCore::TextIndicatorData>&&)>&& completionHandler)
 {
-    RefPtr frame = protectedCorePage()->checkedFocusController()->focusedOrMainFrame();
+    RefPtr frame = corePage()->focusController().focusedOrMainFrame();
     if (!frame) {
         ASSERT_NOT_REACHED();
         completionHandler(std::nullopt);
@@ -1195,14 +1252,14 @@ void WebPage::createTextIndicatorForElementWithID(const String& elementID, Compl
     completionHandler(textIndicator->data());
 }
 
-void WebPage::createIconDataFromImageData(Ref<WebCore::SharedBuffer>&& buffer, const Vector<unsigned>& lengths, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&& completionHandler)
+void WebPage::createBitmapsFromImageData(Ref<WebCore::SharedBuffer>&& buffer, const Vector<unsigned>& lengths, CompletionHandler<void(Vector<Ref<WebCore::ShareableBitmap>>&&)>&& completionHandler)
 {
-    return completionHandler(WebCore::createIconDataFromImageData(buffer->span(), lengths.span()));
+    WebCore::createBitmapsFromImageData(buffer->span(), lengths.span(), WTFMove(completionHandler));
 }
 
 void WebPage::decodeImageData(Ref<WebCore::SharedBuffer>&& buffer, std::optional<WebCore::FloatSize> preferredSize, CompletionHandler<void(RefPtr<WebCore::ShareableBitmap>&&)>&& completionHandler)
 {
-    completionHandler(decodeImageWithSize(buffer->span(), preferredSize));
+    decodeImageWithSize(buffer->span(), preferredSize, WTFMove(completionHandler));
 }
 
 #if HAVE(PDFKIT)
@@ -1317,6 +1374,11 @@ void WebPage::drawPagesToPDFFromPDFDocument(CGContextRef context, PDFDocument *p
 
 #else
 
+void WebPage::drawPDFDocument(CGContextRef, PDFDocument *, const PrintInfo&, const WebCore::IntRect&)
+{
+    notImplemented();
+}
+
 void WebPage::computePagesForPrintingPDFDocument(WebCore::FrameIdentifier, const PrintInfo&, Vector<IntRect>&)
 {
     notImplemented();
@@ -1328,6 +1390,71 @@ void WebPage::drawPagesToPDFFromPDFDocument(CGContextRef, PDFDocument *, const P
 }
 
 #endif
+
+BoxSideSet WebPage::sidesRequiringFixedContainerEdges() const
+{
+    if (!m_page->settings().contentInsetBackgroundFillEnabled())
+        return { };
+
+#if PLATFORM(IOS_FAMILY)
+    auto obscuredInsets = m_page->obscuredInsets();
+#else
+    auto obscuredInsets = m_page->obscuredContentInsets();
+#endif
+
+    auto sides = m_page->fixedContainerEdges().fixedEdges();
+
+    if (obscuredInsets.top() > 0)
+        sides.add(BoxSideFlag::Top);
+
+    if (obscuredInsets.left() > 0)
+        sides.add(BoxSideFlag::Left);
+
+    if (obscuredInsets.right() > 0)
+        sides.add(BoxSideFlag::Right);
+
+    if (obscuredInsets.bottom() > 0)
+        sides.add(BoxSideFlag::Bottom);
+
+    return sides;
+}
+
+void WebPage::getWebArchives(CompletionHandler<void(HashMap<WebCore::FrameIdentifier, Ref<WebCore::LegacyWebArchive>>&&)>&& completionHandler)
+{
+    if (!m_page)
+        return completionHandler({ });
+
+    HashMap<WebCore::FrameIdentifier, Ref<LegacyWebArchive>> result;
+    for (RefPtr<Frame> frame = m_mainFrame->coreFrame(); frame; frame = frame->tree().traverseNext()) {
+        RefPtr localFrame = dynamicDowncast<LocalFrame>(frame);
+        if (!localFrame)
+            continue;
+
+        RefPtr document = localFrame->document();
+        if (!document)
+            continue;
+
+        WebCore::LegacyWebArchive::ArchiveOptions options {
+            LegacyWebArchive::ShouldSaveScriptsFromMemoryCache::Yes,
+            LegacyWebArchive::ShouldArchiveSubframes::No
+        };
+        if (RefPtr archive = WebCore::LegacyWebArchive::create(*document, WTFMove(options)))
+            result.add(localFrame->frameID(), archive.releaseNonNull());
+    }
+    completionHandler(WTFMove(result));
+}
+
+void WebPage::processSystemWillSleep() const
+{
+    if (RefPtr manager = mediaSessionManagerIfExists())
+        manager->processSystemWillSleep();
+}
+
+void WebPage::processSystemDidWake() const
+{
+    if (RefPtr manager = mediaSessionManagerIfExists())
+        manager->processSystemDidWake();
+}
 
 } // namespace WebKit
 

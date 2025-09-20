@@ -68,6 +68,7 @@ public:
     WEBCORE_EXPORT String debugName() const override;
 
     WEBCORE_EXPORT std::optional<PlatformLayerIdentifier> primaryLayerID() const override;
+    WEBCORE_EXPORT std::optional<PlatformLayerIdentifier> layerIDIgnoringStructuralLayer() const final;
 
     WEBCORE_EXPORT PlatformLayer* platformLayer() const override;
     PlatformCALayer* platformCALayer() const { return primaryLayer(); }
@@ -102,6 +103,8 @@ public:
     WEBCORE_EXPORT void setDrawsContent(bool) override;
 #if HAVE(SUPPORT_HDR_DISPLAY)
     WEBCORE_EXPORT void setDrawsHDRContent(bool) override;
+    WEBCORE_EXPORT void setTonemappingEnabled(bool) override;
+    WEBCORE_EXPORT void setNeedsDisplayIfEDRHeadroomExceeds(float) override;
 #endif
     WEBCORE_EXPORT void setContentsVisible(bool) override;
     WEBCORE_EXPORT void setAcceleratesDrawing(bool) override;
@@ -191,6 +194,7 @@ public:
 
     WEBCORE_EXPORT void setDebugBackgroundColor(const Color&) override;
     WEBCORE_EXPORT void setDebugBorder(const Color&, float borderWidth) override;
+    WEBCORE_EXPORT void setShowFrameProcessBorders(bool) override;
 
     WEBCORE_EXPORT void setCustomAppearance(CustomAppearance) override;
 
@@ -202,7 +206,7 @@ public:
     FloatSize pixelAlignmentOffset() const override { return m_pixelAlignmentOffset; }
 
     struct CommitState {
-        WTF_MAKE_STRUCT_FAST_ALLOCATED;
+        WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(CommitState);
         unsigned treeDepth { 0 };
         unsigned totalBackdropFilterArea { 0 };
         bool ancestorHadChanges { false };
@@ -274,11 +278,14 @@ private:
     bool platformCALayerAllowsDynamicContentScaling(const PlatformCALayer*) const override { return client().layerAllowsDynamicContentScaling(this); }
 #endif
 
+    WEBCORE_EXPORT OptionSet<ContentsFormat> screenContentsFormats() const override;
+
     bool isCommittingChanges() const override { return m_isCommittingChanges; }
     bool isUsingDisplayListDrawing(PlatformCALayer*) const override { return m_usesDisplayListDrawing; }
 #if HAVE(SUPPORT_HDR_DISPLAY)
     bool drawsHDRContent() const override { return m_drawsHDRContent; }
     void updateDrawsHDRContent();
+    void updateTonemappingEnabled();
 #endif
 
     WEBCORE_EXPORT void setAllowsBackingStoreDetaching(bool) override;
@@ -315,17 +322,22 @@ private:
 
     virtual void setLayerContentsToImageBuffer(PlatformCALayer*, ImageBuffer*) { }
 
+    RefPtr<PlatformCALayer> protectedLayer() const { return m_layer; }
+    RefPtr<PlatformCALayer> protectedBackdropLayer() const { return m_backdropLayer; }
+    RefPtr<PlatformCALayer> protectedStructuralLayer() const { return m_structuralLayer; }
     PlatformCALayer* primaryLayer() const { return m_structuralLayer.get() ? m_structuralLayer.get() : m_layer.get(); }
+    RefPtr<PlatformCALayer> protectedPrimaryLayer() const { return primaryLayer(); }
     PlatformCALayer* hostLayerForSublayers() const;
     PlatformCALayer* layerForSuperlayer() const;
     PlatformCALayer* animatedLayer(AnimatedProperty) const;
+    RefPtr<PlatformCALayer> protectedAnimatedLayer(AnimatedProperty property) const { return animatedLayer(property); }
 
     WEBCORE_EXPORT void setTileCoverage(TileCoverage) override;
 
-    typedef String CloneID; // Identifier for a given clone, based on original/replica branching down the tree.
+    using CloneID = String; // Identifier for a given clone, based on original/replica branching down the tree.
     static bool isReplicatedRootClone(const CloneID& cloneID) { return cloneID[0U] & 1; }
 
-    typedef UncheckedKeyHashMap<CloneID, RefPtr<PlatformCALayer>> LayerMap;
+    using LayerMap = HashMap<CloneID, RefPtr<PlatformCALayer>>;
     LayerMap* primaryLayerClones() const;
     LayerMap* animatedLayerClones(AnimatedProperty) const;
     static void clearClones(LayerMap&);
@@ -391,7 +403,7 @@ private:
     typedef unsigned ComputeVisibleRectFlags;
     
     struct VisibleAndCoverageRects {
-        WTF_MAKE_STRUCT_FAST_ALLOCATED;
+        WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(VisibleAndCoverageRects);
         FloatRect visibleRect;
         FloatRect coverageRect;
         TransformationMatrix animatingTransform;
@@ -416,7 +428,7 @@ private:
 
     // Used to track the path down the tree for replica layers.
     struct ReplicaState {
-        WTF_MAKE_STRUCT_FAST_ALLOCATED;
+        WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(ReplicaState);
         static const size_t maxReplicaDepth = 16;
         enum ReplicaBranchType { ChildBranch = 0, ReplicaBranch = 1 };
         ReplicaState(ReplicaBranchType firstBranch)
@@ -662,6 +674,7 @@ private:
 #endif
 #if HAVE(SUPPORT_HDR_DISPLAY)
         DrawsHDRContentChanged                  = 1LLU << 47,
+        TonemappingEnabledChanged               = 1LLU << 48,
 #endif
     };
     typedef uint64_t LayerChangeFlags;
@@ -695,7 +708,7 @@ private:
 
     // References to clones of our layers, for replicated layers.
     struct LayerClones {
-        WTF_MAKE_STRUCT_FAST_ALLOCATED;
+        WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(LayerClones);
         LayerMap primaryLayerClones;
         LayerMap structuralLayerClones;
         LayerMap contentsLayerClones;
@@ -733,9 +746,9 @@ private:
     Vector<LayerPropertyAnimation> m_baseValueTransformAnimations;
     Vector<LayerPropertyAnimation> m_animationGroups;
 
-    Vector<FloatRect> m_dirtyRects;
+    Vector<FloatRect, 4> m_dirtyRects;
 
-    std::unique_ptr<DisplayList::DisplayList> m_displayList;
+    RefPtr<const DisplayList::DisplayList> m_displayList;
 
     float m_contentsScaleLimitingFactor { 1 };
     float m_rootRelativeScaleFactor { 1.0f };

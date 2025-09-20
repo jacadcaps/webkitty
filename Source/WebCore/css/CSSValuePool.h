@@ -66,7 +66,7 @@ WEBCORE_EXPORT extern LazyNeverDestroyed<StaticCSSValuePool> staticCSSValuePool;
 
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(CSSValuePool);
 class CSSValuePool {
-    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(CSSValuePool);
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(CSSValuePool, CSSValuePool);
     WTF_MAKE_NONCOPYABLE(CSSValuePool);
 public:
     CSSValuePool();
@@ -78,9 +78,9 @@ public:
     Ref<CSSPrimitiveValue> createFontFamilyValue(const AtomString&);
 
 private:
-    UncheckedKeyHashMap<WebCore::Color, Ref<CSSColorValue>> m_colorValueCache;
-    UncheckedKeyHashMap<AtomString, RefPtr<CSSValueList>> m_fontFaceValueCache;
-    UncheckedKeyHashMap<AtomString, Ref<CSSPrimitiveValue>> m_fontFamilyValueCache;
+    HashMap<WebCore::Color, Ref<CSSColorValue>> m_colorValueCache;
+    HashMap<AtomString, RefPtr<CSSValueList>> m_fontFaceValueCache;
+    HashMap<AtomString, Ref<CSSPrimitiveValue>> m_fontFamilyValueCache;
 };
 
 inline CSSPrimitiveValue& CSSPrimitiveValue::implicitInitialValue()

@@ -32,6 +32,7 @@
 #import "config.h"
 #import "AccessibilityCommonCocoa.h"
 
+#import "AccessibilityTextMarker.h"
 #import "JSWrapper.h"
 #import "StringFunctions.h"
 #import <JavaScriptCore/JSStringRefCF.h>
@@ -100,6 +101,12 @@ JSValueRef makeValueRefForValue(JSContextRef context, id value)
         return makeJSObject(context, value);
     if ([value isKindOfClass:[NSArray class]])
         return makeJSArray(context, value);
+#if PLATFORM(MAC)
+    if (value && CFGetTypeID((__bridge CFTypeRef)value) == AXTextMarkerGetTypeID()) {
+        Ref marker = AccessibilityTextMarker::create(value);
+        return JSObjectMake(context, marker->wrapperClass(), marker.ptr());
+    }
+#endif // PLATFORM(MAC)
     return nullptr;
 }
 
@@ -118,9 +125,9 @@ NSDictionary *searchPredicateForSearchCriteria(JSContextRef context, Accessibili
     [parameterizedAttribute setObject:@(resultsLimit) forKey:@"AXResultsLimit"];
 
     if (searchKey) {
-        id searchKeyParameter = nil;
+        RetainPtr<id> searchKeyParameter;
         if (JSValueIsString(context, searchKey))
-            searchKeyParameter = toWTFString(context, searchKey);
+            searchKeyParameter = toWTFString(context, searchKey).createNSString();
         else if (JSValueIsObject(context, searchKey)) {
             JSObjectRef searchKeyArray = JSValueToObject(context, searchKey, nullptr);
             unsigned searchKeyArrayLength = arrayLength(context, searchKeyArray);
@@ -128,15 +135,15 @@ NSDictionary *searchPredicateForSearchCriteria(JSContextRef context, Accessibili
                 auto searchKey = toWTFString(context, JSObjectGetPropertyAtIndex(context, searchKeyArray, i, nullptr));
                 if (!searchKeyParameter)
                     searchKeyParameter = [NSMutableArray array];
-                [searchKeyParameter addObject:searchKey];
+                [searchKeyParameter addObject:searchKey.createNSString().get()];
             }
         }
         if (searchKeyParameter)
-            [parameterizedAttribute setObject:searchKeyParameter forKey:@"AXSearchKey"];
+            [parameterizedAttribute setObject:searchKeyParameter.get() forKey:@"AXSearchKey"];
     }
 
     if (searchText && JSStringGetLength(searchText))
-        [parameterizedAttribute setObject:toWTFString(searchText) forKey:@"AXSearchText"];
+        [parameterizedAttribute setObject:toWTFString(searchText).createNSString().get() forKey:@"AXSearchText"];
 
     [parameterizedAttribute setObject:@(visibleOnly) forKey:@"AXVisibleOnly"];
     [parameterizedAttribute setObject:@(immediateDescendantsOnly) forKey:@"AXImmediateDescendantsOnly"];

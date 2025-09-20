@@ -314,12 +314,12 @@ Vector<char, 32> localeIDBufferForLanguageTagWithNullTerminator(const CString& t
     UErrorCode status = U_ZERO_ERROR;
     Vector<char, 32> buffer(32);
     int32_t parsedLength;
-    auto bufferLength = uloc_forLanguageTag(tag.data(), buffer.data(), buffer.size(), &parsedLength, &status);
+    auto bufferLength = uloc_forLanguageTag(tag.data(), buffer.mutableSpan().data(), buffer.size(), &parsedLength, &status);
     if (needsToGrowToProduceCString(status)) {
         // Before ICU 64, there's a chance uloc_forLanguageTag will "buffer overflow" while requesting a *smaller* size.
         buffer.resize(bufferLength + 1);
         status = U_ZERO_ERROR;
-        uloc_forLanguageTag(tag.data(), buffer.data(), bufferLength + 1, &parsedLength, &status);
+        uloc_forLanguageTag(tag.data(), buffer.mutableSpan().data(), bufferLength + 1, &parsedLength, &status);
     }
     if (U_FAILURE(status) || parsedLength != static_cast<int32_t>(tag.length()))
         return { };
@@ -723,12 +723,12 @@ String canonicalizeUnicodeLocaleID(const CString& tag)
     auto buffer = localeIDBufferForLanguageTagWithNullTerminator(tag);
     if (buffer.isEmpty())
         return String();
-    auto canonicalized = canonicalizeLocaleIDWithoutNullTerminator(buffer.data());
+    auto canonicalized = canonicalizeLocaleIDWithoutNullTerminator(buffer.span().data());
     if (!canonicalized)
         return String();
     canonicalized->append('\0');
     ASSERT(canonicalized->contains('\0'));
-    return languageTagForLocaleID(canonicalized->data());
+    return languageTagForLocaleID(canonicalized->span().data());
 }
 
 Vector<String> canonicalizeLocaleList(JSGlobalObject* globalObject, JSValue locales)
@@ -803,7 +803,7 @@ Vector<String> canonicalizeLocaleList(JSGlobalObject* globalObject, JSValue loca
             }
 
             String errorMessage = tryMakeString("invalid language tag: "_s, tag);
-            if (UNLIKELY(!errorMessage)) {
+            if (!errorMessage) [[unlikely]] {
                 throwException(globalObject, scope, createOutOfMemoryError(globalObject));
                 return { };
             }
@@ -1153,7 +1153,7 @@ static VariantCode parseVariantCode(StringView string)
     return result;
 }
 
-static unsigned convertToUnicodeSingletonIndex(UChar singleton)
+static unsigned convertToUnicodeSingletonIndex(char16_t singleton)
 {
     ASSERT(isASCIIAlphanumeric(singleton));
     singleton = toASCIILower(singleton);
@@ -1440,7 +1440,7 @@ bool LanguageTagParser::parseExtensionsAndPUExtensions()
     while (true) {
         if (m_current.length() != 1)
             return true;
-        UChar prefixCode = m_current[0];
+        char16_t prefixCode = m_current[0];
         if (!isASCIIAlphanumeric(prefixCode))
             return true;
 
@@ -1832,7 +1832,7 @@ static bool isValidTimeZoneNameFromICUTimeZone(StringView timeZoneName)
     if (timeZoneName.startsWith("SystemV/"_s))
         return false;
     if (timeZoneName.startsWith("Etc/"_s))
-        return isUTCEquivalent(timeZoneName);
+        return true;
     // IANA time zone names include '/'. Some of them are not including, but it is in backward links.
     // And ICU already resolved these backward links.
     if (!timeZoneName.contains('/'))
@@ -1848,7 +1848,7 @@ static std::optional<String> canonicalizeTimeZoneNameFromICUTimeZone(String&& ti
     return std::make_optional(WTFMove(timeZoneName));
 }
 
-// https://tc39.es/proposal-intl-enumeration/#sec-availabletimezones
+// https://tc39.es/ecma402/#sup-availablenamedtimezoneidentifiers
 const Vector<String>& intlAvailableTimeZones()
 {
     static LazyNeverDestroyed<Vector<String>> availableTimeZones;
@@ -1907,8 +1907,8 @@ TimeZoneID utcTimeZoneIDSlow()
     return utcTimeZoneIDStorage;
 }
 
-// https://tc39.es/proposal-intl-enumeration/#sec-availabletimezones
-static JSArray* availableTimeZones(JSGlobalObject* globalObject)
+// https://tc39.es/ecma402/#sec-availableprimarytimezoneidentifiers
+static JSArray* availablePrimaryTimeZoneIdentifiers(JSGlobalObject* globalObject)
 {
     return createArrayFromStringVector(globalObject, intlAvailableTimeZones());
 }
@@ -1939,7 +1939,7 @@ static JSArray* availableUnits(JSGlobalObject* globalObject)
     return result;
 }
 
-// https://tc39.es/proposal-intl-enumeration/#sec-intl.supportedvaluesof
+// https://tc39.es/ecma402/#sec-intl.supportedvaluesof
 JSC_DEFINE_HOST_FUNCTION(intlObjectFuncSupportedValuesOf, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
     VM& vm = globalObject->vm();
@@ -1961,7 +1961,7 @@ JSC_DEFINE_HOST_FUNCTION(intlObjectFuncSupportedValuesOf, (JSGlobalObject* globa
         RELEASE_AND_RETURN(scope, JSValue::encode(availableNumberingSystems(globalObject)));
 
     if (key == "timeZone"_s)
-        RELEASE_AND_RETURN(scope, JSValue::encode(availableTimeZones(globalObject)));
+        RELEASE_AND_RETURN(scope, JSValue::encode(availablePrimaryTimeZoneIdentifiers(globalObject)));
 
     if (key == "unit"_s)
         RELEASE_AND_RETURN(scope, JSValue::encode(availableUnits(globalObject)));

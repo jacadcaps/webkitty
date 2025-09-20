@@ -87,6 +87,9 @@
                   { "name": "wincairo-release-tests-01", "platform": "win" },
                   { "name": "wincairo-release-tests-02", "platform": "win" },
 
+                  { "name": "win-build-bot-001", "platform": "win" },
+                  { "name": "win-build-bot-002", "platform": "win" },
+
                   { "name": "playstation-release-build-01", "platform": "playstation" },
                   { "name": "playstation-debug-build-01", "platform": "playstation" },
 
@@ -155,6 +158,7 @@
                   { "name": "wpe-linux-bot-34", "platform": "wpe" },
                   { "name": "wpe-linux-bot-35", "platform": "wpe" },
                   { "name": "wpe-linux-bot-36", "platform": "wpe" },
+                  { "name": "wpe-linux-bot-37", "platform": "wpe" },
 
                   { "name": "wpe-linux-queue-1-bot-1", "platform": "wpe" },
                   { "name": "wpe-linux-queue-1-bot-2", "platform": "wpe" },
@@ -214,7 +218,7 @@
                   },
                   { "name": "Apple-Sequoia-Release-WK2-Site-Isolation-Tree-Tests", "factory": "TestLayoutFactory",
                   "platform": "mac-sequoia", "configuration": "release", "architectures": ["x86_64", "arm64"],
-                  "additionalArguments": ["--no-retry-failures", "--site-isolation" ],
+                  "additionalArguments": ["--no-retry-failures", "--site-isolation", "--load-in-cross-origin-iframe"],
                   "workernames": ["bot303"]
                   },
                   { "name": "Apple-Sequoia-Debug-Build", "factory": "BuildFactory",
@@ -501,7 +505,7 @@
                   {
                     "name": "GTK-Linux-64bit-Release-GNOMEWebCanary-Packaging-Nightly", "factory": "BuildAndUploadBuiltProductviaSftpFactory",
                     "platform": "gtk", "configuration": "release", "architectures": ["x86_64"],
-                    "additionalArguments": ["--prefix=/app/webkit/WebKitBuild/Release/install", "--cmakeargs=-DUSE_SYSTEM_UNIFDEF=OFF"],
+                    "additionalArguments": ["--prefix=/app/webkit/WebKitBuild/Release/install", "--cmakeargs=-DUSE_SYSTEM_UNIFDEF=OFF", "--cmakeargs=-DENABLE_WEBXR=OFF"],
                     "workernames": ["gtk-linux-bot-23"]
                   },
                   {
@@ -534,7 +538,7 @@
                     "name": "Windows-64-bit-Release-Build", "factory": "BuildFactory",
                     "platform": "win", "configuration": "release", "architectures": ["x86_64"],
                     "triggers": ["win-release-tests"],
-                    "workernames": ["wincairo-release-build-01"]
+                    "workernames": ["wincairo-release-build-01", "win-build-bot-002"]
                   },
                   {
                     "name": "Windows-64-bit-Release-Tests", "factory": "TestAllButJSCFactory",
@@ -545,7 +549,7 @@
                     "name": "Windows-64-bit-Debug-Build", "factory": "BuildFactory",
                     "platform": "win", "configuration": "debug", "architectures": ["x86_64"],
                     "triggers": ["win-debug-tests"],
-                    "workernames": ["wincairo-debug-build-01"]
+                    "workernames": ["wincairo-debug-build-01", "win-build-bot-001"]
                   },
                   {
                     "name": "Windows-64-bit-Debug-Tests", "factory": "TestAllButJSCFactory",
@@ -575,7 +579,7 @@
                   {
                     "name": "WPE-Linux-64-bit-Release-Build", "factory": "BuildFactory",
                     "platform": "wpe", "configuration": "release", "architectures": ["x86_64"],
-                    "triggers": ["wpe-linux-64-release-tests", "wpe-linux-64-release-tests-js", "wpe-linux-64-release-tests-webdriver", "wpe-linux-64-release-tests-mvt"],
+                    "triggers": ["wpe-linux-64-release-tests", "wpe-linux-64-release-tests-js", "wpe-linux-64-release-tests-webdriver", "wpe-linux-64-release-tests-mvt", "wpe-linux-64-release-legacy-api-tests"],
                     "workernames": ["wpe-linux-bot-1"]
                   },
                   {
@@ -694,6 +698,12 @@
                     "name": "WPE-Linux-64-bit-Release-MVT-Tests", "factory": "TestMVTFactory",
                     "platform": "wpe", "configuration": "release", "architectures": ["x86_64"],
                     "workernames": ["wpe-linux-bot-36"]
+                  },
+                  {
+                    "name": "WPE-Linux-64-bit-Release-Legacy-API-Tests", "factory": "TestLayoutAndAPIOnlyFactory",
+                    "platform": "wpe", "configuration": "release", "architectures": ["x86_64"],
+                    "additionalArguments": ["--wpe-legacy-api"],
+                    "workernames": ["wpe-linux-bot-37"]
                   }
                 ],
 
@@ -884,6 +894,9 @@
                   },
                   { "type": "Triggerable", "name": "wpe-linux-64-release-tests",
                     "builderNames": ["WPE-Linux-64-bit-Release-Tests"]
+                  },
+                  { "type": "Triggerable", "name": "wpe-linux-64-release-legacy-api-tests",
+                    "builderNames": ["WPE-Linux-64-bit-Release-Legacy-API-Tests"]
                   },
                   { "type": "Triggerable", "name": "wpe-linux-64-release-tests-js",
                     "builderNames": ["WPE-Linux-64-bit-Release-JS-Tests"]

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2022 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -165,7 +165,7 @@ inline JSValueRef toRef(JSC::JSGlobalObject* globalObject, JSC::JSValue v)
 }
 
 #if CPU(ADDRESS64)
-inline JSValueRef toRef(JSC::JSValue v)
+inline JSValueRef toRefWithoutGlobalObject(JSC::JSValue v)
 {
     return std::bit_cast<JSValueRef>(JSC::Integrity::audit(v));
 }

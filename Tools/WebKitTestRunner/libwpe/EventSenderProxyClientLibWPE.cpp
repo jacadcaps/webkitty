@@ -123,7 +123,7 @@ static uint32_t wkEventModifiersToWPE(WKEventModifiers wkModifiers)
     return modifiers;
 }
 
-void EventSenderProxyClientLibWPE::mouseDown(unsigned button, double time, WKEventModifiers wkModifiers, double x, double y, unsigned& mouseButtonsCurrentlyDown)
+void EventSenderProxyClientLibWPE::mouseDown(unsigned button, double time, WKEventModifiers wkModifiers, double x, double y, int /*clickCount*/, unsigned& mouseButtonsCurrentlyDown)
 {
     m_buttonState = ButtonPressed;
     auto wpeButton = senderButtonToWPEButton(button);
@@ -378,7 +378,7 @@ void EventSenderProxyClientLibWPE::removeUpdatedTouchEvents()
 void EventSenderProxyClientLibWPE::prepareAndDispatchTouchEvent(uint32_t eventType, double time)
 {
     auto updatedEvents = getUpdatedTouchEvents();
-    struct wpe_input_touch_event event = { updatedEvents.data(), updatedEvents.size(), static_cast<enum wpe_input_touch_event_type>(eventType), 0, secToMsTimestamp(time), 0 };
+    struct wpe_input_touch_event event = { updatedEvents.span().data(), updatedEvents.size(), static_cast<enum wpe_input_touch_event_type>(eventType), 0, secToMsTimestamp(time), 0 };
     wpe_view_backend_dispatch_touch_event(viewBackend(m_testController), &event);
     if (eventType == wpe_input_touch_event_type_up)
         removeUpdatedTouchEvents();

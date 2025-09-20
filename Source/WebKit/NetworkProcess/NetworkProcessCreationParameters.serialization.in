@@ -62,7 +62,7 @@ headers: "NetworkProcessCreationParameters.h" "AuxiliaryProcessCreationParameter
     HashSet<String> localhostAliasesForTesting;
     Vector<WebCore::OrganizationStorageAccessPromptQuirk> storageAccessPromptQuirksData;
 
-    Markable<double, WTF::DoubleMarkableTraits> defaultRequestTimeoutInterval;
+    Markable<double> defaultRequestTimeoutInterval;
 }
 
 enum class WebKit::LoadedWebArchive : bool

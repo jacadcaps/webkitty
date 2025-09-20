@@ -27,12 +27,11 @@
 
 #include "WebPageProxyIdentifier.h"
 #include <WebCore/EmptyFrameLoaderClient.h>
+#include <WebCore/PageIdentifier.h>
 #include <WebCore/ScriptExecutionContextIdentifier.h>
 
 namespace WebCore {
-
 class FrameLoader;
-
 }
 
 namespace WebKit {
@@ -49,7 +48,7 @@ public:
     std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier() const { return m_serviceWorkerPageIdentifier; }
 
 private:
-    Ref<WebCore::DocumentLoader> createDocumentLoader(const WebCore::ResourceRequest&, const WebCore::SubstituteData&) final;
+    Ref<WebCore::DocumentLoader> createDocumentLoader(WebCore::ResourceRequest&&, WebCore::SubstituteData&&) final;
 
     bool shouldUseCredentialStorage(WebCore::DocumentLoader*, WebCore::ResourceLoaderIdentifier) final { return true; }
     bool isRemoteWorkerFrameLoaderClient() const final { return true; }

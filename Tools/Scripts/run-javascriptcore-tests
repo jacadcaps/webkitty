@@ -301,10 +301,11 @@ Usage: $programName [options] [options to pass to build system]
 
   --report-execution-time       Print execution time for each stress test.
   --treat-failing-as-flaky      Treat failing stress tests as flaky.
-                                Expects 3 comma-separated values: passPercentage,maxTries,maxFailing
+                                Expects 3 or 4 comma-separated values: passPercentage,maxTries,maxFailing[,maxRetrySeconds]
                                 If less than maxFailing tests failed, run them again (up to maxTries)
                                 until we can tell whether they pass more than passPercentage of the
-                                time (in which case the test is counted as a pass).
+                                time (in which case the test is counted as a pass). Do not start a new iteration
+                                if we've spent more than maxRetrySeconds retrying.
 
   --filter                      Only run tests whose name matches the given regular expression.
   --env-vars                    Pass a list of environment variables to set before running tests.
@@ -634,9 +635,7 @@ if ($coverage) {
 }
 
 my $productDir = jscProductDir();
-if (isWindows()) {
-    setupWindowsWebKitEnvironment();
-} else {
+if (!isWindows()) {
     $ENV{DYLD_FRAMEWORK_PATH} = $productDir;
 }
 $ENV{JSCTEST_timeout} = 120 unless $ENV{JSCTEST_timeout}; # Set a 120 second timeout on all jsc tests (if environment variable not defined already).
@@ -654,7 +653,7 @@ sub testPath {
 }
 
 sub runTest {
-    my ($testName, $jsonTestStatusName) = @_;
+    my ($testName, $jsonTestStatusName, $extraEnvVars) = @_;
 
     chdirWebKit();
     chdir($productDir) or die "Failed to switch directory to '$productDir'\n";
@@ -668,8 +667,13 @@ sub runTest {
     unshift @command, ("/usr/bin/arch", "-$archs") if $archs ne nativeArchitecture($remotes);
     unshift @command, wrapperPrefixIfNeeded() if isGtk() or isWPE();
 
-    if ($envVars ne "") {
-        foreach my $var (split(/\s+/, $envVars)) {
+    my $combinedEnv = $envVars;
+    $combinedEnv .= " $extraEnvVars" if defined $extraEnvVars && $extraEnvVars ne "";
+
+    local %ENV = %ENV; # Save and localize the environment for this test only
+
+    if ($combinedEnv ne "") {
+        foreach my $var (split(/\s+/, $combinedEnv)) {
             if ($var =~ /([^=]*)=(.*)/) {
                 $ENV{$1} = $2;
             }
@@ -759,12 +763,24 @@ sub processCoverageData
     generateHTMLFromProfdata();
 }
 
+sub setupEnvironment()
+{
+    my $productDir = productDir();
+    if ($^O eq "linux") {
+        setupUnixWebKitEnvironment($productDir);
+    }
+}
+
+setupEnvironment();
+
 if ($runTestMasm) { runTest("testmasm", "allMasmTestsPassed") }
 if ($runTestAir) { runTest("testair", "allAirTestsPassed") }
 if ($runTestB3) { runTest("testb3", "allB3TestsPassed") }
 if ($runTestDFG) { runTest("testdfg", "allDFGTestsPassed") }
-if ($runTestAPI) { runTest("testapi", "allApiTestsPassed") }
-
+if ($runTestAPI) {
+    runTest("testapi", "allApiTestsPassed");
+    runTest("testapi", "allApiTestsPassedWithSystemMalloc", "Malloc=1");
+}
 
 # Find JavaScriptCore directory
 chdirWebKit();

@@ -46,6 +46,12 @@ class WPETestRunner(TestRunner):
     def is_qt_test(self, test_program):
         return os.path.basename(os.path.dirname(test_program)) == "WPEQt"
 
+    def is_wpe_platform_test(self, test_program):
+        return os.path.basename(os.path.dirname(test_program)) == "WPEPlatform"
+
+    def is_wpe_platform_wayland_test(self, test_program):
+        return self.is_wpe_platform_test(test_program) and "Wayland" in os.path.basename(test_program)
+
 if __name__ == "__main__":
     runner_args = get_runner_args(sys.argv)
     flatpakutils.run_in_sandbox_if_available([runner_args[0], "--wpe"] + runner_args[1:])
@@ -58,7 +64,9 @@ if __name__ == "__main__":
     option_parser = optparse.OptionParser(usage='usage: %prog [options] [test...]')
     add_options(option_parser);
     option_parser.add_option('--display-server', choices=['headless', 'wayland'], default='headless',
-                             help='"headless": Use headless view backend. "wayland": Use the current wayland session.'),
+                             help='"headless": Use headless view backend. "wayland": Use the current wayland session.')
+    option_parser.add_option('--wpe-legacy-api', action="store_true", default=False,
+                             help='Use WPE legacy API.')
 
     args = sys.argv[1:]
     if flatpakutils.is_sandboxed():

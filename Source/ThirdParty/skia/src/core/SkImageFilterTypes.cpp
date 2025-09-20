@@ -13,7 +13,6 @@
 #include "include/core/SkCanvas.h"
 #include "include/core/SkClipOp.h"
 #include "include/core/SkColor.h"
-#include "include/core/SkColorType.h"
 #include "include/core/SkImage.h"
 #include "include/core/SkImageInfo.h"
 #include "include/core/SkM44.h"
@@ -99,7 +98,7 @@ void decompose_transform(const SkMatrix& transform, SkPoint representativePoint,
     } else {
         // Perspective, which has a non-uniform scaling effect on the filter. Pick a single scale
         // factor that best matches where the filter will be evaluated.
-        SkScalar approxScale = SkMatrixPriv::DifferentialAreaScale(transform, representativePoint);
+        float approxScale = SkMatrixPriv::DifferentialAreaScale(transform, representativePoint);
         if (SkIsFinite(approxScale) && !SkScalarNearlyZero(approxScale)) {
             // Now take the sqrt to go from an area scale factor to a scaling per X and Y
             approxScale = SkScalarSqrt(approxScale);
@@ -107,8 +106,11 @@ void decompose_transform(const SkMatrix& transform, SkPoint representativePoint,
             // The point was behind the W = 0 plane, so don't factor out any scale.
             approxScale = 1.f;
         }
-        *postScaling = transform;
-        postScaling->preScale(SkScalarInvert(approxScale), SkScalarInvert(approxScale));
+        if (postScaling) {
+            *postScaling = transform;
+            float invScale = SkScalarInvert(approxScale);
+            postScaling->preScale(invScale, invScale);
+        }
         *scaling = SkMatrix::Scale(approxScale, approxScale);
     }
 }
@@ -202,16 +204,9 @@ public:
         return SkImages::RasterFromBitmap(data);
     }
 
-#if defined(SK_USE_LEGACY_BLUR_RASTER)
-    const SkBlurEngine* getBlurEngine() const override { return nullptr; }
-#else
-    bool useLegacyFilterResultBlur() const override { return false; }
-
     const SkBlurEngine* getBlurEngine() const override {
         return SkBlurEngine::GetRasterBlurEngine();
     }
-#endif
-
 };
 
 } // anonymous namespace
@@ -228,11 +223,6 @@ Backend::Backend(sk_sp<SkImageFilterCache> cache,
 Backend::~Backend() = default;
 
 sk_sp<Backend> MakeRasterBackend(const SkSurfaceProps& surfaceProps, SkColorType colorType) {
-    // TODO (skbug:14286): Remove this forcing to 8888. Many legacy image filters only support
-    // N32 on CPU, but once they are implemented in terms of draws and SkSL they will support
-    // all color types, like the GPU backends.
-    colorType = kN32_SkColorType;
-
     return sk_make_sp<RasterBackend>(surfaceProps, colorType);
 }
 
@@ -266,25 +256,33 @@ SkIRect RoundOut(SkRect r) { return r.makeInset(kRoundEpsilon, kRoundEpsilon).ro
 
 SkIRect RoundIn(SkRect r) { return r.makeOutset(kRoundEpsilon, kRoundEpsilon).roundIn(); }
 
-bool Mapping::decomposeCTM(const SkMatrix& ctm, MatrixCapability capability,
+bool Mapping::decomposeCTM(const SkM44& ctm, MatrixCapability capability,
                            const skif::ParameterSpace<SkPoint>& representativePt) {
-    SkMatrix remainder, layer;
+    SkM44 remainder{SkM44::kUninitialized_Constructor};
+    SkM44 layer{SkM44::kUninitialized_Constructor};
     if (capability == MatrixCapability::kTranslate) {
         // Apply the entire CTM post-filtering
         remainder = ctm;
-        layer = SkMatrix::I();
-    } else if (ctm.isScaleTranslate() || capability == MatrixCapability::kComplex) {
+        layer = SkM44();
+    } else if (SkMatrixPriv::IsScaleTranslateAsM33(ctm) ||
+               capability == MatrixCapability::kComplex) {
         // Either layer space can be anything (kComplex) - or - it can be scale+translate, and the
         // ctm is. In both cases, the layer space can be equivalent to device space.
-        remainder = SkMatrix::I();
+        remainder = SkM44();
         layer = ctm;
     } else {
         // This case implies some amount of sampling post-filtering, either due to skew or rotation
         // in the original matrix. As such, keep the layer matrix as simple as possible.
-        decompose_transform(ctm, SkPoint(representativePt), &remainder, &layer);
+        SkMatrix layer33;
+        decompose_transform(ctm.asM33(), SkPoint(representativePt),
+                            /*postScaling=*/nullptr, &layer33);
+        layer = SkM44(layer33);
+        // Reconstruct full 4x4 remainder matrix so the mapping doesn't lose the 3rd row/column.
+        remainder = ctm;
+        remainder.preScale(1.f / layer.rc(0,0), 1.f / layer.rc(1,1));
     }
 
-    SkMatrix invRemainder;
+    SkM44 invRemainder;
     if (!remainder.invert(&invRemainder)) {
         // Under floating point arithmetic, it's possible to decompose an invertible matrix into
         // a scaling matrix and a remainder and have the remainder be non-invertible. Generally
@@ -299,7 +297,7 @@ bool Mapping::decomposeCTM(const SkMatrix& ctm, MatrixCapability capability,
     }
 }
 
-bool Mapping::decomposeCTM(const SkMatrix& ctm,
+bool Mapping::decomposeCTM(const SkM44& ctm,
                            const SkImageFilter* filter,
                            const skif::ParameterSpace<SkPoint>& representativePt) {
     return this->decomposeCTM(
@@ -308,8 +306,8 @@ bool Mapping::decomposeCTM(const SkMatrix& ctm,
             representativePt);
 }
 
-bool Mapping::adjustLayerSpace(const SkMatrix& layer) {
-    SkMatrix invLayer;
+bool Mapping::adjustLayerSpace(const SkM44& layer) {
+    SkM44 invLayer;
     if (!layer.invert(&invLayer)) {
         return false;
     }
@@ -351,29 +349,23 @@ SkIRect Mapping::map<SkIRect>(const SkIRect& geom, const SkMatrix& matrix) {
 
 template<>
 SkIPoint Mapping::map<SkIPoint>(const SkIPoint& geom, const SkMatrix& matrix) {
-    SkPoint p = SkPoint::Make(SkIntToScalar(geom.fX), SkIntToScalar(geom.fY));
-    matrix.mapPoints(&p, 1);
+    SkPoint p = matrix.mapPoint({SkIntToScalar(geom.fX), SkIntToScalar(geom.fY)});
     return SkIPoint::Make(SkScalarRoundToInt(p.fX), SkScalarRoundToInt(p.fY));
 }
 
 template<>
 SkPoint Mapping::map<SkPoint>(const SkPoint& geom, const SkMatrix& matrix) {
-    SkPoint p;
-    matrix.mapPoints(&p, &geom, 1);
-    return p;
+    return matrix.mapPoint(geom);
 }
 
 template<>
 Vector Mapping::map<Vector>(const Vector& geom, const SkMatrix& matrix) {
-    SkVector v = SkVector::Make(geom.fX, geom.fY);
-    matrix.mapVectors(&v, 1);
-    return Vector{v};
+    return Vector(matrix.mapVector({geom.fX, geom.fY}));
 }
 
 template<>
 IVector Mapping::map<IVector>(const IVector& geom, const SkMatrix& matrix) {
-    SkVector v = SkVector::Make(SkIntToScalar(geom.fX), SkIntToScalar(geom.fY));
-    matrix.mapVectors(&v, 1);
+    const SkVector v = matrix.mapVector({SkIntToScalar(geom.fX), SkIntToScalar(geom.fY)});
     return IVector(SkScalarRoundToInt(v.fX), SkScalarRoundToInt(v.fY));
 }
 
@@ -592,7 +584,7 @@ public:
         }
 
         if (renderInParameterSpace) {
-            fCanvas->concat(SkMatrix(ctx.mapping().layerMatrix()));
+            fCanvas->concat(ctx.mapping().layerMatrix());
         }
     }
 
@@ -1073,6 +1065,10 @@ FilterResult FilterResult::applyTransform(const Context& ctx,
         return {};
     }
 
+    if (!transform.invert(nullptr)) {
+        return {};
+    }
+
     // Extract the sampling options that matter based on the current and next transforms.
     // We make sure the new sampling is bilerp (default) if the new transform doesn't matter
     // (and assert that the current is bilerp if its transform didn't matter). Bilerp can be
@@ -1441,7 +1437,7 @@ sk_sp<SkShader> FilterResult::getAnalyzedShaderView(
 
     if (analysis & BoundsAnalysis::kRequiresDecalInLayerSpace) {
         SkASSERT(fTileMode == SkTileMode::kDecal);
-        // TODO(skbug:12784) - As part of fully supporting subsets in image shaders, it probably
+        // TODO(skbug.com/40043877) - As part of fully supporting subsets in image shaders, it probably
         // makes sense to share the subset tiling logic that's in GrTextureEffect as dedicated
         // SkShaders. Graphite can then add those to its program as-needed vs. always doing
         // shader-based tiling, and CPU can have raster-pipeline tiling applied more flexibly than
@@ -1974,9 +1970,8 @@ FilterResult FilterResult::MakeFromImage(const Context& ctx,
         // client could be doing their own external approximate-fit texturing.
         skif::FilterResult subset{std::move(specialImage),
                                   skif::LayerSpace<SkIPoint>(srcSubset.topLeft())};
-        SkMatrix transform = SkMatrix::Concat(ctx.mapping().layerMatrix(),
-                                              SkMatrix::RectToRect(srcRect, SkRect(dstRect)));
-        return subset.applyTransform(ctx, skif::LayerSpace<SkMatrix>(transform), sampling);
+        SkM44 transform = ctx.mapping().layerMatrix() * SkM44::RectToRect(srcRect, SkRect(dstRect));
+        return subset.applyTransform(ctx, skif::LayerSpace<SkMatrix>(transform.asM33()), sampling);
     }
 
     // For now, draw the src->dst subset of image into a new image.
@@ -2012,7 +2007,7 @@ SkSpan<sk_sp<SkShader>> FilterResult::Builder::createInputShaders(
         // into is being sampled in parameter space. Add the inverse of the layerMatrix() (i.e.
         // layer to parameter space) as a local matrix to convert from the parameter-space coords
         // of the outer shader to the layer-space coords of the FilterResult).
-        SkAssertResult(fContext.mapping().layerMatrix().invert(&layerToParam));
+        SkAssertResult(fContext.mapping().layerMatrix().asM33().invert(&layerToParam));
         // Automatically add nonTrivial sampling if the layer-to-parameter space mapping isn't
         // also pixel aligned.
         if (!is_nearly_integer_translation(LayerSpace<SkMatrix>(layerToParam))) {
@@ -2103,8 +2098,6 @@ FilterResult FilterResult::Builder::merge() {
 FilterResult FilterResult::Builder::blur(const LayerSpace<SkSize>& sigma) {
     SkASSERT(fInputs.size() == 1);
 
-    // TODO: The blur functor is only supported for GPU contexts; SkBlurImageFilter should have
-    // detected this.
     const SkBlurEngine* blurEngine = fContext.backend()->getBlurEngine();
     SkASSERT(blurEngine);
 
@@ -2130,24 +2123,6 @@ FilterResult FilterResult::Builder::blur(const LayerSpace<SkSize>& sigma) {
     // in Builder::add()).
     auto sampleBounds = outputBounds;
     sampleBounds.outset(radii);
-
-    if (fContext.backend()->useLegacyFilterResultBlur()) {
-        SkASSERT(sigma.width() <= algorithm->maxSigma() && sigma.height() <= algorithm->maxSigma());
-
-        FilterResult resolved = fInputs[0].fImage.resolve(fContext, sampleBounds);
-        if (!resolved) {
-            return {};
-        }
-        auto srcRelativeOutput = outputBounds;
-        srcRelativeOutput.offset(-resolved.layerBounds().topLeft());
-        resolved = {algorithm->blur(SkSize(sigma),
-                                    resolved.fImage,
-                                    SkIRect::MakeSize(resolved.fImage->dimensions()),
-                                    SkTileMode::kDecal,
-                                    SkIRect(srcRelativeOutput)),
-                    outputBounds.topLeft()};
-        return resolved;
-    }
 
     float sx = sigma.width()  > algorithm->maxSigma() ? algorithm->maxSigma()/sigma.width()  : 1.f;
     float sy = sigma.height() > algorithm->maxSigma() ? algorithm->maxSigma()/sigma.height() : 1.f;
@@ -2192,9 +2167,15 @@ FilterResult FilterResult::Builder::blur(const LayerSpace<SkSize>& sigma) {
                                                    3.f * lowResSigma.height()}).ceil());
         srcRelativeOutput = lowResMaxOutput.relevantSubset(srcRelativeOutput,
                                                            lowResImage.tileMode());
+
         // Clamp won't return empty from relevantSubset() and a non-intersecting decal should have
         // been caught earlier.
-        SkASSERT(!srcRelativeOutput.isEmpty());
+        // TODO(40042624): However, with some pathological inputs and the current mix of float vs.
+        // int representations, the definition of emptiness can change. Once everything is floating
+        // point, this check can be removed.
+        if (srcRelativeOutput.isEmpty()) {
+            return {};
+        }
 
         // Include 1px of blur output so that it can be sampled during the upscale, which is needed
         // to correctly seam large blurs across crop/raster tiles (crbug.com/1500021).

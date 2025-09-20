@@ -421,11 +421,10 @@ static void get_plane_glyph_map(const uint8_t* bits,
             CGGlyph glyphs[2] = {0, 0};
             if (CTFontGetGlyphsForCharacters(ctFont, utf16, glyphs, count)) {
                 SkASSERT(glyphs[1] == 0);
-                SkASSERT(glyphs[0] < glyphCount);
                 // CTFontCopyCharacterSet and CTFontGetGlyphsForCharacters seem to add 'support'
                 // for characters 0x9, 0xA, and 0xD mapping them to the glyph for character 0x20?
                 // Prefer mappings to codepoints at or above 0x20.
-                if (glyphToUnicode[glyphs[0]] < 0x20) {
+                if (glyphs[0] < glyphCount && glyphToUnicode[glyphs[0]] < 0x20) {
                     glyphToUnicode[glyphs[0]] = codepoint;
                 }
             }
@@ -623,7 +622,7 @@ std::unique_ptr<SkStreamAsset> SkTypeface_Mac::onOpenStream(int* ttcIndex) const
     int numTables = this->countTables();
     SkTDArray<SkFontTableTag> tableTags;
     tableTags.resize(numTables);
-    this->getTableTags(tableTags.begin());
+    this->readTableTags(tableTags);
 
     // CT seems to be unreliable in being able to obtain the type,
     // even if all we want is the first four bytes of the font resource.
@@ -631,7 +630,7 @@ std::unique_ptr<SkStreamAsset> SkTypeface_Mac::onOpenStream(int* ttcIndex) const
     if (fontType == 0) {
         fontType = SkSFNTHeader::fontType_WindowsTrueType::TAG;
 
-        // see https://skbug.com/7630#c7
+        // see https://skbug.com/40038881#c7
         bool couldBeCFF = false;
         constexpr SkFontTableTag CFFTag = SkSetFourByteTag('C', 'F', 'F', ' ');
         constexpr SkFontTableTag CFF2Tag = SkSetFourByteTag('C', 'F', 'F', '2');
@@ -890,8 +889,7 @@ sk_sp<SkData> SkTypeface_Mac::onCopyTableData(SkFontTableTag tag) const {
 std::unique_ptr<SkScalerContext> SkTypeface_Mac::onCreateScalerContext(
     const SkScalerContextEffects& effects, const SkDescriptor* desc) const
 {
-    return std::make_unique<SkScalerContext_Mac>(
-            sk_ref_sp(const_cast<SkTypeface_Mac*>(this)), effects, desc);
+    return std::make_unique<SkScalerContext_Mac>(*const_cast<SkTypeface_Mac*>(this), effects, desc);
 }
 
 void SkTypeface_Mac::onFilterRec(SkScalerContextRec* rec) const {

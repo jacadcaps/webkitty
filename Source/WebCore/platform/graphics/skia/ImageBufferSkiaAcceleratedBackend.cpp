@@ -31,6 +31,7 @@
 #include "GLContext.h"
 #include "GLFence.h"
 #include "IntRect.h"
+#include "NativeImage.h"
 #include "PixelBuffer.h"
 #include "PixelBufferConversion.h"
 #include "PlatformDisplay.h"
@@ -109,7 +110,8 @@ void ImageBufferSkiaAcceleratedBackend::prepareForDisplay()
     if (!image)
         return;
 
-    m_layerContentsDisplayDelegate->setDisplayBuffer(CoordinatedPlatformLayerBufferNativeImage::create(image.releaseNonNull(), GLFence::create()));
+    auto fence = GLFence::create(PlatformDisplay::sharedDisplay().glDisplay());
+    m_layerContentsDisplayDelegate->setDisplayBuffer(CoordinatedPlatformLayerBufferNativeImage::create(image.releaseNonNull(), WTFMove(fence)));
 #endif
 }
 
@@ -161,7 +163,7 @@ void ImageBufferSkiaAcceleratedBackend::getPixelBuffer(const IntRect& srcRect, P
     SkPixmap pixmap(destinationInfo, destination.bytes().data(), destination.size().width() * 4);
 
     SkPixmap dstPixmap;
-    if (UNLIKELY(!pixmap.extractSubset(&dstPixmap, destinationRect)))
+    if (!pixmap.extractSubset(&dstPixmap, destinationRect)) [[unlikely]]
         return;
 
     m_surface->readPixels(dstPixmap, sourceRectClipped.x(), sourceRectClipped.y());
@@ -172,7 +174,7 @@ static std::span<uint8_t> mutableSpan(SkData* data)
     return unsafeMakeSpan(static_cast<uint8_t*>(data->writable_data()), data->size());
 }
 
-void ImageBufferSkiaAcceleratedBackend::putPixelBuffer(const PixelBuffer& pixelBuffer, const IntRect& srcRect, const IntPoint& destPoint, AlphaPremultiplication destFormat)
+void ImageBufferSkiaAcceleratedBackend::putPixelBuffer(const PixelBufferSourceView& pixelBuffer, const IntRect& srcRect, const IntPoint& destPoint, AlphaPremultiplication destFormat)
 {
     UNUSED_PARAM(destFormat);
 
@@ -207,7 +209,7 @@ void ImageBufferSkiaAcceleratedBackend::putPixelBuffer(const PixelBuffer& pixelB
     SkPixmap pixmap(pixelBufferInfo, pixelBuffer.bytes().data(), pixelBuffer.size().width() * 4);
 
     SkPixmap srcPixmap;
-    if (UNLIKELY(!pixmap.extractSubset(&srcPixmap, sourceRectClipped)))
+    if (!pixmap.extractSubset(&srcPixmap, sourceRectClipped)) [[unlikely]]
         return;
 
     const auto destAlphaType = (destFormat == AlphaPremultiplication::Premultiplied)

@@ -1,104 +1,86 @@
 ================
-WebKitGTK 2.48.6
+WebKitGTK 2.50.0
 ================
 
-What's new in WebKitGTK 2.48.6?
+What's new in WebKitGTK 2.50.0?
 
-  - Fix emojis incorrectly rendered in their text variant.
+  - Fix rendering with software rasterization enabled.
+  - Fix WebAudio issues after idling for a minute.
+  - Fix several crashes and rendering issues.
+
+=================
+WebKitGTK 2.49.90
+=================
+
+What's new in WebKitGTK 2.49.90?
+
   - Add support for font collection / fragment identifiers.
   - Fix web process deadlock on exit.
-  - Fix stuttering when playing WebP animations.
+  - Fix stuttering when playing WebP animations
   - Fix CSS animations with cubic-bezier timing function.
-  - Do not start the MemoryPressureMonitor if it's disabled.
+  - Do not start the MemoryPressureMonitor if it's disabled
+  - Translation updates: Polish, Slovenian.
   - Fix several crashes and rendering issues.
 
 ================
-WebKitGTK 2.48.5
+WebKitGTK 2.49.4
 ================
 
-What's new in WebKitGTK 2.48.5?
+What's new in WebKitGTK 2.49.4?
 
-  - Fix several crashes.
-
-================
-WebKitGTK 2.48.4
-================
-
-What's new in WebKitGTK 2.48.4?
-
-  - Improve emoji font selection with USE_SKIA=ON.
-  - Improve playback of multimedia streams from blob URLs.
-  - Fix the build with USE_SKIA_OPENTYPE_SVG=ON and
-    USE_SYSPROF_CAPTURE=ON.
-  - Fix the build on LoongArch with USE_SKIA=ON.
-  - Fix crash when using a WebKitWebView widget in an offscreen window.
+  - Enable CSS property font-variant-emoji is now enabled by default.
+  - Improve emoji font selection.
+  - Add SVT-AV1 encoder support to media backend.
+  - Show device scale factor in webkit://gpu.
+  - Fix font rendering of composed characters with certain fonts.
+  - Fix handling of font synthesis properties (bold/italic).
+  - Fix documentation of WebKitDeviceInfoPermissionRequest.
   - Fix several crashes and rendering issues.
 
 ================
-WebKitGTK 2.48.3
+WebKitGTK 2.49.3
 ================
 
-What's new in WebKitGTK 2.48.3?
+What's new in WebKitGTK 2.49.3?
 
-  - Fix a crash introduced by the new threaded rendering implementation using Skia API.
-  - Improve rendering performance by recording layers once and replaying every dirty
-    region in different worker threads.
+  - Add new API to get the theme color of a WebKitWebView.
+  - Fix rendering with GTK 3.
+  - Notify automation session on abnormal disconnections.
+  - Fix a crash by ensuring SkiaRecordingResult is destroyed on the main thread.
+  - Fix build on s390x.
+  - Fix the build with GTK 3.
+  - Fix several crashes and rendering issues.
+
+================
+WebKitGTK 2.49.2
+================
+
+What's new in WebKitGTK 2.49.2?
+
+  - Enable damage propagation to the UI process by default.
+  - Pass available input devices from UI process to web process for Interaction Media Features.
+  - Always have a fallback when domain does not have known base.
+  - Fix URL after HSTS upgrade in case of redirection.
+  - Fix rendering when device scale factor change comes before the web view geometry update.
+  - Ensure web view is focused on tap gesture.
   - Fix a crash when setting WEBKIT_SKIA_GPU_PAINTING_THREADS=0.
-  - Fix a reference cycle in webkitmediastreamsrc preventing its disposal.
+  - Fix several crashes and rendering issues.
+  - Translation updates: Brazilian Portuguese, Swedish.
 
 ================
-WebKitGTK 2.48.2
+WebKitGTK 2.49.1
 ================
 
-What's new in WebKitGTK 2.48.2?
+What's new in WebKitGTK 2.49.1?
 
-  - Enable CSS Overscroll Behavior by default.
   - Change threaded rendering implementation to use Skia API instead of WebCore display
-    list that is not thread safe.
-  - Fix rendering when device scale factor change comes before the web view geometry
-    update.
-  - Fix network process crash on exit.
-  - Fix the build with ENABLE_RESOURCE_USAGE=OFF.
+    list that is not thread safe. This also allowed to improve performance by recording
+    layers once and replaying every dirty region in different worker threads.
+  - Added hybrid rendering mode that tries to use the GPU worker threads, but if they
+    are all busy the CPU worker threads are used if possible.
+  - Add volume locking support to media player.
+  - Add support for tracing counters with Sysprof.
   - Fix several crashes and rendering issues.
-
-================
-WebKitGTK 2.48.1
-================
-
-What's new in WebKitGTK 2.48.1?
-
-  - Limit the data stored in session state.
-  - Remove the empty area below the title bar in Web Inspector when not docked.
-  - Fix the build with GST_DISABLE_GST_DEBUG.
-  - Fix the build with GStreamer < 1.20.
-  - Fix the build with video disabled.
-  - Fix the build with clang 20.
-
-================
-WebKitGTK 2.48.0
-================
-
-What's new in WebKitGTK 2.48.0?
-
-  - Fix YouTube playing by using a different user agent quirk.
-  - Avoid adding redundant tracks to MediaPlayer.
-  - Propagate the font's computed locale to HarfBuzz.
-  - Fix build on non-Linux platforms.
-  - Fix several crashes and rendering issues.
-  - Translation updates: Polish.
-
-=================
-WebKitGTK 2.47.90
-=================
-
-What's new in WebKitGTK 2.47.90?
-
-  - Ensure WebKitCookieManager APIs keep cookie cache up to date.
-  - Use two GPU rendering threads if the system has more than 4 cores.
-  - Fix web view contents not rendered in some cases.
-  - Fix invalid DPI-aware font size conversion.
-  - Reduce memory copies when rendering DMABufs video frames.
-  - Translation updates: Brazilian Portuguese.
 
 ================
 WebKitGTK 2.47.4

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004-2016 Apple Inc.  All rights reserved.
+ * Copyright (C) 2004-2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,11 +34,7 @@ typedef struct CGPoint CGPoint;
 
 #if !PLATFORM(IOS_FAMILY)
 #if OS(DARWIN)
-#ifdef NSGEOMETRY_TYPES_SAME_AS_CGGEOMETRY_TYPES
 typedef struct CGPoint NSPoint;
-#else
-typedef struct _NSPoint NSPoint;
-#endif
 #endif
 #endif // !PLATFORM(IOS_FAMILY)
 
@@ -134,13 +130,6 @@ public:
     WEBCORE_EXPORT explicit IntPoint(const CGPoint&); // don't do this implicitly since it's lossy
     WEBCORE_EXPORT operator CGPoint() const;
 #endif
-
-#if !PLATFORM(IOS_FAMILY)
-#if OS(DARWIN) && !defined(NSGEOMETRY_TYPES_SAME_AS_CGGEOMETRY_TYPES)
-    WEBCORE_EXPORT explicit IntPoint(const NSPoint&); // don't do this implicitly since it's lossy
-    WEBCORE_EXPORT operator NSPoint() const;
-#endif
-#endif // !PLATFORM(IOS_FAMILY)
 
 #if PLATFORM(WIN)
     WEBCORE_EXPORT IntPoint(const POINT&);

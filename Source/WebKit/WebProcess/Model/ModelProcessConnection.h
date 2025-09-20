@@ -29,6 +29,9 @@
 
 #include "Connection.h"
 #include "MessageReceiverMap.h"
+#include "SharedPreferencesForWebProcess.h"
+#include "WebProcess.h"
+#include <WebCore/ModelPlayerIdentifier.h>
 #include <wtf/AbstractThreadSafeRefCountedAndCanMakeWeakPtr.h>
 #include <wtf/RefCounted.h>
 #include <wtf/WeakHashSet.h>
@@ -45,7 +48,7 @@ struct WebPageCreationParameters;
 class ModelProcessConnection
     : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<ModelProcessConnection>
     , public IPC::Connection::Client {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(ModelProcessConnection);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(ModelProcessConnection);
 public:
     static RefPtr<ModelProcessConnection> create(IPC::Connection& parentConnection);
@@ -56,6 +59,9 @@ public:
 
     IPC::Connection& connection() { return m_connection.get(); }
     IPC::MessageReceiverMap& messageReceiverMap() { return m_messageReceiverMap; }
+
+    std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const { return WebProcess::singleton().sharedPreferencesForWebProcess(); }
+    const SharedPreferencesForWebProcess& sharedPreferencesForWebProcessValue() const { return WebProcess::singleton().sharedPreferencesForWebProcessValue(); }
 
 #if HAVE(AUDIT_TOKEN)
     std::optional<audit_token_t> auditToken();
@@ -87,13 +93,14 @@ private:
     void didClose(IPC::Connection&) override;
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
     bool didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
-    void didReceiveInvalidMessage(IPC::Connection&, IPC::MessageName, int32_t indexOfObjectFailingDecoding) override;
+    void didReceiveInvalidMessage(IPC::Connection&, IPC::MessageName, const Vector<uint32_t>& indicesOfObjectsFailingDecoding) override;
 
     bool dispatchMessage(IPC::Connection&, IPC::Decoder&);
     bool dispatchSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&);
 
     // Messages.
     void didInitialize(std::optional<ModelProcessConnectionInfo>&&);
+    void didUnloadModelPlayer(WebCore::ModelPlayerIdentifier);
 
     // The connection from the web process to the model process.
     Ref<IPC::Connection> m_connection;

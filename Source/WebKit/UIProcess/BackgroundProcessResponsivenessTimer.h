@@ -35,7 +35,7 @@ namespace WebKit {
 class WebProcessProxy;
 
 class BackgroundProcessResponsivenessTimer : public CanMakeCheckedPtr<BackgroundProcessResponsivenessTimer> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(BackgroundProcessResponsivenessTimer);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(BackgroundProcessResponsivenessTimer);
 public:
     explicit BackgroundProcessResponsivenessTimer(WebProcessProxy&);
@@ -58,6 +58,7 @@ private:
     bool isActive() const;
     void scheduleNextResponsivenessCheck();
     ResponsivenessTimer::Client& client() const;
+    Ref<ResponsivenessTimer::Client> protectedClient() const { return client(); }
 
     WeakRef<WebProcessProxy> m_webProcessProxy;
     Seconds m_checkingInterval;

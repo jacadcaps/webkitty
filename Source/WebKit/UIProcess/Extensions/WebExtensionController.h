@@ -109,7 +109,7 @@ public:
 
     WebExtensionControllerConfiguration& configuration() const { return m_configuration.get(); }
     Ref<WebExtensionControllerConfiguration> protectedConfiguration() const { return m_configuration; }
-    WebExtensionControllerParameters parameters() const;
+    WebExtensionControllerParameters parameters(const API::PageConfiguration&) const;
 
     bool operator==(const WebExtensionController& other) const { return (this == &other); }
 
@@ -132,6 +132,8 @@ public:
     bool unload(WebExtensionContext&, NSError ** = nullptr);
 
     void unloadAll();
+
+    void dispatchDidLoad(WebExtensionContext&);
 
     void addPage(WebPageProxy&);
     void removePage(WebPageProxy&);
@@ -193,6 +195,9 @@ public:
 private:
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
+
+    bool hasLoadedContexts(IPC::Decoder&) const { return hasLoadedContexts(); }
+    bool inTestingMode(IPC::Decoder&) const { return inTestingMode(); }
 
     void initializePlatform();
 
@@ -257,7 +262,7 @@ private:
 
     RefPtr<HTTPCookieStoreObserver> protectedCookieStoreObserver() { return m_cookieStoreObserver; }
 
-    Ref<WebExtensionControllerConfiguration> m_configuration;
+    const Ref<WebExtensionControllerConfiguration> m_configuration;
 
 #if PLATFORM(COCOA)
     RetainPtr<_WKWebExtensionControllerHelper> m_webExtensionControllerHelper;

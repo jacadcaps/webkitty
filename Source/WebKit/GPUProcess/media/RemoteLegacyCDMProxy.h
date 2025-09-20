@@ -39,7 +39,7 @@
 namespace WebKit {
 
 class RemoteLegacyCDMProxy : public IPC::MessageReceiver, public WebCore::LegacyCDMClient, public RefCounted<RemoteLegacyCDMProxy> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(RemoteLegacyCDMProxy);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RemoteLegacyCDMProxy);
 public:
     static Ref<RemoteLegacyCDMProxy> create(WeakPtr<RemoteLegacyCDMFactoryProxy>, std::optional<WebCore::MediaPlayerIdentifier>, Ref<WebCore::LegacyCDM>&&);
@@ -65,7 +65,7 @@ private:
     using SupportsMIMETypeCallback = CompletionHandler<void(bool)>;
     void supportsMIMEType(const String&, SupportsMIMETypeCallback&&);
     using CreateSessionCallback = CompletionHandler<void(std::optional<RemoteLegacyCDMSessionIdentifier>&&)>;
-    void createSession(const String&, uint64_t, CreateSessionCallback&&);
+    void createSession(uint64_t, CreateSessionCallback&&);
     void setPlayerId(std::optional<WebCore::MediaPlayerIdentifier> playerId) { m_playerId = playerId; }
 
     // LegacyCDMClient

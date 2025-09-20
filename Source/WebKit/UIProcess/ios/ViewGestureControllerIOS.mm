@@ -54,10 +54,6 @@
 - (_UINavigationInteractiveTransitionBase *)transitionForDirection:(WebKit::ViewGestureController::SwipeDirection)direction;
 @end
 
-@interface _UIViewControllerTransitionContext (WKDetails)
-@property (nonatomic, copy, setter=_setInteractiveUpdateHandler:)  void (^_interactiveUpdateHandler)(BOOL interactionIsOver, CGFloat percentComplete, BOOL transitionCompleted, _UIViewControllerTransitionContext *);
-@end
-
 @implementation WKSwipeTransitionController
 {
     WebKit::ViewGestureController *_gestureController;
@@ -81,6 +77,11 @@ static const float swipeSnapshotRemovalRenderTreeSizeTargetFraction = 0.5;
         _forwardTransitionController = adoptNS([_UINavigationInteractiveTransitionBase alloc]);
         _forwardTransitionController = [_forwardTransitionController initWithGestureRecognizerView:gestureRecognizerView animator:nil delegate:self];
         [_forwardTransitionController setShouldReverseTranslation:YES];
+
+#if HAVE(CONTENT_SWIPE_GESTURE_RECOGNIZER)
+        [[_backTransitionController contentSwipeGestureRecognizer] setEnabled:NO];
+        [[_forwardTransitionController contentSwipeGestureRecognizer] setEnabled:NO];
+#endif
     }
     return self;
 }
@@ -107,6 +108,9 @@ static const float swipeSnapshotRemovalRenderTreeSizeTargetFraction = 0.5;
 
 - (BOOL)shouldBeginInteractiveTransition:(_UINavigationInteractiveTransitionBase *)transition
 {
+    if (_gestureController->hasActiveSwipeGesture())
+        return NO;
+
     using enum WebKit::ViewGestureController::DeferToConflictingGestures;
     auto deferToConflictingGestures = transition.gestureRecognizer.state == UIGestureRecognizerStateFailed ? Yes : No;
     return _gestureController->canSwipeInDirection([self directionForTransition:transition], deferToConflictingGestures);
@@ -202,7 +206,7 @@ void ViewGestureController::beginSwipeGesture(_UINavigationInteractiveTransition
     m_webPageProxyForBackForwardListForCurrentSwipe = alternateBackForwardListSourcePage ? alternateBackForwardListSourcePage.get() : page.get();
 
     auto& backForwardList = m_webPageProxyForBackForwardListForCurrentSwipe->backForwardList();
-    RefPtr targetItem = direction == SwipeDirection::Back ? backForwardList.goBackItemSkippingItemsWithoutUserGesture() : backForwardList.goForwardItemSkippingItemsWithoutUserGesture();
+    RefPtr targetItem = itemForSwipeDirection(direction);
     if (!targetItem) {
         RELEASE_LOG_ERROR(ViewGestures, "Failed to find %s item when beginning swipe.", direction == SwipeDirection::Back ? "back" : "forward");
         didEndGesture();
@@ -283,9 +287,9 @@ void ViewGestureController::beginSwipeGesture(_UINavigationInteractiveTransition
     m_didCallWillEndSwipeGesture = false;
     m_didCallEndSwipeGesture = false;
     m_removeSnapshotImmediatelyWhenGestureEnds = false;
-    [m_swipeTransitionContext _setInteractiveUpdateHandler:^(BOOL finish, CGFloat percent, BOOL transitionCompleted, _UIViewControllerTransitionContext *) {
-        if (finish)
-            willEndSwipeGesture(*targetItem, !transitionCompleted);
+    [[m_swipeTransitionContext _transitionCoordinator] notifyWhenInteractionChangesUsingBlock:^(id<UIViewControllerTransitionCoordinatorContext> context) {
+        if (!context.interactive)
+            willEndSwipeGesture(*targetItem, context.cancelled);
     }];
     auto pageID = page->identifier();
     GestureID gestureID = m_currentGestureID;

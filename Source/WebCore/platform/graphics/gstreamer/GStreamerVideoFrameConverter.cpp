@@ -47,14 +47,14 @@ static const Seconds s_releaseUnusedPipelinesTimerInterval = 30_s;
 
 GStreamerVideoFrameConverter::Pipeline::Pipeline(Type type)
     : m_type(type)
-    , m_src(makeGStreamerElement("appsrc", nullptr))
-    , m_sink(makeGStreamerElement("appsink", nullptr))
+    , m_src(makeGStreamerElement("appsrc"_s))
+    , m_sink(makeGStreamerElement("appsink"_s))
 {
     g_object_set(m_sink.get(), "enable-last-sample", FALSE, "max-buffers", 1, nullptr);
     switch (m_type) {
     case Type::SystemMemory: {
-        auto videoconvert = makeGStreamerElement("videoconvert", nullptr);
-        auto videoscale = makeGStreamerElement("videoscale", nullptr);
+        auto videoconvert = makeGStreamerElement("videoconvert"_s);
+        auto videoscale = makeGStreamerElement("videoscale"_s);
         m_pipeline = gst_element_factory_make("pipeline", "video-frame-converter");
         gst_bin_add_many(GST_BIN_CAST(m_pipeline.get()), m_src.get(), videoconvert, videoscale, m_sink.get(), nullptr);
         gst_element_link_many(m_src.get(), videoconvert, videoscale, m_sink.get(), nullptr);
@@ -62,20 +62,20 @@ GStreamerVideoFrameConverter::Pipeline::Pipeline(Type type)
     }
 #if USE(GSTREAMER_GL)
     case Type::GLMemory: {
-        auto glcolorconvert = makeGStreamerElement("glcolorconvert", nullptr);
-        auto gldownload = makeGStreamerElement("gldownload", nullptr);
-        auto videoscale = makeGStreamerElement("videoscale", nullptr);
+        auto glcolorconvert = makeGStreamerElement("glcolorconvert"_s);
+        auto gldownload = makeGStreamerElement("gldownload"_s);
+        auto videoscale = makeGStreamerElement("videoscale"_s);
         m_pipeline = gst_element_factory_make("pipeline", "video-frame-converter-gl");
         gst_bin_add_many(GST_BIN_CAST(m_pipeline.get()), m_src.get(), glcolorconvert, gldownload, videoscale, m_sink.get(), nullptr);
         gst_element_link_many(m_src.get(), glcolorconvert, gldownload, videoscale, m_sink.get(), nullptr);
         break;
     }
     case Type::DMABufMemory: {
-        auto glupload = makeGStreamerElement("glupload", nullptr);
-        m_capsfilter = makeGStreamerElement("capsfilter", nullptr);
-        auto glcolorconvert = makeGStreamerElement("glcolorconvert", nullptr);
-        auto gldownload = makeGStreamerElement("gldownload", nullptr);
-        auto videoscale = makeGStreamerElement("videoscale", nullptr);
+        auto glupload = makeGStreamerElement("glupload"_s);
+        m_capsfilter = makeGStreamerElement("capsfilter"_s);
+        auto glcolorconvert = makeGStreamerElement("glcolorconvert"_s);
+        auto gldownload = makeGStreamerElement("gldownload"_s);
+        auto videoscale = makeGStreamerElement("videoscale"_s);
         m_pipeline = gst_element_factory_make("pipeline", "video-frame-converter-gl");
         gst_bin_add_many(GST_BIN_CAST(m_pipeline.get()), m_src.get(), glupload, m_capsfilter.get(), glcolorconvert, gldownload, videoscale, m_sink.get(), nullptr);
         gst_element_link_many(m_src.get(), glupload, m_capsfilter.get(), glcolorconvert, gldownload, videoscale, m_sink.get(), nullptr);
@@ -90,9 +90,10 @@ GRefPtr<GstSample> GStreamerVideoFrameConverter::Pipeline::run(const GRefPtr<Gst
 {
 #if USE(GSTREAMER_GL)
     if (m_type == Type::GLMemory || m_type == Type::DMABufMemory) {
-        if (!setGstElementGLContext(m_pipeline.get(), GST_GL_DISPLAY_CONTEXT_TYPE))
+        static ASCIILiteral gstGlDisplayContextyType = ASCIILiteral::fromLiteralUnsafe(GST_GL_DISPLAY_CONTEXT_TYPE);
+        if (!setGstElementGLContext(m_pipeline.get(), gstGlDisplayContextyType))
             return nullptr;
-        if (!setGstElementGLContext(m_pipeline.get(), "gst.gl.app_context"))
+        if (!setGstElementGLContext(m_pipeline.get(), "gst.gl.app_context"_s))
             return nullptr;
 
         if (m_type == Type::DMABufMemory) {
@@ -157,7 +158,7 @@ GStreamerVideoFrameConverter::Pipeline& GStreamerVideoFrameConverter::ensurePipe
     if (features && gst_caps_features_contains(features, GST_CAPS_FEATURE_MEMORY_DMABUF)) {
         if (!m_dmabufMemoryPipeline) {
             m_dmabufMemoryPipeline = makeUnique<Pipeline>(Pipeline::Type::DMABufMemory);
-            m_releaseUnusedDMABufMemoryPipelineTimer = makeUnique<RunLoop::Timer>(RunLoop::current(), this, &GStreamerVideoFrameConverter::releaseUnusedDMABufMemoryPipelineTimerFired);
+            m_releaseUnusedDMABufMemoryPipelineTimer = makeUnique<RunLoop::Timer>(RunLoop::currentSingleton(), "GStreamerVideoFrameConverter::ReleaseUnusedDMABufMemoryPipelineTimer"_s, this, &GStreamerVideoFrameConverter::releaseUnusedDMABufMemoryPipelineTimerFired);
             m_releaseUnusedDMABufMemoryPipelineTimer->setPriority(RunLoopSourcePriority::ReleaseUnusedResourcesTimer);
         }
         m_releaseUnusedDMABufMemoryPipelineTimer->startOneShot(s_releaseUnusedPipelinesTimerInterval);
@@ -167,7 +168,7 @@ GStreamerVideoFrameConverter::Pipeline& GStreamerVideoFrameConverter::ensurePipe
     if (features && gst_caps_features_contains(features, GST_CAPS_FEATURE_MEMORY_GL_MEMORY)) {
         if (!m_glMemoryPipeline) {
             m_glMemoryPipeline = makeUnique<Pipeline>(Pipeline::Type::GLMemory);
-            m_releaseUnusedGLMemoryPipelineTimer = makeUnique<RunLoop::Timer>(RunLoop::current(), this, &GStreamerVideoFrameConverter::releaseUnusedGLMemoryPipelineTimerFired);
+            m_releaseUnusedGLMemoryPipelineTimer = makeUnique<RunLoop::Timer>(RunLoop::currentSingleton(), "GStreamerVideoFrameConverter::ReleaseUnusedGLMemoryPipelineTimer"_s, this, &GStreamerVideoFrameConverter::releaseUnusedGLMemoryPipelineTimerFired);
             m_releaseUnusedGLMemoryPipelineTimer->setPriority(RunLoopSourcePriority::ReleaseUnusedResourcesTimer);
         }
         m_releaseUnusedGLMemoryPipelineTimer->startOneShot(s_releaseUnusedPipelinesTimerInterval);
@@ -179,7 +180,7 @@ GStreamerVideoFrameConverter::Pipeline& GStreamerVideoFrameConverter::ensurePipe
 
     if (!m_systemMemoryPipeline) {
         m_systemMemoryPipeline = makeUnique<Pipeline>(Pipeline::Type::SystemMemory);
-        m_releaseUnusedSystemMemoryPipelineTimer = makeUnique<RunLoop::Timer>(RunLoop::current(), this, &GStreamerVideoFrameConverter::releaseUnusedSystemMemoryPipelineTimerFired);
+        m_releaseUnusedSystemMemoryPipelineTimer = makeUnique<RunLoop::Timer>(RunLoop::currentSingleton(), "GStreamerVideoFrameConverter::ReleaseUnusedSystemMemoryPipelineTimer"_s, this, &GStreamerVideoFrameConverter::releaseUnusedSystemMemoryPipelineTimerFired);
         m_releaseUnusedSystemMemoryPipelineTimer->setPriority(RunLoopSourcePriority::ReleaseUnusedResourcesTimer);
     }
     m_releaseUnusedSystemMemoryPipelineTimer->startOneShot(s_releaseUnusedPipelinesTimerInterval);
@@ -200,7 +201,9 @@ GRefPtr<GstSample> GStreamerVideoFrameConverter::convert(const GRefPtr<GstSample
     gst_sample_set_caps(convertedSample.get(), destinationCaps.get());
 
     GRefPtr buffer = gst_sample_get_buffer(convertedSample.get());
+IGNORE_WARNINGS_BEGIN("cast-align")
     auto writableBuffer = adoptGRef(gst_buffer_make_writable(buffer.leakRef()));
+IGNORE_WARNINGS_END
 
     if (auto meta = gst_buffer_get_video_meta(writableBuffer.get()))
         gst_buffer_remove_meta(writableBuffer.get(), GST_META_CAST(meta));

@@ -187,6 +187,12 @@ std::array<char, kMaxConfigNameLen> gSelectedConfig;
 
 bool gEnableANGLEPerTestCaptureLabel = false;
 
+#if defined(ANGLE_TEST_ENABLE_RENDERDOC_CAPTURE)
+bool gEnableRenderDocCapture = true;
+#else
+bool gEnableRenderDocCapture = false;
+#endif
+
 bool IsConfigSelected()
 {
     return gSelectedConfig[0] != 0;
@@ -351,7 +357,12 @@ bool IsSwiftshaderDevice()
     return HasSystemDeviceID(kVendorID_GOOGLE, kDeviceID_Swiftshader);
 }
 
-bool IsSwiftShaderSupported()
+bool IsLavapipeDevice()
+{
+    return HasSystemDeviceID(kVendorID_Mesa, kDeviceID_Lavapipe);
+}
+
+bool SwiftshaderTestsEnabled()
 {
 #if defined(ANGLE_ENABLE_SWIFTSHADER)
     return true;
@@ -402,13 +413,13 @@ bool IsConfigAllowlisted(const SystemInfo &systemInfo, const PlatformParameters 
             return true;
     }
 
+    if (param.isSwiftshader() && !SwiftshaderTestsEnabled())
+    {
+        return false;
+    }
+
     if (param.isSwiftshader() || IsSwiftshaderDevice())
     {
-        if (!IsSwiftShaderSupported())
-        {
-            return false;
-        }
-
         // TODO: http://crbug.com/swiftshader/145
         // Swiftshader does not currently have all the robustness features
         // we need for ANGLE. In particular, it is unable to detect and recover
@@ -558,11 +569,9 @@ bool IsConfigAllowlisted(const SystemInfo &systemInfo, const PlatformParameters 
 
     if (IsLinux() || IsAndroid())
     {
-        // We do not support WGL bindings on Linux/Android. We do support system EGL.
+        // We do not support WGL bindings on Linux/Android.
         switch (param.driver)
         {
-            case GLESDriverType::SystemEGL:
-                return param.getRenderer() == EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE;
             case GLESDriverType::SystemWGL:
                 return false;
             case GLESDriverType::ZinkEGL:
@@ -574,11 +583,13 @@ bool IsConfigAllowlisted(const SystemInfo &systemInfo, const PlatformParameters 
 
     if (IsLinux())
     {
-        ASSERT(param.driver == GLESDriverType::AngleEGL);
+        ASSERT(param.driver == GLESDriverType::AngleEGL ||
+               param.driver == GLESDriverType::SystemEGL);
 
         // Currently we support the OpenGL, Vulkan and WebGPU back-ends on Linux.
         switch (param.getRenderer())
         {
+            case EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE:
             case EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE:
             case EGL_PLATFORM_ANGLE_TYPE_WEBGPU_ANGLE:
             case EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE:
@@ -590,7 +601,8 @@ bool IsConfigAllowlisted(const SystemInfo &systemInfo, const PlatformParameters 
 
     if (IsAndroid())
     {
-        ASSERT(param.driver == GLESDriverType::AngleEGL);
+        ASSERT(param.driver == GLESDriverType::AngleEGL ||
+               param.driver == GLESDriverType::SystemEGL);
 
         // Nexus Android devices don't support backing 3.2 contexts
         if (param.eglParameters.majorVersion == 3 && param.eglParameters.minorVersion == 2)
@@ -604,6 +616,7 @@ bool IsConfigAllowlisted(const SystemInfo &systemInfo, const PlatformParameters 
         // Currently we support the GLES and Vulkan back-ends on Android.
         switch (param.getRenderer())
         {
+            case EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE:
             case EGL_PLATFORM_ANGLE_TYPE_OPENGLES_ANGLE:
                 return true;
             case EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE:

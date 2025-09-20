@@ -30,6 +30,7 @@ sys.path.insert(0, os.path.join(top_level_directory, "Tools", "glib"))
 import common
 from webkitpy.common.host import Host
 from webkitpy.common.test_expectations import TestExpectations
+from webkitpy.port.westondriver import WestonDriver
 from webkitcorepy import Timeout
 
 import subprocess
@@ -44,6 +45,7 @@ class TestRunner(object):
 
         self._port = Host().port_factory.get(port)
         self._driver = self._create_driver()
+        self._weston = None
 
         if self._options.debug:
             self._build_type = "Debug"
@@ -127,6 +129,9 @@ class TestRunner(object):
     def _tear_down_testing_environment(self):
         if self._driver:
             self._driver.stop()
+        if self._weston:
+            self._weston.stop()
+            self._weston = None
 
     def _test_cases_to_skip(self, test_program):
         if self._options.skipped_action != 'skip':
@@ -172,14 +177,23 @@ class TestRunner(object):
                     return 0
                 raise
 
+    def _use_wpe_legacy_api(self):
+        return hasattr(self._options, 'wpe_legacy_api') and self._options.wpe_legacy_api
+
     def _run_test_glib(self, test_program, subtests, skipped_test_cases):
         timeout = self._options.timeout
+        wpe_legacy_api = self._use_wpe_legacy_api()
+        env = self._weston_env if self.is_wpe_platform_wayland_test(test_program) else self._test_env
+        if self.is_wpe_platform_test(test_program):
+            # WPE Platform tests can run without swrast since nothing is rendered.
+            env = dict(env)
+            env.pop('LIBGL_ALWAYS_SOFTWARE')
 
         def is_slow_test(test, subtest):
             return self._expectations.is_slow(test, subtest)
 
-        runner = GLibTestRunner(test_program, timeout, is_slow_test, timeout * 10)
-        return runner.run(subtests=subtests, skipped=skipped_test_cases, env=self._test_env)
+        runner = GLibTestRunner(test_program, timeout, wpe_legacy_api, is_slow_test, timeout * 10)
+        return runner.run(subtests=subtests, skipped=skipped_test_cases, env=env)
 
     def _run_test_qt(self, test_program):
         env = self._test_env
@@ -230,6 +244,9 @@ class TestRunner(object):
 
     def _run_google_test(self, test_program, subtest):
         command = [test_program, '--gtest_filter=%s' % (subtest)]
+        if self._use_wpe_legacy_api() and os.path.basename(test_program) == 'TestWebKit':
+            command.append('--wpe-legacy-api')
+
         timeout = self._options.timeout
         if self._expectations.is_slow(os.path.basename(test_program), subtest):
             timeout *= 10
@@ -277,6 +294,12 @@ class TestRunner(object):
     def is_qt_test(self, test_program):
         raise NotImplementedError
 
+    def is_wpe_platform_test(self, test_program):
+        raise NotImplementedError
+
+    def is_wpe_platform_wayland_test(self, test_program):
+        raise NotImplementedError
+
     def _run_test(self, test_program, subtests, skipped_test_cases):
         if self.is_glib_test(test_program):
             return self._run_test_glib(test_program, subtests, skipped_test_cases)
@@ -307,11 +330,29 @@ class TestRunner(object):
         # Remove skipped tests now instead of when we find them, because
         # some tests might be skipped while setting up the test environment.
         self._tests = [test for test in self._tests if self._should_run_test_program(test)]
+        number_of_qt_tests = 0
+        number_of_wpe_platform_wayland_tests = 0
+        for test in self._tests:
+            if self.is_qt_test(test):
+                number_of_qt_tests += 1
+            elif self.is_wpe_platform_wayland_test(test):
+                number_of_wpe_platform_wayland_tests += 1
+
         # Skip Qt tests if there is no GPU <https://webkit.org/b/264458>
-        number_of_qt_tests = len([test for test in self._tests if self.is_qt_test(test)])
         if number_of_qt_tests > 0 and not self._has_gpu_available():
             sys.stderr.write("WARNING: Skipping %d Qt tests because this system doesn't have a working GPU (/dev/dri devices are not available).\n" % number_of_qt_tests)
             self._tests = [test for test in self._tests if not self.is_qt_test(test)]
+
+        # Start Weston if WPE Platform Wayland tests are going to be run.
+        if number_of_wpe_platform_wayland_tests > 0:
+            if WestonDriver.check_driver(self._port):
+                self._weston = WestonDriver(self._port, worker_number=0, pixel_tests=False, no_timeout=True)
+                self._weston_env = self._weston._setup_environ_for_test()
+            else:
+                # Skip tests if Weston is not available.
+                sys.stderr.write("WARNING: Skipping %d WPE Platform Wayland tests because Weston couldn't be found.\n" % number_of_wpe_platform_wayland_tests)
+                self._tests = [test for test in self._tests if not self.is_wpe_platform_wayland_test(test)]
+
         number_of_executed_tests = len(self._tests)
 
         crashed_tests = {}

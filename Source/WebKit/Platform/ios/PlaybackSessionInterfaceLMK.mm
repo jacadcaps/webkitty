@@ -31,12 +31,14 @@
 #import "VideoPresentationInterfaceLMK.h"
 #import "WKSLinearMediaPlayer.h"
 #import "WKSLinearMediaTypes.h"
+#import <WebCore/ExceptionOr.h>
 #import <WebCore/MediaSelectionOption.h>
 #import <WebCore/NowPlayingInfo.h>
 #import <WebCore/PlaybackSessionModel.h>
 #import <WebCore/SharedBuffer.h>
 #import <WebCore/SpatialVideoMetadata.h>
 #import <WebCore/TimeRanges.h>
+#import <WebCore/VideoProjectionMetadata.h>
 #import <wtf/OSObjectPtr.h>
 #import <wtf/TZoneMallocInlines.h>
 #import <wtf/WeakPtr.h>
@@ -65,19 +67,19 @@
 
 - (void)linearMediaPlayerPlay:(WKSLinearMediaPlayer *)player
 {
-    if (auto model = _model.get())
+    if (CheckedPtr model = _model.get())
         model->play();
 }
 
 - (void)linearMediaPlayerPause:(WKSLinearMediaPlayer *)player
 {
-    if (auto model = _model.get())
+    if (CheckedPtr model = _model.get())
         model->pause();
 }
 
 - (void)linearMediaPlayerTogglePlayback:(WKSLinearMediaPlayer *)player
 {
-    auto model = _model.get();
+    CheckedPtr model = _model.get();
     if (!model)
         return;
 
@@ -89,7 +91,7 @@
 
 - (void)linearMediaPlayer:(WKSLinearMediaPlayer *)player setPlaybackRate:(double)playbackRate
 {
-    if (auto model = _model.get())
+    if (CheckedPtr model = _model.get())
         model->setPlaybackRate(playbackRate);
 }
 
@@ -101,13 +103,13 @@
 
 - (void)linearMediaPlayer:(WKSLinearMediaPlayer *)player seekByDelta:(NSTimeInterval)delta
 {
-    if (auto model = _model.get())
+    if (CheckedPtr model = _model.get())
         model->seekToTime(player.currentTime + delta);
 }
 
 - (NSTimeInterval)linearMediaPlayer:(WKSLinearMediaPlayer *)player seekToDestination:(NSTimeInterval)destination fromSource:(NSTimeInterval)source
 {
-    auto model = _model.get();
+    CheckedPtr model = _model.get();
     if (!model)
         return 0;
 
@@ -120,89 +122,107 @@
     // FIXME: The intent of this method is to seek the contents of LinearMediaPlayer's thumbnailLayer,
     // which LMPlayableViewController displays in a popover when scrubbing. Since we don't currently
     // provide a thumbnail layer, fast seek the main content instead.
-    if (auto model = _model.get())
+    if (CheckedPtr model = _model.get())
         model->fastSeek(time);
 }
 
 - (void)linearMediaPlayerBeginScrubbing:(WKSLinearMediaPlayer *)player
 {
-    if (auto model = _model.get())
+    if (CheckedPtr model = _model.get())
         model->beginScrubbing();
 }
 
 - (void)linearMediaPlayerEndScrubbing:(WKSLinearMediaPlayer *)player
 {
-    if (auto model = _model.get())
+    if (CheckedPtr model = _model.get())
         model->endScrubbing();
 }
 
 - (void)linearMediaPlayerBeginScanningForward:(WKSLinearMediaPlayer *)player
 {
-    if (auto model = _model.get())
+    if (CheckedPtr model = _model.get())
         model->beginScanningForward();
 }
 
 - (void)linearMediaPlayerEndScanningForward:(WKSLinearMediaPlayer *)player
 {
-    if (auto model = _model.get())
+    if (CheckedPtr model = _model.get())
         model->endScanning();
 }
 
 - (void)linearMediaPlayerBeginScanningBackward:(WKSLinearMediaPlayer *)player
 {
-    if (auto model = _model.get())
+    if (CheckedPtr model = _model.get())
         model->beginScanningBackward();
 }
 
 - (void)linearMediaPlayerEndScanningBackward:(WKSLinearMediaPlayer *)player
 {
-    if (auto model = _model.get())
+    if (CheckedPtr model = _model.get())
         model->endScanning();
 }
 
 - (void)linearMediaPlayer:(WKSLinearMediaPlayer *)player setVolume:(double)volume
 {
-    if (auto model = _model.get())
+    if (CheckedPtr model = _model.get())
         model->setVolume(volume);
 }
 
 - (void)linearMediaPlayer:(WKSLinearMediaPlayer *)player setMuted:(BOOL)muted
 {
-    if (auto model = _model.get())
+    if (CheckedPtr model = _model.get())
         model->setMuted(muted);
 }
 
 - (void)linearMediaPlayer:(WKSLinearMediaPlayer *)player setAudioTrack:(WKSLinearMediaTrack * _Nullable)audioTrack
 {
-    auto model = _model.get();
+    CheckedPtr model = _model.get();
     if (!model)
         return;
 
     NSUInteger index = audioTrack ? [player.audioTracks indexOfObject:audioTrack] : 0;
-    if (index != NSNotFound)
-        model->selectAudioMediaOption(index);
+    if (index == NSNotFound) {
+        RetainPtr indexSet = [player.audioTracks indexesOfObjectsPassingTest:^(WKSLinearMediaTrack *track, NSUInteger, BOOL*) {
+            return [track.localizedDisplayName isEqualToString:audioTrack.localizedDisplayName];
+        }];
+        ASSERT([indexSet count] < 2);
+        index = [indexSet firstIndex];
+        if (index == NSNotFound)
+            return;
+    }
+
+    model->selectAudioMediaOption(index);
 }
 
 - (void)linearMediaPlayer:(WKSLinearMediaPlayer *)player setLegibleTrack:(WKSLinearMediaTrack * _Nullable)legibleTrack
 {
-    auto model = _model.get();
+    CheckedPtr model = _model.get();
     if (!model)
         return;
 
     NSUInteger index = legibleTrack ? [player.legibleTracks indexOfObject:legibleTrack] : 0;
-    if (index != NSNotFound)
-        model->selectLegibleMediaOption(index);
+    if (index == NSNotFound) {
+        RetainPtr indexSet = [player.legibleTracks indexesOfObjectsPassingTest:^(WKSLinearMediaTrack *track, NSUInteger, BOOL*) {
+            return [track.localizedDisplayName isEqualToString:legibleTrack.localizedDisplayName];
+        }];
+        ASSERT([indexSet count] < 2);
+        index = [indexSet firstIndex];
+        if (index == NSNotFound)
+            return;
+    }
+
+    model->selectLegibleMediaOption(index);
 }
 
 - (void)linearMediaPlayerEnterFullscreen:(WKSLinearMediaPlayer *)player
 {
-    if (auto model = _model.get())
+    if (CheckedPtr model = _model.get())
         model->enterFullscreen();
 }
 
 - (void)linearMediaPlayerExitFullscreen:(WKSLinearMediaPlayer *)player
 {
-    auto model = _model.get();
+    CheckedPtr model = _model.get();
     if (!model)
         return;
 
@@ -212,14 +232,24 @@
 
 - (void)linearMediaPlayer:(WKSLinearMediaPlayer *)player setVideoReceiverEndpoint:(xpc_object_t)videoReceiverEndpoint
 {
-    if (auto model = _model.get())
+    if (CheckedPtr model = _model.get())
         model->setVideoReceiverEndpoint(videoReceiverEndpoint);
 }
 
 - (void)linearMediaPlayerClearVideoReceiverEndpoint:(WKSLinearMediaPlayer *)player
 {
-    if (auto model = _model.get())
+    if (CheckedPtr model = _model.get())
         model->setVideoReceiverEndpoint(nullptr);
+}
+
+- (uint64_t)linearMediaPlayerLogIdentifier:(WKSLinearMediaPlayer *)player
+{
+#if !RELEASE_LOG_DISABLED
+    if (CheckedPtr model = _model.get())
+        return model->logIdentifier();
+#endif
+
+    return 0;
 }
 
 @end
@@ -264,6 +294,14 @@ WKSLinearMediaPlayer *PlaybackSessionInterfaceLMK::linearMediaPlayer() const
     return m_player.get();
 }
 
+void PlaybackSessionInterfaceLMK::setPlayerIdentifier(std::optional<WebCore::MediaPlayerIdentifier> identifier)
+{
+    PlaybackSessionInterfaceIOS::setPlayerIdentifier(identifier);
+
+    if (RefPtr videoPresentationInterface = m_videoPresentationInterface.get())
+        videoPresentationInterface->didSetPlayerIdentifier();
+}
+
 void PlaybackSessionInterfaceLMK::durationChanged(double duration)
 {
     [m_player setStartTime:0];
@@ -281,17 +319,16 @@ void PlaybackSessionInterfaceLMK::currentTimeChanged(double currentTime, double)
 void PlaybackSessionInterfaceLMK::rateChanged(OptionSet<WebCore::PlaybackSessionModel::PlaybackState> playbackState, double playbackRate, double)
 {
     [m_player setSelectedPlaybackRate:playbackRate];
+    [m_player setIsLoading:playbackState.contains(WebCore::PlaybackSessionModel::PlaybackState::Stalled)];
     if (!playbackState.contains(WebCore::PlaybackSessionModel::PlaybackState::Stalled))
         [m_player setPlaybackRate:playbackState.contains(WebCore::PlaybackSessionModel::PlaybackState::Playing) ? playbackRate : 0];
 }
 
-void PlaybackSessionInterfaceLMK::seekableRangesChanged(const WebCore::TimeRanges& timeRanges, double, double)
+void PlaybackSessionInterfaceLMK::seekableRangesChanged(const WebCore::PlatformTimeRanges& timeRanges, double, double)
 {
     RetainPtr seekableRanges = adoptNS([[NSMutableArray alloc] initWithCapacity:timeRanges.length()]);
     for (unsigned i = 0; i < timeRanges.length(); ++i) {
-        double lowerBound = timeRanges.start(i).releaseReturnValue();
-        double upperBound = timeRanges.end(i).releaseReturnValue();
-        RetainPtr timeRange = adoptNS([allocWKSLinearMediaTimeRangeInstance() initWithLowerBound:lowerBound upperBound:upperBound]);
+        RetainPtr timeRange = adoptNS([allocWKSLinearMediaTimeRangeInstance() initWithLowerBound:timeRanges.start(i).toDouble() upperBound:timeRanges.end(i).toDouble()]);
         [seekableRanges addObject:timeRange.get()];
     }
 
@@ -308,7 +345,7 @@ void PlaybackSessionInterfaceLMK::audioMediaSelectionOptionsChanged(const Vector
 {
     RetainPtr audioTracks = adoptNS([[NSMutableArray alloc] initWithCapacity:options.size()]);
     for (auto& option : options) {
-        RetainPtr audioTrack = adoptNS([allocWKSLinearMediaTrackInstance() initWithLocalizedDisplayName:option.displayName]);
+        RetainPtr audioTrack = adoptNS([allocWKSLinearMediaTrackInstance() initWithLocalizedDisplayName:option.displayName.createNSString().get()]);
         [audioTracks addObject:audioTrack.get()];
     }
 
@@ -320,7 +357,7 @@ void PlaybackSessionInterfaceLMK::legibleMediaSelectionOptionsChanged(const Vect
 {
     RetainPtr legibleTracks = adoptNS([[NSMutableArray alloc] initWithCapacity:options.size()]);
     for (auto& option : options) {
-        RetainPtr legibleTrack = adoptNS([allocWKSLinearMediaTrackInstance() initWithLocalizedDisplayName:option.displayName]);
+        RetainPtr legibleTrack = adoptNS([allocWKSLinearMediaTrackInstance() initWithLocalizedDisplayName:option.displayName.createNSString().get()]);
         [legibleTracks addObject:legibleTrack.get()];
     }
 
@@ -365,11 +402,12 @@ void PlaybackSessionInterfaceLMK::supportsLinearMediaPlayerChanged(bool supports
         if (m_playbackSessionModel)
             m_playbackSessionModel->exitFullscreen();
         break;
+    case WKSLinearMediaPresentationStateEnteringExternal:
     case WKSLinearMediaPresentationStateExternal:
-        // If the player is in external presentation (which uses LinearMediaPlayer) but the current
+        // If the player is in (or entering) external presentation (which uses LinearMediaPlayer) but the current
         // media engine does not support it, exit external presentation.
         if (RefPtr videoPresentationInterface = m_videoPresentationInterface.get())
-            videoPresentationInterface->exitExternalPlayback([](bool) { });
+            videoPresentationInterface->exitExternalPlayback();
         break;
     case WKSLinearMediaPresentationStateInline:
     case WKSLinearMediaPresentationStateExitingFullscreen:
@@ -382,14 +420,14 @@ void PlaybackSessionInterfaceLMK::supportsLinearMediaPlayerChanged(bool supports
 void PlaybackSessionInterfaceLMK::spatialVideoMetadataChanged(const std::optional<WebCore::SpatialVideoMetadata>& metadata)
 {
     RetainPtr<WKSLinearMediaSpatialVideoMetadata> spatialVideoMetadata;
-    if (metadata && spatialVideoEnabled())
+    if (metadata)
         spatialVideoMetadata = adoptNS([allocWKSLinearMediaSpatialVideoMetadataInstance() initWithWidth:metadata->size.width() height:metadata->size.height() horizontalFOVDegrees:metadata->horizontalFOVDegrees baseline:metadata->baseline disparityAdjustment:metadata->disparityAdjustment]);
     [m_player setSpatialVideoMetadata:spatialVideoMetadata.get()];
 }
 
-void PlaybackSessionInterfaceLMK::isImmersiveVideoChanged(bool value)
+void PlaybackSessionInterfaceLMK::videoProjectionMetadataChanged(const std::optional<WebCore::VideoProjectionMetadata>& metadata)
 {
-    [m_player setIsImmersiveVideo:value];
+    [m_player setIsImmersiveVideo:!!metadata];
 }
 
 void PlaybackSessionInterfaceLMK::startObservingNowPlayingMetadata()
@@ -427,7 +465,7 @@ static RetainPtr<NSData> artworkData(const WebCore::NowPlayingMetadata& metadata
 
 void PlaybackSessionInterfaceLMK::nowPlayingMetadataChanged(const WebCore::NowPlayingMetadata& metadata)
 {
-    RetainPtr contentMetadata = adoptNS([allocWKSLinearMediaContentMetadataInstance() initWithTitle:metadata.title subtitle:metadata.artist]);
+    RetainPtr contentMetadata = adoptNS([allocWKSLinearMediaContentMetadataInstance() initWithTitle:metadata.title.createNSString().get() subtitle:metadata.artist.createNSString().get()]);
     [m_player setContentMetadata:contentMetadata.get()];
     [m_player setArtwork:artworkData(metadata).get()];
 }

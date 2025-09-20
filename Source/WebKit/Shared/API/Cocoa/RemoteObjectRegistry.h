@@ -53,7 +53,7 @@ public:
 
 protected:
     explicit RemoteObjectRegistry(_WKRemoteObjectRegistry *);
-    using MessageSender = std::variant<std::reference_wrapper<WebProcessProxy>, std::reference_wrapper<WebPage>>;
+    using MessageSender = Variant<std::reference_wrapper<WebProcessProxy>, std::reference_wrapper<WebPage>>;
 private:
     virtual RefPtr<ProcessThrottler::BackgroundActivity> backgroundActivity(ASCIILiteral) { return nullptr; }
     virtual std::optional<MessageSender> messageSender() = 0;
@@ -65,7 +65,7 @@ private:
 
     // Message handlers
     void invokeMethod(const RemoteObjectInvocation&);
-    void callReplyBlock(uint64_t replyID, const UserData& blockInvocation);
+    void callReplyBlock(IPC::Connection& connection, uint64_t replyID, const UserData& blockInvocation);
     void releaseUnusedReplyBlock(uint64_t replyID);
 
     WeakObjCPtr<_WKRemoteObjectRegistry> m_remoteObjectRegistry;

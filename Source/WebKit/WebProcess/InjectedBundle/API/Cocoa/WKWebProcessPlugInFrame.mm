@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -41,7 +41,7 @@
 #import <WebCore/IntPoint.h>
 #import <WebCore/LinkIconCollector.h>
 #import <WebCore/LinkIconType.h>
-#import <WebCore/LocalFrame.h>
+#import <WebCore/LocalFrameInlines.h>
 #import <WebCore/WebCoreObjCExtras.h>
 #import <wtf/AlignedStorage.h>
 #import <wtf/cocoa/VectorCocoa.h>
@@ -126,7 +126,7 @@
 
 - (NSURL *)URL
 {
-    return _frame->url();
+    return _frame->url().createNSURL().autorelease();
 }
 
 - (NSArray *)childFrames
@@ -151,10 +151,10 @@
 
 - (NSString *)_securityOrigin
 {
-    auto* coreFrame = _frame->coreLocalFrame();
+    RefPtr coreFrame = _frame->coreLocalFrame();
     if (!coreFrame)
         return nil;
-    return coreFrame->document()->securityOrigin().toString();
+    return coreFrame->document()->securityOrigin().toString().createNSString().autorelease();
 }
 
 static RetainPtr<NSArray> collectIcons(WebCore::LocalFrame* frame, OptionSet<WebCore::LinkIconType> iconTypes)
@@ -164,8 +164,8 @@ static RetainPtr<NSArray> collectIcons(WebCore::LocalFrame* frame, OptionSet<Web
     RefPtr document = frame->document();
     if (!document)
         return @[];
-    return createNSArray(WebCore::LinkIconCollector(*document).iconsOfTypes(iconTypes), [] (auto&& icon) -> NSURL * {
-        return icon.url;
+    return createNSArray(WebCore::LinkIconCollector(*document).iconsOfTypes(iconTypes), [] (auto&& icon) {
+        return icon.url.createNSURL();
     });
 }
 

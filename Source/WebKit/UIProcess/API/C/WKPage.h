@@ -220,6 +220,7 @@ WK_EXPORT void WKPageCountStringMatches(WKPageRef page, WKStringRef string, WKFi
 WK_EXPORT void WKPageFindStringMatches(WKPageRef page, WKStringRef string, WKFindOptions findOptions, unsigned maxMatchCount);
 WK_EXPORT void WKPageGetImageForFindMatch(WKPageRef page, int32_t matchIndex);
 WK_EXPORT void WKPageSelectFindMatch(WKPageRef page, int32_t matchIndex);
+WK_EXPORT void WKPageIndicateFindMatch(WKPageRef page, uint32_t matchIndex);
 
 WK_EXPORT void WKPageSetPageContextMenuClient(WKPageRef page, const WKPageContextMenuClientBase* client);
 WK_EXPORT void WKPageSetPageDiagnosticLoggingClient(WKPageRef page, const WKPageDiagnosticLoggingClientBase* client);

@@ -44,7 +44,7 @@ enum class PrivateRelayed : bool;
 using ResponseCompletionHandler = CompletionHandler<void(WebCore::PolicyAction)>;
 
 class NetworkLoadClient : public CanMakeThreadSafeCheckedPtr<NetworkLoadClient> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(NetworkLoadClient);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(NetworkLoadClient);
 public:
     virtual ~NetworkLoadClient() { }
@@ -57,7 +57,7 @@ public:
     virtual void willSendRedirectedRequest(WebCore::ResourceRequest&&, WebCore::ResourceRequest&& redirectRequest, WebCore::ResourceResponse&& redirectResponse, CompletionHandler<void(WebCore::ResourceRequest&&)>&&) = 0;
     virtual void didReceiveInformationalResponse(WebCore::ResourceResponse&&) { };
     virtual void didReceiveResponse(WebCore::ResourceResponse&&, PrivateRelayed, ResponseCompletionHandler&&) = 0;
-    virtual void didReceiveBuffer(const WebCore::FragmentedSharedBuffer&, uint64_t reportedEncodedDataLength) = 0;
+    virtual void didReceiveBuffer(const WebCore::FragmentedSharedBuffer&) = 0;
     virtual void didFinishLoading(const WebCore::NetworkLoadMetrics&) = 0;
     virtual void didFailLoading(const WebCore::ResourceError&) = 0;
     virtual void didBlockAuthenticationChallenge() { };

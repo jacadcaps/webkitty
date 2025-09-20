@@ -42,6 +42,11 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(Texture);
 
 bool Texture::isCompressedFormat(WGPUTextureFormat format)
 {
+    return Texture::compressedFormatType(format).has_value();
+}
+
+std::optional<Texture::CompressFormat> Texture::compressedFormatType(WGPUTextureFormat format)
+{
     // https://gpuweb.github.io/gpuweb/#packed-formats
     switch (format) {
     case WGPUTextureFormat_BC1RGBAUnorm:
@@ -58,6 +63,7 @@ bool Texture::isCompressedFormat(WGPUTextureFormat format)
     case WGPUTextureFormat_BC6HRGBFloat:
     case WGPUTextureFormat_BC7RGBAUnorm:
     case WGPUTextureFormat_BC7RGBAUnormSrgb:
+        return Texture::CompressFormat::BC;
     case WGPUTextureFormat_ETC2RGB8Unorm:
     case WGPUTextureFormat_ETC2RGB8UnormSrgb:
     case WGPUTextureFormat_ETC2RGB8A1Unorm:
@@ -68,6 +74,7 @@ bool Texture::isCompressedFormat(WGPUTextureFormat format)
     case WGPUTextureFormat_EACR11Snorm:
     case WGPUTextureFormat_EACRG11Unorm:
     case WGPUTextureFormat_EACRG11Snorm:
+        return Texture::CompressFormat::ETC;
     case WGPUTextureFormat_ASTC4x4Unorm:
     case WGPUTextureFormat_ASTC4x4UnormSrgb:
     case WGPUTextureFormat_ASTC5x4Unorm:
@@ -96,7 +103,7 @@ bool Texture::isCompressedFormat(WGPUTextureFormat format)
     case WGPUTextureFormat_ASTC12x10UnormSrgb:
     case WGPUTextureFormat_ASTC12x12Unorm:
     case WGPUTextureFormat_ASTC12x12UnormSrgb:
-        return true;
+        return Texture::CompressFormat::ASTC;
     case WGPUTextureFormat_R8Unorm:
     case WGPUTextureFormat_R8Snorm:
     case WGPUTextureFormat_R8Uint:
@@ -140,12 +147,12 @@ bool Texture::isCompressedFormat(WGPUTextureFormat format)
     case WGPUTextureFormat_Depth24PlusStencil8:
     case WGPUTextureFormat_Depth32Float:
     case WGPUTextureFormat_Depth32FloatStencil8:
-        return false;
+        return std::nullopt;
     case WGPUTextureFormat_Undefined:
-        return false;
+        return std::nullopt;
     case WGPUTextureFormat_Force32:
         ASSERT_NOT_REACHED();
-        return false;
+        return std::nullopt;
     }
 }
 
@@ -1540,8 +1547,7 @@ static uint32_t maximumMiplevelCount(WGPUTextureDimension dimension, WGPUExtent3
         return 0;
     }
 
-    auto isPowerOf2 = !(m & (m - 1));
-    if (isPowerOf2)
+    if (isPowerOfTwo(m))
         return WTF::fastLog2(m) + 1;
     return WTF::fastLog2(m);
 }
@@ -1858,8 +1864,22 @@ NSString *Device::errorValidatingTextureCreation(const WGPUTextureDescriptor& de
         if (descriptor.sampleCount != 1)
             return @"createTexture: descriptor.sampleCount != 1";
 
-        if (Texture::isCompressedFormat(descriptor.format) || Texture::isDepthOrStencilFormat(descriptor.format))
-            return @"createTexture: descriptor.format is compressed or a depth stencil format";
+        if (auto compressedFormatType = Texture::compressedFormatType(descriptor.format)) {
+            switch (*compressedFormatType) {
+            case Texture::CompressFormat::BC:
+                if (!hasFeature(WGPUFeatureName_TextureCompressionBCSliced3D))
+                    return @"createTexture: descriptor.format is a compressed format but BC sliced 3D extension is not enabled";
+                break;
+            case Texture::CompressFormat::ASTC:
+                if (!hasFeature(WGPUFeatureName_TextureCompressionASTCSliced3D))
+                    return @"createTexture: descriptor.format is a compressed format but ASTC sliced 3D extension is not enabled";
+                break;
+            case Texture::CompressFormat::ETC:
+                return @"createTexture: descriptor.format is a ETC compressed format which is not supported for 3D textures";
+            }
+        }
+        if (Texture::isDepthOrStencilFormat(descriptor.format))
+            return @"createTexture: descriptor.format is a depth stencil format, this is not allowed for 3D textures";
         break;
     case WGPUTextureDimension_Force32:
         ASSERT_NOT_REACHED();
@@ -2092,7 +2112,7 @@ MTLPixelFormat Texture::pixelFormat(WGPUTextureFormat textureFormat)
         return MTLPixelFormatASTC_12x12_LDR;
     case WGPUTextureFormat_ASTC12x12UnormSrgb:
         return MTLPixelFormatASTC_12x12_sRGB;
-#if PLATFORM(MAC) || PLATFORM(MACCATALYST)
+#if !PLATFORM(WATCHOS)
     case WGPUTextureFormat_BC1RGBAUnorm:
         return MTLPixelFormatBC1_RGBA;
     case WGPUTextureFormat_BC1RGBAUnormSrgb:
@@ -2143,6 +2163,203 @@ MTLPixelFormat Texture::pixelFormat(WGPUTextureFormat textureFormat)
     case WGPUTextureFormat_Force32:
         ASSERT_NOT_REACHED();
         return MTLPixelFormatInvalid;
+    }
+}
+
+WGPUTextureFormat Texture::textureFormat(MTLPixelFormat pixelFormat)
+{
+    switch (pixelFormat) {
+    case MTLPixelFormatR8Unorm:
+        return WGPUTextureFormat_R8Unorm;
+    case MTLPixelFormatR8Snorm:
+        return WGPUTextureFormat_R8Snorm;
+    case MTLPixelFormatR8Uint:
+        return WGPUTextureFormat_R8Uint;
+    case MTLPixelFormatR8Sint:
+        return WGPUTextureFormat_R8Sint;
+    case MTLPixelFormatR16Uint:
+        return WGPUTextureFormat_R16Uint;
+    case MTLPixelFormatR16Sint:
+        return WGPUTextureFormat_R16Sint;
+    case MTLPixelFormatR16Float:
+        return WGPUTextureFormat_R16Float;
+    case MTLPixelFormatRG8Unorm:
+        return WGPUTextureFormat_RG8Unorm;
+    case MTLPixelFormatRG8Snorm:
+        return WGPUTextureFormat_RG8Snorm;
+    case MTLPixelFormatRG8Uint:
+        return WGPUTextureFormat_RG8Uint;
+    case MTLPixelFormatRG8Sint:
+        return WGPUTextureFormat_RG8Sint;
+    case MTLPixelFormatR32Float:
+        return WGPUTextureFormat_R32Float;
+    case MTLPixelFormatR32Uint:
+        return WGPUTextureFormat_R32Uint;
+    case MTLPixelFormatR32Sint:
+        return WGPUTextureFormat_R32Sint;
+    case MTLPixelFormatRG16Uint:
+        return WGPUTextureFormat_RG16Uint;
+    case MTLPixelFormatRG16Sint:
+        return WGPUTextureFormat_RG16Sint;
+    case MTLPixelFormatRG16Float:
+        return WGPUTextureFormat_RG16Float;
+    case MTLPixelFormatRGBA8Unorm:
+        return WGPUTextureFormat_RGBA8Unorm;
+    case MTLPixelFormatRGBA8Unorm_sRGB:
+        return WGPUTextureFormat_RGBA8UnormSrgb;
+    case MTLPixelFormatRGBA8Snorm:
+        return WGPUTextureFormat_RGBA8Snorm;
+    case MTLPixelFormatRGBA8Uint:
+        return WGPUTextureFormat_RGBA8Uint;
+    case MTLPixelFormatRGBA8Sint:
+        return WGPUTextureFormat_RGBA8Sint;
+    case MTLPixelFormatBGRA8Unorm:
+        return WGPUTextureFormat_BGRA8Unorm;
+    case MTLPixelFormatBGRA8Unorm_sRGB:
+        return WGPUTextureFormat_BGRA8UnormSrgb;
+    case MTLPixelFormatRGB10A2Unorm:
+        return WGPUTextureFormat_RGB10A2Unorm;
+    case MTLPixelFormatRG11B10Float:
+        return WGPUTextureFormat_RG11B10Ufloat;
+    case MTLPixelFormatRGB9E5Float:
+        return WGPUTextureFormat_RGB9E5Ufloat;
+    case MTLPixelFormatRGB10A2Uint:
+        return WGPUTextureFormat_RGB10A2Uint;
+    case MTLPixelFormatRG32Float:
+        return WGPUTextureFormat_RG32Float;
+    case MTLPixelFormatRG32Uint:
+        return WGPUTextureFormat_RG32Uint;
+    case MTLPixelFormatRG32Sint:
+        return WGPUTextureFormat_RG32Sint;
+    case MTLPixelFormatRGBA16Uint:
+        return WGPUTextureFormat_RGBA16Uint;
+    case MTLPixelFormatRGBA16Sint:
+        return WGPUTextureFormat_RGBA16Sint;
+    case MTLPixelFormatRGBA16Float:
+        return WGPUTextureFormat_RGBA16Float;
+    case MTLPixelFormatRGBA32Float:
+        return WGPUTextureFormat_RGBA32Float;
+    case MTLPixelFormatRGBA32Uint:
+        return WGPUTextureFormat_RGBA32Uint;
+    case MTLPixelFormatRGBA32Sint:
+        return WGPUTextureFormat_RGBA32Sint;
+    case MTLPixelFormatStencil8:
+        return WGPUTextureFormat_Stencil8;
+    case MTLPixelFormatDepth16Unorm:
+        return WGPUTextureFormat_Depth16Unorm;
+    case MTLPixelFormatDepth32Float:
+        return WGPUTextureFormat_Depth24Plus;
+    case MTLPixelFormatDepth32Float_Stencil8:
+        return WGPUTextureFormat_Depth24PlusStencil8;
+    case MTLPixelFormatETC2_RGB8:
+        return WGPUTextureFormat_ETC2RGB8Unorm;
+    case MTLPixelFormatETC2_RGB8_sRGB:
+        return WGPUTextureFormat_ETC2RGB8UnormSrgb;
+    case MTLPixelFormatETC2_RGB8A1:
+        return WGPUTextureFormat_ETC2RGB8A1Unorm;
+    case MTLPixelFormatETC2_RGB8A1_sRGB:
+        return WGPUTextureFormat_ETC2RGB8A1UnormSrgb;
+    case MTLPixelFormatEAC_RGBA8:
+        return WGPUTextureFormat_ETC2RGBA8Unorm;
+    case MTLPixelFormatEAC_RGBA8_sRGB:
+        return WGPUTextureFormat_ETC2RGBA8UnormSrgb;
+    case MTLPixelFormatEAC_R11Unorm:
+        return WGPUTextureFormat_EACR11Unorm;
+    case MTLPixelFormatEAC_R11Snorm:
+        return WGPUTextureFormat_EACR11Snorm;
+    case MTLPixelFormatEAC_RG11Unorm:
+        return WGPUTextureFormat_EACRG11Unorm;
+    case MTLPixelFormatEAC_RG11Snorm:
+        return WGPUTextureFormat_EACRG11Snorm;
+    case MTLPixelFormatASTC_4x4_LDR:
+        return WGPUTextureFormat_ASTC4x4Unorm;
+    case MTLPixelFormatASTC_4x4_sRGB:
+        return WGPUTextureFormat_ASTC4x4UnormSrgb;
+    case MTLPixelFormatASTC_5x4_LDR:
+        return WGPUTextureFormat_ASTC5x4Unorm;
+    case MTLPixelFormatASTC_5x4_sRGB:
+        return WGPUTextureFormat_ASTC5x4UnormSrgb;
+    case MTLPixelFormatASTC_5x5_LDR:
+        return WGPUTextureFormat_ASTC5x5Unorm;
+    case MTLPixelFormatASTC_5x5_sRGB:
+        return WGPUTextureFormat_ASTC5x5UnormSrgb;
+    case MTLPixelFormatASTC_6x5_LDR:
+        return WGPUTextureFormat_ASTC6x5Unorm;
+    case MTLPixelFormatASTC_6x5_sRGB:
+        return WGPUTextureFormat_ASTC6x5UnormSrgb;
+    case MTLPixelFormatASTC_6x6_LDR:
+        return WGPUTextureFormat_ASTC6x6Unorm;
+    case MTLPixelFormatASTC_6x6_sRGB:
+        return WGPUTextureFormat_ASTC6x6UnormSrgb;
+    case MTLPixelFormatASTC_8x5_LDR:
+        return WGPUTextureFormat_ASTC8x5Unorm;
+    case MTLPixelFormatASTC_8x5_sRGB:
+        return WGPUTextureFormat_ASTC8x5UnormSrgb;
+    case MTLPixelFormatASTC_8x6_LDR:
+        return WGPUTextureFormat_ASTC8x6Unorm;
+    case MTLPixelFormatASTC_8x6_sRGB:
+        return WGPUTextureFormat_ASTC8x6UnormSrgb;
+    case MTLPixelFormatASTC_8x8_LDR:
+        return WGPUTextureFormat_ASTC8x8Unorm;
+    case MTLPixelFormatASTC_8x8_sRGB:
+        return WGPUTextureFormat_ASTC8x8UnormSrgb;
+    case MTLPixelFormatASTC_10x5_LDR:
+        return WGPUTextureFormat_ASTC10x5Unorm;
+    case MTLPixelFormatASTC_10x5_sRGB:
+        return WGPUTextureFormat_ASTC10x5UnormSrgb;
+    case MTLPixelFormatASTC_10x6_LDR:
+        return WGPUTextureFormat_ASTC10x6Unorm;
+    case MTLPixelFormatASTC_10x6_sRGB:
+        return WGPUTextureFormat_ASTC10x6UnormSrgb;
+    case MTLPixelFormatASTC_10x8_LDR:
+        return WGPUTextureFormat_ASTC10x8Unorm;
+    case MTLPixelFormatASTC_10x8_sRGB:
+        return WGPUTextureFormat_ASTC10x8UnormSrgb;
+    case MTLPixelFormatASTC_10x10_LDR:
+        return WGPUTextureFormat_ASTC10x10Unorm;
+    case MTLPixelFormatASTC_10x10_sRGB:
+        return WGPUTextureFormat_ASTC10x10UnormSrgb;
+    case MTLPixelFormatASTC_12x10_LDR:
+        return WGPUTextureFormat_ASTC12x10Unorm;
+    case MTLPixelFormatASTC_12x10_sRGB:
+        return WGPUTextureFormat_ASTC12x10UnormSrgb;
+    case MTLPixelFormatASTC_12x12_LDR:
+        return WGPUTextureFormat_ASTC12x12Unorm;
+    case MTLPixelFormatASTC_12x12_sRGB:
+        return WGPUTextureFormat_ASTC12x12UnormSrgb;
+#if !PLATFORM(WATCHOS)
+    case MTLPixelFormatBC1_RGBA:
+        return WGPUTextureFormat_BC1RGBAUnorm;
+    case MTLPixelFormatBC1_RGBA_sRGB:
+        return WGPUTextureFormat_BC1RGBAUnormSrgb;
+    case MTLPixelFormatBC2_RGBA:
+        return WGPUTextureFormat_BC2RGBAUnorm;
+    case MTLPixelFormatBC2_RGBA_sRGB:
+        return WGPUTextureFormat_BC2RGBAUnormSrgb;
+    case MTLPixelFormatBC3_RGBA:
+        return WGPUTextureFormat_BC3RGBAUnorm;
+    case MTLPixelFormatBC3_RGBA_sRGB:
+        return WGPUTextureFormat_BC3RGBAUnormSrgb;
+    case MTLPixelFormatBC4_RUnorm:
+        return WGPUTextureFormat_BC4RUnorm;
+    case MTLPixelFormatBC4_RSnorm:
+        return WGPUTextureFormat_BC4RSnorm;
+    case MTLPixelFormatBC5_RGUnorm:
+        return WGPUTextureFormat_BC5RGUnorm;
+    case MTLPixelFormatBC5_RGSnorm:
+        return WGPUTextureFormat_BC5RGSnorm;
+    case MTLPixelFormatBC6H_RGBUfloat:
+        return WGPUTextureFormat_BC6HRGBUfloat;
+    case MTLPixelFormatBC6H_RGBFloat:
+        return WGPUTextureFormat_BC6HRGBFloat;
+    case MTLPixelFormatBC7_RGBAUnorm:
+        return WGPUTextureFormat_BC7RGBAUnorm;
+    case MTLPixelFormatBC7_RGBAUnorm_sRGB:
+        return WGPUTextureFormat_BC7RGBAUnormSrgb;
+#endif
+    case MTLPixelFormatInvalid:
+    default:
+        return WGPUTextureFormat_Undefined;
     }
 }
 
@@ -2642,7 +2859,7 @@ Ref<Texture> Device::createTexture(const WGPUTextureDescriptor& descriptor)
     }
 
     setOwnerWithIdentity(texture);
-    texture.label = fromAPI(descriptor.label);
+    texture.label = fromAPI(descriptor.label).createNSString().get();
 
     return Texture::create(texture, descriptor, WTFMove(viewFormats), *this);
 }
@@ -2715,6 +2932,7 @@ std::optional<WGPUTextureViewDescriptor> Texture::resolveTextureViewDescriptorDe
             resolved.dimension = WGPUTextureViewDimension_3D;
             break;
         case MTLTextureTypeTextureBuffer:
+        default:
             ASSERT_NOT_REACHED();
             break;
         }
@@ -2972,7 +3190,7 @@ Ref<TextureView> Texture::createView(const WGPUTextureViewDescriptor& inputDescr
     if (!texture)
         return TextureView::createInvalid(*this, device.get());
 
-    texture.label = fromAPI(descriptor->label);
+    texture.label = fromAPI(descriptor->label).createNSString().get();
     if (!texture.label.length)
         texture.label = m_texture.label;
 
@@ -2999,8 +3217,10 @@ void Texture::makeCanvasBacking()
 bool Texture::waitForCommandBufferCompletion()
 {
     bool result = true;
-    for (Ref commandEncoder : m_commandEncoders)
-        result = commandEncoder->waitForCommandBufferCompletion() && result;
+    for (auto commandEncoder : m_commandEncoders) {
+        if (RefPtr ptr = m_device->commandEncoderFromIdentifier(commandEncoder))
+            result = ptr->waitForCommandBufferCompletion() && result;
+    }
 
     return result;
 }
@@ -3227,8 +3447,10 @@ void Texture::destroy()
         }
     }
     if (!m_canvasBacking) {
-        for (Ref commandEncoder : m_commandEncoders)
-            commandEncoder->makeSubmitInvalid();
+        for (auto commandEncoder : m_commandEncoders) {
+            if (RefPtr ptr = m_device->commandEncoderFromIdentifier(commandEncoder))
+                ptr->makeSubmitInvalid();
+        }
     }
     m_commandEncoders.clear();
 
@@ -3237,7 +3459,7 @@ void Texture::destroy()
 
 void Texture::setLabel(String&& label)
 {
-    m_texture.label = label;
+    m_texture.label = label.createNSString().get();
 }
 
 WGPUExtent3D Texture::logicalMiplevelSpecificTextureExtent(uint32_t mipLevel)

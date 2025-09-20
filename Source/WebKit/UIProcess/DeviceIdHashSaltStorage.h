@@ -25,7 +25,6 @@
 
 #pragma once
 
-#include "UserMediaPermissionCheckProxy.h"
 #include <WebCore/KeyedCoding.h>
 #include <WebCore/SecurityOrigin.h>
 #include <wtf/CompletionHandler.h>
@@ -50,7 +49,7 @@ public:
 
 private:
     struct HashSaltForOrigin {
-        WTF_MAKE_STRUCT_FAST_ALLOCATED;
+        WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(HashSaltForOrigin);
 
         HashSaltForOrigin(WebCore::SecurityOriginData&& documentOrigin, WebCore::SecurityOriginData&& parentOrigin, String&& deviceIdHashSalt, WallTime lastTimeUsed = WallTime::now())
             : documentOrigin(WTFMove(documentOrigin))

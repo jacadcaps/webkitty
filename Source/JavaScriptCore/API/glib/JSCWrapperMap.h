@@ -36,7 +36,7 @@ namespace JSC {
 class JSObject;
 
 class WrapperMap {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(WrapperMap);
 public:
     explicit WrapperMap(JSGlobalContextRef);
     ~WrapperMap();
@@ -44,7 +44,7 @@ public:
     GRefPtr<JSCValue> gobjectWrapper(JSCContext*, JSValueRef);
     void unwrap(JSValueRef);
 
-    void registerClass(JSCClass*);
+    JSCClass* registerClass(GRefPtr<JSCClass>&&);
     JSCClass* registeredClass(JSClassRef) const;
 
     JSObject* createJSWrapper(JSGlobalContextRef, JSClassRef, JSValueRef prototype, gpointer, GDestroyNotify);

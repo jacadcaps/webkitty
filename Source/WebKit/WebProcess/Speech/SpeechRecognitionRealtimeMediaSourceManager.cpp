@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -133,16 +133,16 @@ private:
     void audioUnitWillStart() final
     {
 #if USE(AUDIO_SESSION)
-        auto bufferSize = AudioSession::sharedSession().sampleRate() / 50;
-        if (AudioSession::sharedSession().preferredBufferSize() > bufferSize)
-            AudioSession::sharedSession().setPreferredBufferSize(bufferSize);
-        AudioSession::sharedSession().setCategory(AudioSession::CategoryType::PlayAndRecord, AudioSession::Mode::Default, RouteSharingPolicy::Default);
+        auto bufferSize = AudioSession::singleton().sampleRate() / 50;
+        if (AudioSession::singleton().preferredBufferSize() > bufferSize)
+            AudioSession::singleton().setPreferredBufferSize(bufferSize);
+        AudioSession::singleton().setCategory(AudioSession::CategoryType::PlayAndRecord, AudioSession::Mode::Default, RouteSharingPolicy::Default);
 #endif
     }
 
     RealtimeMediaSourceIdentifier m_identifier;
-    Ref<RealtimeMediaSource> m_source;
-    Ref<IPC::Connection> m_connection;
+    const Ref<RealtimeMediaSource> m_source;
+    const Ref<IPC::Connection> m_connection;
 
 #if PLATFORM(COCOA)
     std::unique_ptr<ProducerSharedCARingBuffer> m_ringBuffer;

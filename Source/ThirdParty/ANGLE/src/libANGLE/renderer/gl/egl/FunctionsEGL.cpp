@@ -207,13 +207,13 @@ egl::Error FunctionsEGL::initialize(EGLAttrib platformType, EGLNativeDisplayType
             WARN() << "Could not load EGL entry point " #NAME; \
         }                                                      \
     } while (0)
-#define ANGLE_GET_PROC_OR_ERROR(MEMBER, NAME)                                           \
-    do                                                                                  \
-    {                                                                                   \
-        if (!SetPtr(MEMBER, getProcAddress(#NAME)))                                     \
-        {                                                                               \
-            return egl::EglNotInitialized() << "Could not load EGL entry point " #NAME; \
-        }                                                                               \
+#define ANGLE_GET_PROC_OR_ERROR(MEMBER, NAME)                                                \
+    do                                                                                       \
+    {                                                                                        \
+        if (!SetPtr(MEMBER, getProcAddress(#NAME)))                                          \
+        {                                                                                    \
+            return egl::Error(EGL_NOT_INITIALIZED, "Could not load EGL entry point " #NAME); \
+        }                                                                                    \
     } while (0)
 
     ANGLE_GET_PROC_OR_ERROR(&mFnPtrs->bindAPIPtr, eglBindAPI);
@@ -247,7 +247,10 @@ egl::Error FunctionsEGL::initialize(EGLAttrib platformType, EGLNativeDisplayType
     queryExtensions();
 
 #if defined(ANGLE_HAS_LIBDRM)
-    mEGLDisplay = getPreferredDisplay(&majorVersion, &minorVersion);
+    if (platformType != EGL_PLATFORM_GBM_KHR || !nativeDisplay)
+    {
+        mEGLDisplay = getPreferredDisplay(&majorVersion, &minorVersion);
+    }
 #endif  // defined(ANGLE_HAS_LIBDRM)
 
     if (mEGLDisplay == EGL_NO_DISPLAY)
@@ -275,11 +278,11 @@ egl::Error FunctionsEGL::initialize(EGLAttrib platformType, EGLNativeDisplayType
     }
     if (mEGLDisplay == EGL_NO_DISPLAY)
     {
-        return egl::EglNotInitialized() << "Failed to get system egl display";
+        return egl::Error(EGL_NOT_INITIALIZED, "Failed to get system egl display");
     }
     if (majorVersion < 1 || (majorVersion == 1 && minorVersion < 4))
     {
-        return egl::EglNotInitialized() << "Unsupported EGL version (require at least 1.4).";
+        return egl::Error(EGL_NOT_INITIALIZED, "Unsupported EGL version (require at least 1.4).");
     }
     if (mFnPtrs->bindAPIPtr(EGL_OPENGL_ES_API) != EGL_TRUE)
     {
@@ -422,6 +425,10 @@ EGLDisplay FunctionsEGL::getPlatformDisplay(EGLAttrib platformType,
                 return EGL_NO_DISPLAY;
             break;
         case EGL_PLATFORM_GBM_KHR:
+            if (!hasExtension("EGL_KHR_platform_gbm") && !hasExtension("EGL_MESA_platform_gbm"))
+            {
+                return EGL_NO_DISPLAY;
+            }
             break;
         default:
             UNREACHABLE();

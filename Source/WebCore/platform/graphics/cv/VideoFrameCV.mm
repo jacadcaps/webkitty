@@ -35,6 +35,7 @@
 #include "PixelBuffer.h"
 #include "PixelBufferConformerCV.h"
 #include "ProcessIdentity.h"
+#include <Accelerate/Accelerate.h>
 #include <pal/avfoundation/MediaTimeAVFoundation.h>
 #include <wtf/CheckedArithmetic.h>
 #include <wtf/Scope.h>
@@ -53,8 +54,6 @@ WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 #include <pal/cf/CoreMediaSoftLink.h>
 
 #include "CoreVideoSoftLink.h"
-
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace WebCore {
 
@@ -75,6 +74,33 @@ static std::span<const uint8_t> copyToCVPixelBufferPlane(CVPixelBufferRef pixelB
         skip(destination, bytesPerRowDestination);
     }
     return source;
+}
+
+static vImage_Buffer makeVImageBuffer8888(std::span<uint8_t> data, size_t width, size_t height, size_t rowBytes)
+{
+    constexpr size_t bytesPerPixel = 4;
+    size_t minRowBytes = 0;
+    RELEASE_ASSERT(!__builtin_mul_overflow(bytesPerPixel, width, &minRowBytes));
+    RELEASE_ASSERT(minRowBytes <= rowBytes);
+    size_t minDataSize = 0;
+    RELEASE_ASSERT(!__builtin_mul_overflow(rowBytes, height, &minDataSize));
+    RELEASE_ASSERT(minDataSize <= data.size());
+
+    return vImage_Buffer {
+        .data = data.data(),
+        .height = height,
+        .width = width,
+        .rowBytes = rowBytes,
+    };
+}
+
+static vImage_Buffer makeVImageBuffer8888(CVPixelBufferRef buffer)
+{
+    return makeVImageBuffer8888(
+        CVPixelBufferGetSpan(buffer),
+        CVPixelBufferGetWidth(buffer),
+        CVPixelBufferGetHeight(buffer),
+        CVPixelBufferGetBytesPerRow(buffer));
 }
 
 RefPtr<VideoFrame> VideoFrame::createNV12(std::span<const uint8_t> span, size_t width, size_t height, const ComputedPlaneLayout& planeY, const ComputedPlaneLayout& planeUV, PlatformVideoColorSpace&& colorSpace)
@@ -129,22 +155,13 @@ RefPtr<VideoFrame> VideoFrame::createRGBA(std::span<const uint8_t> span, size_t 
         CVPixelBufferUnlockBaseAddress(rawPixelBuffer, 0);
     });
 
-    auto source = span;
-    auto destination = CVPixelBufferGetSpanOfPlane(rawPixelBuffer, 0);
-    size_t bytesPerRowDestination = CVPixelBufferGetBytesPerRowOfPlane(rawPixelBuffer, 0);
-    for (unsigned i = 0; i < height; ++i) {
-        size_t j = 0;
-        while (j < std::min(plane.sourceWidthBytes, bytesPerRowDestination)) {
-            // RGBA -> ARGB.
-            destination[j] = source[j + 3];
-            destination[j + 1] = source[j];
-            destination[j + 2] = source[j + 1];
-            destination[j + 3] = source[j + 2];
-            j += 4;
-        }
-        skip(source, plane.sourceWidthBytes);
-        skip(destination, bytesPerRowDestination);
-    }
+    // Convert from RGBA to ARGB.
+    auto sourceBuffer = makeVImageBuffer8888(spanConstCast<uint8_t>(span), width, height, plane.sourceWidthBytes);
+    auto destinationBuffer = makeVImageBuffer8888(rawPixelBuffer);
+    uint8_t channelMap[4] = { 3, 0, 1, 2 };
+    auto error = vImagePermuteChannels_ARGB8888(&sourceBuffer, &destinationBuffer, channelMap, kvImageNoFlags);
+    // Permutation will not fail as long as the provided arguments are valid.
+    ASSERT_UNUSED(error, error == kvImageNoError);
 
     return VideoFrameCV::create({ }, false, Rotation::None, WTFMove(pixelBuffer), WTFMove(colorSpace));
 }
@@ -166,7 +183,11 @@ RefPtr<VideoFrame> VideoFrame::createBGRA(std::span<const uint8_t> span, size_t 
         CVPixelBufferUnlockBaseAddress(rawPixelBuffer, 0);
     });
 
-    copyToCVPixelBufferPlane(rawPixelBuffer, 0, span, height, plane.sourceWidthBytes);
+    auto sourceBuffer = makeVImageBuffer8888(spanConstCast<uint8_t>(span), width, height, plane.sourceWidthBytes);
+    auto destinationBuffer = makeVImageBuffer8888(rawPixelBuffer);
+    auto error = vImageCopyBuffer(&sourceBuffer, &destinationBuffer, 4, kvImageNoFlags);
+    // Copy will not fail as long as the provided arguments are valid.
+    ASSERT_UNUSED(error, error == kvImageNoError);
 
     return VideoFrameCV::create({ }, false, Rotation::None, WTFMove(pixelBuffer), WTFMove(colorSpace));
 }
@@ -232,20 +253,20 @@ RefPtr<VideoFrame> VideoFrame::createI420A(std::span<const uint8_t> buffer, size
 #endif
 }
 
-static void copyPlane(uint8_t* destination, const uint8_t* source, uint64_t sourceStride, const ComputedPlaneLayout& spanPlaneLayout, NOESCAPE const Function<void(uint8_t*, const uint8_t*, size_t)>& copyRow)
+static void copyPlane(std::span<uint8_t> destination, std::span<const uint8_t> source, uint64_t sourceStride, const ComputedPlaneLayout& spanPlaneLayout, NOESCAPE const Function<void(std::span<uint8_t>, std::span<const uint8_t>)>& copyRow)
 {
     uint64_t sourceOffset = spanPlaneLayout.sourceTop * sourceStride;
     sourceOffset += spanPlaneLayout.sourceLeftBytes;
     uint64_t destinationOffset = spanPlaneLayout.destinationOffset;
     uint64_t rowBytes = spanPlaneLayout.sourceWidthBytes;
     for (size_t cptr = 0; cptr < spanPlaneLayout.sourceHeight; ++cptr) {
-        copyRow(destination + destinationOffset, source + sourceOffset, rowBytes);
+        copyRow(destination.data() ? destination.subspan(destinationOffset) : destination, source.subspan(sourceOffset, rowBytes));
         sourceOffset += sourceStride;
         destinationOffset += spanPlaneLayout.destinationStride;
     }
 }
 
-static Vector<PlaneLayout> copyRGBData(std::span<uint8_t> span, const ComputedPlaneLayout& spanPlaneLayout, CVPixelBufferRef pixelBuffer, NOESCAPE const Function<void(uint8_t*, const uint8_t*, size_t)>& copyRow)
+static Vector<PlaneLayout> copyRGBData(std::span<uint8_t> span, const ComputedPlaneLayout& spanPlaneLayout, CVPixelBufferRef pixelBuffer, NOESCAPE const Function<void(std::span<uint8_t>, std::span<const uint8_t>)>& copyRow)
 {
     auto result = CVPixelBufferLockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
     if (result != kCVReturnSuccess) {
@@ -267,7 +288,7 @@ static Vector<PlaneLayout> copyRGBData(std::span<uint8_t> span, const ComputedPl
     auto bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer);
 
     PlaneLayout planeLayout { spanPlaneLayout.destinationOffset, spanPlaneLayout.destinationStride ? spanPlaneLayout.destinationStride : 4 * width };
-    copyPlane(span.data(), planeA.data(), bytesPerRow, spanPlaneLayout, copyRow);
+    copyPlane(span, planeA, bytesPerRow, spanPlaneLayout, copyRow);
 
     Vector<PlaneLayout> planeLayouts;
     planeLayouts.append(planeLayout);
@@ -301,16 +322,16 @@ static Vector<PlaneLayout> copyNV12(std::span<uint8_t> span, const ComputedPlane
     auto bytesPerRowY = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 0);
     PlaneLayout planeLayoutY { spanPlaneLayoutY.destinationOffset, spanPlaneLayoutY.destinationStride ? spanPlaneLayoutY.destinationStride : widthY };
 
-    copyPlane(span.data(), planeY.data(), bytesPerRowY, spanPlaneLayoutY, [](auto* destination, auto* source, auto size) {
-        std::memcpy(destination, source, size);
+    copyPlane(span, planeY, bytesPerRowY, spanPlaneLayoutY, [](std::span<uint8_t> destination, std::span<const uint8_t> source) {
+        memcpySpan(destination, source);
     });
 
     auto widthUV = CVPixelBufferGetWidthOfPlane(pixelBuffer, 1);
     auto bytesPerRowUV = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 1);
     PlaneLayout planeLayoutUV { spanPlaneLayoutUV.destinationOffset, spanPlaneLayoutUV.destinationStride ? spanPlaneLayoutUV.destinationStride : widthUV };
 
-    copyPlane(span.data(), planeUV.data(), bytesPerRowUV, spanPlaneLayoutUV, [](auto* destination, auto* source, auto size) {
-        std::memcpy(destination, source, size);
+    copyPlane(span, planeUV, bytesPerRowUV, spanPlaneLayoutUV, [](std::span<uint8_t> destination, std::span<const uint8_t> source) {
+        memcpySpan(destination, source);
     });
 
     Vector<PlaneLayout> planeLayouts;
@@ -346,8 +367,8 @@ static Vector<PlaneLayout> copyI420OrI420A(std::span<uint8_t> span, const Comput
     auto bytesPerRowY = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 0);
     PlaneLayout planeLayoutY { spanPlaneLayoutY.destinationOffset, spanPlaneLayoutY.destinationStride ? spanPlaneLayoutY.destinationStride : widthY };
 
-    copyPlane(span.data(), planeY.data(), bytesPerRowY, spanPlaneLayoutY, [](auto* destination, auto* source, auto size) {
-        std::memcpy(destination, source, size);
+    copyPlane(span, planeY, bytesPerRowY, spanPlaneLayoutY, [](std::span<uint8_t> destination, std::span<const uint8_t> source) {
+        memcpySpan(destination, source);
     });
 
     auto widthUV = CVPixelBufferGetWidthOfPlane(pixelBuffer, 1);
@@ -361,17 +382,15 @@ static Vector<PlaneLayout> copyI420OrI420A(std::span<uint8_t> span, const Comput
     spanPlaneLayoutUV.sourceLeftBytes += spanPlaneLayoutUV.sourceLeftBytes;
     spanPlaneLayoutUV.sourceWidthBytes += spanPlaneLayoutUV.sourceWidthBytes;
 
-    auto* destinationU = span.data() + spanPlaneLayoutU.destinationOffset;
-    auto* destinationV = span.data() + spanPlaneLayoutV.destinationOffset;
-    copyPlane(nullptr, planeUV.data(), bytesPerRowUV, spanPlaneLayoutUV, [&destinationU, &destinationV, strideU = planeLayoutU.stride, strideV = planeLayoutV.stride](auto*, auto* source, auto size) {
-        auto* destU = destinationU;
-        auto* destV = destinationV;
-        for (size_t cptr = 0; cptr < size;) {
-            *destU++ = source[cptr++];
-            *destV++ = source[cptr++];
+    auto destinationU = span.subspan(spanPlaneLayoutU.destinationOffset);
+    auto destinationV = span.subspan(spanPlaneLayoutV.destinationOffset);
+    copyPlane({ }, planeUV, bytesPerRowUV, spanPlaneLayoutUV, [&destinationU, &destinationV, strideU = planeLayoutU.stride, strideV = planeLayoutV.stride](std::span<uint8_t>, std::span<const uint8_t> source) {
+        for (size_t cptr = 0, destinationIndex = 0; cptr < source.size(); ++destinationIndex) {
+            destinationU[destinationIndex] = source[cptr++];
+            destinationV[destinationIndex] = source[cptr++];
         }
-        destinationU += strideU;
-        destinationV += strideV;
+        skip(destinationU, strideU);
+        skip(destinationV, strideV);
     });
 
     Vector<PlaneLayout> planeLayouts;
@@ -399,8 +418,8 @@ static Vector<PlaneLayout> copyI420OrI420A(std::span<uint8_t> span, const Comput
         if (planeAEnd > span.size())
             return { };
 
-        copyPlane(span.data(), planeA.data(), bytesPerRowA, *spanPlaneLayoutA, [](auto* destination, auto* source, auto size) {
-            std::memcpy(destination, source, size);
+        copyPlane(span, planeA, bytesPerRowA, *spanPlaneLayoutA, [](std::span<uint8_t> destination, std::span<const uint8_t> source) {
+            memcpySpan(destination, source);
         });
         planeLayouts.append(planeLayoutA);
     }
@@ -430,9 +449,9 @@ void VideoFrame::copyTo(std::span<uint8_t> span, VideoPixelFormat format, Vector
         ComputedPlaneLayout planeLayout;
         if (!computedPlaneLayout.isEmpty())
             planeLayout = computedPlaneLayout[0];
-        auto planeLayouts = copyRGBData(span, planeLayout, this->pixelBuffer(), [](auto* destination, auto* source, size_t byteLength) {
-            ASSERT(!(byteLength % 4));
-            auto pixelCount = byteLength / 4;
+        auto planeLayouts = copyRGBData(span, planeLayout, this->pixelBuffer(), [](std::span<uint8_t> destination, std::span<const uint8_t> source) {
+            ASSERT(!(source.size() % 4));
+            auto pixelCount = source.size() / 4;
             size_t i = 0;
             while (pixelCount-- > 0) {
                 // ARGB -> RGBA.
@@ -452,8 +471,8 @@ void VideoFrame::copyTo(std::span<uint8_t> span, VideoPixelFormat format, Vector
         if (!computedPlaneLayout.isEmpty())
             planeLayout = computedPlaneLayout[0];
 
-        auto planeLayouts = copyRGBData(span, planeLayout, this->pixelBuffer(), [](auto* destination, auto* source, size_t byteLength) {
-            std::memcpy(destination, source, byteLength);
+        auto planeLayouts = copyRGBData(span, planeLayout, this->pixelBuffer(), [](std::span<uint8_t> destination, std::span<const uint8_t> source) {
+            memcpySpan(destination, source);
         });
         callback(WTFMove(planeLayouts));
         return;
@@ -625,7 +644,5 @@ Ref<VideoFrame> VideoFrameCV::clone()
 }
 
 }
-
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif

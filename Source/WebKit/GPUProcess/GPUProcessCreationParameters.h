@@ -31,6 +31,10 @@
 #include "SandboxExtension.h"
 #include <wtf/ProcessID.h>
 
+#if USE(GBM)
+#include <WebCore/DRMDevice.h>
+#endif
+
 namespace IPC {
 class Decoder;
 class Encoder;
@@ -56,10 +60,6 @@ struct GPUProcessCreationParameters {
     SandboxExtension::Handle containerTemporaryDirectoryExtensionHandle;
     String containerCachesDirectory;
 #endif
-#if PLATFORM(IOS_FAMILY)
-    Vector<SandboxExtension::Handle> compilerServiceExtensionHandles;
-    Vector<SandboxExtension::Handle> dynamicIOKitExtensionHandles;
-#endif
     std::optional<SandboxExtension::Handle> mobileGestaltExtensionHandle;
 #if PLATFORM(COCOA) && ENABLE(REMOTE_INSPECTOR)
     Vector<SandboxExtension::Handle> gpuToolsExtensionHandles;
@@ -68,8 +68,9 @@ struct GPUProcessCreationParameters {
     String applicationVisibleName;
 
 #if USE(GBM)
-    String renderDeviceFile;
+    WebCore::DRMDevice drmDevice;
 #endif
+
     Vector<String> overrideLanguages;
 #if PLATFORM(COCOA)
     bool enableMetalDebugDeviceForTesting { false };

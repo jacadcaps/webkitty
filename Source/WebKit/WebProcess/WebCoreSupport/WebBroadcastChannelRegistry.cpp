@@ -30,6 +30,7 @@
 #include "NetworkProcessConnection.h"
 #include "WebProcess.h"
 #include <WebCore/BroadcastChannel.h>
+#include <WebCore/ContextDestructionObserverInlines.h>
 #include <WebCore/MessageWithMessagePorts.h>
 #include <wtf/CallbackAggregator.h>
 
@@ -126,6 +127,9 @@ void WebBroadcastChannelRegistry::postMessageToRemote(const WebCore::ClientOrigi
 
 void WebBroadcastChannelRegistry::networkProcessCrashed()
 {
+    if (!WebProcess::singleton().isBroadcastChannelEnabled())
+        return;
+
     for (auto& [origin, channelsForOrigin] : m_channelsPerOrigin) {
         auto clientOrigin = toClientOrigin(origin);
         if (!clientOrigin)
@@ -133,6 +137,7 @@ void WebBroadcastChannelRegistry::networkProcessCrashed()
         for (auto& name : channelsForOrigin.keys())
             networkProcessConnection().send(Messages::NetworkBroadcastChannelRegistry::RegisterChannel { *clientOrigin, name }, 0);
     }
+
 }
 
 } // namespace WebKit

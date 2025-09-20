@@ -61,7 +61,7 @@
 #include "WebProcess.h"
 #include <WebCore/AXCoreObject.h>
 #include <WebCore/AXObjectCache.h>
-#include <WebCore/CSSParser.h>
+#include <WebCore/CSSPropertyParserConsumer+Color.h>
 #include <WebCore/CaptionUserPreferences.h>
 #include <WebCore/CompositionHighlight.h>
 #include <WebCore/FocusController.h>
@@ -154,9 +154,9 @@ static Ref<API::Array> contextMenuItems(const WebKit::WebContextMenu& contextMen
 WKArrayRef WKBundlePageCopyContextMenuItems(WKBundlePageRef pageRef)
 {
 #if ENABLE(CONTEXT_MENUS)
-    auto& contextMenu = WebKit::toImpl(pageRef)->contextMenu();
+    Ref contextMenu = WebKit::toImpl(pageRef)->contextMenu();
 
-    return WebKit::toAPI(&contextMenuItems(contextMenu).leakRef());
+    return WebKit::toAPI(&contextMenuItems(contextMenu.get()).leakRef());
 #else
     UNUSED_PARAM(pageRef);
     return nullptr;
@@ -166,7 +166,7 @@ WKArrayRef WKBundlePageCopyContextMenuItems(WKBundlePageRef pageRef)
 WKArrayRef WKBundlePageCopyContextMenuAtPointInWindow(WKBundlePageRef pageRef, WKPoint point)
 {
 #if ENABLE(CONTEXT_MENUS)
-    WebCore::Page* page = WebKit::toImpl(pageRef)->corePage();
+    RefPtr page = WebKit::toImpl(pageRef)->corePage();
     if (!page)
         return nullptr;
 
@@ -207,11 +207,11 @@ void* WKAccessibilityFocusedObject(WKBundlePageRef pageRef)
     if (!pageRef)
         return nullptr;
 
-    WebCore::Page* page = WebKit::toImpl(pageRef)->corePage();
+    RefPtr page = WebKit::toImpl(pageRef)->corePage();
     if (!page)
         return nullptr;
 
-    RefPtr focusedOrMainFrame = page->checkedFocusController()->focusedOrMainFrame();
+    RefPtr focusedOrMainFrame = page->focusController().focusedOrMainFrame();
     if (!focusedOrMainFrame)
         return nullptr;
     RefPtr focusedDocument = focusedOrMainFrame->document();
@@ -224,7 +224,7 @@ void* WKAccessibilityFocusedObject(WKBundlePageRef pageRef)
     if (!axObjectCache)
         return nullptr;
 
-    auto* focus = axObjectCache->focusedObjectForPage(page);
+    RefPtr focus = axObjectCache->focusedObjectForPage(page.get());
     return focus ? focus->wrapper() : nullptr;
 }
 
@@ -242,19 +242,19 @@ void WKAccessibilityAnnounce(WKBundlePageRef pageRef, WKStringRef message)
     if (!pageRef)
         return;
 
-    auto* page = WebKit::toImpl(pageRef)->corePage();
+    RefPtr page = WebKit::toImpl(pageRef)->corePage();
     if (!page)
         return;
 
-    auto* localMainFrame = dynamicDowncast<WebCore::LocalFrame>(page->mainFrame());
+    RefPtr localMainFrame = dynamicDowncast<WebCore::LocalFrame>(page->mainFrame());
     if (!localMainFrame)
         return;
 
-    auto& core = *localMainFrame;
-    if (!core.document())
+    Ref core = *localMainFrame;
+    if (!core->document())
         return;
 
-    if (auto* cache = core.document()->axObjectCache())
+    if (auto* cache = core->document()->axObjectCache())
         cache->announce(WebKit::toWTFString(message));
 }
 
@@ -276,6 +276,13 @@ bool WKAccessibilityEnhancedAccessibilityEnabled()
 void WKAccessibilitySetForceInitialFrameCaching(bool shouldForce)
 {
     WebCore::AXObjectCache::setForceInitialFrameCaching(shouldForce);
+}
+
+void WKBundlePageSetEditable(WKBundlePageRef pageRef, bool isEditable)
+{
+    WebKit::WebPage* webPage = WebKit::toImpl(pageRef);
+    if (WebCore::Page* page = webPage ? webPage->corePage() : nullptr)
+        page->setEditable(isEditable);
 }
 
 void WKBundlePageSetDefersLoading(WKBundlePageRef, bool)
@@ -382,21 +389,16 @@ bool WKBundlePageCanHandleRequest(WKURLRequestRef requestRef)
     return WebKit::WebPage::canHandleRequest(WebKit::toImpl(requestRef)->resourceRequest());
 }
 
-bool WKBundlePageFindString(WKBundlePageRef pageRef, WKStringRef target, WKFindOptions findOptions)
-{
-    return WebKit::toImpl(pageRef)->findStringFromInjectedBundle(WebKit::toWTFString(target), WebKit::toFindOptions(findOptions));
-}
-
 void WKBundlePageReplaceStringMatches(WKBundlePageRef pageRef, WKArrayRef matchIndicesRef, WKStringRef replacementText, bool selectionOnly)
 {
-    auto* matchIndices = WebKit::toImpl(matchIndicesRef);
+    RefPtr matchIndices = WebKit::toImpl(matchIndicesRef);
 
     Vector<uint32_t> indices;
     indices.reserveInitialCapacity(matchIndices->size());
 
     auto numberOfMatchIndices = matchIndices->size();
     for (size_t i = 0; i < numberOfMatchIndices; ++i) {
-        if (auto* indexAsObject = matchIndices->at<API::UInt64>(i))
+        if (RefPtr indexAsObject = matchIndices->at<API::UInt64>(i))
             indices.append(indexAsObject->value());
     }
     WebKit::toImpl(pageRef)->replaceStringMatchesFromInjectedBundle(indices, WebKit::toWTFString(replacementText), selectionOnly);
@@ -493,19 +495,19 @@ void WKBundlePageSetComposition(WKBundlePageRef pageRef, WKStringRef text, int f
 {
     Vector<WebCore::CompositionHighlight> highlights;
     if (highlightData) {
-        auto* highlightDataArray = WebKit::toImpl(highlightData);
+        RefPtr highlightDataArray = WebKit::toImpl(highlightData);
         highlights.reserveInitialCapacity(highlightDataArray->size());
-        for (auto dictionary : highlightDataArray->elementsOfType<API::Dictionary>()) {
+        for (RefPtr dictionary : highlightDataArray->elementsOfType<API::Dictionary>()) {
             auto startOffset = downcast<API::UInt64>(dictionary->get("from"_s))->value();
 
             std::optional<WebCore::Color> backgroundHighlightColor;
             std::optional<WebCore::Color> foregroundHighlightColor;
 
-            if (auto backgroundColor = dictionary->get("color"_s))
-                backgroundHighlightColor = WebCore::CSSParser::parseColorWithoutContext(downcast<API::String>(backgroundColor)->string());
+            if (RefPtr backgroundColor = dictionary->get("color"_s))
+                backgroundHighlightColor = WebCore::CSSPropertyParserHelpers::deprecatedParseColorRawWithoutContext(downcast<API::String>(backgroundColor)->string());
 
-            if (auto foregroundColor = dictionary->get("foregroundColor"_s))
-                foregroundHighlightColor = WebCore::CSSParser::parseColorWithoutContext(downcast<API::String>(foregroundColor)->string());
+            if (RefPtr foregroundColor = dictionary->get("foregroundColor"_s))
+                foregroundHighlightColor = WebCore::CSSPropertyParserHelpers::deprecatedParseColorRawWithoutContext(downcast<API::String>(foregroundColor)->string());
 
             highlights.append({
                 static_cast<unsigned>(startOffset),
@@ -518,8 +520,8 @@ void WKBundlePageSetComposition(WKBundlePageRef pageRef, WKStringRef text, int f
 
     HashMap<String, Vector<WebCore::CharacterRange>> annotations;
     if (annotationData) {
-        if (auto* annotationDataArray = WebKit::toImpl(annotationData)) {
-            for (auto dictionary : annotationDataArray->elementsOfType<API::Dictionary>()) {
+        if (RefPtr annotationDataArray = WebKit::toImpl(annotationData)) {
+            for (RefPtr dictionary : annotationDataArray->elementsOfType<API::Dictionary>()) {
                 auto location = downcast<API::UInt64>(dictionary->get("from"_s))->value();
                 auto length = downcast<API::UInt64>(dictionary->get("length"_s))->value();
                 auto name = downcast<API::String>(dictionary->get("annotation"_s))->string();
@@ -553,15 +555,15 @@ void WKBundlePageConfirmCompositionWithText(WKBundlePageRef pageRef, WKStringRef
 
 void WKBundlePageSetUseDarkAppearance(WKBundlePageRef pageRef, bool useDarkAppearance)
 {
-    WebKit::WebPage* webPage = WebKit::toImpl(pageRef);
-    if (WebCore::Page* page = webPage ? webPage->corePage() : nullptr)
+    RefPtr webPage = WebKit::toImpl(pageRef);
+    if (RefPtr page = webPage ? webPage->corePage() : nullptr)
         page->setUseColorAppearance(useDarkAppearance, page->useElevatedUserInterfaceLevel());
 }
 
 bool WKBundlePageIsUsingDarkAppearance(WKBundlePageRef pageRef)
 {
-    WebKit::WebPage* webPage = WebKit::toImpl(pageRef);
-    if (WebCore::Page* page = webPage ? webPage->corePage() : nullptr)
+    RefPtr webPage = WebKit::toImpl(pageRef);
+    if (RefPtr page = webPage ? webPage->corePage() : nullptr)
         return page->useDarkAppearance();
     return false;
 }
@@ -600,8 +602,8 @@ void WKBundlePageSetUseTestingViewportConfiguration(WKBundlePageRef pageRef, boo
 
 void WKBundlePageStartMonitoringScrollOperations(WKBundlePageRef pageRef, bool clearLatchingState)
 {
-    WebKit::WebPage* webPage = WebKit::toImpl(pageRef);
-    WebCore::Page* page = webPage ? webPage->corePage() : nullptr;
+    RefPtr webPage = WebKit::toImpl(pageRef);
+    RefPtr page = webPage ? webPage->corePage() : nullptr;
     
     if (!page)
         return;
@@ -614,8 +616,8 @@ bool WKBundlePageRegisterScrollOperationCompletionCallback(WKBundlePageRef pageR
     if (!callback)
         return false;
     
-    WebKit::WebPage* webPage = WebKit::toImpl(pageRef);
-    WebCore::Page* page = webPage ? webPage->corePage() : nullptr;
+    RefPtr webPage = WebKit::toImpl(pageRef);
+    RefPtr page = webPage ? webPage->corePage() : nullptr;
     if (!page || !page->isMonitoringWheelEvents())
         return false;
     
@@ -632,16 +634,16 @@ void WKBundlePageCallAfterTasksAndTimers(WKBundlePageRef pageRef, WKBundlePageTe
     if (!callback)
         return;
     
-    WebKit::WebPage* webPage = WebKit::toImpl(pageRef);
-    WebCore::Page* page = webPage ? webPage->corePage() : nullptr;
+    RefPtr webPage = WebKit::toImpl(pageRef);
+    RefPtr page = webPage ? webPage->corePage() : nullptr;
     if (!page)
         return;
     
-    auto* localMainFrame = dynamicDowncast<WebCore::LocalFrame>(page->mainFrame());
+    RefPtr localMainFrame = dynamicDowncast<WebCore::LocalFrame>(page->mainFrame());
     if (!localMainFrame)
         return;
 
-    WebCore::Document* document = localMainFrame->document();
+    RefPtr document = localMainFrame->document();
     if (!document)
         return;
     
@@ -715,10 +717,10 @@ WKStringRef WKBundlePageCopyGroupIdentifier(WKBundlePageRef pageRef)
 void WKBundlePageSetCaptionDisplayMode(WKBundlePageRef page, WKStringRef mode)
 {
 #if ENABLE(VIDEO)
-    auto& captionPreferences = WebKit::toImpl(page)->corePage()->group().ensureCaptionPreferences();
+    Ref captionPreferences = WebKit::toImpl(page)->corePage()->group().ensureCaptionPreferences();
     auto displayMode = WTF::EnumTraits<WebCore::CaptionUserPreferences::CaptionDisplayMode>::fromString(WebKit::toWTFString(mode));
     if (displayMode.has_value())
-        captionPreferences.setCaptionDisplayMode(displayMode.value());
+        captionPreferences->setCaptionDisplayMode(displayMode.value());
 #else
     UNUSED_PARAM(page);
     UNUSED_PARAM(mode);
@@ -728,8 +730,8 @@ void WKBundlePageSetCaptionDisplayMode(WKBundlePageRef page, WKStringRef mode)
 WKCaptionUserPreferencesTestingModeTokenRef WKBundlePageCreateCaptionUserPreferencesTestingModeToken(WKBundlePageRef page)
 {
 #if ENABLE(VIDEO)
-    auto& captionPreferences = WebKit::toImpl(page)->corePage()->group().ensureCaptionPreferences();
-    return WebKit::toAPI(&API::CaptionUserPreferencesTestingModeToken::create(captionPreferences).leakRef());
+    Ref captionPreferences = WebKit::toImpl(page)->corePage()->group().ensureCaptionPreferences();
+    return WebKit::toAPI(&API::CaptionUserPreferencesTestingModeToken::create(captionPreferences.get()).leakRef());
 #else
     UNUSED_PARAM(page);
     return { };

@@ -70,7 +70,7 @@ struct StreamServerConnectionParameters {
 // The StreamServerConnection does not trust the StreamClientConnection.
 class StreamServerConnection final : public ThreadSafeRefCounted<StreamServerConnection>, private MessageReceiveQueue, private Connection::Client {
     WTF_MAKE_NONCOPYABLE(StreamServerConnection);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(StreamServerConnection);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(StreamServerConnection);
 public:
     using AsyncReplyID = Connection::AsyncReplyID;
@@ -123,7 +123,7 @@ private:
     void didReceiveMessage(Connection&, Decoder&) final;
     bool didReceiveSyncMessage(Connection&, Decoder&, UniqueRef<Encoder>&) final;
     void didClose(Connection&) final;
-    void didReceiveInvalidMessage(Connection&, MessageName, int32_t indexOfObjectFailingDecoding) final;
+    void didReceiveInvalidMessage(Connection&, MessageName, const Vector<uint32_t>& indicesOfObjectsFailingDecoding) final;
 
     bool processSetStreamDestinationID(Decoder&, RefPtr<StreamMessageReceiver>& currentReceiver);
     bool processStreamMessage(Decoder&, StreamMessageReceiver&);
@@ -189,6 +189,17 @@ template<typename T, typename... Arguments>
 void StreamServerConnection::sendAsyncReply(AsyncReplyID asyncReplyID, Arguments&&... arguments)
 {
     m_connection->sendAsyncReply<T>(asyncReplyID, std::forward<Arguments>(arguments)...);
+}
+
+inline void markCurrentlyDispatchedMessageAsInvalid(StreamServerConnection& connection)
+{
+    connection.markCurrentlyDispatchedMessageAsInvalid();
+}
+
+inline void markCurrentlyDispatchedMessageAsInvalid(const RefPtr<StreamServerConnection>& connection)
+{
+    if (connection)
+        connection->markCurrentlyDispatchedMessageAsInvalid();
 }
 
 }

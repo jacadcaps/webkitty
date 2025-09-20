@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Apple Inc.  All rights reserved.
+ * Copyright (C) 2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -68,7 +68,7 @@ public:
     virtual void add(PathCloseSubpath) = 0;
 
     void addLinesForRect(const FloatRect&);
-    void addBeziersForRoundedRect(const FloatRoundedRect&);
+    static Vector<PathSegment, 10> beziersForRoundedRect(const FloatRoundedRect&);
 
     virtual void applySegments(const PathSegmentApplier&) const;
     virtual bool applyElements(const PathElementApplier&) const = 0;
@@ -76,16 +76,6 @@ public:
     virtual bool transform(const AffineTransform&) = 0;
 
     virtual std::optional<PathSegment> singleSegment() const { return std::nullopt; }
-    virtual std::optional<PathDataLine> singleDataLine() const { return std::nullopt; }
-    virtual std::optional<PathRect> singleRect() const { return std::nullopt; }
-    virtual std::optional<PathRoundedRect> singleRoundedRect() const { return std::nullopt; }
-    virtual std::optional<PathContinuousRoundedRect> singleContinuousRoundedRect() const { return std::nullopt; }
-    virtual std::optional<PathArc> singleArc() const { return std::nullopt; }
-    virtual std::optional<PathClosedArc> singleClosedArc() const { return std::nullopt; }
-    virtual std::optional<PathDataQuadCurve> singleQuadCurve() const { return std::nullopt; }
-    virtual std::optional<PathDataBezierCurve> singleBezierCurve() const { return std::nullopt; }
-
-    virtual bool isEmpty() const = 0;
 
     virtual bool isClosed() const;
 
@@ -107,8 +97,8 @@ inline void PathImpl::addSegment(PathSegment segment)
             add(WTFMove(segment));
         },
         [&](PathDataLine segment) {
-            add(PathMoveTo { segment.start });
-            add(PathLineTo { segment.end });
+            add(PathMoveTo { segment.start() });
+            add(PathLineTo { segment.end() });
         },
         [&](PathDataQuadCurve segment) {
             add(PathMoveTo { segment.start });

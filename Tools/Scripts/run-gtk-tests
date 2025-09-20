@@ -86,6 +86,12 @@ class GtkTestRunner(TestRunner):
     def is_qt_test(self, test_program):
         return False
 
+    def is_wpe_platform_test(self, test_program):
+        return False
+
+    def is_wpe_platform_wayland_test(self, test_program):
+        return False
+
 if __name__ == "__main__":
     runner_args = get_runner_args(sys.argv)
     flatpakutils.run_in_sandbox_if_available(runner_args)

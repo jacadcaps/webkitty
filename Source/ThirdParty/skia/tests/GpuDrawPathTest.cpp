@@ -79,7 +79,7 @@ static void test_drawSameRectOvals(skiatest::Reporter*, SkCanvas* canvas) {
     fill_and_stroke(canvas, oval1, oval2, nullptr);
 
     const SkScalar intervals[] = { 1, 1 };
-    fill_and_stroke(canvas, oval1, oval2, SkDashPathEffect::Make(intervals, 2, 0));
+    fill_and_stroke(canvas, oval1, oval2, SkDashPathEffect::Make(intervals, 0));
 }
 
 DEF_GANESH_TEST_FOR_GL_CONTEXT(GpuDrawPath, reporter, ctxInfo, CtsEnforcement::kNever) {
@@ -150,7 +150,7 @@ DEF_GANESH_TEST_FOR_ALL_CONTEXTS(PathTest_CrBug1232834,
 DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(StrokeCircle_Bug356182429,
                                        reporter,
                                        ctxInfo,
-                                       CtsEnforcement::kNextRelease) {
+                                       CtsEnforcement::kNever) {
     SkImageInfo info = SkImageInfo::MakeN32Premul(256, 256);
     auto dContext = ctxInfo.directContext();
     auto surface(SkSurfaces::RenderTarget(dContext, skgpu::Budgeted::kNo, info));

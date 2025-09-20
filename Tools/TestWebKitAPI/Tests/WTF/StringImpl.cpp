@@ -88,17 +88,17 @@ TEST(WTF, StringImplReplaceWithLiteral)
     testStringImpl = testString.impl()->replace('2', "NotFound"_span);
     ASSERT_TRUE(equal(testStringImpl.get(), String::fromUTF8("résumé").impl()));
 
-    testStringImpl = testString.impl()->replace(UChar(0x00E9 /*U+00E9 is 'é'*/), "e"_span);
+    testStringImpl = testString.impl()->replace(char16_t(0x00E9 /*U+00E9 is 'é'*/), "e"_span);
     ASSERT_TRUE(equal(testStringImpl.get(), "resume"_s));
 
     testString = String::fromUTF8("résumé");
     ASSERT_FALSE(testString.impl()->is8Bit());
-    testStringImpl = testString.impl()->replace(UChar(0x00E9 /*U+00E9 is 'é'*/), ""_span);
+    testStringImpl = testString.impl()->replace(char16_t(0x00E9 /*U+00E9 is 'é'*/), ""_span);
     ASSERT_TRUE(equal(testStringImpl.get(), "rsum"_s));
 
     testString = String::fromUTF8("résumé");
     ASSERT_FALSE(testString.impl()->is8Bit());
-    testStringImpl = testString.impl()->replace(UChar(0x00E9 /*U+00E9 is 'é'*/), "555"_span);
+    testStringImpl = testString.impl()->replace(char16_t(0x00E9 /*U+00E9 is 'é'*/), "555"_span);
     ASSERT_TRUE(equal(testStringImpl.get(), "r555sum555"_s));
 }
 
@@ -775,8 +775,8 @@ TEST(WTF, ExternalStringImplCreate8bit)
 
 TEST(WTF, ExternalStringImplCreate16bit)
 {
-    constexpr UChar buffer[] = { L'h', L'e', L'l', L'l', L'o', L'\0' };
-    constexpr size_t bufferStringLength = (sizeof(buffer) - 1) / sizeof(UChar);
+    constexpr char16_t buffer[] = { L'h', L'e', L'l', L'l', L'o', L'\0' };
+    constexpr size_t bufferStringLength = (sizeof(buffer) - 1) / sizeof(char16_t);
     bool freeFunctionCalled = false;
 
     {
@@ -841,12 +841,11 @@ TEST(WTF, ExternalStringAtom)
 
 TEST(WTF, ExternalStringToSymbol)
 {
-    constexpr LChar buffer[] = "hello";
-    constexpr size_t bufferStringLength = sizeof(buffer) - 1;
+    static constexpr ASCIILiteral buffer = "hello"_s;
     bool freeFunctionCalled = false;
 
     {
-        auto external = ExternalStringImpl::create({ buffer, bufferStringLength }, [&freeFunctionCalled](ExternalStringImpl* externalStringImpl, void* buffer, unsigned bufferSize) mutable {
+        auto external = ExternalStringImpl::create(buffer.span8(), [&freeFunctionCalled](ExternalStringImpl* externalStringImpl, void* buffer, unsigned bufferSize) mutable {
             freeFunctionCalled = true;
         });
 
@@ -861,7 +860,7 @@ TEST(WTF, ExternalStringToSymbol)
         ASSERT_FALSE(symbol->isPrivate());
         ASSERT_FALSE(symbol->isNullSymbol());
         ASSERT_EQ(external->length(), symbol->length());
-        ASSERT_TRUE(equal(symbol.ptr(), buffer));
+        ASSERT_TRUE(equal(symbol.ptr(), buffer.span8()));
     }
 
     ASSERT_TRUE(freeFunctionCalled);

@@ -1,4 +1,4 @@
-# Copyright (C) 2017-2024 Apple Inc. All rights reserved.
+# Copyright (C) 2017-2025 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -34,6 +34,8 @@ import re
 import socket
 import sys
 
+from Shared.steps import ShellMixin, SetBuildSummary
+
 if sys.version_info < (3, 9):  # noqa: UP036
     print('ERROR: Minimum supported Python version for this code is Python 3.9')
     sys.exit(1)
@@ -60,6 +62,7 @@ THRESHOLD_FOR_EXCESSIVE_LOGS = 1000000
 MSG_FOR_EXCESSIVE_LOGS = f'Stopped due to excessive logging, limit: {THRESHOLD_FOR_EXCESSIVE_LOGS}'
 HASH_LENGTH_TO_DISPLAY = 8
 SCAN_BUILD_OUTPUT_DIR = 'scan-build-output'
+SAFER_CPP_ARCHIVE_DIR = 'smart-pointer-result-archive'
 
 DNS_NAME = CURRENT_HOSTNAME
 if DNS_NAME in BUILD_WEBKIT_HOSTNAMES:
@@ -105,23 +108,6 @@ class CustomFlagsMixin(object):
         else:
             device_model = platform
         self.command += ['--' + device_model]
-
-
-class ShellMixin(object):
-    WINDOWS_SHELL_PLATFORMS = ['win', 'playstation']
-
-    def has_windows_shell(self):
-        return self.getProperty('platform', '*') in self.WINDOWS_SHELL_PLATFORMS
-
-    def shell_command(self, command):
-        if self.has_windows_shell():
-            return ['sh', '-c', command]
-        return ['/bin/sh', '-c', command]
-
-    def shell_exit_0(self):
-        if self.has_windows_shell():
-            return 'exit 0'
-        return 'true'
 
 
 class AddToLogMixin(object):
@@ -187,13 +173,13 @@ class TestWithFailureCount(shell.TestNewStyle):
         return {'step': status}
 
 
-class ConfigureBuild(buildstep.BuildStep):
+class ConfigureBuild(buildstep.BuildStep, AddToLogMixin):
     name = "configure-build"
     description = ["configuring build"]
     descriptionDone = ["configured build"]
 
     def __init__(self, platform, configuration, architecture, buildOnly, additionalArguments, device_model, triggers, *args, **kwargs):
-        buildstep.BuildStep.__init__(self, *args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.platform = platform
         if platform != 'jsc-only':
             self.platform = platform.split('-', 1)[0]
@@ -205,7 +191,8 @@ class ConfigureBuild(buildstep.BuildStep):
         self.device_model = device_model
         self.triggers = triggers
 
-    def start(self):
+    @defer.inlineCallbacks
+    def run(self):
         self.setProperty("platform", self.platform)
         self.setProperty("fullPlatform", self.fullPlatform)
         self.setProperty("configuration", self.configuration)
@@ -214,8 +201,8 @@ class ConfigureBuild(buildstep.BuildStep):
         self.setProperty("additionalArguments", self.additionalArguments)
         self.setProperty("device_model", self.device_model)
         self.setProperty("triggers", self.triggers)
-        self.finished(SUCCESS)
-        return defer.succeed(None)
+        yield self._addToLog('stdio', 'Set build properties')
+        return defer.returnValue(SUCCESS)
 
 
 class CheckOutSource(git.Git):
@@ -303,69 +290,51 @@ class CheckOutSpecificRevision(shell.ShellCommandNewStyle):
         return super().run()
 
 
-class KillOldProcesses(shell.Compile):
+class KillOldProcesses(shell.CompileNewStyle):
     name = "kill-old-processes"
     description = ["killing old processes"]
     descriptionDone = ["killed old processes"]
     command = ["python3", "Tools/CISupport/kill-old-processes", "buildbot"]
 
 
-class PruneCoreSymbolicationdCacheIfTooLarge(shell.ShellCommandNewStyle):
-    name = "prune-coresymbolicationd-cache-if-too-large"
-    description = ["pruning coresymbolicationd cache to < 10GB"]
-    descriptionDone = ["pruned coresymbolicationd cache"]
-    flunkOnFailure = False
-    haltOnFailure = False
-    command = ["sudo", "python3", "Tools/Scripts/delete-if-too-large",
-               "/System/Library/Caches/com.apple.coresymbolicationd"]
-
-
-class TriggerCrashLogSubmission(shell.Compile):
+class TriggerCrashLogSubmission(shell.CompileNewStyle):
     name = "trigger-crash-log-submission"
     description = ["triggering crash log submission"]
     descriptionDone = ["triggered crash log submission"]
     command = ["python3", "Tools/CISupport/trigger-crash-log-submission"]
 
 
-class WaitForCrashCollection(shell.Compile):
+class WaitForCrashCollection(shell.CompileNewStyle):
     name = "wait-for-crash-collection"
     description = ["waiting for crash collection to quiesce"]
     descriptionDone = ["crash collection has quiesced"]
     command = ["python3", "Tools/CISupport/wait-for-crash-collection", "--timeout", str(5 * 60)]
 
 
-class CleanBuildIfScheduled(shell.Compile):
+class CleanBuildIfScheduled(shell.CompileNewStyle):
     name = "delete-WebKitBuild-directory"
     description = ["deleting WebKitBuild directory"]
     descriptionDone = ["deleted WebKitBuild directory"]
     command = ["python3", "Tools/CISupport/clean-build", WithProperties("--platform=%(fullPlatform)s"), WithProperties("--%(configuration)s")]
 
-    def start(self):
+    def run(self):
         if not self.getProperty('is_clean'):
             self.hideStepIf = True
             return SKIPPED
-        return shell.Compile.start(self)
+        return super().run()
 
 
-class DeleteStaleBuildFiles(shell.Compile):
+class DeleteStaleBuildFiles(shell.CompileNewStyle):
     name = "delete-stale-build-files"
     description = ["deleting stale build files"]
     descriptionDone = ["deleted stale build files"]
     command = ["python3", "Tools/CISupport/delete-stale-build-files", WithProperties("--platform=%(fullPlatform)s"), WithProperties("--%(configuration)s")]
 
-    def start(self):
+    def run(self):
         if self.getProperty('is_clean'):  # Nothing to be done if WebKitBuild had been removed.
             self.hideStepIf = True
             return SKIPPED
-        return shell.Compile.start(self)
-
-
-class InstallWindowsDependencies(shell.ShellCommandNewStyle):
-    name = 'windows-requirements'
-    description = ['updating windows dependencies']
-    descriptionDone = ['updated windows dependencies']
-    command = ['python3', './Tools/Scripts/update-webkit-win-libs.py']
-    haltOnFailure = True
+        return super().run()
 
 
 class InstallGtkDependencies(shell.ShellCommandNewStyle, CustomFlagsMixin):
@@ -392,11 +361,10 @@ class InstallWpeDependencies(shell.ShellCommandNewStyle, CustomFlagsMixin):
         return super().run()
 
 
-class CompileWebKit(shell.Compile, CustomFlagsMixin):
+class CompileWebKit(shell.Compile, CustomFlagsMixin, ShellMixin):
     build_command = ["perl", "Tools/Scripts/build-webkit", "--no-fatal-warnings"]
     filter_command = ['perl', 'Tools/Scripts/filter-build-webkit', '-logfile', 'build-log.txt']
     APPLE_PLATFORMS = ('mac', 'ios', 'visionos', 'tvos', 'watchos')
-    env = {'MFLAGS': ''}
     name = "compile-webkit"
     description = ["compiling"]
     descriptionDone = ["compiled"]
@@ -440,7 +408,7 @@ class CompileWebKit(shell.Compile, CustomFlagsMixin):
         # filter-build-webkit is specifically designed for Xcode and doesn't work generally
         if platform in self.APPLE_PLATFORMS:
             full_command = f"{' '.join(build_command)} 2>&1 | {' '.join(self.filter_command)}"
-            self.setCommand(['/bin/sh', '-c', full_command])
+            self.setCommand(self.shell_command(full_command))
         else:
             self.setCommand(build_command)
 
@@ -476,6 +444,7 @@ class CompileWebKit(shell.Compile, CustomFlagsMixin):
                     f"{self.getProperty('fullPlatform')}-{self.getProperty('architecture')}-{self.getProperty('configuration')}-{self.name}",
                     extension='txt',
                     content_type='text/plain',
+                    additions=f'{self.build.number}'
                 ), UploadFileToS3(
                     'build-log.txt',
                     links={self.name: 'Full build log'},
@@ -738,7 +707,7 @@ class DownloadBuiltProductFromMaster(transfer.FileDownload):
         return super(DownloadBuiltProductFromMaster, self).getResultSummary()
 
 
-class RunJavaScriptCoreTests(TestWithFailureCount, CustomFlagsMixin):
+class RunJavaScriptCoreTests(TestWithFailureCount, CustomFlagsMixin, ShellMixin):
     name = "jscore-test"
     description = ["jscore-tests running"]
     descriptionDone = ["jscore-tests"]
@@ -789,13 +758,14 @@ class RunJavaScriptCoreTests(TestWithFailureCount, CustomFlagsMixin):
             self.command += ['--test-writer=ruby']
 
         self.appendCustomBuildFlags(platform, self.getProperty('fullPlatform'))
-        self.command = ['/bin/sh', '-c', ' '.join(quote(str(c)) for c in self.command) + ' 2>&1 | python3 Tools/Scripts/filter-test-logs jsc']
+        self.command = self.shell_command(' '.join(quote(str(c)) for c in self.command) + ' 2>&1 | python3 Tools/Scripts/filter-test-logs jsc')
 
         steps_to_add = [
             GenerateS3URL(
                 f"{self.getProperty('fullPlatform')}-{self.getProperty('architecture')}-{self.getProperty('configuration')}-{self.name}",
                 extension='txt',
                 content_type='text/plain',
+                additions=f'{self.build.number}',
             ), UploadFileToS3(
                 'logs.txt',
                 links={self.name: 'Full logs'},
@@ -909,6 +879,10 @@ class RunWebKitTests(shell.TestNewStyle, CustomFlagsMixin, ShellMixin):
 
         if additionalArguments:
             self.command += additionalArguments
+            # Double the timeout for site isolation queues.
+            # FIXME: We should remove the need for these timeouts altogether. (webkit.org/b/290867)
+            if '--site-isolation' in additionalArguments:
+                self.timeout = 10 * 60 * 60
 
         filter_command = ' '.join(self.command) + ' 2>&1 | python3 Tools/Scripts/filter-test-logs layout'
         self.command = self.shell_command(filter_command)
@@ -946,6 +920,7 @@ class RunWebKitTests(shell.TestNewStyle, CustomFlagsMixin, ShellMixin):
         steps_to_add = [
             GenerateS3URL(
                 f"{self.getProperty('fullPlatform')}-{self.getProperty('architecture')}-{self.getProperty('configuration')}-{self.name}",
+                additions=f"{self.build.number}{'-wk1' if self.getProperty('use-dump-render-tree', False) else ''}",
                 extension='txt',
                 content_type='text/plain',
             ), UploadFileToS3(
@@ -1023,7 +998,7 @@ class RunWorldLeaksTests(RunWebKitTests):
         return super().run()
 
 
-class RunAPITests(TestWithFailureCount, CustomFlagsMixin):
+class RunAPITests(TestWithFailureCount, CustomFlagsMixin, ShellMixin):
     name = "run-api-tests"
     VALID_ADDITIONAL_ARGUMENTS_LIST = ["--remote-layer-tree", "--use-gpu-process"]
     description = ["api tests running"]
@@ -1033,6 +1008,7 @@ class RunAPITests(TestWithFailureCount, CustomFlagsMixin):
     command = [
         "python3",
         "Tools/Scripts/run-api-tests",
+        "--timestamps",
         "--no-build",
         f"--json-output={jsonFileName}",
         WithProperties("--%(configuration)s"),
@@ -1050,6 +1026,7 @@ class RunAPITests(TestWithFailureCount, CustomFlagsMixin):
 
     def __init__(self, *args, **kwargs):
         kwargs['logEnviron'] = False
+        kwargs['timeout'] = 3 * 60 * 60
         super().__init__(*args, **kwargs)
 
     def run(self):
@@ -1062,7 +1039,23 @@ class RunAPITests(TestWithFailureCount, CustomFlagsMixin):
         for additionalArgument in additionalArguments or []:
             if additionalArgument in self.VALID_ADDITIONAL_ARGUMENTS_LIST:
                 self.command += [additionalArgument]
-        return super().run()
+        self.command = self.shell_command(' '.join(self.command) + ' > logs.txt 2>&1 ; grep "Ran " logs.txt')
+
+        rc = super().run()
+
+        self.build.addStepsAfterCurrentStep([
+            GenerateS3URL(
+                f"{self.getProperty('fullPlatform')}-{self.getProperty('architecture')}-{self.getProperty('configuration')}-{self.name}",
+                extension='txt',
+                additions=f'{self.build.number}',
+                content_type='text/plain',
+            ), UploadFileToS3(
+                'logs.txt',
+                links={self.name: 'Full logs'},
+                content_type='text/plain',
+            )
+        ])
+        return rc
 
     def countFailures(self):
         return self.failedTestCount
@@ -1363,7 +1356,7 @@ class RunWPEAPITests(RunGLibAPITests):
     command = ["python3", "Tools/Scripts/run-wpe-tests", WithProperties("--%(configuration)s")]
 
 
-class RunWebDriverTests(shell.Test, CustomFlagsMixin):
+class RunWebDriverTests(shell.TestNewStyle, CustomFlagsMixin, ShellMixin):
     name = "webdriver-test"
     description = ["webdriver-tests running"]
     descriptionDone = ["webdriver-tests"]
@@ -1382,7 +1375,7 @@ class RunWebDriverTests(shell.Test, CustomFlagsMixin):
             self.command += additionalArguments
 
         self.appendCustomBuildFlags(self.getProperty('platform'), self.getProperty('fullPlatform'))
-        self.command = ['/bin/sh', '-c', ' '.join(self.command) + ' > logs.txt 2>&1']
+        self.command = self.shell_command(' '.join(self.command) + ' > logs.txt 2>&1')
 
         self.log_observer = logobserver.BufferLogObserver()
         self.addLogObserver('stdio', self.log_observer)
@@ -1403,6 +1396,7 @@ class RunWebDriverTests(shell.Test, CustomFlagsMixin):
         steps_to_add = [
             GenerateS3URL(
                 f"{self.getProperty('fullPlatform')}-{self.getProperty('architecture')}-{self.getProperty('configuration')}-{self.name}",
+                additions=f'{self.build.number}',
                 extension='txt',
                 content_type='text/plain',
             ), UploadFileToS3(
@@ -1440,6 +1434,7 @@ class RunWebDriverTests(shell.Test, CustomFlagsMixin):
 class RunWebKit1Tests(RunWebKitTests):
     def run(self):
         self.command += ["--dump-render-tree"]
+        self.setProperty('use-dump-render-tree', True)
         return super().run()
 
 
@@ -1448,9 +1443,9 @@ class RunWebKit1LeakTests(RunWebKit1Tests):
     want_stderr = False
     warnOnWarnings = True
 
-    def start(self):
+    def run(self):
         self.command += ["--leaks", "--result-report-flavor", "Leaks"]
-        return RunWebKit1Tests.start(self)
+        return super().run()
 
 
 class RunAndUploadPerfTests(shell.TestNewStyle):
@@ -1608,10 +1603,11 @@ class GenerateS3URL(master.MasterShellCommandNewStyle):
     haltOnFailure = False
     flunkOnFailure = False
 
-    def __init__(self, identifier, extension='zip', content_type=None, minified=False, **kwargs):
+    def __init__(self, identifier, extension='zip', content_type=None, minified=False, additions=None, **kwargs):
         self.identifier = identifier
         self.extension = extension
         self.minified = minified
+        self.additions = additions
         kwargs['command'] = [
             'python3', '../Shared/generate-s3-url',
             '--revision', WithProperties('%(archive_revision)s'),
@@ -1623,6 +1619,8 @@ class GenerateS3URL(master.MasterShellCommandNewStyle):
             kwargs['command'] += ['--content-type', content_type]
         if minified:
             kwargs['command'] += ['--minified']
+        if additions:
+            kwargs['command'] += ['--additions', additions]
         super().__init__(logEnviron=False, **kwargs)
 
     @defer.inlineCallbacks
@@ -1643,9 +1641,8 @@ class GenerateS3URL(master.MasterShellCommandNewStyle):
         build_url = f'{self.master.config.buildbotURL}#/builders/{self.build._builderid}/builds/{self.build.number}'
         if match:
             self.build.s3url = match.group('url')
-            print(f'build: {build_url}, url for GenerateS3URL: {self.build.s3url}')
             bucket_url = S3_BUCKET_MINIFIED if self.minified else S3_BUCKET
-            self.build.s3_archives.append(S3URL + f"{bucket_url}/{self.identifier}/{self.getProperty('archive_revision')}.{self.extension}")
+            self.build.s3_archives.append(S3URL + f"{bucket_url}/{self.identifier}/{self.getProperty('archive_revision')}{f'-{self.additions}' if self.additions else ''}.{self.extension}")
             defer.returnValue(rc)
         else:
             print(f'build: {build_url}, logs for GenerateS3URL:\n{log_text}')
@@ -1728,6 +1725,7 @@ class ScanBuild(steps.ShellSequence, ShellMixin):
                 f"{self.getProperty('fullPlatform')}-{self.getProperty('architecture')}-{self.getProperty('configuration')}-{self.name}",
                 extension='txt',
                 content_type='text/plain',
+                additions=f'{self.build.number}'
             ), UploadFileToS3(
                 'build-log.txt',
                 links={self.name: 'Full build log'},
@@ -1736,7 +1734,7 @@ class ScanBuild(steps.ShellSequence, ShellMixin):
         ]
 
         if rc == SUCCESS:
-            steps_to_add += [ParseStaticAnalyzerResults(), FindUnexpectedStaticAnalyzerResults(), ArchiveStaticAnalyzerResults(), UploadStaticAnalyzerResults(), ExtractStaticAnalyzerTestResults(), DisplaySaferCPPResults()]
+            steps_to_add += [ParseStaticAnalyzerResults(), FindUnexpectedStaticAnalyzerResults(), ArchiveStaticAnalyzerResults(), UploadStaticAnalyzerResults(), ExtractStaticAnalyzerTestResults(), DisplaySaferCPPResults(), CleanSaferCPPArchive(), SetBuildSummary()]
         self.build.addStepsAfterCurrentStep(steps_to_add)
 
         defer.returnValue(rc)
@@ -1766,7 +1764,7 @@ class ParseStaticAnalyzerResults(shell.ShellCommandNewStyle):
 
     @defer.inlineCallbacks
     def run(self):
-        output_dir = f"smart-pointer-result-archive/{self.getProperty('buildnumber')}"
+        output_dir = f"{SAFER_CPP_ARCHIVE_DIR}/{self.getProperty('buildnumber')}"
         self.command = ['python3', 'Tools/Scripts/generate-dirty-files']
         self.command += [os.path.join(self.getProperty('builddir'), f'build/{SCAN_BUILD_OUTPUT_DIR}')]
         self.command += ['--output-dir', os.path.join(self.getProperty('builddir'), output_dir)]
@@ -1810,7 +1808,7 @@ class FindUnexpectedStaticAnalyzerResults(shell.ShellCommandNewStyle):
     @defer.inlineCallbacks
     def run(self):
         self.env[RESULTS_SERVER_API_KEY] = os.getenv(RESULTS_SERVER_API_KEY)
-        results_dir = os.path.join(self.getProperty('builddir'), f"smart-pointer-result-archive/{self.getProperty('buildnumber')}")
+        results_dir = os.path.join(self.getProperty('builddir'), f"{SAFER_CPP_ARCHIVE_DIR}/{self.getProperty('buildnumber')}")
         self.command = ['python3', 'Tools/Scripts/compare-static-analysis-results', results_dir]
         self.command += ['--scan-build-path', '../llvm-project/clang/tools/scan-build/bin/scan-build']
         self.command += ['--build-output', SCAN_BUILD_OUTPUT_DIR, '--check-expectations']
@@ -1868,6 +1866,8 @@ class FindUnexpectedStaticAnalyzerResults(shell.ShellCommandNewStyle):
 
 class DisplaySaferCPPResults(buildstep.BuildStep, AddToLogMixin):
     name = 'display-safer-cpp-results'
+    haltOnFailure = False
+    flunkOnFailure = True
 
     @defer.inlineCallbacks
     def run(self):
@@ -1920,7 +1920,9 @@ class DisplaySaferCPPResults(buildstep.BuildStep, AddToLogMixin):
                 summary += f'Unexpected failing files: {num_failures} '
             if num_passes:
                 summary += f'Unexpected passing files: {num_passes}'
-        self.build.buildFinished([summary], self.results)
+
+        self.build.results = self.results
+        self.setProperty('build_summary', summary)
         return {'step': summary}
 
     def resultDirectoryURL(self):
@@ -1937,15 +1939,34 @@ class UpdateSaferCPPBaseline(steps.ShellSequence, ShellMixin):
     descriptionDone = ['updated safer cpp baseline']
 
     def run(self):
-        new_dir = f"smart-pointer-result-archive/{self.getProperty('buildnumber')}"
+        new_dir = f"{SAFER_CPP_ARCHIVE_DIR}/{self.getProperty('buildnumber')}"
         self.commands = []
         for command in [
-            self.shell_command(f"rm -r {os.path.join(self.getProperty('builddir'), 'smart-pointer-result-archive/baseline')}"),
-            self.shell_command(f"cp -r {os.path.join(self.getProperty('builddir'), new_dir)} {os.path.join(self.getProperty('builddir'), 'smart-pointer-result-archive/baseline')}")
+            self.shell_command(f"rm -r {os.path.join(self.getProperty('builddir'), f'{SAFER_CPP_ARCHIVE_DIR}/baseline')}"),
+            self.shell_command(f"cp -r {os.path.join(self.getProperty('builddir'), new_dir)} {os.path.join(self.getProperty('builddir'), f'{SAFER_CPP_ARCHIVE_DIR}/baseline')}")
         ]:
             self.commands.append(util.ShellArg(command=command, logname='stdio'))
 
         return super().run()
+
+
+class CleanSaferCPPArchive(shell.ShellCommandNewStyle):
+    name = 'clean-safer-cpp-archive'
+    description = ['cleaning safer cpp archive']
+    descriptionDone = ['cleaned safer cpp archive']
+    haltOnFailure = False
+    flunkOnFailure = False
+    warnOnFailure = False
+
+    def __init__(self, **kwargs):
+        super().__init__(logEnviron=False, **kwargs)
+
+    @defer.inlineCallbacks
+    def run(self):
+        archive_dir = f"{self.getProperty('builddir')}/{SAFER_CPP_ARCHIVE_DIR}/{self.getProperty('buildnumber')}"
+        self.command = ['rm', '-rf', archive_dir]
+        rc = yield super().run()
+        return defer.returnValue(rc)
 
 
 class TransferToS3(master.MasterShellCommandNewStyle):
@@ -2015,7 +2036,7 @@ class ExtractStaticAnalyzerTestResults(ExtractTestResults):
         pass
 
 
-class PrintConfiguration(steps.ShellSequence):
+class PrintConfiguration(steps.ShellSequence, ShellMixin):
     name = 'configuration'
     description = ['configuration']
     haltOnFailure = False
@@ -2023,7 +2044,7 @@ class PrintConfiguration(steps.ShellSequence):
     warnOnFailure = False
     logEnviron = False
     command_list_generic = [['hostname']]
-    command_list_apple = [['df', '-hl'], ['date'], ['sw_vers'], ['system_profiler', 'SPSoftwareDataType', 'SPHardwareDataType'], ['/bin/sh', '-c', 'echo TimezoneVers: $(cat /usr/share/zoneinfo/+VERSION)'], ['xcodebuild', '-sdk', '-version']]
+    command_list_apple = [['df', '-hl'], ['date'], ['sw_vers'], ['system_profiler', 'SPSoftwareDataType', 'SPHardwareDataType'], ['cat', '/usr/share/zoneinfo/+VERSION'], ['xcodebuild', '-sdk', '-version']]
     command_list_linux = [['df', '-hl', '--exclude-type=fuse.portal'], ['date'], ['uname', '-a'], ['uptime']]
 
     def __init__(self, **kwargs):
@@ -2051,9 +2072,9 @@ class PrintConfiguration(steps.ShellSequence):
             return 'Unknown'
 
         build_to_name_mapping = {
+            '26': 'Tahoe',
             '15': 'Sequoia',
-            '14': 'Sonoma',
-            '13': 'Ventura',
+            '14': 'Sonoma'
         }
 
         for key, value in build_to_name_mapping.items():

@@ -83,8 +83,8 @@ InjectedBundleScriptWorld* InjectedBundleScriptWorld::find(const String& name)
 
 InjectedBundleScriptWorld& InjectedBundleScriptWorld::normalWorldSingleton()
 {
-    static InjectedBundleScriptWorld& world = adoptRef(*new InjectedBundleScriptWorld(mainThreadNormalWorldSingleton(), String())).leakRef();
-    return world;
+    static NeverDestroyed<Ref<InjectedBundleScriptWorld>> world = adoptRef(*new InjectedBundleScriptWorld(mainThreadNormalWorldSingleton(), String())).leakRef();
+    return world.get();
 }
 
 InjectedBundleScriptWorld::InjectedBundleScriptWorld(DOMWrapperWorld& world, const String& name)
@@ -121,6 +121,11 @@ void InjectedBundleScriptWorld::setAllowAutofill()
     m_world->setAllowAutofill();
 }
 
+void InjectedBundleScriptWorld::setNodeInfoEnabled()
+{
+    m_world->setNodeInfoEnabled();
+}
+
 void InjectedBundleScriptWorld::setAllowElementUserInfo()
 {
     m_world->setAllowElementUserInfo();
@@ -129,6 +134,11 @@ void InjectedBundleScriptWorld::setAllowElementUserInfo()
 void InjectedBundleScriptWorld::makeAllShadowRootsOpen()
 {
     m_world->setShadowRootIsAlwaysOpen();
+}
+
+void InjectedBundleScriptWorld::exposeClosedShadowRootsForExtensions()
+{
+    m_world->setClosedShadowRootIsExposedForExtensions();
 }
 
 void InjectedBundleScriptWorld::disableOverrideBuiltinsBehavior()

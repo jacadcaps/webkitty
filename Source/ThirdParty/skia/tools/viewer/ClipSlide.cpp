@@ -6,13 +6,13 @@
  */
 
 #include "include/core/SkCanvas.h"
-#include "include/core/SkColorPriv.h"
 #include "include/core/SkFont.h"
 #include "include/core/SkPaint.h"
 #include "include/core/SkPathBuilder.h"
 #include "include/core/SkRRect.h"
 #include "include/core/SkShader.h"
 #include "src/base/SkRandom.h"
+#include "src/core/SkColorPriv.h"
 #include "src/core/SkPathPriv.h"
 #include "tools/DecodeUtils.h"
 #include "tools/Resources.h"
@@ -391,7 +391,7 @@ public:
         // draw the frame
         paint.setStrokeWidth(10);
         paint.setColor(SK_ColorGREEN);
-        canvas->drawPoints(SkCanvas::kPoints_PointMode, 4, fPts, paint);
+        canvas->drawPoints(SkCanvas::kPoints_PointMode, fPts, paint);
 
         // draw the half-planes
         SkHalfPlane planes[4];
@@ -613,10 +613,10 @@ public:
             paint.setAntiAlias(true);
             paint.setStrokeCap(SkPaint::kRound_Cap);
             paint.setStrokeWidth(8);
-            canvas->drawPoints(SkCanvas::kPoints_PointMode, 12, fPatch, paint);
+            canvas->drawPoints(SkCanvas::kPoints_PointMode, fPatch, paint);
             paint.setColor(SK_ColorWHITE);
             paint.setStrokeWidth(6);
-            canvas->drawPoints(SkCanvas::kPoints_PointMode, 12, fPatch, paint);
+            canvas->drawPoints(SkCanvas::kPoints_PointMode, fPatch, paint);
         }
 
         canvas->restore();

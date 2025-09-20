@@ -26,7 +26,11 @@
 #include "config.h"
 #include "WPEScreenDRM.h"
 
+#include "WPEDisplayDRMPrivate.h"
 #include "WPEScreenDRMPrivate.h"
+#include "WPEScreenSyncObserverDRM.h"
+#include <fcntl.h>
+#include <wtf/glib/GRefPtr.h>
 #include <wtf/glib/WTFGType.h>
 
 /**
@@ -36,13 +40,35 @@
 struct _WPEScreenDRMPrivate {
     std::unique_ptr<WPE::DRM::Crtc> crtc;
     drmModeModeInfo mode;
+    GRefPtr<WPEScreenSyncObserver> syncObserver;
 };
 WEBKIT_DEFINE_FINAL_TYPE(WPEScreenDRM, wpe_screen_drm, WPE_TYPE_SCREEN, WPEScreen)
 
 static void wpeScreenDRMInvalidate(WPEScreen* screen)
 {
+    WPE_SCREEN_CLASS(wpe_screen_drm_parent_class)->invalidate(screen);
+
     auto* priv = WPE_SCREEN_DRM(screen)->priv;
     priv->crtc = nullptr;
+    priv->syncObserver = nullptr;
+}
+
+static WPEScreenSyncObserver* wpeScreenDRMGetSyncObserver(WPEScreen* screen)
+{
+    auto* priv = WPE_SCREEN_DRM(screen)->priv;
+    if (!priv->syncObserver && priv->crtc) {
+        if (auto* device = wpeDisplayDRMGetDisplayDevice(WPE_DISPLAY_DRM(wpe_display_get_primary()))) {
+            const char* filename = wpe_drm_device_get_primary_node(device);
+            if (auto fd = UnixFileDescriptor(open(filename, O_RDWR | O_CLOEXEC), UnixFileDescriptor::Adopt)) {
+                priv->syncObserver = adoptGRef(wpeScreenSyncObserverDRMCreate(WTFMove(fd), priv->crtc->index()));
+                if (priv->syncObserver)
+                    g_debug("WPEScreenDRM: Created WPEScreenSyncObserverDRM for device %s with CRTC index %u", filename, priv->crtc->index());
+                else
+                    g_debug("WPEScreenDRM: Failed to create a WPEScreenSyncObserverDRM for device %s with CRTC index %u", filename, priv->crtc->index());
+            }
+        }
+    }
+    return priv->syncObserver.get();
 }
 
 static void wpeScreenDRMDispose(GObject* object)
@@ -59,6 +85,7 @@ static void wpe_screen_drm_class_init(WPEScreenDRMClass* screenDRMClass)
 
     WPEScreenClass* screenClass = WPE_SCREEN_CLASS(screenDRMClass);
     screenClass->invalidate = wpeScreenDRMInvalidate;
+    screenClass->get_sync_observer = wpeScreenDRMGetSyncObserver;
 }
 
 WPEScreen* wpeScreenDRMCreate(std::unique_ptr<WPE::DRM::Crtc>&& crtc, const WPE::DRM::Connector& connector)
@@ -153,19 +180,4 @@ double wpeScreenDRMGuessScale(WPEScreenDRM* screen)
         return 1.0;
 
     return 2.0;
-}
-
-/**
- * wpe_screen_drm_get_crtc_index: (skip)
- * @screen: a #WPEScreenDRM
- *
- * Get the DRM CRTC index of @screen
- *
- * Returns: the CRTC index
- */
-guint wpe_screen_drm_get_crtc_index(WPEScreenDRM* screen)
-{
-    g_return_val_if_fail(WPE_IS_SCREEN_DRM(screen), 0);
-
-    return screen->priv->crtc->index();
 }

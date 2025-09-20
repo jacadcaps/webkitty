@@ -27,8 +27,10 @@
 #include "Session.h"
 
 #include "CommandResult.h"
+#include "Logging.h"
 #include "SessionHost.h"
 #include "WebDriverAtoms.h"
+#include <optional>
 #include <wtf/ASCIICType.h>
 #include <wtf/CryptographicallyRandomNumber.h>
 #include <wtf/FileSystem.h>
@@ -36,6 +38,7 @@
 #include <wtf/HexNumber.h>
 #include <wtf/JSONValues.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/UUID.h>
 #include <wtf/text/MakeString.h>
 
 #if ENABLE(WEBDRIVER_BIDI)
@@ -75,8 +78,9 @@ Session::Session(Ref<SessionHost>&& host)
     , m_pageLoadTimeout(defaultPageLoadTimeout)
     , m_implicitWaitTimeout(defaultImplicitWaitTimeout)
 {
-    if (capabilities().timeouts)
-        setTimeouts(capabilities().timeouts.value(), [](CommandResult&&) { });
+    auto protectedCapabilities = capabilities();
+    if (protectedCapabilities.timeouts)
+        setTimeouts(protectedCapabilities.timeouts.value(), [](CommandResult&&) { });
 }
 
 #if ENABLE(WEBDRIVER_BIDI)
@@ -84,7 +88,7 @@ Session::Session(Ref<SessionHost>&& host, WeakPtr<WebSocketServer>&& bidiServer)
     : Session(WTFMove(host))
 {
     m_bidiServer = WTFMove(bidiServer);
-    m_host->addEventHandler(this);
+    m_host->setBidiHandler(this);
 }
 #endif
 
@@ -194,6 +198,12 @@ void Session::setTimeouts(const Timeouts& timeouts, Function<void(CommandResult&
     completionHandler(CommandResult::success());
 }
 
+String Session::uncheckedTopLevelBrowsingContext() const
+{
+    ASSERT(m_toplevelBrowsingContext);
+    return m_toplevelBrowsingContext.value();
+}
+
 void Session::switchToTopLevelBrowsingContext(const String& toplevelBrowsingContext)
 {
     m_toplevelBrowsingContext = toplevelBrowsingContext;
@@ -211,7 +221,7 @@ void Session::switchToBrowsingContext(const String& browsingContext, Function<vo
     }
 
     auto parameters = JSON::Object::create();
-    parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+    parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
     parameters->setString("frameHandle"_s, m_currentBrowsingContext.value());
     m_host->sendCommandToBackend("resolveParentFrameHandle"_s, WTFMove(parameters), [this, completionHandler = WTFMove(completionHandler)](SessionHost::CommandResponse&& response) {
         if (!response.isError && response.responseObject)
@@ -222,10 +232,11 @@ void Session::switchToBrowsingContext(const String& browsingContext, Function<vo
 
 std::optional<String> Session::pageLoadStrategyString() const
 {
-    if (!capabilities().pageLoadStrategy)
+    auto protectedCapabilities = capabilities();
+    if (!protectedCapabilities.pageLoadStrategy)
         return std::nullopt;
 
-    switch (capabilities().pageLoadStrategy.value()) {
+    switch (protectedCapabilities.pageLoadStrategy.value()) {
     case PageLoadStrategy::None:
         return String("None"_s);
     case PageLoadStrategy::Normal:
@@ -248,7 +259,7 @@ void Session::createTopLevelBrowsingContext(Function<void(CommandResult&&)>&& co
 
         auto handle = response.responseObject->getString("handle"_s);
         if (!handle) {
-            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve handle for the new browsing context"_s));
             return;
         }
 
@@ -260,7 +271,7 @@ void Session::createTopLevelBrowsingContext(Function<void(CommandResult&&)>&& co
 void Session::handleUserPrompts(Function<void(CommandResult&&)>&& completionHandler)
 {
     auto parameters = JSON::Object::create();
-    parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+    parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
     m_host->sendCommandToBackend("isShowingJavaScriptDialog"_s, WTFMove(parameters), [this, protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)](SessionHost::CommandResponse&& response) mutable {
         if (response.isError || !response.responseObject) {
             completionHandler(CommandResult::fail(WTFMove(response.responseObject)));
@@ -269,7 +280,7 @@ void Session::handleUserPrompts(Function<void(CommandResult&&)>&& completionHand
 
         auto isShowingJavaScriptDialog = response.responseObject->getBoolean("result"_s);
         if (!isShowingJavaScriptDialog) {
-            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not determine if a JavaScript dialog is showing"_s));
             return;
         }
 
@@ -362,7 +373,7 @@ void Session::go(const String& url, Function<void(CommandResult&&)>&& completion
         }
 
         auto parameters = JSON::Object::create();
-        parameters->setString("handle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("handle"_s, uncheckedTopLevelBrowsingContext());
         parameters->setString("url"_s, url);
         parameters->setDouble("pageLoadTimeout"_s, m_pageLoadTimeout);
         if (auto pageLoadStrategy = pageLoadStrategyString())
@@ -391,7 +402,7 @@ void Session::getCurrentURL(Function<void(CommandResult&&)>&& completionHandler)
         }
 
         auto parameters = JSON::Object::create();
-        parameters->setString("handle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("handle"_s, uncheckedTopLevelBrowsingContext());
         m_host->sendCommandToBackend("getBrowsingContext"_s, WTFMove(parameters), [protectedThis, completionHandler = WTFMove(completionHandler)](SessionHost::CommandResponse&& response) {
             if (response.isError || !response.responseObject) {
                 completionHandler(CommandResult::fail(WTFMove(response.responseObject)));
@@ -400,13 +411,13 @@ void Session::getCurrentURL(Function<void(CommandResult&&)>&& completionHandler)
 
             auto browsingContext = response.responseObject->getObject("context"_s);
             if (!browsingContext) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve browsing context information"_s));
                 return;
             }
 
             auto url = browsingContext->getString("url"_s);
             if (!url) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve URL from browsing context"_s));
                 return;
             }
 
@@ -428,7 +439,7 @@ void Session::back(Function<void(CommandResult&&)>&& completionHandler)
             return;
         }
         auto parameters = JSON::Object::create();
-        parameters->setString("handle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("handle"_s, uncheckedTopLevelBrowsingContext());
         parameters->setDouble("pageLoadTimeout"_s, m_pageLoadTimeout);
         if (auto pageLoadStrategy = pageLoadStrategyString())
             parameters->setString("pageLoadStrategy"_s, pageLoadStrategy.value());
@@ -455,7 +466,7 @@ void Session::forward(Function<void(CommandResult&&)>&& completionHandler)
             return;
         }
         auto parameters = JSON::Object::create();
-        parameters->setString("handle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("handle"_s, uncheckedTopLevelBrowsingContext());
         parameters->setDouble("pageLoadTimeout"_s, m_pageLoadTimeout);
         if (auto pageLoadStrategy = pageLoadStrategyString())
             parameters->setString("pageLoadStrategy"_s, pageLoadStrategy.value());
@@ -482,7 +493,7 @@ void Session::refresh(Function<void(CommandResult&&)>&& completionHandler)
             return;
         }
         auto parameters = JSON::Object::create();
-        parameters->setString("handle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("handle"_s, uncheckedTopLevelBrowsingContext());
         parameters->setDouble("pageLoadTimeout"_s, m_pageLoadTimeout);
         if (auto pageLoadStrategy = pageLoadStrategyString())
             parameters->setString("pageLoadStrategy"_s, pageLoadStrategy.value());
@@ -509,7 +520,7 @@ void Session::getTitle(Function<void(CommandResult&&)>&& completionHandler)
             return;
         }
         auto parameters = JSON::Object::create();
-        parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
         parameters->setString("function"_s, "function() { return document.title; }"_s);
         parameters->setArray("arguments"_s, JSON::Array::create());
         m_host->sendCommandToBackend("evaluateJavaScriptFunction"_s, WTFMove(parameters), [protectedThis, completionHandler = WTFMove(completionHandler)](SessionHost::CommandResponse&& response) {
@@ -520,13 +531,13 @@ void Session::getTitle(Function<void(CommandResult&&)>&& completionHandler)
 
             auto valueString = response.responseObject->getString("result"_s);
             if (!valueString) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve title from browsing context"_s));
                 return;
             }
 
             auto resultValue = JSON::Value::parseJSON(valueString);
             if (!resultValue) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not parse title from browsing context"_s));
                 return;
             }
 
@@ -543,7 +554,7 @@ void Session::getWindowHandle(Function<void(CommandResult&&)>&& completionHandle
     }
 
     auto parameters = JSON::Object::create();
-    parameters->setString("handle"_s, m_toplevelBrowsingContext.value());
+    parameters->setString("handle"_s, uncheckedTopLevelBrowsingContext());
     m_host->sendCommandToBackend("getBrowsingContext"_s, WTFMove(parameters), [protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)](SessionHost::CommandResponse&& response) {
         if (response.isError || !response.responseObject) {
             completionHandler(CommandResult::fail(WTFMove(response.responseObject)));
@@ -552,13 +563,13 @@ void Session::getWindowHandle(Function<void(CommandResult&&)>&& completionHandle
 
         auto browsingContext = response.responseObject->getObject("context"_s);
         if (!browsingContext) {
-            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve browsing context information"_s));
             return;
         }
 
         auto handle = browsingContext->getString("handle"_s);
         if (!handle) {
-            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve browsing context handle"_s));
             return;
         }
 
@@ -604,6 +615,11 @@ void Session::closeWindow(Function<void(CommandResult&&)>&& completionHandler)
             completionHandler(WTFMove(result));
             return;
         }
+
+        if (!m_toplevelBrowsingContext) {
+            completionHandler(CommandResult::fail(CommandResult::ErrorCode::NoSuchWindow));
+            return;
+        }
         auto toplevelBrowsingContext = std::exchange(m_toplevelBrowsingContext, std::nullopt);
         m_currentBrowsingContext = std::nullopt;
         m_currentParentBrowsingContext = std::nullopt;
@@ -647,7 +663,7 @@ void Session::getWindowHandles(Function<void(CommandResult&&)>&& completionHandl
 
         auto browsingContextArray = response.responseObject->getArray("contexts"_s);
         if (!browsingContextArray) {
-            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve browsing contexts"_s));
             return;
         }
 
@@ -655,13 +671,13 @@ void Session::getWindowHandles(Function<void(CommandResult&&)>&& completionHandl
         for (unsigned i = 0; i < browsingContextArray->length(); ++i) {
             auto browsingContext = browsingContextArray->get(i)->asObject();
             if (!browsingContext) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Invalid browsing context information returned"_s));
                 return;
             }
 
             auto handle = browsingContext->getString("handle"_s);
             if (!handle) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "No handle returned for browsing context"_s));
                 return;
             }
 
@@ -697,13 +713,13 @@ void Session::newWindow(std::optional<String> typeHint, Function<void(CommandRes
 
             auto handle = response.responseObject->getString("handle"_s);
             if (!handle) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "No handle returned for the new browsing context"_s));
                 return;
             }
 
             auto presentation = response.responseObject->getString("presentation"_s);
             if (!presentation) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "No presentation returned for the new browsing context"_s));
                 return;
             }
 
@@ -737,7 +753,7 @@ void Session::switchToFrame(RefPtr<JSON::Value>&& frameID, Function<void(Command
             return;
         }
         auto parameters = JSON::Object::create();
-        parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
         if (m_currentBrowsingContext)
             parameters->setString("frameHandle"_s, m_currentBrowsingContext.value());
 
@@ -761,11 +777,11 @@ void Session::switchToFrame(RefPtr<JSON::Value>&& frameID, Function<void(Command
 
             auto frameHandle = response.responseObject->getString("result"_s);
             if (!frameHandle) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not resolve child frame handle"_s));
                 return;
             }
 
-            switchToBrowsingContext(m_toplevelBrowsingContext.value(), frameHandle, [this, protectedThis, frameHandle, completionHandler = WTFMove(completionHandler)](CommandResult&& result) mutable {
+            switchToBrowsingContext(uncheckedTopLevelBrowsingContext(), frameHandle, [this, protectedThis, frameHandle, completionHandler = WTFMove(completionHandler)](CommandResult&& result) mutable {
                 if (result.isError()) {
                     completionHandler(WTFMove(result));
                     return;
@@ -789,7 +805,7 @@ void Session::switchToParentFrame(Function<void(CommandResult&&)>&& completionHa
             return;
         }
 
-        switchToBrowsingContext(m_toplevelBrowsingContext.value(), m_currentParentBrowsingContext.value(), [this, protectedThis, completionHandler = WTFMove(completionHandler)](CommandResult&& result) mutable {
+        switchToBrowsingContext(uncheckedTopLevelBrowsingContext(), m_currentParentBrowsingContext.value(), [this, protectedThis, completionHandler = WTFMove(completionHandler)](CommandResult&& result) mutable {
             if (result.isError()) {
                 if (result.errorCode() == CommandResult::ErrorCode::NoSuchFrame)
                     completionHandler(CommandResult::fail(CommandResult::ErrorCode::NoSuchWindow));
@@ -806,7 +822,7 @@ void Session::switchToParentFrame(Function<void(CommandResult&&)>&& completionHa
 void Session::getToplevelBrowsingContextRect(Function<void(CommandResult&&)>&& completionHandler)
 {
     auto parameters = JSON::Object::create();
-    parameters->setString("handle"_s, m_toplevelBrowsingContext.value());
+    parameters->setString("handle"_s, uncheckedTopLevelBrowsingContext());
     m_host->sendCommandToBackend("getBrowsingContext"_s, WTFMove(parameters), [protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)](SessionHost::CommandResponse&& response) {
         if (response.isError || !response.responseObject) {
             completionHandler(CommandResult::fail(WTFMove(response.responseObject)));
@@ -815,43 +831,43 @@ void Session::getToplevelBrowsingContextRect(Function<void(CommandResult&&)>&& c
 
         auto browsingContext = response.responseObject->getObject("context"_s);
         if (!browsingContext) {
-            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve browsing context information"_s));
             return;
         }
 
         auto windowOrigin = browsingContext->getObject("windowOrigin"_s);
         if (!windowOrigin) {
-            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve window origin from browsing context"_s));
             return;
         }
 
         auto x = windowOrigin->getDouble("x"_s);
         if (!x) {
-            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve x coordinate from window origin"_s));
             return;
         }
 
         auto y = windowOrigin->getDouble("y"_s);
         if (!y) {
-            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve y coordinate from window origin"_s));
             return;
         }
 
         auto windowSize = browsingContext->getObject("windowSize"_s);
         if (!windowSize) {
-            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve window size from browsing context"_s));
             return;
         }
 
         auto width = windowSize->getDouble("width"_s);
         if (!width) {
-            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve width from window size"_s));
             return;
         }
 
         auto height = windowSize->getDouble("height"_s);
         if (!height) {
-            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve height from window size"_s));
             return;
         }
 
@@ -894,7 +910,7 @@ void Session::setWindowRect(std::optional<double> x, std::optional<double> y, st
         }
 
         auto parameters = JSON::Object::create();
-        parameters->setString("handle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("handle"_s, uncheckedTopLevelBrowsingContext());
         if (x && y) {
             auto windowOrigin = JSON::Object::create();
             windowOrigin->setDouble("x"_s, x.value());
@@ -931,7 +947,7 @@ void Session::maximizeWindow(Function<void(CommandResult&&)>&& completionHandler
         }
 
         auto parameters = JSON::Object::create();
-        parameters->setString("handle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("handle"_s, uncheckedTopLevelBrowsingContext());
         m_host->sendCommandToBackend("maximizeWindowOfBrowsingContext"_s, WTFMove(parameters), [this, protectedThis, completionHandler = WTFMove(completionHandler)](SessionHost::CommandResponse&& response) mutable {
             if (response.isError) {
                 completionHandler(CommandResult::fail(WTFMove(response.responseObject)));
@@ -956,7 +972,7 @@ void Session::minimizeWindow(Function<void(CommandResult&&)>&& completionHandler
         }
 
         auto parameters = JSON::Object::create();
-        parameters->setString("handle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("handle"_s, uncheckedTopLevelBrowsingContext());
         m_host->sendCommandToBackend("hideWindowOfBrowsingContext"_s, WTFMove(parameters), [this, protectedThis, completionHandler = WTFMove(completionHandler)](SessionHost::CommandResponse&& response) mutable {
             if (response.isError) {
                 completionHandler(CommandResult::fail(WTFMove(response.responseObject)));
@@ -981,7 +997,7 @@ void Session::fullscreenWindow(Function<void(CommandResult&&)>&& completionHandl
         }
 
         auto parameters = JSON::Object::create();
-        parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
         parameters->setString("function"_s, StringImpl::createWithoutCopying(EnterFullscreenJavaScript));
         parameters->setArray("arguments"_s, JSON::Array::create());
         parameters->setBoolean("expectsImplicitCallbackArgument"_s, true);
@@ -993,13 +1009,13 @@ void Session::fullscreenWindow(Function<void(CommandResult&&)>&& completionHandl
 
             auto valueString = response.responseObject->getString("result"_s);
             if (!valueString) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve fullscreen information from browsing context"_s));
                 return;
             }
 
             auto resultValue = JSON::Value::parseJSON(valueString);
             if (!resultValue) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not parse fullscreen information"_s));
                 return;
             }
 
@@ -1072,10 +1088,9 @@ String Session::extractElementID(JSON::Value& value)
 
 void Session::computeElementLayout(const String& elementID, OptionSet<ElementLayoutOption> options, Function<void(std::optional<Rect>&&, std::optional<Point>&&, bool, RefPtr<JSON::Object>&&)>&& completionHandler)
 {
-    ASSERT(m_toplevelBrowsingContext.value());
 
     auto parameters = JSON::Object::create();
-    parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+    parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
     parameters->setString("frameHandle"_s, m_currentBrowsingContext.value_or(emptyString()));
     parameters->setString("nodeHandle"_s, elementID);
     parameters->setBoolean("scrollIntoViewIfNeeded"_s, options.contains(ElementLayoutOption::ScrollIntoViewIfNeeded));
@@ -1165,7 +1180,7 @@ void Session::findElements(const String& strategy, const String& selector, FindE
         arguments->pushString(JSON::Value::create(m_implicitWaitTimeout)->toJSONString());
 
         auto parameters = JSON::Object::create();
-        parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
         if (m_currentBrowsingContext)
             parameters->setString("frameHandle"_s, m_currentBrowsingContext.value());
         parameters->setString("function"_s, StringImpl::createWithoutCopying(FindNodesJavaScript));
@@ -1188,13 +1203,13 @@ void Session::findElements(const String& strategy, const String& selector, FindE
 
             auto valueString = response.responseObject->getString("result"_s);
             if (!valueString) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve element info from browsing context"_s));
                 return;
             }
 
             auto resultValue = JSON::Value::parseJSON(valueString);
             if (!resultValue) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not parse element info"_s));
                 return;
             }
 
@@ -1242,7 +1257,7 @@ void Session::getActiveElement(Function<void(CommandResult&&)>&& completionHandl
             return;
         }
         auto parameters = JSON::Object::create();
-        parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
         parameters->setString("function"_s, "function() { return document.activeElement; }"_s);
         parameters->setArray("arguments"_s, JSON::Array::create());
         m_host->sendCommandToBackend("evaluateJavaScriptFunction"_s, WTFMove(parameters), [this, protectedThis, completionHandler = WTFMove(completionHandler)](SessionHost::CommandResponse&& response) {
@@ -1253,13 +1268,13 @@ void Session::getActiveElement(Function<void(CommandResult&&)>&& completionHandl
 
             auto valueString = response.responseObject->getString("result"_s);
             if (!valueString) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve active element information from browsing context"_s));
                 return;
             }
 
             auto resultValue = JSON::Value::parseJSON(valueString);
             if (!resultValue) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not parse active element information"_s));
                 return;
             }
 
@@ -1290,7 +1305,7 @@ void Session::getElementShadowRoot(const String& elementID, Function<void(Comman
         arguments->pushString(createElement(elementID)->toJSONString());
 
         auto parameters = JSON::Object::create();
-        parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
         if (m_currentBrowsingContext)
             parameters->setString("frameHandle"_s, m_currentBrowsingContext.value());
         parameters->setString("function"_s, "function(element) { return element.shadowRoot; }"_s);
@@ -1303,13 +1318,13 @@ void Session::getElementShadowRoot(const String& elementID, Function<void(Comman
 
             auto valueString = response.responseObject->getString("result"_s);
             if (!valueString) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve shadow root information from browsing context"_s));
                 return;
             }
 
             auto resultValue = JSON::Value::parseJSON(valueString);
             if (!resultValue) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not parse shadow root information"_s));
                 return;
             }
 
@@ -1340,7 +1355,7 @@ void Session::isElementSelected(const String& elementID, Function<void(CommandRe
         arguments->pushString(JSON::Value::create(makeString("selected"_s))->toJSONString());
 
         auto parameters = JSON::Object::create();
-        parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
         if (m_currentBrowsingContext)
             parameters->setString("frameHandle"_s, m_currentBrowsingContext.value());
         parameters->setString("function"_s, StringImpl::createWithoutCopying(ElementAttributeJavaScript));
@@ -1353,13 +1368,13 @@ void Session::isElementSelected(const String& elementID, Function<void(CommandRe
 
             auto valueString = response.responseObject->getString("result"_s);
             if (!valueString) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve element selection state from browsing context"_s));
                 return;
             }
 
             auto resultValue = JSON::Value::parseJSON(valueString);
             if (!resultValue) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not parse element selection state"_s));
                 return;
             }
 
@@ -1370,7 +1385,7 @@ void Session::isElementSelected(const String& elementID, Function<void(CommandRe
 
             auto booleanResult = resultValue->asString();
             if (!booleanResult || booleanResult != "true"_s) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Element selection state is not a boolean"_s));
                 return;
             }
 
@@ -1395,7 +1410,7 @@ void Session::getElementText(const String& elementID, Function<void(CommandResul
         arguments->pushString(createElement(elementID)->toJSONString());
 
         auto parameters = JSON::Object::create();
-        parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
         if (m_currentBrowsingContext)
             parameters->setString("frameHandle"_s, m_currentBrowsingContext.value());
         // FIXME: Add an atom to properly implement this instead of just using innerText.
@@ -1409,13 +1424,13 @@ void Session::getElementText(const String& elementID, Function<void(CommandResul
 
             auto valueString = response.responseObject->getString("result"_s);
             if (!valueString) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve element text from browsing context"_s));
                 return;
             }
 
             auto resultValue = JSON::Value::parseJSON(valueString);
             if (!resultValue) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not parse element text"_s));
                 return;
             }
 
@@ -1440,7 +1455,7 @@ void Session::getElementTagName(const String& elementID, Function<void(CommandRe
         arguments->pushString(createElement(elementID)->toJSONString());
 
         auto parameters = JSON::Object::create();
-        parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
         if (m_currentBrowsingContext)
             parameters->setString("frameHandle"_s, m_currentBrowsingContext.value());
         parameters->setString("function"_s, "function(element) { return element.tagName.toLowerCase() }"_s);
@@ -1453,13 +1468,13 @@ void Session::getElementTagName(const String& elementID, Function<void(CommandRe
 
             auto valueString = response.responseObject->getString("result"_s);
             if (!valueString) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve element tag name from browsing context"_s));
                 return;
             }
 
             auto resultValue = JSON::Value::parseJSON(valueString);
             if (!resultValue) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not parse element tag name"_s));
                 return;
             }
 
@@ -1511,7 +1526,7 @@ void Session::isElementEnabled(const String& elementID, Function<void(CommandRes
         arguments->pushString(createElement(elementID)->toJSONString());
 
         auto parameters = JSON::Object::create();
-        parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
         if (m_currentBrowsingContext)
             parameters->setString("frameHandle"_s, m_currentBrowsingContext.value());
         parameters->setString("function"_s, StringImpl::createWithoutCopying(ElementEnabledJavaScript));
@@ -1524,13 +1539,13 @@ void Session::isElementEnabled(const String& elementID, Function<void(CommandRes
 
             auto valueString = response.responseObject->getString("result"_s);
             if (!valueString) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve element enabled state from browsing context"_s));
                 return;
             }
 
             auto resultValue = JSON::Value::parseJSON(valueString);
             if (!resultValue) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not parse element enabled state"_s));
                 return;
             }
 
@@ -1552,7 +1567,7 @@ void Session::getComputedRole(const String& elementID, Function<void(CommandResu
             return;
         }
         auto parameters = JSON::Object::create();
-        parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
         parameters->setString("frameHandle"_s, m_currentBrowsingContext.value_or(emptyString()));
         parameters->setString("nodeHandle"_s, elementID);
         m_host->sendCommandToBackend("getComputedRole"_s, WTFMove(parameters), [protectedThis, completionHandler = WTFMove(completionHandler)](SessionHost::CommandResponse&& response) {
@@ -1563,7 +1578,7 @@ void Session::getComputedRole(const String& elementID, Function<void(CommandResu
 
             auto valueString = response.responseObject->getString("role"_s);
             if (!valueString) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve computed role from browsing context"_s));
                 return;
             }
 
@@ -1586,7 +1601,7 @@ void Session::getComputedLabel(const String& elementID, Function<void(CommandRes
             return;
         }
         auto parameters = JSON::Object::create();
-        parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
         parameters->setString("frameHandle"_s, m_currentBrowsingContext.value_or(emptyString()));
         parameters->setString("nodeHandle"_s, elementID);
         m_host->sendCommandToBackend("getComputedLabel"_s, WTFMove(parameters), [protectedThis, completionHandler = WTFMove(completionHandler)](SessionHost::CommandResponse&& response) {
@@ -1597,7 +1612,7 @@ void Session::getComputedLabel(const String& elementID, Function<void(CommandRes
 
             auto valueString = response.responseObject->getString("label"_s);
             if (!valueString) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve computed label from browsing context"_s));
                 return;
             }
 
@@ -1623,7 +1638,7 @@ void Session::isElementDisplayed(const String& elementID, Function<void(CommandR
         arguments->pushString(createElement(elementID)->toJSONString());
 
         auto parameters = JSON::Object::create();
-        parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
         if (m_currentBrowsingContext)
             parameters->setString("frameHandle"_s, m_currentBrowsingContext.value());
         parameters->setString("function"_s, StringImpl::createWithoutCopying(ElementDisplayedJavaScript));
@@ -1636,13 +1651,13 @@ void Session::isElementDisplayed(const String& elementID, Function<void(CommandR
 
             auto valueString = response.responseObject->getString("result"_s);
             if (!valueString) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve element display state from browsing context"_s));
                 return;
             }
 
             auto resultValue = JSON::Value::parseJSON(valueString);
             if (!resultValue) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not parse element display state"_s));
                 return;
             }
 
@@ -1668,7 +1683,7 @@ void Session::getElementAttribute(const String& elementID, const String& attribu
         arguments->pushString(JSON::Value::create(attribute)->toJSONString());
 
         auto parameters = JSON::Object::create();
-        parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
         if (m_currentBrowsingContext)
             parameters->setString("frameHandle"_s, m_currentBrowsingContext.value());
         parameters->setString("function"_s, StringImpl::createWithoutCopying(ElementAttributeJavaScript));
@@ -1681,13 +1696,13 @@ void Session::getElementAttribute(const String& elementID, const String& attribu
 
             auto valueString = response.responseObject->getString("result"_s);
             if (!valueString) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve element attribute from browsing context"_s));
                 return;
             }
 
             auto resultValue = JSON::Value::parseJSON(valueString);
             if (!resultValue) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not parse element attribute"_s));
                 return;
             }
 
@@ -1712,7 +1727,7 @@ void Session::getElementProperty(const String& elementID, const String& property
         arguments->pushString(createElement(elementID)->toJSONString());
 
         auto parameters = JSON::Object::create();
-        parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
         if (m_currentBrowsingContext)
             parameters->setString("frameHandle"_s, m_currentBrowsingContext.value());
         parameters->setString("function"_s, makeString("function(element) { return element."_s, property, "; }"_s));
@@ -1725,13 +1740,13 @@ void Session::getElementProperty(const String& elementID, const String& property
 
             auto valueString = response.responseObject->getString("result"_s);
             if (!valueString) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve element property from browsing context"_s));
                 return;
             }
 
             auto resultValue = JSON::Value::parseJSON(valueString);
             if (!resultValue) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not parse element property"_s));
                 return;
             }
 
@@ -1756,7 +1771,7 @@ void Session::getElementCSSValue(const String& elementID, const String& cssPrope
         arguments->pushString(createElement(elementID)->toJSONString());
 
         auto parameters = JSON::Object::create();
-        parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
         if (m_currentBrowsingContext)
             parameters->setString("frameHandle"_s, m_currentBrowsingContext.value());
         parameters->setString("function"_s, makeString("function(element) { return document.defaultView.getComputedStyle(element).getPropertyValue('"_s, cssProperty, "'); }"_s));
@@ -1769,13 +1784,13 @@ void Session::getElementCSSValue(const String& elementID, const String& cssPrope
 
             auto valueString = response.responseObject->getString("result"_s);
             if (!valueString) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve element CSS value from browsing context"_s));
                 return;
             }
 
             auto resultValue = JSON::Value::parseJSON(valueString);
             if (!resultValue) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not parse element CSS value"_s));
                 return;
             }
 
@@ -1792,7 +1807,7 @@ void Session::waitForNavigationToComplete(Function<void(CommandResult&&)>&& comp
     }
 
     auto parameters = JSON::Object::create();
-    parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+    parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
     if (m_currentBrowsingContext)
         parameters->setString("frameHandle"_s, m_currentBrowsingContext.value());
     parameters->setDouble("pageLoadTimeout"_s, m_pageLoadTimeout);
@@ -1834,7 +1849,7 @@ void Session::elementIsFileUpload(const String& elementID, Function<void(Command
         "}"_s;
 
     auto parameters = JSON::Object::create();
-    parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+    parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
     if (m_currentBrowsingContext)
         parameters->setString("frameHandle"_s, m_currentBrowsingContext.value());
     parameters->setString("function"_s, isFileUploadScript);
@@ -1847,13 +1862,13 @@ void Session::elementIsFileUpload(const String& elementID, Function<void(Command
 
         auto valueString = response.responseObject->getString("result"_s);
         if (!valueString) {
-            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve element file upload information from browsing context"_s));
             return;
         }
 
         auto resultValue = JSON::Value::parseJSON(valueString);
         if (!resultValue) {
-            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not parse element file upload information"_s));
             return;
         }
 
@@ -1884,7 +1899,7 @@ std::optional<Session::FileUploadType> Session::parseElementIsFileUploadResult(c
 void Session::selectOptionElement(const String& elementID, Function<void(CommandResult&&)>&& completionHandler)
 {
     auto parameters = JSON::Object::create();
-    parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+    parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
     parameters->setString("frameHandle"_s, m_currentBrowsingContext.value_or(emptyString()));
     parameters->setString("nodeHandle"_s, elementID);
     m_host->sendCommandToBackend("selectOptionElement"_s, WTFMove(parameters), [protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)](SessionHost::CommandResponse&& response) {
@@ -1982,7 +1997,7 @@ void Session::elementIsEditable(const String& elementID, Function<void(CommandRe
         "}"_s;
 
     auto parameters = JSON::Object::create();
-    parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+    parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
     if (m_currentBrowsingContext)
         parameters->setString("frameHandle"_s, m_currentBrowsingContext.value());
     parameters->setString("function"_s, isEditableScript);
@@ -1995,13 +2010,13 @@ void Session::elementIsEditable(const String& elementID, Function<void(CommandRe
 
         auto valueString = response.responseObject->getString("result"_s);
         if (!valueString) {
-            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve element editable state from browsing context"_s));
             return;
         }
 
         auto resultValue = JSON::Value::parseJSON(valueString);
         if (!resultValue) {
-            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not parse element editable state"_s));
             return;
         }
 
@@ -2048,7 +2063,7 @@ void Session::elementClear(const String& elementID, Function<void(CommandResult&
                 arguments->pushString(createElement(elementID)->toJSONString());
 
                 auto parameters = JSON::Object::create();
-                parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+                parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
                 if (m_currentBrowsingContext)
                     parameters->setString("frameHandle"_s, m_currentBrowsingContext.value());
                 parameters->setString("function"_s, StringImpl::createWithoutCopying(FormElementClearJavaScript));
@@ -2088,7 +2103,7 @@ void Session::setInputFileUploadFiles(const String& elementID, const String& tex
     }
 
     auto parameters = JSON::Object::create();
-    parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+    parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
     parameters->setString("frameHandle"_s, m_currentBrowsingContext.value_or(emptyString()));
     parameters->setString("nodeHandle"_s, elementID);
     parameters->setArray("filenames"_s, WTFMove(filenames));
@@ -2102,7 +2117,7 @@ void Session::setInputFileUploadFiles(const String& elementID, const String& tex
     });
 }
 
-String Session::virtualKeyForKey(UChar key, KeyModifier& modifier)
+String Session::virtualKeyForKey(char16_t key, KeyModifier& modifier)
 {
     // §17.4.2 Keyboard Actions.
     // https://www.w3.org/TR/webdriver/#keyboard-actions
@@ -2300,7 +2315,7 @@ void Session::elementSendKeys(const String& elementID, const String& text, Funct
                 auto arguments = JSON::Array::create();
                 arguments->pushString(createElement(elementID)->toJSONString());
                 auto parameters = JSON::Object::create();
-                parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+                parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
                 if (m_currentBrowsingContext)
                     parameters->setString("frameHandle"_s, m_currentBrowsingContext.value());
                 parameters->setString("function"_s, focusScript);
@@ -2374,7 +2389,7 @@ void Session::getPageSource(Function<void(CommandResult&&)>&& completionHandler)
             return;
         }
         auto parameters = JSON::Object::create();
-        parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
         parameters->setString("function"_s, "function() { return document.documentElement.outerHTML; }"_s);
         parameters->setArray("arguments"_s, JSON::Array::create());
         m_host->sendCommandToBackend("evaluateJavaScriptFunction"_s, WTFMove(parameters), [protectedThis, completionHandler = WTFMove(completionHandler)](SessionHost::CommandResponse&& response) {
@@ -2385,13 +2400,13 @@ void Session::getPageSource(Function<void(CommandResult&&)>&& completionHandler)
 
             auto valueString = response.responseObject->getString("result"_s);
             if (!valueString) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve page source from browsing context"_s));
                 return;
             }
 
             auto resultValue = JSON::Value::parseJSON(valueString);
             if (!resultValue) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not parse page source information"_s));
                 return;
             }
 
@@ -2447,7 +2462,7 @@ void Session::executeScript(const String& script, RefPtr<JSON::Array>&& argument
         }
 
         auto parameters = JSON::Object::create();
-        parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
         if (m_currentBrowsingContext)
             parameters->setString("frameHandle"_s, m_currentBrowsingContext.value());
         parameters->setString("function"_s, makeString("function(){\n"_s, script, "\n}"_s));
@@ -2468,13 +2483,13 @@ void Session::executeScript(const String& script, RefPtr<JSON::Array>&& argument
 
             auto valueString = response.responseObject->getString("result"_s);
             if (!valueString) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve script result from browsing context"_s));
                 return;
             }
 
             auto resultValue = JSON::Value::parseJSON(valueString);
             if (!resultValue) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not parse script result"_s));
                 return;
             }
 
@@ -2520,7 +2535,7 @@ static String mouseInteractionForAutomation(MouseInteraction interaction)
 void Session::performMouseInteraction(int x, int y, MouseButton button, MouseInteraction interaction, Function<void(CommandResult&&)>&& completionHandler)
 {
     auto parameters = JSON::Object::create();
-    parameters->setString("handle"_s, m_toplevelBrowsingContext.value());
+    parameters->setString("handle"_s, uncheckedTopLevelBrowsingContext());
     auto position = JSON::Object::create();
     position->setInteger("x"_s, x);
     position->setInteger("y"_s, y);
@@ -2556,7 +2571,7 @@ void Session::performMouseInteraction(int x, int y, MouseButton button, MouseInt
 void Session::performKeyboardInteractions(Vector<KeyboardInteraction>&& interactions, Function<void(CommandResult&&)>&& completionHandler)
 {
     auto parameters = JSON::Object::create();
-    parameters->setString("handle"_s, m_toplevelBrowsingContext.value());
+    parameters->setString("handle"_s, uncheckedTopLevelBrowsingContext());
     auto interactionsArray = JSON::Array::create();
     for (const auto& interaction : interactions) {
         auto interactionObject = JSON::Object::create();
@@ -2677,7 +2692,7 @@ void Session::getAllCookies(Function<void(CommandResult&&)>&& completionHandler)
         }
 
         auto parameters = JSON::Object::create();
-        parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
         m_host->sendCommandToBackend("getAllCookies"_s, WTFMove(parameters), [protectedThis, completionHandler = WTFMove(completionHandler)](SessionHost::CommandResponse&& response) mutable {
             if (response.isError || !response.responseObject) {
                 completionHandler(CommandResult::fail(WTFMove(response.responseObject)));
@@ -2686,7 +2701,7 @@ void Session::getAllCookies(Function<void(CommandResult&&)>&& completionHandler)
 
             auto cookiesArray = response.responseObject->getArray("cookies"_s);
             if (!cookiesArray) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve cookies from browsing context"_s));
                 return;
             }
 
@@ -2694,13 +2709,13 @@ void Session::getAllCookies(Function<void(CommandResult&&)>&& completionHandler)
             for (unsigned i = 0; i < cookiesArray->length(); ++i) {
                 auto cookieObject = cookiesArray->get(i)->asObject();
                 if (!cookieObject) {
-                    completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                    completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Invalid cookie object in browsing context"_s));
                     return;
                 }
 
                 auto cookie = parseAutomationCookie(*cookieObject);
                 if (!cookie) {
-                    completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                    completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Invalid cookie data in browsing context"_s));
                     return;
                 }
                 cookies->pushObject(serializeCookie(cookie.value()));
@@ -2744,7 +2759,7 @@ void Session::addCookie(const Cookie& cookie, Function<void(CommandResult&&)>&& 
             return;
         }
         auto parameters = JSON::Object::create();
-        parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
         parameters->setObject("cookie"_s, WTFMove(cookie));
         m_host->sendCommandToBackend("addSingleCookie"_s, WTFMove(parameters), [protectedThis, completionHandler = WTFMove(completionHandler)](SessionHost::CommandResponse&& response) {
             if (response.isError) {
@@ -2769,7 +2784,7 @@ void Session::deleteCookie(const String& name, Function<void(CommandResult&&)>&&
             return;
         }
         auto parameters = JSON::Object::create();
-        parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
         parameters->setString("cookieName"_s, name);
         m_host->sendCommandToBackend("deleteSingleCookie"_s, WTFMove(parameters), [protectedThis, completionHandler = WTFMove(completionHandler)](SessionHost::CommandResponse&& response) {
             if (response.isError) {
@@ -2794,7 +2809,7 @@ void Session::deleteAllCookies(Function<void(CommandResult&&)>&& completionHandl
             return;
         }
         auto parameters = JSON::Object::create();
-        parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
         m_host->sendCommandToBackend("deleteAllCookies"_s, WTFMove(parameters), [protectedThis, completionHandler = WTFMove(completionHandler)](SessionHost::CommandResponse&& response) {
             if (response.isError) {
                 completionHandler(CommandResult::fail(WTFMove(response.responseObject)));
@@ -2877,7 +2892,7 @@ void Session::performActions(Vector<Vector<Action>>&& actionsByTick, Function<vo
         }
 
         auto parameters = JSON::Object::create();
-        parameters->setString("handle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("handle"_s, uncheckedTopLevelBrowsingContext());
         if (m_currentBrowsingContext)
             parameters->setString("frameHandle"_s, m_currentBrowsingContext.value());
 
@@ -2906,6 +2921,8 @@ void Session::performActions(Vector<Vector<Action>>&& actionsByTick, Function<vo
                         currentState.mouseInteraction = MouseInteraction::Down;
                         break;
                     case Action::Subtype::PointerMove: {
+                        if (!action.x || !action.y)
+                            return completionHandler(CommandResult::fail(CommandResult::ErrorCode::InvalidArgument, "Pointer move action must have x and y coordinates."_s));
                         state->setString("origin"_s, automationOriginType(action.origin->type));
                         auto location = JSON::Object::create();
                         location->setInteger("x"_s, action.x.value());
@@ -2914,7 +2931,7 @@ void Session::performActions(Vector<Vector<Action>>&& actionsByTick, Function<vo
                         if (action.origin->type == PointerOrigin::Type::Element)
                             state->setString("nodeHandle"_s, action.origin->elementID.value());
                         currentState.mouseInteraction = MouseInteraction::Move;
-                        FALLTHROUGH;
+                        [[fallthrough]];
                     }
                     case Action::Subtype::Pause:
                         if (action.duration)
@@ -2978,6 +2995,10 @@ void Session::performActions(Vector<Vector<Action>>&& actionsByTick, Function<vo
                 case Action::Type::Wheel:
                     switch (action.subtype) {
                     case Action::Subtype::Scroll: {
+                        if (!action.x || !action.y)
+                            return completionHandler(CommandResult::fail(CommandResult::ErrorCode::InvalidArgument, "Scroll action must have x and y coordinates."_s));
+                        if (!action.deltaX || !action.deltaY)
+                            return completionHandler(CommandResult::fail(CommandResult::ErrorCode::InvalidArgument, "Scroll action must have deltaX and deltaY values."_s));
                         state->setString("origin"_s, automationOriginType(action.origin->type));
                         auto location = JSON::Object::create();
                         location->setInteger("x"_s, action.x.value());
@@ -2991,7 +3012,7 @@ void Session::performActions(Vector<Vector<Action>>&& actionsByTick, Function<vo
 
                         if (action.origin->type == PointerOrigin::Type::Element)
                             state->setString("nodeHandle"_s, action.origin->elementID.value());
-                        FALLTHROUGH;
+                        [[fallthrough]];
                     }
                     case Action::Subtype::Pause:
                         if (action.duration)
@@ -3046,7 +3067,7 @@ void Session::releaseActions(Function<void(CommandResult&&)>&& completionHandler
     m_inputStateTable.clear();
 
     auto parameters = JSON::Object::create();
-    parameters->setString("handle"_s, m_toplevelBrowsingContext.value());
+    parameters->setString("handle"_s, uncheckedTopLevelBrowsingContext());
     m_host->sendCommandToBackend("cancelInteractionSequence"_s, WTFMove(parameters), [protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)](SessionHost::CommandResponse&& response) {
         if (response.isError) {
             completionHandler(CommandResult::fail(WTFMove(response.responseObject)));
@@ -3064,7 +3085,7 @@ void Session::dismissAlert(Function<void(CommandResult&&)>&& completionHandler)
     }
 
     auto parameters = JSON::Object::create();
-    parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+    parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
     m_host->sendCommandToBackend("dismissCurrentJavaScriptDialog"_s, WTFMove(parameters), [protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)](SessionHost::CommandResponse&& response) {
         if (response.isError) {
             completionHandler(CommandResult::fail(WTFMove(response.responseObject)));
@@ -3082,7 +3103,7 @@ void Session::acceptAlert(Function<void(CommandResult&&)>&& completionHandler)
     }
 
     auto parameters = JSON::Object::create();
-    parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+    parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
     m_host->sendCommandToBackend("acceptCurrentJavaScriptDialog"_s, WTFMove(parameters), [protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)](SessionHost::CommandResponse&& response) {
         if (response.isError) {
             completionHandler(CommandResult::fail(WTFMove(response.responseObject)));
@@ -3100,7 +3121,7 @@ void Session::getAlertText(Function<void(CommandResult&&)>&& completionHandler)
     }
 
     auto parameters = JSON::Object::create();
-    parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+    parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
     m_host->sendCommandToBackend("messageOfCurrentJavaScriptDialog"_s, WTFMove(parameters), [protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)](SessionHost::CommandResponse&& response) {
         if (response.isError || !response.responseObject) {
             completionHandler(CommandResult::fail(WTFMove(response.responseObject)));
@@ -3109,7 +3130,7 @@ void Session::getAlertText(Function<void(CommandResult&&)>&& completionHandler)
 
         auto valueString = response.responseObject->getString("message"_s);
         if (!valueString) {
-            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+            completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve alert text from browsing context"_s));
             return;
         }
 
@@ -3125,7 +3146,7 @@ void Session::sendAlertText(const String& text, Function<void(CommandResult&&)>&
     }
 
     auto parameters = JSON::Object::create();
-    parameters->setString("browsingContextHandle"_s, m_toplevelBrowsingContext.value());
+    parameters->setString("browsingContextHandle"_s, uncheckedTopLevelBrowsingContext());
     parameters->setString("userInput"_s, text);
     m_host->sendCommandToBackend("setUserInputForCurrentJavaScriptPrompt"_s, WTFMove(parameters), [protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)](SessionHost::CommandResponse&& response) {
         if (response.isError) {
@@ -3149,7 +3170,7 @@ void Session::takeScreenshot(std::optional<String> elementID, std::optional<bool
             return;
         }
         auto parameters = JSON::Object::create();
-        parameters->setString("handle"_s, m_toplevelBrowsingContext.value());
+        parameters->setString("handle"_s, uncheckedTopLevelBrowsingContext());
         if (m_currentBrowsingContext)
             parameters->setString("frameHandle"_s, m_currentBrowsingContext.value());
         if (elementID)
@@ -3165,7 +3186,7 @@ void Session::takeScreenshot(std::optional<String> elementID, std::optional<bool
 
             auto data = response.responseObject->getString("data"_s);
             if (!data) {
-                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError));
+                completionHandler(CommandResult::fail(CommandResult::ErrorCode::UnknownError, "Could not retrieve screenshot data from browsing context"_s));
                 return;
             }
 
@@ -3175,23 +3196,51 @@ void Session::takeScreenshot(std::optional<String> elementID, std::optional<bool
 }
 
 #if ENABLE(WEBDRIVER_BIDI)
-void Session::dispatchEvent(RefPtr<JSON::Object>&& message)
+void Session::dispatchBidiMessage(RefPtr<JSON::Object>&& message)
 {
-    static String automationPrefix = "Automation."_s;
-    auto method = message->getString("method"_s);
-    if (!method.startsWith(automationPrefix)) {
-        WTFLogAlways("Unknown event domain: %s", method.utf8().data());
+    // Validate bidi message
+    auto params = message->getObject("params"_s);
+    if (!params) {
+        RELEASE_LOG(WebDriverBiDi, "Session::dispatchBidiMessage: Missing 'params' field in payload");
+        m_bidiServer->sendErrorResponse(this->id(), std::nullopt, CommandResult::ErrorCode::UnknownError, "Received malformed bidi message from browser: Missing 'params' field."_s);
         return;
     }
 
-    auto eventName = method.substring(automationPrefix.length());
-    if (!m_globalEventSet.contains(eventName))
-        return;
-
-    if (eventName == "logEntryAdded"_s) {
-        doLogEntryAdded(WTFMove(message));
+    auto bidiMessageString = params->getString("message"_s);
+    if (!bidiMessageString) {
+        RELEASE_LOG(WebDriverBiDi, "Session::dispatchBidiMessage: Missing actual bidi message in payload");
+        m_bidiServer->sendErrorResponse(this->id(), std::nullopt, CommandResult::ErrorCode::UnknownError, "Received malformed bidi message from browser: Missing 'message' field."_s);
         return;
     }
+
+    auto bidiMessageValue = JSON::Value::parseJSON(bidiMessageString);
+    if (!bidiMessageValue) {
+        RELEASE_LOG(WebDriverBiDi, "Session::dispatchBidiMessage: Bidi message with invalid JSON.");
+        m_bidiServer->sendErrorResponse(this->id(), std::nullopt, CommandResult::ErrorCode::UnknownError, "Received malformed bidi message from browser: Invalid JSON message."_s);
+        return;
+    }
+
+    auto bidiMessage = bidiMessageValue->asObject();
+    LOG(WebDriverBiDi, "Session::dispatchBidiMessage: received bidi message %s", bidiMessageValue->toJSONString().utf8().data());
+
+    // FIXME: Move event subscription into the browser
+    if (bidiMessage->getString("type"_s) == "event"_s) {
+        if (bidiMessage->size() < 3 || (bidiMessage->find("method"_s) == bidiMessage->end()) || (bidiMessage->find("params"_s) == bidiMessage->end())) {
+            RELEASE_LOG(WebDriverBiDi, "Session::dispatchBidiMessage: Malformed bidi event: %s", bidiMessageValue->toJSONString().utf8().data());
+            return;
+        }
+
+        auto bidiMethod = bidiMessage->getString("method"_s);
+        if (!eventIsEnabled(bidiMethod, { uncheckedTopLevelBrowsingContext() })) {
+            RELEASE_LOG(WebDriverBiDi, "Message %s is an unknown event or not enabled, ignoring.", bidiMethod.utf8().data());
+            return;
+        }
+        if (bidiMethod == "log.entryAdded"_s)
+            doLogEntryAdded(WTFMove(bidiMessage));
+        return;
+    }
+
+    m_bidiServer->sendMessage(this->id(), bidiMessage->toJSONString());
 }
 
 void Session::doLogEntryAdded(RefPtr<JSON::Object>&& message)
@@ -3199,7 +3248,7 @@ void Session::doLogEntryAdded(RefPtr<JSON::Object>&& message)
     // https://w3c.github.io/webdriver-bidi/#event-log-entryAdded
     auto params = message->getObject("params"_s);
     if (!params) {
-        WTFLogAlways("Log event without parameter information, ignoring.");
+        RELEASE_LOG(WebDriverBiDi, "Log event without parameter information, ignoring.");
         return;
     }
 
@@ -3258,8 +3307,8 @@ void Session::doLogEntryAdded(RefPtr<JSON::Object>&& message)
     auto body = JSON::Object::create();
     body->setObject("params"_s, WTFMove(entry));
 
-    if (eventIsEnabled("logEntryAdded"_s, { m_toplevelBrowsingContext.value() }))
-        emitEvent("log.entryAdded"_s, WTFMove(body));
+    emitEvent("log.entryAdded"_s, WTFMove(body));
+
     // TODO Implement event buffering, to save the log entries for later emission when the user subscribes to it
     // https://bugs.webkit.org/show_bug.cgi?id=282980
 }
@@ -3275,44 +3324,137 @@ void Session::emitEvent(const String& eventName, RefPtr<JSON::Object>&& body)
 bool Session::eventIsEnabled(const String& eventName, const Vector<String>&)
 {
     // https://w3c.github.io/webdriver-bidi/#event-is-enabled
-    HashSet<String> topLevelBrowsingContexts;
-    // FIXME Add support to subscribe to specific browsing contexts
-    // https://bugs.webkit.org/show_bug.cgi?id=282981
 
-    return m_globalEventSet.contains(eventName);
-}
+    AtomString atomEventName { eventName };
 
-void Session::enableGlobalEvent(const String& eventName)
-{
-    m_globalEventSet.add(toInternalEventName(eventName));
-}
+    if (!m_eventSubscriptionCounts.contains(atomEventName))
+        return false;
 
-void Session::disableGlobalEvent(const String& eventName)
-{
-    m_globalEventSet.remove(toInternalEventName(eventName));
-}
-
-String Session::toInternalEventName(const String& eventName)
-{
-    // The messages exchanged with the Browser (see Automation.json) can't have
-    // periods in the message name.
-    StringBuilder builder;
-    bool capitalizeNext = false;
-    for (unsigned i = 0; i < eventName.length(); i++) {
-        if (eventName[i] == '.') {
-            capitalizeNext = true;
+    for (const auto& subscription : m_eventSubscriptions) {
+        // FIXME: Add support to subscribe to specific browsing contexts
+        // https://bugs.webkit.org/show_bug.cgi?id=282981
+        if (!subscription.value.isGlobal())
             continue;
-        }
 
-        if (capitalizeNext) {
-            builder.append(toASCIIUpper(eventName[i]));
-            capitalizeNext = false;
-        } else
-            builder.append(eventName[i]);
+        if (subscription.value.events.contains(atomEventName))
+            return true;
     }
 
-    return builder.toString();
+    return false;
 }
-#endif
+
+void Session::subscribeForEvents(const Vector<String>& events, Vector<String>&& browsingContextIDs, Vector<String>&& userContextIDs, Function<void(CommandResult&&)>&& completionHandler)
+{
+    // FIXME: Process/validate list of event names (e.g. expanding if given only the module name)
+    // https://bugs.webkit.org/show_bug.cgi?id=291371
+    auto subscriptionID = WTF::createVersion4UUIDString();
+
+    for (const auto& event : events) {
+        auto addResult = m_eventSubscriptionCounts.add(AtomString { event }, 1);
+        if (!addResult.isNewEntry)
+            addResult.iterator->value++;
+    }
+
+    Vector<AtomString> atomEventNames;
+    for (const auto& event : events)
+        atomEventNames.append(AtomString { event });
+
+    m_eventSubscriptions.add(subscriptionID, EventSubscription { subscriptionID, WTFMove(atomEventNames), WTFMove(browsingContextIDs), WTFMove(userContextIDs) });
+    completionHandler(CommandResult::success(JSON::Value::create(subscriptionID)));
+}
+
+void Session::unsubscribeByIDs(const Vector<EventSubscriptionID>& subscriptionIDs, Function<void(CommandResult&&)>&& completionHandler)
+{
+    for (const auto& id : subscriptionIDs) {
+        if (!m_eventSubscriptions.contains(id)) {
+            completionHandler(CommandResult::fail(CommandResult::ErrorCode::InvalidArgument, "At least one subscription id is unknown"_s));
+            return;
+        }
+    }
+
+    for (const auto& id : subscriptionIDs) {
+        const auto& subscription = m_eventSubscriptions.get(id);
+
+        for (const auto& event : subscription.events) {
+            auto removeResult = m_eventSubscriptionCounts.find(event);
+            if (removeResult != m_eventSubscriptionCounts.end()) {
+                if (!(--removeResult->value))
+                    m_eventSubscriptionCounts.remove(event);
+            }
+        }
+        m_eventSubscriptions.remove(id);
+    }
+    completionHandler(CommandResult::success());
+}
+
+void Session::unsubscribeByEventName(const Vector<String>& eventNames, Function<void(CommandResult&&)>&& completionHandler)
+
+{
+    HashMap<String, EventSubscription> subscriptionsToKeep;
+    HashSet<String> matchedEvents;
+    // FIXME: Process/validate list of event names (e.g. expanding if given only the module name)
+    // https://bugs.webkit.org/show_bug.cgi?id=291371
+    for (const auto& eventName : eventNames) {
+        auto atomEventName = AtomString { eventName };
+        for (const auto& subscription : m_eventSubscriptions) {
+            if (!subscription.value.events.contains(atomEventName)) {
+                subscriptionsToKeep.add(subscription.value.id, subscription.value);
+                continue;
+            }
+
+            // FIXME: Add support to subscribe to specific browsing contexts
+            // https://bugs.webkit.org/show_bug.cgi?id=282981
+            // In this case, only process them if we were given the "contexts" parameter
+            if (!subscription.value.isGlobal()) {
+                subscriptionsToKeep.add(subscription.value.id, subscription.value);
+                continue;
+            }
+
+            auto currentSubscriptionEventNames = subscription.value.events;
+            currentSubscriptionEventNames.removeAll(atomEventName);
+            matchedEvents.add(eventName);
+            if (!currentSubscriptionEventNames.isEmpty()) {
+                auto clonedSubscription = subscription.value;
+                clonedSubscription.events = currentSubscriptionEventNames;
+                subscriptionsToKeep.add(clonedSubscription.id, WTFMove(clonedSubscription));
+            }
+        }
+    }
+
+    if (matchedEvents.size() != eventNames.size()) {
+        completionHandler(CommandResult::fail(CommandResult::ErrorCode::InvalidArgument));
+        return;
+    }
+
+    // Only modify the actual subscriptions after we validated all requested events.
+    m_eventSubscriptions = WTFMove(subscriptionsToKeep);
+    m_eventSubscriptionCounts.clear();
+    for (const auto& subscription : m_eventSubscriptions.values()) {
+        for (const auto& event : subscription.events) {
+            auto addResult = m_eventSubscriptionCounts.add(event, 1);
+            if (!addResult.isNewEntry)
+                addResult.iterator->value++;
+        }
+    }
+
+    completionHandler(CommandResult::success());
+}
+
+void Session::relayBidiCommand(const String& message, unsigned commandId, Function<void(WebSocketMessageHandler::Message&&)>&& completionHandler)
+{
+    auto parameters = JSON::Object::create();
+    parameters->setString("message"_s, message);
+    m_host->sendCommandToBackend("processBidiMessage"_s, WTFMove(parameters), [protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler), commandId](SessionHost::CommandResponse&& response) {
+        if (response.isError) {
+            auto errorCode = CommandResult::ErrorCode::UnknownError;
+            std::optional<String> errorMessage;
+            if (response.responseObject)
+                errorMessage = response.responseObject->getString("message"_s);
+            completionHandler(WebSocketMessageHandler::Message::fail(errorCode, std::nullopt, errorMessage, { commandId }));
+        }
+    });
+}
+
+#endif // ENABLE(WEBDRIVER_BIDI)
 
 } // namespace WebDriver

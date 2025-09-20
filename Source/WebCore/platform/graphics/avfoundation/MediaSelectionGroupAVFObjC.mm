@@ -58,13 +58,14 @@ MediaSelectionOptionAVFObjC::MediaSelectionOptionAVFObjC(MediaSelectionGroupAVFO
 
 void MediaSelectionOptionAVFObjC::setSelected(bool selected)
 {
-    if (!m_group)
+    RefPtr group = m_group.get();
+    if (!group)
         return;
 
     if (selected == this->selected())
         return;
 
-    m_group->setSelectedOption(selected ? this : nullptr);
+    group->setSelectedOption(selected ? this : nullptr);
 }
 
 bool MediaSelectionOptionAVFObjC::selected() const
@@ -92,7 +93,7 @@ AVAssetTrack* MediaSelectionOptionAVFObjC::assetTrack() const
                 continue;
             if (!track.assetTrack)
                 continue;
-            if ([track.assetTrack mediaType] == [m_mediaSelectionOption mediaType] && [track.assetTrack isPlayable] == [m_mediaSelectionOption isPlayable])
+            if ([[track.assetTrack mediaType] isEqualToString:[m_mediaSelectionOption mediaType]] && [track.assetTrack isPlayable] == [m_mediaSelectionOption isPlayable])
                 return track.assetTrack;
         }
     }

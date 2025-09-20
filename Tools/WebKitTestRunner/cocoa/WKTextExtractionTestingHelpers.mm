@@ -26,7 +26,7 @@
 #import "config.h"
 #import "WKTextExtractionTestingHelpers.h"
 
-#import "WKTextExtractionItem.h"
+#import "_WKTextExtractionInternal.h"
 #import <objc/runtime.h>
 #import <wtf/Scope.h>
 #import <wtf/text/MakeString.h>
@@ -60,6 +60,8 @@ ASCIILiteral description(WKTextExtractionContainer container)
         return "NAV"_s;
     case WKTextExtractionContainerButton:
         return "BUTTON"_s;
+    case WKTextExtractionContainerGeneric:
+        return "GENERIC"_s;
     }
 }
 
@@ -141,7 +143,7 @@ NSString *recursiveDescription(WKTextExtractionItem *item, IncludeRects includeR
 {
     TextStream stream { TextStream::LineMode::MultipleLine };
     buildRecursiveDescription(stream, item, includeRects);
-    return stream.release();
+    return stream.release().createNSString().autorelease();
 }
 
 } // namespace WTR

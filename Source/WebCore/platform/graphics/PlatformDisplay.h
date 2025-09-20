@@ -31,13 +31,6 @@
 #include <wtf/TypeCasts.h>
 #include <wtf/text/WTFString.h>
 
-typedef intptr_t EGLAttrib;
-typedef void *EGLClientBuffer;
-typedef void *EGLContext;
-typedef void *EGLDisplay;
-typedef void *EGLImage;
-typedef unsigned EGLenum;
-
 #if ENABLE(VIDEO) && USE(GSTREAMER_GL)
 #include "GRefPtrGStreamer.h"
 
@@ -91,6 +84,7 @@ public:
     WEBCORE_EXPORT GLContext* sharingGLContext();
     void clearGLContexts();
     EGLDisplay eglDisplay() const;
+    GLDisplay& glDisplay() const { return m_eglDisplay.get(); }
     bool eglCheckVersion(int major, int minor) const;
 
     const GLDisplay::Extensions& eglExtensions() const;
@@ -122,9 +116,9 @@ public:
 #endif
 
 protected:
-    explicit PlatformDisplay(std::unique_ptr<GLDisplay>&&);
+    explicit PlatformDisplay(Ref<GLDisplay>&&);
 
-    std::unique_ptr<GLDisplay> m_eglDisplay;
+    Ref<GLDisplay> m_eglDisplay;
     std::unique_ptr<GLContext> m_sharingGLContext;
 
 #if ENABLE(WEBGL) && !PLATFORM(WIN)

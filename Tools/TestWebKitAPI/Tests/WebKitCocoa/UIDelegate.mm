@@ -1039,6 +1039,43 @@ TEST(WebKit, MouseMoveOverElement)
 
 static BlockPtr<NSEvent*(NSEvent*)> gEventMonitorHandler;
 
+@interface TestLocalEventObserver : NSObject {
+    NSEventMask _mask;
+    id _block;
+    BOOL _isAdditive;
+}
++ (void)initialize;
+- (instancetype)initMatchingEvents:(NSEventMask)mask handler:(NSEvent *(^)(NSEvent *))block;
+- (void)invalidate;
+- (void)dealloc;
+- (void)recomputeObserverMask;
+@end
+
+@implementation TestLocalEventObserver
++ (void)initialize
+{
+}
+
+- (instancetype)initMatchingEvents:(NSEventMask)mask handler:(NSEvent *(^)(NSEvent *))block
+{
+    self = [super init];
+    return self;
+}
+
+- (void)dealloc
+{
+    [super dealloc];
+}
+
+- (void)invalidate
+{
+}
+
+- (void)recomputeObserverMask
+{
+}
+@end
+
 @interface TestEventMonitor : NSObject
 
 + (id)addLocalMonitorForEventsMatchingMask:(NSEventMask)mask handler:(NSEvent* (^)(NSEvent *event))block;
@@ -1050,7 +1087,7 @@ static BlockPtr<NSEvent*(NSEvent*)> gEventMonitorHandler;
 + (id)addLocalMonitorForEventsMatchingMask:(NSEventMask)mask handler:(NSEvent* (^)(NSEvent *event))block
 {
     gEventMonitorHandler = makeBlockPtr(block);
-    return nil;
+    return adoptNS([[TestLocalEventObserver alloc] initMatchingEvents:mask handler:block]).leakRef();
 }
 
 @end
@@ -1389,11 +1426,6 @@ TEST(WebKit, TabDoesNotTakeFocusFromEditableWebView)
     ASSERT_FALSE(delegate->_done);
 }
 
-#define MOUSE_EVENT_CAUSES_DOWNLOAD 0
-// FIXME: At least on El Capitan, sending a mouse event does not cause the PDFPlugin to think the download button has been clicked.
-// This test works on High Sierra, but it should be investigated on older platforms.
-#if MOUSE_EVENT_CAUSES_DOWNLOAD
-
 @interface SaveDataToFileDelegate : NSObject <WKUIDelegatePrivate, WKNavigationDelegate>
 @end
 
@@ -1420,16 +1452,14 @@ TEST(WebKit, TabDoesNotTakeFocusFromEditableWebView)
 
 TEST(WebKit, SaveDataToFile)
 {
-    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600)]);
-    auto delegate = adoptNS([[SaveDataToFileDelegate alloc] init]);
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600)]);
+    RetainPtr delegate = adoptNS([[SaveDataToFileDelegate alloc] init]);
     [webView setUIDelegate:delegate.get()];
     [webView setNavigationDelegate:delegate.get()];
     NSURL *pdfURL = [NSBundle.test_resourcesBundle URLForResource:@"test" withExtension:@"pdf"];
     [webView loadRequest:[NSURLRequest requestWithURL:pdfURL]];
     TestWebKitAPI::Util::run(&done);
 }
-
-#endif // MOUSE_EVENT_CAUSES_DOWNLOAD
 
 #define RELIABLE_DID_NOT_HANDLE_WHEEL_EVENT 0
 // FIXME: make wheel event handling more reliable.

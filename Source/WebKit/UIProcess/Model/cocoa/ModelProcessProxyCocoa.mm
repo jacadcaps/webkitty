@@ -41,7 +41,17 @@ namespace WebKit {
 
 void ModelProcessProxy::updateModelProcessCreationParameters(ModelProcessCreationParameters& parameters)
 {
-    parameters.restrictiveRenderingMode = [[NSUserDefaults standardUserDefaults] boolForKey:@"ModelProcessDebugEnableRestrictiveRenderingMode"];
+    NSString * const debugFlag = @"ModelProcessDebugEnableRestrictiveRenderingMode";
+    bool enableRestrictiveRenderingMode = true;
+    id value = [NSUserDefaults.standardUserDefaults objectForKey:debugFlag];
+    if ([value isKindOfClass:NSNumber.class] || [value isKindOfClass:NSString.class])
+        enableRestrictiveRenderingMode = [NSUserDefaults.standardUserDefaults boolForKey:debugFlag];
+    parameters.restrictiveRenderingMode = enableRestrictiveRenderingMode;
+
+    NSString * const memoryLimitFlag = @"WebKitDebugModelEntityMemoryLimit";
+    value = [NSUserDefaults.standardUserDefaults objectForKey:memoryLimitFlag];
+    if ([value isKindOfClass:NSNumber.class])
+        parameters.debugEntityMemoryLimit = [value integerValue];
 }
 
 void ModelProcessProxy::requestSharedSimulationConnection(WebCore::ProcessIdentifier webProcessIdentifier, CompletionHandler<void(std::optional<IPC::SharedFileHandle>)>&& completionHandler)

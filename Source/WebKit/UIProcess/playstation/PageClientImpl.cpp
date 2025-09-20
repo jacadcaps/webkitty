@@ -96,7 +96,7 @@ bool PageClientImpl::isViewFocused()
     return m_view.viewState().contains(WebCore::ActivityState::IsFocused);
 }
 
-bool PageClientImpl::isViewVisible()
+bool PageClientImpl::isActiveViewVisible()
 {
     return m_view.viewState().contains(WebCore::ActivityState::IsVisible);
 }
@@ -207,7 +207,7 @@ void PageClientImpl::doneWithKeyEvent(const NativeWebKeyboardEvent& event, bool 
 }
 
 #if ENABLE(TOUCH_EVENTS)
-void PageClientImpl::doneWithTouchEvent(const NativeWebTouchEvent& event, bool wasEventHandled)
+void PageClientImpl::doneWithTouchEvent(const WebTouchEvent& event, bool wasEventHandled)
 {
     notImplemented();
 }

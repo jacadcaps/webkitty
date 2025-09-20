@@ -30,18 +30,21 @@
 #include "ProcessIdentity.h"
 #include <CoreMedia/CMTime.h>
 #include <atomic>
+#include <wtf/Expected.h>
 #include <wtf/Function.h>
 #include <wtf/Lock.h>
 #include <wtf/MediaTime.h>
 #include <wtf/OSObjectPtr.h>
+#include <wtf/OptionSet.h>
 #include <wtf/Ref.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/WorkQueue.h>
 
 typedef struct opaqueCMSampleBuffer *CMSampleBufferRef;
-typedef struct __CVBuffer *CVPixelBufferRef;
+typedef struct CF_BRIDGED_TYPE(id) __CVBuffer *CVPixelBufferRef;
 typedef struct __CVBuffer *CVImageBufferRef;
+typedef struct OpaqueCMTaggedBufferGroup *CMTaggedBufferGroupRef;
 typedef UInt32 VTDecodeInfoFlags;
 typedef struct OpaqueVTDecompressionSession*  VTDecompressionSessionRef;
 
@@ -52,50 +55,64 @@ struct PlatformVideoColorSpace;
 
 class WebCoreDecompressionSession : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<WebCoreDecompressionSession> {
 public:
-    static Ref<WebCoreDecompressionSession> createOpenGL() { return adoptRef(*new WebCoreDecompressionSession(OpenGL)); }
-    static Ref<WebCoreDecompressionSession> createRGB() { return adoptRef(*new WebCoreDecompressionSession(RGB)); }
+    WEBCORE_EXPORT static Ref<WebCoreDecompressionSession> createOpenGL(GuaranteedSerialFunctionDispatcher* = nullptr);
+    WEBCORE_EXPORT static Ref<WebCoreDecompressionSession> createRGB(GuaranteedSerialFunctionDispatcher* = nullptr);
+    static Ref<WebCoreDecompressionSession> create(NSDictionary *pixelBufferAttributes, GuaranteedSerialFunctionDispatcher* dispatcher = nullptr) { return adoptRef(*new WebCoreDecompressionSession(pixelBufferAttributes, dispatcher)); }
 
     WEBCORE_EXPORT ~WebCoreDecompressionSession();
     WEBCORE_EXPORT void invalidate();
 
     WEBCORE_EXPORT RetainPtr<CVPixelBufferRef> decodeSampleSync(CMSampleBufferRef);
 
-    using DecodingPromise = NativePromise<RetainPtr<CMSampleBufferRef>, OSStatus>;
-    WEBCORE_EXPORT Ref<DecodingPromise> decodeSample(CMSampleBufferRef, bool displaying);
+    using DecodingPromise = NativePromise<Vector<RetainPtr<CMSampleBufferRef>>, OSStatus>;
+    enum class DecodingFlag : uint8_t {
+        NonDisplaying = 1 << 0,
+        RealTime = 1 << 1,
+        EnableStereo = 1 << 2,
+    };
+    using DecodingFlags = OptionSet<DecodingFlag>;
+
+    WEBCORE_EXPORT Ref<DecodingPromise> decodeSample(CMSampleBufferRef, DecodingFlags);
     WEBCORE_EXPORT void flush();
 
     void setResourceOwner(const ProcessIdentity& resourceOwner) { m_resourceOwner = resourceOwner; }
+    bool isHardwareAccelerated() const;
 
 private:
-    enum Mode {
-        OpenGL,
-        RGB,
-    };
-    WEBCORE_EXPORT explicit WebCoreDecompressionSession(Mode);
+    WEBCORE_EXPORT WebCoreDecompressionSession(NSDictionary *, GuaranteedSerialFunctionDispatcher*);
+    static NSDictionary *defaultPixelBufferAttributes();
 
-    RetainPtr<VTDecompressionSessionRef> ensureDecompressionSessionForSample(CMSampleBufferRef);
+    Expected<RetainPtr<VTDecompressionSessionRef>, OSStatus> ensureDecompressionSessionForSample(CMSampleBufferRef);
 
-    Ref<DecodingPromise> decodeSampleInternal(CMSampleBufferRef, bool displaying);
-    void handleDecompressionOutput(bool displaying, OSStatus, VTDecodeInfoFlags, CVImageBufferRef, CMTime presentationTimeStamp, CMTime presentationDuration);
+    Ref<DecodingPromise> decodeSampleInternal(CMSampleBufferRef, DecodingFlags);
     void assignResourceOwner(CVImageBufferRef);
 
     Ref<MediaPromise> initializeVideoDecoder(FourCharCode, std::span<const uint8_t>, const std::optional<PlatformVideoColorSpace>&);
     bool isInvalidated() const { return m_invalidated; }
 
-    Mode m_mode;
+    const RetainPtr<NSDictionary> m_pixelBufferAttributes;
+    static WorkQueue& queueSingleton();
+    const Ref<GuaranteedSerialFunctionDispatcher> m_dispatcher;
+
     mutable Lock m_lock;
     RetainPtr<VTDecompressionSessionRef> m_decompressionSession WTF_GUARDED_BY_LOCK(m_lock);
-    const Ref<WorkQueue> m_decompressionQueue;
+    mutable std::optional<bool> m_isHardwareAccelerated WTF_GUARDED_BY_LOCK(m_lock);
 
     std::atomic<uint32_t> m_flushId { 0 };
     RefPtr<VideoDecoder> m_videoDecoder WTF_GUARDED_BY_LOCK(m_lock);
     bool m_videoDecoderCreationFailed { false };
     struct PendingDecodeData {
-        bool displaying { false };
+        DecodingFlags flags;
     };
-    std::optional<PendingDecodeData> m_pendingDecodeData WTF_GUARDED_BY_CAPABILITY(m_decompressionQueue.get());
-    RetainPtr<CMSampleBufferRef> m_lastDecodedSample WTF_GUARDED_BY_CAPABILITY(m_decompressionQueue.get());
-    OSStatus m_lastDecodingError WTF_GUARDED_BY_CAPABILITY(m_decompressionQueue.get()) { noErr };
+    std::optional<PendingDecodeData> m_pendingDecodeData WTF_GUARDED_BY_CAPABILITY(m_dispatcher.get());
+    Vector<RetainPtr<CMSampleBufferRef>> m_lastDecodedSamples WTF_GUARDED_BY_CAPABILITY(m_dispatcher.get());
+    OSStatus m_lastDecodingError WTF_GUARDED_BY_CAPABILITY(m_dispatcher.get()) { noErr };
+    RetainPtr<CMFormatDescriptionRef> m_currentImageDescription WTF_GUARDED_BY_CAPABILITY(m_dispatcher.get());
+
+    // Stereo playback support
+    const bool m_stereoSupported { false };
+    bool m_stereoConfigured WTF_GUARDED_BY_CAPABILITY(m_dispatcher.get()) { false };
+    RetainPtr<CFArrayRef> m_tagCollections WTF_GUARDED_BY_CAPABILITY(m_dispatcher.get());
 
     std::atomic<bool> m_invalidated { false };
 

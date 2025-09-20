@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2021 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -119,6 +119,37 @@ bool screenSupportsHighDynamicRange(Widget*)
 #endif
     return false;
 }
+
+bool screenSupportsHighDynamicRange(PlatformDisplayID)
+{
+    return screenSupportsHighDynamicRange(nullptr);
+}
+
+#if HAVE(SUPPORT_HDR_DISPLAY)
+float currentEDRHeadroomForDisplay(PlatformDisplayID)
+{
+    if (auto data = screenData(primaryScreenDisplayID()))
+        return data->currentEDRHeadroom;
+
+    return [[PAL::getUIScreenClass() mainScreen] currentEDRHeadroom];
+}
+
+float maxEDRHeadroomForDisplay(PlatformDisplayID)
+{
+    if (auto data = screenData(primaryScreenDisplayID()))
+        return data->maxEDRHeadroom;
+
+    return [[PAL::getUIScreenClass() mainScreen] potentialEDRHeadroom];
+}
+
+bool suppressEDRForDisplay(PlatformDisplayID)
+{
+    if (auto data = screenData(primaryScreenDisplayID()))
+        return data->suppressEDR;
+
+    return false;
+}
+#endif
 
 DestinationColorSpace screenColorSpace(Widget* widget)
 {
@@ -251,6 +282,10 @@ ScreenProperties collectScreenProperties()
         screenData.screenHasInvertedColors = WebCore::screenHasInvertedColors();
         screenData.screenSupportsHighDynamicRange = WebCore::screenSupportsHighDynamicRange(nullptr);
         screenData.scaleFactor = WebCore::screenPPIFactor();
+#if HAVE(SUPPORT_HDR_DISPLAY)
+        screenData.maxEDRHeadroom = [screen potentialEDRHeadroom];
+        screenData.currentEDRHeadroom = [screen currentEDRHeadroom];
+#endif
 
         screenProperties.screenDataMap.set(++displayID, WTFMove(screenData));
 

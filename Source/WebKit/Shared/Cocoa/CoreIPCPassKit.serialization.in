@@ -106,4 +106,24 @@ additional_forward_declaration: OBJC_CLASS PKSecureElementPass
     usePeerPaymentBalance: Number
 }
 
+additional_forward_declaration: OBJC_CLASS NSSet
+[WebKitSecureCodingClass=PAL::getPKPaymentSetupFeatureClass(), SupportWKKeyedCoder, WebKitPlatform] webkit_secure_coding PKPaymentSetupFeature {
+    identifiers: Set
+    localizedDisplayName: String
+    type: Number
+    state: Number
+    supportedOptions: Number
+    supportedDevices: Number
+    productIdentifier: String
+    partnerIdentifier: String
+    featureIdentifier: Number
+    lastUpdated: Date
+    expiry: Date
+    productType: Number
+    productState: Number
+    notificationTitle: String
+    notificationMessage: String
+    discoveryCardIdentifier: String
+}
+
 #endif // USE(PASSKIT)

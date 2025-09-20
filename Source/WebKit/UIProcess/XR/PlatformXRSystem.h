@@ -60,7 +60,7 @@ public:
 
     virtual ~PlatformXRSystem();
 
-    std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const;
+    std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess(IPC::Connection&) const;
 
     USING_CAN_MAKE_WEAKPTR(PlatformXRCoordinatorSessionEventClient);
 
@@ -85,7 +85,12 @@ private:
     void initializeTrackingAndRendering(IPC::Connection&);
     void shutDownTrackingAndRendering(IPC::Connection&);
     void requestFrame(IPC::Connection&, std::optional<PlatformXR::RequestData>&&, CompletionHandler<void(PlatformXR::FrameData&&)>&&);
+#if USE(OPENXR)
+    void createLayerProjection(IPC::Connection&, uint32_t width, uint32_t height, bool alpha);
+    void submitFrame(IPC::Connection&, Vector<XRDeviceLayer>&&);
+#else
     void submitFrame(IPC::Connection&);
+#endif
     void didCompleteShutdownTriggeredBySystem(IPC::Connection&);
 
     // PlatformXRCoordinatorSessionEventClient

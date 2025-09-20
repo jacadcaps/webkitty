@@ -15,6 +15,7 @@
 #include "libANGLE/Context.h"
 #include "libANGLE/Context.inl.h"
 #include "libANGLE/MemoryProgramCache.h"
+#include "libANGLE/histogram_macros.h"
 #include "libANGLE/renderer/OverlayImpl.h"
 #include "libANGLE/renderer/d3d/CompilerD3D.h"
 #include "libANGLE/renderer/d3d/ProgramExecutableD3D.h"
@@ -323,7 +324,8 @@ ANGLE_INLINE angle::Result Context11::drawElementsImpl(const gl::Context *contex
     {
         gl::IndexRange indexRange;
         ANGLE_TRY(context->getState().getVertexArray()->getIndexRange(
-            context, indexType, indexCount, indices, &indexRange));
+            context, indexType, indexCount, indices,
+            context->getState().isPrimitiveRestartEnabled(), &indexRange));
         GLint startVertex;
         ANGLE_TRY(ComputeStartVertex(GetImplAs<Context11>(context), indexRange, baseVertex,
                                      &startVertex));
@@ -472,8 +474,9 @@ angle::Result Context11::drawElementsIndirect(const gl::Context *context,
         // make sure we are using the correct 'baseVertex'. This parameter does not exist for the
         // direct drawElements.
         gl::IndexRange indexRange;
-        ANGLE_TRY(context->getState().getVertexArray()->getIndexRange(context, type, cmd->count,
-                                                                      indices, &indexRange));
+        ANGLE_TRY(context->getState().getVertexArray()->getIndexRange(
+            context, type, cmd->count, indices, context->getState().isPrimitiveRestartEnabled(),
+            &indexRange));
 
         GLint startVertex;
         ANGLE_TRY(ComputeStartVertex(GetImplAs<Context11>(context), indexRange, cmd->baseVertex,
@@ -482,7 +485,7 @@ angle::Result Context11::drawElementsIndirect(const gl::Context *context,
         ANGLE_TRY(mRenderer->getStateManager()->updateState(
             context, mode, startVertex, cmd->count, type, indices, cmd->primCount, cmd->baseVertex,
             cmd->baseInstance, true));
-        return mRenderer->drawElements(context, mode, static_cast<GLint>(indexRange.start),
+        return mRenderer->drawElements(context, mode, static_cast<GLint>(indexRange.start()),
                                        cmd->count, type, indices, cmd->primCount, 0,
                                        cmd->baseInstance, true);
     }
@@ -1129,6 +1132,8 @@ void Context11::handleResult(HRESULT hr,
     {
         HRESULT removalReason = mRenderer->getDevice()->GetDeviceRemovedReason();
         errorStream << " (removal reason: " << gl::FmtHR(removalReason) << ")";
+        ANGLE_HISTOGRAM_SPARSE_SLOWLY("GPU.ANGLE.D3DDeviceRemovedReason",
+                                      static_cast<int>(removalReason));
         mRenderer->notifyDeviceLost();
     }
 

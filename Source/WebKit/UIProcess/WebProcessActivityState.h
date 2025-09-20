@@ -31,12 +31,13 @@ namespace WebKit {
 
 class ProcessAssertion;
 class ProcessThrottlerActivity;
+class ProcessThrottlerTimedActivity;
 class RemotePageProxy;
 class WebPageProxy;
 class WebProcessProxy;
 
 class WebProcessActivityState {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(WebProcessActivityState);
 public:
     explicit WebProcessActivityState(WebPageProxy&);
     explicit WebProcessActivityState(RemotePageProxy&);
@@ -76,11 +77,11 @@ private:
     WebProcessProxy& process() const;
     Ref<WebProcessProxy> protectedProcess() const;
 
-    std::variant<WeakRef<WebPageProxy>, WeakRef<RemotePageProxy>> m_page;
+    Variant<WeakRef<WebPageProxy>, WeakRef<RemotePageProxy>> m_page;
 
     RefPtr<ProcessThrottlerActivity> m_isVisibleActivity;
 #if ENABLE(WEB_PROCESS_SUSPENSION_DELAY)
-    Ref<ProcessThrottlerTimedActivity> m_wasRecentlyVisibleActivity;
+    const Ref<ProcessThrottlerTimedActivity> m_wasRecentlyVisibleActivity;
     RefPtr<ProcessThrottlerActivity> m_accessibilityActivity;
     bool m_takeAccessibilityActivityWhenInWindow { false };
 #endif

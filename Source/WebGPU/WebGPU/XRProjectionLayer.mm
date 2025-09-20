@@ -34,8 +34,12 @@
 
 namespace WebGPU {
 
-XRProjectionLayer::XRProjectionLayer(bool, Device& device)
+XRProjectionLayer::XRProjectionLayer(WGPUTextureFormat colorFormat, WGPUTextureFormat* optionalDepthStencilFormat, WGPUTextureUsageFlags flags, double scale, Device& device)
     : m_sharedEvent(std::make_pair(nil, 0))
+    , m_colorFormat(colorFormat)
+    , m_optionalDepthStencilFormat(optionalDepthStencilFormat ? *optionalDepthStencilFormat : std::optional<WGPUTextureFormat> { std::nullopt })
+    , m_flags(flags)
+    , m_scale(scale)
     , m_device(device)
 {
     m_colorTextures = [NSMutableDictionary dictionary];
@@ -112,12 +116,7 @@ void XRProjectionLayer::startFrame(size_t frameIndex, WTF::MachSendRight&& color
 
 Ref<XRProjectionLayer> XRBinding::createXRProjectionLayer(WGPUTextureFormat colorFormat, WGPUTextureFormat* optionalDepthStencilFormat, WGPUTextureUsageFlags flags, double scale)
 {
-    UNUSED_PARAM(colorFormat);
-    UNUSED_PARAM(optionalDepthStencilFormat);
-    UNUSED_PARAM(flags);
-    UNUSED_PARAM(scale);
-
-    return XRProjectionLayer::create(protectedDevice().get());
+    return XRProjectionLayer::create(colorFormat, optionalDepthStencilFormat, flags, scale, m_device);
 }
 
 } // namespace WebGPU

@@ -35,6 +35,7 @@
 #include <WebCore/ContextMenu.h>
 #include <WebCore/ContextMenuController.h>
 #include <WebCore/LocalFrame.h>
+#include <WebCore/LocalFrameInlines.h>
 #include <WebCore/LocalFrameView.h>
 #include <WebCore/Page.h>
 
@@ -52,7 +53,8 @@ WebContextMenu::~WebContextMenu()
 
 void WebContextMenu::show()
 {
-    ContextMenuController& controller = m_page->corePage()->contextMenuController();
+    Ref page = *m_page;
+    auto& controller = page->corePage()->contextMenuController();
     RefPtr frame = controller.hitTestResult().innerNodeFrame();
     if (!frame)
         return;
@@ -71,7 +73,7 @@ void WebContextMenu::show()
 
     ContextMenuContextData contextMenuContextData(menuLocation, menuItems, controller.context());
 
-    m_page->showContextMenuFromFrame(webFrame->info(), contextMenuContextData, UserData(WebProcess::singleton().transformObjectsToHandles(userData.get()).get()));
+    page->showContextMenuFromFrame(webFrame->info(), contextMenuContextData, UserData(WebProcess::singleton().transformObjectsToHandles(userData.get()).get()));
 }
 
 void WebContextMenu::itemSelected(const WebContextMenuItemData& item)

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011, 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2025 Apple Inc. All rights reserved.
  * Copyright (C) 2019 Igalia S.L.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -38,12 +38,17 @@
 #include <WebCore/PlatformScreen.h>
 #include <wtf/CheckedRef.h>
 #include <wtf/Forward.h>
+#include <wtf/Lock.h>
 #include <wtf/OptionSet.h>
 #include <wtf/RunLoop.h>
 #include <wtf/TZoneMalloc.h>
 
 #if !HAVE(DISPLAY_LINK)
 #include "ThreadedDisplayRefreshMonitor.h"
+#endif
+
+#if ENABLE(DAMAGE_TRACKING)
+#include <WebCore/Region.h>
 #endif
 
 namespace WebCore {
@@ -65,16 +70,11 @@ namespace WebKit {
 class LayerTreeHost;
 }
 
-namespace WTF {
-template<typename T> struct IsDeprecatedTimerSmartPointerException;
-template<> struct IsDeprecatedTimerSmartPointerException<WebKit::LayerTreeHost> : std::true_type { };
-}
-
 namespace WebKit {
 class CoordinatedSceneState;
 class WebPage;
 
-class LayerTreeHost final : public CanMakeCheckedPtr<LayerTreeHost>, public WebCore::GraphicsLayerClient, public WebCore::GraphicsLayerFactory, public WebCore::CoordinatedPlatformLayer::Client
+class LayerTreeHost final : public CanMakeCheckedPtr<LayerTreeHost>, public WebCore::GraphicsLayerFactory, public WebCore::CoordinatedPlatformLayer::Client
 #if !HAVE(DISPLAY_LINK)
     , public ThreadedDisplayRefreshMonitor::Client
 #endif
@@ -131,6 +131,12 @@ public:
     void ensureDrawing();
 #endif
 
+#if ENABLE(DAMAGE_TRACKING)
+    void notifyFrameDamageForTesting(WebCore::Region&&);
+    void resetDamageHistoryForTesting();
+    void foreachRegionInDamageHistoryForTesting(Function<void(const WebCore::Region&)>&&);
+#endif
+
 #if PLATFORM(WPE) && USE(GBM) && ENABLE(WPE_PLATFORM)
     void preferredBufferFormatsDidChange();
 #endif
@@ -176,13 +182,17 @@ private:
 
     WebPage& m_webPage;
     LayerTreeContext m_layerTreeContext;
-    Ref<CoordinatedSceneState> m_sceneState;
+    const Ref<CoordinatedSceneState> m_sceneState;
     WebCore::GraphicsLayer* m_rootCompositingLayer { nullptr };
     WebCore::GraphicsLayer* m_overlayCompositingLayer { nullptr };
     HashSet<Ref<WebCore::CoordinatedPlatformLayer>> m_layers;
     bool m_layerTreeStateIsFrozen { false };
     bool m_pendingResize { false };
+#if HAVE(DISPLAY_LINK)
     bool m_pendingForceRepaint { false };
+#endif
+    bool m_isFlushingLayers { false };
+    bool m_waitUntilPaintingComplete { false };
     bool m_isSuspended { false };
     bool m_isWaitingForRenderer { false };
     bool m_scheduledWhileWaitingForRenderer { false };
@@ -218,6 +228,12 @@ private:
 #endif
 
     uint32_t m_compositionRequestID { 0 };
+
+#if ENABLE(DAMAGE_TRACKING)
+    Lock m_frameDamageHistoryForTestingLock;
+    Vector<WebCore::Region> m_frameDamageHistoryForTesting WTF_GUARDED_BY_LOCK(m_frameDamageHistoryForTestingLock);
+    std::shared_ptr<WebCore::Damage> m_damageInGlobalCoordinateSpace;
+#endif
 };
 
 } // namespace WebKit

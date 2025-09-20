@@ -26,6 +26,7 @@
 #import "config.h"
 #import "RemoteLayerTreeNode.h"
 
+#import "RemoteLayerTreeHost.h"
 #import "RemoteLayerTreeLayers.h"
 #import <QuartzCore/CALayer.h>
 #import <WebCore/WebActionDisablingCALayerDelegate.h>
@@ -40,7 +41,6 @@
 #endif
 
 #if ENABLE(THREADED_ANIMATION_RESOLUTION)
-#import "RemoteLayerTreeHost.h"
 #import <WebCore/AcceleratedEffectStack.h>
 #endif
 
@@ -128,6 +128,22 @@ void RemoteLayerTreeNode::initializeLayer()
     if (![layer() isKindOfClass:[CATransformLayer class]])
         [layer() setHitTestsContentsAlphaChannel:YES];
 #endif
+}
+
+void RemoteLayerTreeNode::applyBackingStore(RemoteLayerTreeHost* host, RemoteLayerBackingStoreProperties& properties)
+{
+    if (asyncContentsIdentifier() && properties.contentsRenderingResourceIdentifier() && *asyncContentsIdentifier() >= *properties.contentsRenderingResourceIdentifier())
+        return;
+
+    UIView* hostingView = nil;
+#if PLATFORM(IOS_FAMILY)
+    hostingView = uiView();
+#endif
+
+    properties.applyBackingStoreToNode(*this, host->replayDynamicContentScalingDisplayListsIntoBackingStore(), hostingView);
+
+    if (auto identifier = properties.contentsRenderingResourceIdentifier())
+        setAsyncContentsIdentifier(*identifier);
 }
 
 #if ENABLE(GAZE_GLOW_FOR_INTERACTION_REGIONS)
@@ -260,8 +276,8 @@ RemoteLayerTreeNode* RemoteLayerTreeNode::forCALayer(CALayer *layer)
 NSString *RemoteLayerTreeNode::appendLayerDescription(NSString *description, CALayer *layer)
 {
     auto layerID = WebKit::RemoteLayerTreeNode::layerID(layer);
-    NSString *layerDescription = [NSString stringWithFormat:@" layerID = %llu \"%@\"", layerID ? layerID->object().toUInt64() : 0, layer.name ? layer.name : @""];
-    return [description stringByAppendingString:layerDescription];
+    RetainPtr layerDescription = adoptNS([[NSString alloc] initWithFormat:@" layerID = %llu \"%@\"", layerID ? layerID->object().toUInt64() : 0, layer.name ? layer.name : @""]);
+    return [description stringByAppendingString:layerDescription.get()];
 }
 
 void RemoteLayerTreeNode::addToHostingNode(RemoteLayerTreeNode& hostingNode)

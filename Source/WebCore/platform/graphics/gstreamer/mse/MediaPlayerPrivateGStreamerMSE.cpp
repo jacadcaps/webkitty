@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2007, 2009 Apple Inc.  All rights reserved.
- * Copyright (C) 2007 Collabora Ltd.  All rights reserved.
+ * Copyright (C) 2007, 2009 Apple Inc. All rights reserved.
+ * Copyright (C) 2007 Collabora Ltd. All rights reserved.
  * Copyright (C) 2007 Alp Toker <alp@atoker.com>
  * Copyright (C) 2009 Gustavo Noronha Silva <gns@gnome.org>
  * Copyright (C) 2009, 2010, 2011, 2012, 2013, 2016, 2017, 2018, 2019, 2020, 2021 Igalia S.L
@@ -103,20 +103,6 @@ private:
     }
 };
 
-static Vector<RefPtr<MediaSourceTrackGStreamer>> filterOutRepeatingTracks(const Vector<RefPtr<MediaSourceTrackGStreamer>>& tracks)
-{
-    Vector<RefPtr<MediaSourceTrackGStreamer>> uniqueTracks;
-    uniqueTracks.reserveInitialCapacity(tracks.size());
-
-    for (const auto& track : tracks) {
-        if (!uniqueTracks.containsIf([&track](const auto& current) { return track->id() == current->id(); }))
-            uniqueTracks.append(track);
-    }
-
-    uniqueTracks.shrinkToFit();
-    return uniqueTracks;
-}
-
 void MediaPlayerPrivateGStreamerMSE::registerMediaEngine(MediaEngineRegistrar registrar)
 {
     GST_DEBUG_CATEGORY_INIT(webkit_mse_player_debug, "webkitmseplayer", 0, "WebKit MSE media player");
@@ -183,7 +169,7 @@ void MediaPlayerPrivateGStreamerMSE::pause()
     // the player, so without a playbackStateChanged notification here we would still observe an
     // active sleep disabler right after receiving the pause event on JS side.
     RefPtr player = m_player.get();
-    if (UNLIKELY(!player))
+    if (!player) [[unlikely]]
         return;
     player->playbackStateChanged();
 }
@@ -197,7 +183,7 @@ void MediaPlayerPrivateGStreamerMSE::checkPlayingConsistency()
 
     m_playbackStateChangedNotificationPending = false;
     RefPtr player = m_player.get();
-    if (UNLIKELY(!player))
+    if (!player) [[unlikely]]
         return;
 
     GstState state, pendingState;
@@ -221,7 +207,7 @@ void MediaPlayerPrivateGStreamerMSE::setShouldDisableSleep(bool shouldDisableSle
 
 MediaTime MediaPlayerPrivateGStreamerMSE::duration() const
 {
-    if (UNLIKELY(!m_pipeline || m_didErrorOccur))
+    if (!m_pipeline || m_didErrorOccur) [[unlikely]]
         return MediaTime();
 
     return m_mediaTimeDuration.isValid() ? m_mediaTimeDuration : MediaTime::zeroTime();
@@ -277,7 +263,7 @@ bool MediaPlayerPrivateGStreamerMSE::doSeek(const SeekTarget& target, float rate
     // This will also add support for fastSeek once done (see webkit.org/b/260607)
     if (!m_mediaSourcePrivate)
         return false;
-    m_mediaSourcePrivate->waitForTarget(target)->whenSettled(RunLoop::protectedCurrent(), [this, weakThis = ThreadSafeWeakPtr { *this }](auto&& result) {
+    m_mediaSourcePrivate->waitForTarget(target)->whenSettled(RunLoop::currentSingleton(), [this, weakThis = ThreadSafeWeakPtr { *this }](auto&& result) {
         RefPtr self = weakThis.get();
         if (!self || !result)
             return;
@@ -286,20 +272,41 @@ bool MediaPlayerPrivateGStreamerMSE::doSeek(const SeekTarget& target, float rate
             m_mediaSourcePrivate->seekToTime(*result);
 
         auto player = m_player.get();
-        if (player && !player->isVideoPlayer() && m_audioSink) {
-            gboolean audioSinkPerformsAsyncStateChanges;
-            g_object_get(m_audioSink.get(), "async", &audioSinkPerformsAsyncStateChanges, nullptr);
+        if (player && !hasVideo() && m_audioSink) {
+            gboolean audioSinkPerformsAsyncStateChanges = true;
+
+            GRefPtr<GstElement> sink = m_audioSink;
+            while (GST_IS_BIN(sink.get())) {
+                GUniquePtr<GstIterator> iter(gst_bin_iterate_sinks(GST_BIN_CAST(sink.get())));
+                GValue value = G_VALUE_INIT;
+                auto result = gst_iterator_next(iter.get(), &value);
+                ASSERT_UNUSED(result, result == GST_ITERATOR_OK);
+                sink = GST_ELEMENT(g_value_get_object(&value));
+                g_value_unset(&value);
+            }
+            if (gstObjectHasProperty(sink.get(), "async"))
+                g_object_get(sink.get(), "async", &audioSinkPerformsAsyncStateChanges, nullptr);
             if (!audioSinkPerformsAsyncStateChanges) {
                 // If audio-only pipeline's sink is not performing async state changes
                 // we must simulate preroll right away as otherwise nothing will trigger it.
-                bool mustPreventPositionReset = m_isWaitingForPreroll && m_isSeeking;
-                if (mustPreventPositionReset)
-                    m_cachedPosition = currentTime();
-                didPreroll();
-                if (mustPreventPositionReset) {
-                    propagateReadyStateToPlayer();
-                    invalidateCachedPosition();
-                }
+
+                // Post this on HTML media element queue so it will be executed
+                // synchonously with media events (e.g. seeking). This will ensure
+                // that HTML element attributes (like HTMLmedia.seeking) are not reseted
+                // before app receives "seeking" event
+                player->queueTaskOnEventLoop([this, weakThis = ThreadSafeWeakPtr { *this }] {
+                    RefPtr self = weakThis.get();
+                    if (!self)
+                        return;
+                    bool mustPreventPositionReset = m_isWaitingForPreroll && m_isSeeking;
+                    if (mustPreventPositionReset)
+                        m_cachedPosition = currentTime();
+                    didPreroll();
+                    if (mustPreventPositionReset) {
+                        propagateReadyStateToPlayer();
+                        invalidateCachedPosition();
+                    }
+                });
             }
         }
     });
@@ -407,8 +414,7 @@ void MediaPlayerPrivateGStreamerMSE::sourceSetup(GstElement* sourceElement)
     m_source = sourceElement;
 
     if (m_mediaSourcePrivate && m_mediaSourcePrivate->hasAllTracks()) {
-        m_tracks = filterOutRepeatingTracks(m_tracks);
-        webKitMediaSrcEmitStreams(WEBKIT_MEDIA_SRC(m_source.get()), m_tracks);
+        emitStreams(m_tracks);
     }
 }
 
@@ -495,8 +501,33 @@ void MediaPlayerPrivateGStreamerMSE::setInitialVideoSize(const FloatSize& videoS
 
 void MediaPlayerPrivateGStreamerMSE::startSource(const Vector<RefPtr<MediaSourceTrackGStreamer>>& tracks)
 {
-    m_tracks = filterOutRepeatingTracks(tracks);
-    webKitMediaSrcEmitStreams(WEBKIT_MEDIA_SRC(m_source.get()), m_tracks);
+    emitStreams(tracks);
+}
+
+void MediaPlayerPrivateGStreamerMSE::emitStreams(const Vector<RefPtr<MediaSourceTrackGStreamer>>& tracks)
+{
+    Vector<RefPtr<MediaSourceTrackGStreamer>> uniqueTracks;
+    Vector<RefPtr<MediaSourceTrackGStreamer>> playbackTracks;
+
+    uniqueTracks.reserveInitialCapacity(tracks.size());
+    playbackTracks.reserveInitialCapacity(tracks.size());
+
+    for (const auto& track : tracks) {
+        if (!uniqueTracks.containsIf([&track](const auto& current) { return track->id() == current->id(); })) {
+            uniqueTracks.append(track);
+
+            if (track->type() != TrackPrivateBaseGStreamer::Text)
+                playbackTracks.append(track);
+            else
+                GST_DEBUG("Ignoring text track with id %" PRIu64, track->id());
+        }
+    }
+
+    uniqueTracks.shrinkToFit();
+    playbackTracks.shrinkToFit();
+
+    m_tracks = uniqueTracks;
+    webKitMediaSrcEmitStreams(WEBKIT_MEDIA_SRC(m_source.get()), playbackTracks);
 }
 
 void MediaPlayerPrivateGStreamerMSE::setEosWithNoBuffers(bool eosWithNoBuffers)
@@ -552,7 +583,7 @@ MediaPlayer::SupportsType MediaPlayerPrivateGStreamerMSE::supportsType(const Med
 
 MediaTime MediaPlayerPrivateGStreamerMSE::maxTimeSeekable() const
 {
-    if (UNLIKELY(m_didErrorOccur))
+    if (m_didErrorOccur) [[unlikely]]
         return MediaTime::zeroTime();
 
     GST_DEBUG("maxTimeSeekable");

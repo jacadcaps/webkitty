@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -116,8 +116,8 @@ private:
     WeakPtr<WebPageProxy> m_page;
     const WebCore::PageIdentifier m_webPageID;
     const Ref<WebProcessProxy> m_process;
-    Ref<WebFrameProxy> m_mainFrame;
-    Ref<BrowsingContextGroup> m_browsingContextGroup;
+    const Ref<WebFrameProxy> m_mainFrame;
+    const Ref<BrowsingContextGroup> m_browsingContextGroup;
     WebPageProxyMessageReceiverRegistration m_messageReceiverRegistration;
     bool m_isClosed { false };
     ShouldDelayClosingUntilFirstLayerFlush m_shouldDelayClosingUntilFirstLayerFlush { ShouldDelayClosingUntilFirstLayerFlush::No };

@@ -33,8 +33,11 @@ using namespace WebCore;
 
 struct VideoFrameMetadataPrivate {
     std::optional<VideoFrameTimeMetadata> videoSampleMetadata;
+    VideoFrame::Rotation rotation { VideoFrame::Rotation::None };
+    bool isMirrored { false };
+    VideoFrameContentHint contentHint { VideoFrameContentHint::None };
     Lock lock;
-    UncheckedKeyHashMap<GstElement*, std::pair<GstClockTime, GstClockTime>> processingTimes WTF_GUARDED_BY_LOCK(lock);
+    HashMap<GstElement*, std::pair<GstClockTime, GstClockTime>> processingTimes WTF_GUARDED_BY_LOCK(lock);
 };
 
 WEBKIT_DEFINE_ASYNC_DATA_STRUCT(VideoFrameMetadataPrivate);
@@ -61,14 +64,17 @@ GType videoFrameMetadataAPIGetType()
 
 const GstMetaInfo* videoFrameMetadataGetInfo();
 
-std::pair<GstBuffer*, VideoFrameMetadataGStreamer*> ensureVideoFrameMetadata(GstBuffer* buffer)
+static std::pair<GRefPtr<GstBuffer>, VideoFrameMetadataGStreamer*> ensureVideoFrameMetadata(GRefPtr<GstBuffer>&& buffer)
 {
-    auto* meta = getInternalVideoFrameMetadata(buffer);
+    auto* meta = getInternalVideoFrameMetadata(buffer.get());
     if (meta)
-        return { buffer, meta };
+        return { WTFMove(buffer), meta };
 
-    buffer = gst_buffer_make_writable(buffer);
-    return { buffer, VIDEO_FRAME_METADATA_CAST(gst_buffer_add_meta(buffer, videoFrameMetadataGetInfo(), nullptr)) };
+    IGNORE_WARNINGS_BEGIN("cast-align");
+    auto modifiedBuffer = adoptGRef(gst_buffer_make_writable(buffer.leakRef()));
+    IGNORE_WARNINGS_END;
+    meta = VIDEO_FRAME_METADATA_CAST(gst_buffer_add_meta(modifiedBuffer.get(), videoFrameMetadataGetInfo(), nullptr));
+    return { WTFMove(modifiedBuffer), meta };
 }
 
 const GstMetaInfo* videoFrameMetadataGetInfo()
@@ -90,9 +96,12 @@ const GstMetaInfo* videoFrameMetadataGetInfo()
                 if (!GST_META_TRANSFORM_IS_COPY(type))
                     return FALSE;
 
-                auto* frameMeta = VIDEO_FRAME_METADATA_CAST(meta);
-                auto [buf, copyMeta] = ensureVideoFrameMetadata(buffer);
+                auto frameMeta = VIDEO_FRAME_METADATA_CAST(meta);
+                auto copyMeta = VIDEO_FRAME_METADATA_CAST(gst_buffer_add_meta(buffer, videoFrameMetadataGetInfo(), nullptr));
                 copyMeta->priv->videoSampleMetadata = frameMeta->priv->videoSampleMetadata;
+                copyMeta->priv->rotation = frameMeta->priv->rotation;
+                copyMeta->priv->isMirrored = frameMeta->priv->isMirrored;
+                copyMeta->priv->contentHint = frameMeta->priv->contentHint;
 
                 Locker frameMetaLocker { frameMeta->priv->lock };
                 Locker copyMetaLocker { copyMeta->priv->lock };
@@ -103,17 +112,39 @@ const GstMetaInfo* videoFrameMetadataGetInfo()
     return metaInfo;
 }
 
-GRefPtr<GstBuffer> webkitGstBufferSetVideoFrameTimeMetadata(GRefPtr<GstBuffer>&& buffer, std::optional<WebCore::VideoFrameTimeMetadata>&& metadata)
+// NOTE: The buffer here cannot be a const GRefPtr<>&, that would mean its refcount would be greater
+// than 1, hence it wouldn't be writable.
+void webkitGstBufferAddVideoFrameMetadata(GstBuffer* buffer, std::optional<WebCore::VideoFrameTimeMetadata> metadata, VideoFrame::Rotation rotation, bool isMirrored, VideoFrameContentHint hint)
 {
-    auto modifiedBuffer = adoptGRef(gst_buffer_make_writable(buffer.leakRef()));
-    auto meta = getInternalVideoFrameMetadata(modifiedBuffer.get());
-    if (meta) {
-        meta->priv->videoSampleMetadata = WTFMove(metadata);
-        return modifiedBuffer;
+    if (!gst_buffer_is_writable(buffer)) {
+        GST_ERROR("Unable to add video frame metadata on read-only buffer");
+        RELEASE_ASSERT_WITH_MESSAGE(gst_buffer_is_writable(buffer), "Unable to add video frame metadata on read-only buffer");
+        return;
     }
 
-    meta = VIDEO_FRAME_METADATA_CAST(gst_buffer_add_meta(modifiedBuffer.get(), videoFrameMetadataGetInfo(), nullptr));
-    meta->priv->videoSampleMetadata = WTFMove(metadata);
+    auto meta = getInternalVideoFrameMetadata(buffer);
+    if (meta) {
+        if (metadata)
+            meta->priv->videoSampleMetadata = WTFMove(metadata);
+        meta->priv->rotation = rotation;
+        meta->priv->isMirrored = isMirrored;
+        meta->priv->contentHint = hint;
+        return;
+    }
+
+    meta = VIDEO_FRAME_METADATA_CAST(gst_buffer_add_meta(buffer, videoFrameMetadataGetInfo(), nullptr));
+    meta->priv->videoSampleMetadata = metadata;
+    meta->priv->rotation = rotation;
+    meta->priv->isMirrored = isMirrored;
+    meta->priv->contentHint = hint;
+}
+
+GRefPtr<GstBuffer> webkitGstBufferSetVideoFrameMetadata(GRefPtr<GstBuffer>&& buffer, std::optional<WebCore::VideoFrameTimeMetadata> metadata, VideoFrame::Rotation rotation, bool isMirrored, VideoFrameContentHint hint)
+{
+    IGNORE_WARNINGS_BEGIN("cast-align");
+    auto modifiedBuffer = adoptGRef(gst_buffer_make_writable(buffer.leakRef()));
+    IGNORE_WARNINGS_END;
+    webkitGstBufferAddVideoFrameMetadata(modifiedBuffer.get(), metadata, rotation, isMirrored, hint);
     return modifiedBuffer;
 }
 
@@ -137,8 +168,8 @@ void webkitGstTraceProcessingTimeForElement(GstElement* element)
     static auto probeType = static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_PUSH | GST_PAD_PROBE_TYPE_BUFFER);
 
     gst_pad_add_probe(sinkPad.get(), probeType, [](GstPad*, GstPadProbeInfo* info, gpointer userData) -> GstPadProbeReturn {
-        auto [modifiedBuffer, meta] = ensureVideoFrameMetadata(GST_PAD_PROBE_INFO_BUFFER(info));
-        GST_PAD_PROBE_INFO_DATA(info) = modifiedBuffer;
+        auto [modifiedBuffer, meta] = ensureVideoFrameMetadata(GRefPtr(GST_PAD_PROBE_INFO_BUFFER(info)));
+        gst_pad_probe_info_set_buffer(info, modifiedBuffer.leakRef());
         Locker locker { meta->priv->lock };
         meta->priv->processingTimes.set(GST_ELEMENT_CAST(userData), std::make_pair(gst_util_get_timestamp(), GST_CLOCK_TIME_NONE));
         return GST_PAD_PROBE_OK;
@@ -189,6 +220,28 @@ VideoFrameMetadata webkitGstBufferGetVideoFrameMetadata(GstBuffer* buffer)
 
     videoFrameMetadata.rtpTimestamp = videoSampleMetadata->rtpTimestamp;
     return videoFrameMetadata;
+}
+
+std::pair<VideoFrame::Rotation, bool> webkitGstBufferGetVideoRotation(GstBuffer* buffer)
+{
+    if (!GST_IS_BUFFER(buffer))
+        return { VideoFrame::Rotation::None, false };
+
+    if (auto meta = getInternalVideoFrameMetadata(buffer))
+        return { meta->priv->rotation, meta->priv->isMirrored };
+
+    return { VideoFrame::Rotation::None, false };
+}
+
+VideoFrameContentHint webkitGstBufferGetContentHint(GstBuffer* buffer)
+{
+    if (!GST_IS_BUFFER(buffer))
+        return VideoFrameContentHint::None;
+
+    if (auto meta = getInternalVideoFrameMetadata(buffer))
+        return meta->priv->contentHint;
+
+    return VideoFrameContentHint::None;
 }
 
 #undef GST_CAT_DEFAULT

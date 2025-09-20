@@ -227,8 +227,11 @@ static NSNumber *_currentBadge;
 {
     _settingsController = [[SettingsController alloc] initWithMenu:_settingsMenu];
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
     if ([_settingsController usesGameControllerFramework])
         [WKProcessPool _forceGameControllerFramework];
+#pragma clang diagnostic pop
 
     if ([NSApp respondsToSelector:@selector(setAutomaticCustomizeTouchBarMenuItemEnabled:)])
         [NSApp setAutomaticCustomizeTouchBarMenuItemEnabled:YES];
@@ -251,11 +254,14 @@ static NSNumber *_currentBadge;
         configuration = [[WKWebViewConfiguration alloc] init];
         configuration.websiteDataStore = [self persistentDataStore];
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
         _WKProcessPoolConfiguration *processConfiguration = [[_WKProcessPoolConfiguration alloc] init];
         if (_settingsController.perWindowWebProcessesDisabled)
             processConfiguration.usesSingleWebProcess = YES;
-        
+
         configuration.processPool = [[WKProcessPool alloc] _initWithConfiguration:processConfiguration];
+#pragma clang diagnostic pop
 
         NSArray<_WKFeature *> *features = [WKPreferences _features];
         for (_WKFeature *feature in features) {
@@ -280,6 +286,7 @@ static NSNumber *_currentBadge;
     configuration.websiteDataStore._resourceLoadStatisticsEnabled = _settingsController.resourceLoadStatisticsEnabled;
     configuration._attachmentElementEnabled = _settingsController.attachmentElementEnabled != AttachmentElementEnabledStateDisabled ? YES : NO;
     configuration._attachmentWideLayoutEnabled = _settingsController.attachmentElementEnabled == AttachmentElementEnabledStateWideLayoutEnabled ? YES : NO;
+    configuration._allowUniversalAccessFromFileURLs = _settingsController.allowUniversalAccessFromFileURLs;
 
     return configuration;
 }

@@ -108,6 +108,7 @@ private:
 #endif
 
     void prepareForDisplay(uint32_t frameIndex, CompletionHandler<void(bool)>&&);
+    void updateContentsHeadroom(float);
 
     Ref<WebCore::WebGPU::CompositorIntegration> m_backing;
     WeakRef<WebGPU::ObjectHeap> m_objectHeap;

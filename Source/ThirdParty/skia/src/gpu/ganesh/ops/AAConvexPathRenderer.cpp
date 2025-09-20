@@ -14,7 +14,6 @@
 #include "include/core/SkString.h"
 #include "include/core/SkTypes.h"
 #include "include/gpu/ganesh/GrRecordingContext.h"
-#include "include/private/SkColorData.h"
 #include "include/private/base/SkDebug.h"
 #include "include/private/base/SkFloatingPoint.h"
 #include "include/private/base/SkMath.h"
@@ -23,6 +22,7 @@
 #include "include/private/gpu/ganesh/GrTypesPriv.h"
 #include "src/base/SkArenaAlloc.h"
 #include "src/base/SkTLazy.h"
+#include "src/core/SkColorData.h"
 #include "src/core/SkGeometry.h"
 #include "src/core/SkMatrixPriv.h"
 #include "src/core/SkPathEnums.h"
@@ -350,12 +350,12 @@ bool get_segments(const SkPath& path,
         SkPath::Verb verb = iter.next(pts);
         switch (verb) {
             case SkPath::kMove_Verb:
-                m.mapPoints(pts, 1);
+                m.mapPoints({pts, 1});
                 update_degenerate_test(&degenerateData, pts[0]);
                 break;
             case SkPath::kLine_Verb: {
                 if (!SkPathPriv::AllPointsEq(pts, 2)) {
-                    m.mapPoints(&pts[1], 1);
+                    m.mapPoints({&pts[1], 1});
                     update_degenerate_test(&degenerateData, pts[1]);
                     add_line_to_segment(pts[1], segments);
                 }
@@ -363,7 +363,7 @@ bool get_segments(const SkPath& path,
             }
             case SkPath::kQuad_Verb:
                 if (!SkPathPriv::AllPointsEq(pts, 3)) {
-                    m.mapPoints(pts, 3);
+                    m.mapPoints({pts, 3});
                     update_degenerate_test(&degenerateData, pts[1]);
                     update_degenerate_test(&degenerateData, pts[2]);
                     add_quad_segment(pts, segments);
@@ -371,7 +371,7 @@ bool get_segments(const SkPath& path,
                 break;
             case SkPath::kConic_Verb: {
                 if (!SkPathPriv::AllPointsEq(pts, 3)) {
-                    m.mapPoints(pts, 3);
+                    m.mapPoints({pts, 3});
                     SkScalar weight = iter.conicWeight();
                     SkAutoConicToQuads converter;
                     const SkPoint* quadPts = converter.computeQuads(pts, weight, 0.25f);
@@ -385,7 +385,7 @@ bool get_segments(const SkPath& path,
             }
             case SkPath::kCubic_Verb: {
                 if (!SkPathPriv::AllPointsEq(pts, 4)) {
-                    m.mapPoints(pts, 4);
+                    m.mapPoints({pts, 4});
                     update_degenerate_test(&degenerateData, pts[1]);
                     update_degenerate_test(&degenerateData, pts[2]);
                     update_degenerate_test(&degenerateData, pts[3]);

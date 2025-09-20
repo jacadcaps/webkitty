@@ -31,7 +31,7 @@
 #include "CSSCounterStyleRegistry.h"
 #include "CSSFontSelector.h"
 #include "CSSStyleSheet.h"
-#include "CustomPropertyRegistry.h"
+#include "ContainerNodeInlines.h"
 #include "DocumentInlines.h"
 #include "Element.h"
 #include "ElementAncestorIteratorInlines.h"
@@ -45,9 +45,11 @@
 #include "HTMLStyleElement.h"
 #include "InspectorInstrumentation.h"
 #include "Logging.h"
+#include "MatchResultCache.h"
 #include "ProcessingInstruction.h"
 #include "RenderBoxInlines.h"
 #include "RenderLayer.h"
+#include "RenderObjectInlines.h"
 #include "RenderView.h"
 #include "RuleSet.h"
 #include "SVGElementTypeHelpers.h"
@@ -55,6 +57,7 @@
 #include "Settings.h"
 #include "ShadowRoot.h"
 #include "StyleBuilder.h"
+#include "StyleCustomPropertyRegistry.h"
 #include "StyleInvalidator.h"
 #include "StyleResolver.h"
 #include "StyleSheetContents.h"
@@ -108,6 +111,11 @@ Resolver& Scope::resolver()
             m_usesHasPseudoClass = true;
     }
     return *m_resolver;
+}
+
+Ref<Resolver> Scope::protectedResolver()
+{
+    return resolver();
 }
 
 void Scope::createDocumentResolver()
@@ -211,7 +219,7 @@ void Scope::releaseMemory()
     clearResolver();
 
     m_sharedShadowTreeResolvers.clear();
-    m_cachedMatchResults.clear();
+    m_matchResultCache = { };
 }
 
 Scope& Scope::forNode(Node& node)
@@ -242,6 +250,11 @@ Scope* Scope::forOrdinal(Element& element, ScopeOrdinal ordinal)
     }
     auto* slot = assignedSlotForScopeOrdinal(element, ordinal);
     return slot ? &forNode(*slot) : nullptr;
+}
+
+const Scope* Scope::forOrdinal(const Element& element, ScopeOrdinal ordinal)
+{
+    return forOrdinal(const_cast<Element&>(element), ordinal);
 }
 
 void Scope::setPreferredStylesheetSetName(const String& name)
@@ -613,7 +626,7 @@ void Scope::invalidateStyleAfterStyleSheetChange(const StyleSheetChange& styleSh
     invalidator.invalidateStyle(*this);
 }
 
-void Scope::updateResolver(Vector<RefPtr<CSSStyleSheet>>& activeStyleSheets, ResolverUpdateType updateType)
+void Scope::updateResolver(std::span<const RefPtr<CSSStyleSheet>> activeStyleSheets, ResolverUpdateType updateType)
 {
     if (updateType == ResolverUpdateType::Reconstruct) {
         clearResolver();
@@ -636,10 +649,8 @@ void Scope::updateResolver(Vector<RefPtr<CSSStyleSheet>>& activeStyleSheets, Res
     ASSERT(updateType == ResolverUpdateType::Additive);
     ASSERT(activeStyleSheets.size() >= m_activeStyleSheets.size());
 
-    unsigned firstNewIndex = m_activeStyleSheets.size();
-    Vector<RefPtr<CSSStyleSheet>> newStyleSheets;
-    newStyleSheets.append(activeStyleSheets.subspan(firstNewIndex));
-    m_resolver->appendAuthorStyleSheets(newStyleSheets);
+    auto firstNewIndex = m_activeStyleSheets.size();
+    m_resolver->appendAuthorStyleSheets(activeStyleSheets.subspan(firstNewIndex));
 }
 
 const Vector<RefPtr<CSSStyleSheet>> Scope::activeStyleSheetsForInspector()
@@ -728,7 +739,7 @@ void Scope::scheduleUpdate(UpdateType update)
         if (!m_isUpdatingStyleResolver && !m_document->isResolvingTreeStyle())
             clearResolver();
 
-        m_cachedMatchResults.clear();
+        m_matchResultCache = { };
     }
 
     if (!m_pendingUpdate || *m_pendingUpdate < update) {
@@ -780,19 +791,16 @@ auto Scope::collectResolverScopes() -> ResolverScopes
 {
     ASSERT(!m_shadowRoot);
 
-    if (!resolverIfExists())
-        return { };
-
     ResolverScopes resolverScopes;
 
-    resolverScopes.add(*resolverIfExists(), Vector<WeakPtr<Scope>> { this });
+    if (auto* resolver = resolverIfExists())
+        resolverScopes.add(*resolver, Vector<WeakPtr<Scope>> { this });
 
     for (auto& shadowRoot : m_document->inDocumentShadowRoots()) {
         auto& scope = const_cast<ShadowRoot&>(shadowRoot).styleScope();
-        auto* resolver = scope.resolverIfExists();
-        if (!resolver)
-            continue;
-        resolverScopes.add(*resolver, Vector<WeakPtr<Scope>> { }).iterator->value.append(&scope);
+
+        if (auto* resolver = scope.resolverIfExists())
+            resolverScopes.add(*resolver, Vector<WeakPtr<Scope>> { }).iterator->value.append(&scope);
     }
     return resolverScopes;
 }
@@ -842,13 +850,12 @@ void Scope::didChangeStyleSheetEnvironment()
     if (!m_shadowRoot) {
         m_sharedShadowTreeResolvers.clear();
 
-        for (auto& descendantShadowRoot : m_document->inDocumentShadowRoots()) {
-            // Stylesheets is author shadow roots are potentially affected.
-            if (descendantShadowRoot.mode() != ShadowRootMode::UserAgent)
-                const_cast<ShadowRoot&>(descendantShadowRoot).styleScope().scheduleUpdate(UpdateType::ContentsOrInterpretation);
-        }
+        for (auto& descendantShadowRoot : m_document->inDocumentShadowRoots())
+            const_cast<ShadowRoot&>(descendantShadowRoot).styleScope().scheduleUpdate(UpdateType::ContentsOrInterpretation);
+
         m_document->invalidateCachedCSSParserContext();
     }
+
     scheduleUpdate(UpdateType::ContentsOrInterpretation);
 }
 
@@ -988,23 +995,34 @@ bool Scope::invalidateForAnchorDependencies(LayoutDependencyUpdateContext& conte
     if (!m_document->renderView())
         return false;
 
-    auto previousAnchorRects = WTFMove(m_anchorRectsOnLastUpdate);
-    m_anchorRectsOnLastUpdate.clear();
+    auto previousAnchorPositions = WTFMove(m_anchorPositionsOnLastUpdate);
+    m_anchorPositionsOnLastUpdate.clear();
 
     Vector<CheckedRef<Element>> anchoredElementsToInvalidate;
 
     if (m_document->renderView()->anchors().isEmptyIgnoringNullReferences())
         return false;
 
-    auto anchorMap = AnchorPositionEvaluator::makeAnchorPositionedForAnchorMap(m_document);
+    auto anchorMap = AnchorPositionEvaluator::makeAnchorPositionedForAnchorMap(m_anchorPositionedToAnchorMap);
+
+    auto makeAnchorPosition = [&](const RenderBoxModelObject& anchorRenderer) {
+        AnchorPosition result;
+        result.absoluteRect = anchorRenderer.absoluteBoundingBoxRect();
+        // Include containing block sizes as anchor function insets may be computed against any side and if they change
+        // we need to invalidate.
+        for (auto* containingBlock = anchorRenderer.containingBlock(); containingBlock; containingBlock = containingBlock->containingBlock()) {
+            if (containingBlock->canContainAbsolutelyPositionedObjects())
+                result.containingBlockSizes.append(containingBlock->contentBoxSize());
+        }
+        return result;
+    };
 
     for (auto& anchorRenderer : m_document->renderView()->anchors()) {
-        auto rect = anchorRenderer.absoluteBoundingBoxRect();
+        auto anchorPosition = makeAnchorPosition(anchorRenderer);
+        m_anchorPositionsOnLastUpdate.add(anchorRenderer, anchorPosition);
 
-        m_anchorRectsOnLastUpdate.add(anchorRenderer, rect);
-
-        auto it = previousAnchorRects.find(anchorRenderer);
-        bool changed = it == previousAnchorRects.end() || it->value != rect;
+        auto it = previousAnchorPositions.find(anchorRenderer);
+        bool changed = it == previousAnchorPositions.end() || it->value != anchorPosition;
         if (!changed)
             continue;
 
@@ -1023,8 +1041,7 @@ bool Scope::invalidateForAnchorDependencies(LayoutDependencyUpdateContext& conte
         CheckedPtr renderer = toInvalidate->renderer();
         if (renderer && AnchorPositionEvaluator::isLayoutTimeAnchorPositioned(renderer->style()))
             renderer->setNeedsLayout();
-        else
-            toInvalidate->invalidateForAnchorRectChange();
+        toInvalidate->invalidateForAnchorRectChange();
     }
 
     return !anchoredElementsToInvalidate.isEmpty();
@@ -1040,7 +1057,7 @@ bool Scope::invalidateForPositionTryFallbacks(LayoutDependencyUpdateContext& con
     bool invalidated = false;
 
     for (auto& box : m_document->renderView()->positionTryBoxes()) {
-        if (!AnchorPositionEvaluator::overflowsContainingBlock(box))
+        if (!AnchorPositionEvaluator::overflowsInsetModifiedContainingBlock(box))
             continue;
 
         CheckedPtr element = box.element();
@@ -1058,45 +1075,13 @@ bool Scope::invalidateForPositionTryFallbacks(LayoutDependencyUpdateContext& con
     return invalidated;
 }
 
-const MatchResult* Scope::cachedMatchResult(const Element& element)
+MatchResultCache& Scope::matchResultCache()
 {
-    auto it = m_cachedMatchResults.find(element);
-    if (it == m_cachedMatchResults.end())
-        return { };
+    ASSERT(!m_shadowRoot);
 
-    auto& matchResult = *it->value;
-
-    auto inlineStyleMatches = [&] {
-        auto* styledElement = dynamicDowncast<StyledElement>(element);
-        if (!styledElement || !styledElement->inlineStyle())
-            return false;
-
-        auto& inlineStyle = *styledElement->inlineStyle();
-
-        for (auto& declaration : matchResult.authorDeclarations) {
-            if (&declaration.properties.get() == &inlineStyle)
-                return true;
-        }
-        return false;
-    }();
-
-    if (!inlineStyleMatches) {
-        m_cachedMatchResults.remove(it);
-        return { };
-    }
-
-    return &matchResult;
-}
-
-void Scope::updateCachedMatchResult(const Element& element, const MatchResult& matchResult)
-{
-    // For now we cache match results if there is mutable inline style. This way we can avoid
-    // selector matching when it gets mutated again.
-    auto* styledElement = dynamicDowncast<StyledElement>(element);
-    if (styledElement && styledElement->inlineStyle() && styledElement->inlineStyle()->isMutable())
-        m_cachedMatchResults.set(element, makeUniqueRef<MatchResult>(matchResult));
-    else
-        m_cachedMatchResults.remove(element);
+    if (!m_matchResultCache)
+        m_matchResultCache = makeUnique<MatchResultCache>();
+    return *m_matchResultCache;
 }
 
 HTMLSlotElement* assignedSlotForScopeOrdinal(const Element& element, ScopeOrdinal scopeOrdinal)
@@ -1117,23 +1102,12 @@ Element* hostForScopeOrdinal(const Element& element, ScopeOrdinal scopeOrdinal)
     return host;
 }
 
-void Scope::resetAnchorPositioningStateBeforeStyleResolution()
-{
-    // FIXME: Move this transient state to TreeResolver.
-    for (auto elementAndState : m_anchorPositionedStates) {
-        elementAndState.value->anchorNames.clear();
-        elementAndState.value->stage = AnchorPositionResolutionStage::FindAnchors;
-        elementAndState.value->hasAnchorFunctions = false;
-    }
-}
-
 void Scope::updateAnchorPositioningStateAfterStyleResolution()
 {
     AnchorPositionEvaluator::updateSnapshottedScrollOffsets(m_document);
 
-    m_anchorPositionedStates.removeIf([](auto& elementAndState) {
-        // Remove if we have no anchors after initial resolution.
-        return elementAndState.value->stage != AnchorPositionResolutionStage::FindAnchors && elementAndState.value->anchorNames.isEmpty();
+    m_anchorPositionedToAnchorMap.removeIf([](auto& elementAndState) {
+        return elementAndState.value.anchors.isEmpty();
     });
 }
 

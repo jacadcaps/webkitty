@@ -85,7 +85,7 @@ void RunWithGaneshTestContexts(GrContextTestFn* testFn, ContextTypeFilterFn* fil
     for (int typeInt = 0; typeInt < skgpu::kContextTypeCount; ++typeInt) {
         skgpu::ContextType contextType = static_cast<skgpu::ContextType>(typeInt);
         // Use "native" instead of explicitly trying OpenGL and OpenGL ES. Do not use GLES on
-        // desktop since tests do not account for not fixing http://skbug.com/2809
+        // desktop since tests do not account for not fixing skbug.com/40033921
         if (contextType == skgpu::ContextType::kGL ||
             contextType == skgpu::ContextType::kGLES) {
             if (contextType != kNativeGLType) {
@@ -135,7 +135,7 @@ void RunWithGraphiteTestContexts(GraphiteTestFn* test,
         }
 
         ReporterContext ctx(reporter, SkString(skgpu::ContextTypeName(contextType)));
-        (*test)(reporter, ctxInfo.fContext, ctxInfo.fTestContext);
+        (*test)(reporter, ctxInfo.fContext, ctxInfo.fTestContext, options);
     }
 }
 

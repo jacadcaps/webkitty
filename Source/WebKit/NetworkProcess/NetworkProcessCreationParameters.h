@@ -84,7 +84,7 @@ struct NetworkProcessCreationParameters {
     HashSet<String> localhostAliasesForTesting;
     Vector<WebCore::OrganizationStorageAccessPromptQuirk> storageAccessPromptQuirksData;
 
-    Markable<double, WTF::DoubleMarkableTraits> defaultRequestTimeoutInterval;
+    Markable<double> defaultRequestTimeoutInterval;
 };
 
 } // namespace WebKit

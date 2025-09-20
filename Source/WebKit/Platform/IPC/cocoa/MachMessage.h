@@ -37,7 +37,7 @@
 namespace IPC {
 
 class MachMessage {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(MachMessage);
 public:
     static std::unique_ptr<MachMessage> create(MessageName, size_t);
     ~MachMessage();
@@ -45,9 +45,9 @@ public:
     static CheckedSize messageSize(size_t bodySize, size_t portDescriptorCount, size_t memoryDescriptorCount);
 
     size_t size() const { return m_size; }
-    mach_msg_header_t* header() { return m_messageHeader; }
+    mach_msg_header_t* header() LIFETIME_BOUND { return m_messageHeader; }
 
-    std::span<uint8_t> span() { return unsafeMakeSpan(reinterpret_cast<uint8_t*>(m_messageHeader), m_size); }
+    std::span<uint8_t> span() LIFETIME_BOUND { return unsafeMakeSpan(reinterpret_cast<uint8_t*>(m_messageHeader), m_size); }
 
     void leakDescriptors();
 

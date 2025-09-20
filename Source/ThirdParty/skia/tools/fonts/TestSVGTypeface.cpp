@@ -175,10 +175,10 @@ SkTypeface::LocalizedStrings* TestSVGTypeface::onCreateFamilyNameIterator() cons
 
 class SkTestSVGScalerContext : public SkScalerContext {
 public:
-    SkTestSVGScalerContext(sk_sp<TestSVGTypeface>        face,
+    SkTestSVGScalerContext(TestSVGTypeface& face,
                            const SkScalerContextEffects& effects,
-                           const SkDescriptor*           desc)
-            : SkScalerContext(std::move(face), effects, desc) {
+                           const SkDescriptor* desc)
+            : SkScalerContext(face, effects, desc) {
         fRec.getSingleMatrix(&fMatrix);
         SkScalar upem = this->getTestSVGTypeface()->fUpem;
         fMatrix.preScale(1.f / upem, 1.f / upem);
@@ -191,7 +191,7 @@ protected:
 
     SkVector computeAdvance(SkGlyphID glyphID) {
         auto advance = this->getTestSVGTypeface()->getAdvance(glyphID);
-        return fMatrix.mapXY(advance.fX, advance.fY);
+        return fMatrix.mapPoint(advance);
     }
 
     GlyphMetrics generateMetrics(const SkGlyph& glyph, SkArenaAlloc*) override {
@@ -288,8 +288,7 @@ private:
 std::unique_ptr<SkScalerContext> TestSVGTypeface::onCreateScalerContext(
     const SkScalerContextEffects& e, const SkDescriptor* desc) const
 {
-    return std::make_unique<SkTestSVGScalerContext>(
-            sk_ref_sp(const_cast<TestSVGTypeface*>(this)), e, desc);
+    return std::make_unique<SkTestSVGScalerContext>(*const_cast<TestSVGTypeface*>(this), e, desc);
 }
 
 class DefaultTypeface : public TestSVGTypeface {
@@ -801,7 +800,7 @@ void TestSVGTypeface::exportTtxCbdt(SkWStream* out, SkSpan<unsigned> strikeSizes
                 SkGlyphID gid = i;
                 SkScalar  advance;
                 SkRect    bounds;
-                font.getWidthsBounds(&gid, 1, &advance, &bounds, nullptr);
+                font.getWidthsBounds({&gid, 1}, {&advance, 1}, {&bounds, 1}, nullptr);
                 SkIRect ibounds = bounds.roundOut();
                 if (!SkTFitsIn<int8_t>(ibounds.fLeft) || !SkTFitsIn<int8_t>(ibounds.fTop) ||
                     !SkTFitsIn<uint8_t>(ibounds.width()) || !SkTFitsIn<uint8_t>(ibounds.height()) ||
@@ -840,7 +839,7 @@ void TestSVGTypeface::exportTtxCbdt(SkWStream* out, SkSpan<unsigned> strikeSizes
             SkGlyphID gid = i;
             SkScalar  advance;
             SkRect    bounds;
-            font.getWidthsBounds(&gid, 1, &advance, &bounds, nullptr);
+            font.getWidthsBounds({&gid, 1}, {&advance, 1}, {&bounds, 1}, nullptr);
             SkIRect ibounds = bounds.roundOut();
             if (ibounds.isEmpty()) {
                 continue;
@@ -968,8 +967,7 @@ void TestSVGTypeface::exportTtxCbdt(SkWStream* out, SkSpan<unsigned> strikeSizes
                 "lastGlyphIndex=\"1\">\n");
         for (int i = 0; i < fGlyphCount; ++i) {
             SkGlyphID gid = i;
-            SkRect    bounds;
-            font.getBounds(&gid, 1, &bounds, nullptr);
+            SkRect    bounds = font.getBounds(gid, nullptr);
             if (bounds.isEmpty()) {
                 continue;
             }
@@ -1076,7 +1074,7 @@ void TestSVGTypeface::exportTtxSbix(SkWStream* out, SkSpan<unsigned> strikeSizes
             SkGlyphID gid = i;
             SkScalar  advance;
             SkRect    bounds;
-            font.getWidthsBounds(&gid, 1, &advance, &bounds, nullptr);
+            font.getWidthsBounds({&gid, 1}, {&advance, 1}, {&bounds, 1}, nullptr);
             SkIRect ibounds = bounds.roundOut();
             if (ibounds.isEmpty()) {
                 continue;

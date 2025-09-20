@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007, 2009 Apple Inc.  All rights reserved.
+ * Copyright (C) 2007, 2009 Apple Inc. All rights reserved.
  * Copyright (C) 2007 Collabora Ltd. All rights reserved.
  * Copyright (C) 2007 Alp Toker <alp@atoker.com>
  * Copyright (C) 2009, 2010, 2016 Igalia S.L
@@ -118,6 +118,8 @@ private:
     bool isMediaSource() const override { return true; }
 
     void propagateReadyStateToPlayer();
+
+    void emitStreams(const Vector<RefPtr<MediaSourceTrackGStreamer>>&);
 
     RefPtr<MediaSourcePrivateGStreamer> m_mediaSourcePrivate;
     MediaTime m_mediaTimeDuration { MediaTime::invalidTime() };

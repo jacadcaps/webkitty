@@ -1,101 +1,106 @@
+==================
+WPE WebKit 2.49.90
+==================
+
+What's new in WPE WebKit 2.49.90?
+
+  - Add support for font collection / fragment identifiers.
+  - Add basic undo-redo support for input elements.
+  - Do not start the MemoryPressureMonitor when it is disabled.
+  - Allow using a system-wide PulseAudio daemon from the Bubblewrap sandbox.
+  - Disable the MediaSession API on Android.
+  - Fix building with USE_EXTERNAL_HOLEPUNCH enabled.
+  - Fix Web process deadlock on exit.
+  - Fix stuttering when playing WebP animations
+  - Fix CSS animations with cubic-bezier timing function.
+  - Fix several crashes and rendering issues.
+
 =================
-WPE WebKit 2.48.5
+WPE WebKit 2.49.4
 =================
 
-What's new in WPE WebKit 2.48.5?
+What's new in WPE WebKit 2.49.4?
 
-  - Fix several crashes.
-
-=================
-WPE WebKit 2.48.4
-=================
-
-What's new in WPE WebKit 2.48.4?
-
-  - Improve emoji font selection with USE_SKIA=ON.
-  - Improve playback of multimedia streams from blob URLs.
-  - Integrate with the system logging service on Android, allowing
-    configuring the overall log level and log channels using the
-    log.tag.WPEWebKit and debug.log.WPEWebKit system properties.
-  - Fall back to display-wide DMA-BUF formats when failing to get
-    the preferred formats for a given WPEToplevel.
-  - Fall back to using libdrm to detect device nodes to use in the
-    WPEPlatform headless and Wayland backends.
-  - Fix WebGL initialization when using WPEPlatform in some setups
-    i.e. Mali GPUs with the proprietary driver.
-  - Fix the build with USE_SKIA_OPENTYPE_SVG=ON and
-    USE_SYSPROF_CAPTURE=ON.
+  - Enable the font-variant-emoji CSS property by default.
+  - Improve emoji font selection.
+  - Add SVT-AV1 encoder support to media backend.
+  - Support selection drag, which allows e.g. to click and drag to select text
+    with the cursor.
+  - Support logging using the logd service on Android, and allow configuring
+    log channels using the debug.log.WPEWebKit and log.tag.WPEWebKit system
+    properties.
+  - Add support in the WPEPlatform Wayland backend to request server-side
+    decorations from compositors that support the XDG Decoration protocol.
+  - Show device scale factor in webkit://gpu.
+  - Add handling in the WPEPlatform Wayland backend to provide frame timing
+    information using the Presentation Time protocol as Sysprof marks.
+  - Fix font rendering of composed characters with certain fonts.
+  - Fix handling of font synthesis properties (bold/italic).
+  - Fix the documentation for WebKitDeviceInfoPermissionRequest.
   - Fix the build on LoongArch with USE_SKIA=ON.
   - Fix several crashes and rendering issues.
 
 =================
-WPE WebKit 2.48.3
+WPE WebKit 2.49.3
 =================
 
-What's new in WPE WebKit 2.48.3?
+What's new in WPE WebKit 2.49.3?
 
-  - Fix a crash introduced by the new threaded rendering implementation using Skia API.
-  - Improve rendering performance by recording layers once and replaying every dirty
-    region in different worker threads.
-  - Fix a crash when setting WEBKIT_SKIA_GPU_PAINTING_THREADS=0.
-  - Fix a reference cycle in webkitmediastreamsrc preventing its disposal.
+  - Add new API to get the theme color of a WebKitWebView.
+  - Add new WPEPlatform API to allow providing rendering synchronization information.
+  - Add support for gamepad analog button events.
+  - Notify automation session on abnormal disconnections.
+  - Fix a crash by ensuring SkiaRecordingResult is destroyed on the main thread.
+  - Fix the build on s390x.
+  - Fix the build with USE_EXTERNAL_HOLEPUNCH=ON.
+  - Fix the build with USE_LIBWEBRTC=ON.
+  - Fix several crashes and rendering issues.
 
 =================
-WPE WebKit 2.48.2
+WPE WebKit 2.49.2
 =================
 
-What's new in WPE WebKit 2.48.2?
+What's new in WPE WebKit 2.49.2?
 
-  - Enable CSS Overscroll Behavior by default.
-  - Change threaded rendering implementation to use Skia API instead of
-    WebCore display lists that were not thread safe.
-  - Fix rendering when device scale factor change comes before the web view
-    geometry update.
-  - Fix network process crash on exit.
+  - Pass available input devices from UI process to web process for
+    Interaction Media Features.
+  - Always have a fallback when domain does not have known base.
+  - Add gamepad support to the WPEPlatform API.
+  - Add clipboard support to the WPEPlatform API.
+  - Add support for Interaction Media Features when using the
+    WPEPlatform API.
+  - Add support to allow applications to handle toplevels when using
+    the WPEPlatform API.
+  - The MiniBrowser now defaults to using the WPEPlatform API.
+  - Add support to build for Android, passing -DANDROID to CMake.
+  - Fix WPE_SETTINGS_DARK_MODE not enabling dark mode when using the
+    WPEPlatform API.
+  - Fix URL after HSTS upgrade in case of redirection.
+  - Fix rendering when device scale factor change comes before the
+    web view geometry update.
+  - Fix the build with ENABLE_GAMEPAD=OFF.
   - Fix the build with ENABLE_RESOURCE_USAGE=OFF.
+  - Fix a crash when setting WEBKIT_SKIA_GPU_PAINTING_THREADS=0.
   - Fix several crashes and rendering issues.
 
 =================
-WPE WebKit 2.48.1
+WPE WebKit 2.49.1
 =================
 
-What's new in WPE WebKit 2.48.1?
+What's new in WPE WebKit 2.49.1?
 
-  - Limit the data stored in session state.
-  - Remove the empty area below the title bar in Web Inspector when not docked.
-  - Improve the robustness of WebAudio and WebCodecs multimedia support.
-  - Fix the build with GST_DISABLE_GST_DEBUG.
-  - Fix the build with GStreamer versions older than 1.20.
-  - Fix the build with libc++ version 19 or newer.
-  - Fix the build with video support disabled (ENABLE_VIDEO=OFF).
-  - Fix the build with Clang 20.
-
-=================
-WPE WebKit 2.48.0
-=================
-
-What's new in WPE WebKit 2.48.0?
-
-  - Fix YouTube playback by using a different User-Agent quirk.
-  - Avoid adding redundant tracks to MediaPlayer.
-  - Propagate the font's computed locale to HarfBuzz.
-  - Fix missing default values for the key repeat delay, key repeat interval,
-    and drag threshold in WPESettings.
-  - Fix missing registration for the DRM scale setting in WPESettings.
-  - Fix the build on non-Linux platforms.
+  - Change threaded rendering implementation to use Skia API instead of WebCore display
+    list that is not thread safe. This also allowed to improve performance by recording
+    layers once and replaying every dirty region in different worker threads.
+  - Added hybrid rendering mode that tries to use the GPU worker threads, but if they
+    are all busy the CPU worker threads are used if possible.
+  - Add volume locking support to media player.
+  - Add support for tracing counters with Sysprof.
+  - Add a default accessibility implementation using ATK to WPEPlatform.
+  - Add new API in WPEPlatform that allows attaching user data to WPEEvent.
+  - Add new API in WPEPlatform to get/set the input purpose and hints for
+    the current input through WPEInputMethodContext.
   - Fix several crashes and rendering issues.
-
-==================
-WPE WebKit 2.47.90
-==================
-
-What's new in WPE WebKit 2.47.90?
-
-  - Ensure that the WebKitCookieManager APIs keep the cookie cache updated.
-  - Use two GPU rendering threads if the system has more than four CPU cores.
-  - Fix web view contents not rendered in some cases.
-  - Fix invalid DPI-aware font size conversion.
-  - Reduce memory copies when rendering DMA-BUF video frames.
 
 =================
 WPE WebKit 2.47.4

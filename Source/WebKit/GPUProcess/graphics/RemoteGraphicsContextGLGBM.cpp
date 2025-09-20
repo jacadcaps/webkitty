@@ -28,8 +28,6 @@
 #include "RemoteGraphicsContextGL.h"
 
 #if ENABLE(GPU_PROCESS) && ENABLE(WEBGL) && USE(COORDINATED_GRAPHICS) && USE(GBM)
-#include <WebCore/GLFence.h>
-#include <epoxy/gl.h>
 
 namespace WebKit {
 
@@ -55,13 +53,12 @@ void RemoteGraphicsContextGLGBM::platformWorkQueueInitialize(WebCore::GraphicsCo
 void RemoteGraphicsContextGLGBM::prepareForDisplay(CompletionHandler<void(uint64_t, std::optional<WebCore::DMABufBuffer::Attributes>&&, UnixFileDescriptor&&)>&& completionHandler)
 {
     assertIsCurrent(workQueue());
-    std::unique_ptr<WebCore::GLFence> fence;
-    m_context->prepareForDisplayWithFinishedSignal([&fence] {
-        fence = WebCore::GLFence::createExportable();
-        if (fence)
-            return;
 
-        fence = WebCore::GLFence::create();
+    UnixFileDescriptor fenceFD;
+    m_context->prepareForDisplayWithFinishedSignal([this, &fenceFD] {
+        fenceFD = m_context->createExportedFence();
+        if (!fenceFD)
+            m_context->flush();
     });
 
     auto* buffer = m_context->displayBuffer();
@@ -69,14 +66,6 @@ void RemoteGraphicsContextGLGBM::prepareForDisplay(CompletionHandler<void(uint64
         completionHandler(0, std::nullopt, { });
         return;
     }
-
-    UnixFileDescriptor fenceFD;
-    if (fence) {
-        fenceFD = fence->exportFD();
-        if (!fenceFD)
-            fence->clientWait();
-    } else
-        glFlush();
 
     completionHandler(buffer->id(), buffer->takeAttributes(), WTFMove(fenceFD));
 }

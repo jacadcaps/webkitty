@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -95,7 +95,7 @@ struct RegistrableDomainsToDeleteOrRestrictWebsiteDataFor {
 };
 
 class WebResourceLoadStatisticsStore final : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<WebResourceLoadStatisticsStore, WTF::DestructionThread::Main>, public CanMakeThreadSafeCheckedPtr<WebResourceLoadStatisticsStore> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(WebResourceLoadStatisticsStore);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WebResourceLoadStatisticsStore);
 public:
     using ResourceLoadStatistics = WebCore::ResourceLoadStatistics;
@@ -140,7 +140,7 @@ public:
     void removeDataForDomain(const RegistrableDomain, CompletionHandler<void()>&&);
     void deleteAndRestrictWebsiteDataForRegistrableDomains(OptionSet<WebsiteDataType>, RegistrableDomainsToDeleteOrRestrictWebsiteDataFor&&, CompletionHandler<void(HashSet<RegistrableDomain>&&)>&&);
     void registrableDomains(CompletionHandler<void(Vector<RegistrableDomain>&&)>&&);
-    void registrableDomainsWithLastAccessedTime(CompletionHandler<void(std::optional<HashMap<RegistrableDomain, WallTime>>)>&&);
+    void registrableDomainsWithLastAccessedTime(CompletionHandler<void(std::optional<HashMap<RegistrableDomain, WallTime>>&&)>&&);
     void registrableDomainsExemptFromWebsiteDataDeletion(CompletionHandler<void(HashSet<RegistrableDomain>&&)>&&);
     void registrableDomainsWithWebsiteData(OptionSet<WebsiteDataType>, CompletionHandler<void(HashSet<RegistrableDomain>&&)>&&);
     StorageAccessWasGranted grantStorageAccessInStorageSession(const SubFrameDomain&, const TopFrameDomain&, std::optional<WebCore::FrameIdentifier>, WebCore::PageIdentifier, StorageAccessScope);
@@ -229,10 +229,12 @@ public:
     void clearFrameLoadRecordsForStorageAccess(WebCore::FrameIdentifier);
     void clearFrameLoadRecordsForStorageAccess(WebPageProxyIdentifier);
 
+    void setStorageAccessPermissionForTesting(bool, RegistrableDomain&& topFrameDomain, RegistrableDomain&& subFrameDomain, CompletionHandler<void()>&&);
+
 private:
     explicit WebResourceLoadStatisticsStore(NetworkSession&, const String&, ShouldIncludeLocalhost, WebCore::ResourceLoadStatistics::IsEphemeral);
 
-    void postTask(WTF::Function<void()>&&);
+    void postTask(WTF::Function<void(WebResourceLoadStatisticsStore&)>&&);
     static void postTaskReply(WTF::Function<void()>&&);
 
     void performDailyTasks();

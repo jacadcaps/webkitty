@@ -28,6 +28,7 @@
 
 #include "EventDispatcherMessages.h"
 #include "MomentumEventDispatcher.h"
+#include "RemoteWebTouchEvent.h"
 #include "WebEventConversion.h"
 #include "WebPage.h"
 #include "WebPageProxyMessages.h"
@@ -36,8 +37,11 @@
 #include "WebTouchEvent.h"
 #include "WebWheelEvent.h"
 #include <WebCore/DisplayUpdate.h>
+#include <WebCore/Frame.h>
 #include <WebCore/HandleUserInputEventResult.h>
+#include <WebCore/KeyboardScrollingAnimator.h>
 #include <WebCore/Page.h>
+#include <WebCore/PageInlines.h>
 #include <WebCore/WheelEventTestMonitor.h>
 #include <wtf/MainThread.h>
 #include <wtf/RunLoop.h>
@@ -123,7 +127,7 @@ void EventDispatcher::internalWheelEvent(PageIdentifier pageID, const WebWheelEv
     ensureOnMainRunLoop([pageID] {
         if (RefPtr webPage = WebProcess::singleton().webPage(pageID)) {
             if (RefPtr corePage = webPage->corePage()) {
-                if (auto* keyboardScrollingAnimator = corePage->currentKeyboardScrollingAnimator())
+                if (CheckedPtr keyboardScrollingAnimator = corePage->currentKeyboardScrollingAnimator())
                     keyboardScrollingAnimator->stopScrollingImmediately();
             }
         }
@@ -209,13 +213,24 @@ void EventDispatcher::wheelEvent(PageIdentifier pageID, const WebWheelEvent& whe
 #if ENABLE(MAC_GESTURE_EVENTS)
 void EventDispatcher::gestureEvent(FrameIdentifier frameID, PageIdentifier pageID, const WebGestureEvent& gestureEvent, CompletionHandler<void(std::optional<WebEventType>, bool, std::optional<RemoteUserInputEventData>)>&& completionHandler)
 {
-    RunLoop::protectedMain()->dispatch([this, frameID, pageID, gestureEvent, completionHandler = WTFMove(completionHandler)] mutable {
+    RunLoop::mainSingleton().dispatch([this, frameID, pageID, gestureEvent, completionHandler = WTFMove(completionHandler)] mutable {
         dispatchGestureEvent(frameID, pageID, gestureEvent, WTFMove(completionHandler));
     });
 }
 #endif
 
 #if ENABLE(IOS_TOUCH_EVENTS)
+TouchEventData::TouchEventData(WebCore::FrameIdentifier frameID, const WebTouchEvent& event, CompletionHandler<void(bool, std::optional<RemoteWebTouchEvent>)>&& completionHandler)
+    : frameID(frameID)
+    , event(event)
+    , completionHandler(WTFMove(completionHandler)) { }
+
+TouchEventData::TouchEventData(TouchEventData&&) = default;
+
+TouchEventData::~TouchEventData() = default;
+
+TouchEventData& TouchEventData::operator=(TouchEventData&&) = default;
+
 void EventDispatcher::takeQueuedTouchEventsForPage(const WebPage& webPage, UniqueRef<TouchEventQueue>& destinationQueue)
 {
     Locker locker { m_touchEventsLock };
@@ -224,7 +239,7 @@ void EventDispatcher::takeQueuedTouchEventsForPage(const WebPage& webPage, Uniqu
         destinationQueue = makeUniqueRefFromNonNullUniquePtr(WTFMove(queue));
 }
 
-void EventDispatcher::touchEvent(PageIdentifier pageID, FrameIdentifier frameID, const WebTouchEvent& touchEvent, CompletionHandler<void(bool, std::optional<RemoteUserInputEventData>)>&& completionHandler)
+void EventDispatcher::touchEvent(PageIdentifier pageID, FrameIdentifier frameID, const WebTouchEvent& touchEvent, CompletionHandler<void(bool, std::optional<RemoteWebTouchEvent>)>&& completionHandler)
 {
     bool updateListWasEmpty;
     {
@@ -253,8 +268,9 @@ void EventDispatcher::touchEvent(PageIdentifier pageID, FrameIdentifier frameID,
     }
 
     if (updateListWasEmpty) {
-        RunLoop::protectedMain()->dispatch([this] {
-            dispatchTouchEvents();
+        RunLoop::mainSingleton().dispatch([weakThis = WeakPtr { *this }] {
+            if (RefPtr protectedThis = weakThis.get())
+                protectedThis->dispatchTouchEvents();
         });
     }
 }
@@ -272,6 +288,11 @@ void EventDispatcher::dispatchTouchEvents()
     for (auto& slot : localCopy) {
         if (RefPtr webPage = WebProcess::singleton().webPage(slot.key))
             webPage->dispatchAsynchronousTouchEvents(WTFMove(slot.value));
+        else {
+            for (auto& data : slot.value.get())
+                data.completionHandler(false, std::nullopt);
+            ASSERT_NOT_REACHED();
+        }
     }
 }
 #endif
@@ -279,7 +300,7 @@ void EventDispatcher::dispatchTouchEvents()
 void EventDispatcher::dispatchWheelEventViaMainThread(WebCore::PageIdentifier pageID, const WebWheelEvent& wheelEvent, OptionSet<WheelEventProcessingSteps> processingSteps, WheelEventOrigin wheelEventOrigin)
 {
     ASSERT(!RunLoop::isMain());
-    RunLoop::protectedMain()->dispatch([this, protectedThis = Ref { *this }, pageID, wheelEvent, wheelEventOrigin, steps = processingSteps - WheelEventProcessingSteps::AsyncScrolling] {
+    RunLoop::mainSingleton().dispatch([this, protectedThis = Ref { *this }, pageID, wheelEvent, wheelEventOrigin, steps = processingSteps - WheelEventProcessingSteps::AsyncScrolling] {
         dispatchWheelEvent(pageID, wheelEvent, steps, wheelEventOrigin);
     });
 }
@@ -317,7 +338,7 @@ void EventDispatcher::dispatchGestureEvent(FrameIdentifier frameID, PageIdentifi
 
 void EventDispatcher::sendDidReceiveEvent(PageIdentifier pageID, WebEventType eventType, bool didHandleEvent)
 {
-    WebProcess::singleton().protectedParentProcessConnection()->send(Messages::WebPageProxy::DidReceiveEvent(eventType, didHandleEvent, std::nullopt), pageID);
+    WebProcess::singleton().protectedParentProcessConnection()->send(Messages::WebPageProxy::DidReceiveEventIPC(eventType, didHandleEvent, std::nullopt), pageID);
 }
 
 void EventDispatcher::notifyScrollingTreesDisplayDidRefresh(PlatformDisplayID displayID)
@@ -345,7 +366,7 @@ void EventDispatcher::displayDidRefresh(PlatformDisplayID displayID, const Displ
     if (!sendToMainThread)
         return;
 
-    RunLoop::protectedMain()->dispatch([displayID, displayUpdate]() {
+    RunLoop::mainSingleton().dispatch([displayID, displayUpdate]() {
         DisplayRefreshMonitorManager::sharedManager().displayDidRefresh(displayID, displayUpdate);
     });
 }

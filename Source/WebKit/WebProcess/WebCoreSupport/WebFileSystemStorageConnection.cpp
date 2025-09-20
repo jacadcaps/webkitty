@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -225,7 +225,8 @@ void WebFileSystemStorageConnection::invalidateAccessHandle(WebCore::FileSystemS
 {
     if (auto contextIdentifier = m_syncAccessHandles.get(identifier)) {
         WebCore::ScriptExecutionContext::postTaskTo(contextIdentifier, [identifier](auto& context) mutable {
-            if (FileSystemStorageConnection* connection = downcast<WebCore::WorkerGlobalScope>(context).fileSystemStorageConnection())
+            // FIXME: We should not have to list FileSystemStorageConnection here.
+            if (RefPtr<FileSystemStorageConnection> connection = downcast<WebCore::WorkerGlobalScope>(context).fileSystemStorageConnection())
                 connection->invalidateAccessHandle(identifier);
         });
     }

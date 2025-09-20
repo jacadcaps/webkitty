@@ -26,11 +26,12 @@
 #if PLATFORM(IOS_FAMILY)
 
 #import "UIKitSPI.h"
-#import "WKVelocityTrackingScrollView.h"
+#import "WKBaseScrollView.h"
 
+@class WKUIScrollEdgeEffect;
 @class WKWebView;
 
-@interface WKScrollView : WKVelocityTrackingScrollView
+@interface WKScrollView : WKBaseScrollView
 
 @property (nonatomic, assign) WKWebView <WKBEScrollViewDelegate> *internalDelegate;
 
@@ -52,6 +53,15 @@
 - (void)_setContentInsetAdjustmentBehaviorInternal:(UIScrollViewContentInsetAdjustmentBehavior)insetAdjustmentBehavior;
 - (void)_resetContentInsetAdjustmentBehavior;
 #endif
+
+#if HAVE(LIQUID_GLASS)
+@property (nonatomic, readonly) BOOL _usesHardTopScrollEdgeEffect;
+- (void)_setInternalTopPocketColor:(UIColor *)color;
+- (WKUIScrollEdgeEffect *)_wk_topEdgeEffect;
+- (WKUIScrollEdgeEffect *)_wk_leftEdgeEffect;
+- (WKUIScrollEdgeEffect *)_wk_rightEdgeEffect;
+- (WKUIScrollEdgeEffect *)_wk_bottomEdgeEffect;
+#endif // HAVE(LIQUID_GLASS)
 
 @end
 

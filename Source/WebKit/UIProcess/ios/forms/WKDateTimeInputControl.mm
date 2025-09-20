@@ -333,7 +333,7 @@ static constexpr auto yearAndMonthDatePickerMode = static_cast<UIDatePickerMode>
 
 - (void)controlBeginEditing
 {
-#if PLATFORM(MACCATALYST)
+#if PLATFORM(MACCATALYST) || !USE(POPOVER_PRESENTATION_FOR_DATE_PICKER)
     // The date/time input popover always attempts to steal first responder from the web view upon
     // presentation due to the Catalyst-specific `_UIPopoverHostManagerMac`, so we need to relinquish
     // first responder to the focused element to avoid immediately blurring the focused element.
@@ -350,7 +350,7 @@ static constexpr auto yearAndMonthDatePickerMode = static_cast<UIDatePickerMode>
 
     // Currently no value for the <input>. Start the picker with the current time.
     // Also, update the actual <input> value.
-    _initialValue = _view.focusedElementInformation.value;
+    _initialValue = _view.focusedElementInformation.value.createNSString().get();
     [self setDateTimePickerToInitialValue];
     [self showDateTimePicker];
 }
@@ -388,8 +388,8 @@ static constexpr auto yearAndMonthDatePickerMode = static_cast<UIDatePickerMode>
 
 - (void)setHour:(NSInteger)hour minute:(NSInteger)minute
 {
-    NSString *timeString = [NSString stringWithFormat:@"%.2ld:%.2ld", (long)hour, (long)minute];
-    [_datePicker setDate:[[self dateFormatterForPicker] dateFromString:timeString]];
+    RetainPtr timeString = adoptNS([[NSString alloc] initWithFormat:@"%.2ld:%.2ld", (long)hour, (long)minute]);
+    [_datePicker setDate:[[self dateFormatterForPicker] dateFromString:timeString.get()]];
     [self _dateChanged];
 }
 

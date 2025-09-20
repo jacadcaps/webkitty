@@ -230,6 +230,10 @@ private:
     String browserName() const override;
     String browserVersion() const override;
     void requestAutomationSession(const String& sessionIdentifier, const Inspector::RemoteInspector::Client::SessionCapabilities&) override;
+    void closeAutomationSession() override
+    {
+        webkitWebContextWillCloseAutomationSession(m_webContext);
+    }
 
     WebKitWebContext* m_webContext;
 };
@@ -317,7 +321,8 @@ String WebKitAutomationClient::browserVersion() const
 
 void WebKitAutomationClient::requestAutomationSession(const String& sessionIdentifier, const Inspector::RemoteInspector::Client::SessionCapabilities& capabilities)
 {
-    ASSERT(!m_webContext->priv->automationSession);
+    if (m_webContext->priv->automationSession)
+        g_critical("WebKitWebContext already has an active automation session.");
     m_webContext->priv->automationSession = adoptGRef(webkitAutomationSessionCreate(m_webContext, sessionIdentifier.utf8().data(), capabilities));
     g_signal_emit(m_webContext, signals[AUTOMATION_STARTED], 0, m_webContext->priv->automationSession.get());
     m_webContext->priv->processPool->setAutomationSession(&webkitAutomationSessionGetSession(m_webContext->priv->automationSession.get()));
@@ -325,6 +330,8 @@ void WebKitAutomationClient::requestAutomationSession(const String& sessionIdent
 
 void webkitWebContextWillCloseAutomationSession(WebKitWebContext* webContext)
 {
+    if (!webContext->priv->automationSession)
+        return;
     g_signal_emit_by_name(webContext->priv->automationSession.get(), "will-close");
     webContext->priv->processPool->setAutomationSession(nullptr);
     webContext->priv->automationSession = nullptr;

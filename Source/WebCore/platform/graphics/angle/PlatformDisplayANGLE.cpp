@@ -51,7 +51,7 @@ EGLDisplay PlatformDisplay::angleEGLDisplay() const
         EGL_NONE,
     };
 
-    auto angleDisplay = EGL_GetPlatformDisplayEXT(EGL_PLATFORM_ANGLE_ANGLE, m_angleNativeDisplay ? m_angleNativeDisplay : EGL_DEFAULT_DISPLAY, displayAttributes.data());
+    auto angleDisplay = EGL_GetPlatformDisplayEXT(EGL_PLATFORM_ANGLE_ANGLE, m_angleNativeDisplay ? m_angleNativeDisplay : EGL_DEFAULT_DISPLAY, displayAttributes.span().data());
     if (angleDisplay == EGL_NO_DISPLAY)
         return EGL_NO_DISPLAY;
 

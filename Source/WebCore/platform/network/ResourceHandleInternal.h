@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004, 2006 Apple Inc.  All rights reserved.
+ * Copyright (C) 2004, 2006 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,6 +34,8 @@
 #include <wtf/MonotonicTime.h>
 
 #if PLATFORM(COCOA)
+#include <wtf/WeakObjCPtr.h>
+
 OBJC_CLASS NSURLAuthenticationChallenge;
 OBJC_CLASS NSURLConnection;
 
@@ -49,7 +51,7 @@ namespace WebCore {
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(ResourceHandleInternal);
 class ResourceHandleInternal {
     WTF_MAKE_NONCOPYABLE(ResourceHandleInternal);
-    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(ResourceHandleInternal);
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(ResourceHandleInternal, ResourceHandleInternal);
 public:
     ResourceHandleInternal(ResourceHandle* loader, NetworkingContext* context, const ResourceRequest& request, ResourceHandleClient* client, bool defersLoading, bool shouldContentSniff, ContentEncodingSniffingPolicy contentEncodingSniffingPolicy, RefPtr<SecurityOrigin>&& sourceOrigin, bool isMainFrameNavigation)
         : m_context(context)
@@ -94,7 +96,7 @@ public:
 
     // We need to keep a reference to the original challenge to be able to cancel it.
     // It is almost identical to m_currentWebChallenge.nsURLAuthenticationChallenge(), but has a different sender.
-    NSURLAuthenticationChallenge *m_currentMacChallenge { nil };
+    WeakObjCPtr<NSURLAuthenticationChallenge> m_currentMacChallenge;
 #endif
     Box<NetworkLoadMetrics> m_networkLoadMetrics;
     MonotonicTime m_startTime;

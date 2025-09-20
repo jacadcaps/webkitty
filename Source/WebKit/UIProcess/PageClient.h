@@ -51,7 +51,6 @@
 #include <WebCore/TextAnimationTypes.h>
 #include <WebCore/UserInterfaceLayoutDirection.h>
 #include <WebCore/ValidationBubble.h>
-#include <variant>
 #include <wtf/CompletionHandler.h>
 #include <wtf/Forward.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -119,7 +118,7 @@ class WebMediaSessionManager;
 class SelectionData;
 #endif
 
-enum class ElementIdentifierType;
+struct NodeIdentifierType;
 enum class MouseEventPolicy : uint8_t;
 enum class RouteSharingPolicy : uint8_t;
 enum class ScrollbarStyle : uint8_t;
@@ -152,7 +151,7 @@ struct PromisedAttachmentInfo;
 struct TranslationContextMenuInfo;
 #endif
 
-using ElementIdentifier = ObjectIdentifier<ElementIdentifierType>;
+using NodeIdentifier = ObjectIdentifier<NodeIdentifierType>;
 
 #if ENABLE(WRITING_TOOLS)
 namespace WritingTools {
@@ -213,6 +212,7 @@ struct WebHitTestResultData;
 
 #if ENABLE(TOUCH_EVENTS)
 class NativeWebTouchEvent;
+class WebTouchEvent;
 #endif
 
 #if ENABLE(FULLSCREEN_API)
@@ -260,8 +260,12 @@ public:
     // Return whether the view is focused.
     virtual bool isViewFocused() = 0;
 
-    // Return whether the view is visible.
-    virtual bool isViewVisible() = 0;
+    // Return whether the active view is visible.
+    virtual bool isActiveViewVisible() = 0;
+
+    // Return whether the main view is visible.
+    // This is relevant for page client that can have multiple views.
+    virtual bool isMainViewVisible() { return isActiveViewVisible(); }
 
     // Called when the activity state of the page transitions from non-visible to visible.
     virtual void viewIsBecomingVisible() { }
@@ -274,16 +278,13 @@ public:
 #endif
 
     // Return whether the view is visible, or occluded by another window.
-    virtual bool isViewVisibleOrOccluded() { return isViewVisible(); }
+    virtual bool isViewVisibleOrOccluded() { return isActiveViewVisible(); }
 
     // Return whether the view is in a window.
     virtual bool isViewInWindow() = 0;
 
     // Return whether the view is visually idle.
-    virtual bool isVisuallyIdle() { return !isViewVisible(); }
-
-    // Return the layer hosting mode for the view.
-    virtual LayerHostingMode viewLayerHostingMode() { return LayerHostingMode::InProcess; }
+    virtual bool isVisuallyIdle() { return !isActiveViewVisible(); }
 
     virtual WindowKind windowKind() { return isViewInWindow() ? WindowKind::Normal : WindowKind::Unparented; }
 
@@ -307,28 +308,36 @@ public:
     virtual void didCommitLoadForMainFrame(const String& mimeType, bool useCustomContentProvider) = 0;
 
 #if ENABLE(PDF_HUD)
-    virtual void createPDFHUD(PDFPluginIdentifier, const WebCore::IntRect&) = 0;
+    virtual void createPDFHUD(PDFPluginIdentifier, WebCore::FrameIdentifier, const WebCore::IntRect&) = 0;
     virtual void updatePDFHUDLocation(PDFPluginIdentifier, const WebCore::IntRect&) = 0;
     virtual void removePDFHUD(PDFPluginIdentifier) = 0;
     virtual void removeAllPDFHUDs() = 0;
 #endif
 
-    virtual bool handleRunOpenPanel(WebPageProxy*, WebFrameProxy*, const FrameInfoData&, API::OpenPanelParameters*, WebOpenPanelResultListenerProxy*) { return false; }
-    virtual bool showShareSheet(const WebCore::ShareDataWithParsedURL&, WTF::CompletionHandler<void (bool)>&&) { return false; }
-    virtual void showContactPicker(const WebCore::ContactsRequestData&, WTF::CompletionHandler<void(std::optional<Vector<WebCore::ContactInfo>>&&)>&& completionHandler) { completionHandler(std::nullopt); }
-    virtual void dismissAnyOpenPicker() { }
+#if ENABLE(PDF_PAGE_NUMBER_INDICATOR)
+    virtual void createPDFPageNumberIndicator(PDFPluginIdentifier, const WebCore::IntRect&, size_t pageCount) = 0;
+    virtual void updatePDFPageNumberIndicatorLocation(PDFPluginIdentifier, const WebCore::IntRect&) = 0;
+    virtual void updatePDFPageNumberIndicatorCurrentPage(PDFPluginIdentifier, size_t pageIndex) = 0;
+    virtual void removePDFPageNumberIndicator(PDFPluginIdentifier) = 0;
+    virtual void removeAnyPDFPageNumberIndicator() = 0;
+#endif
+
+    virtual bool handleRunOpenPanel(const WebPageProxy&, const WebFrameProxy&, const FrameInfoData&, API::OpenPanelParameters&, WebOpenPanelResultListenerProxy&) { return false; }
+    virtual bool showShareSheet(WebCore::ShareDataWithParsedURL&&, WTF::CompletionHandler<void (bool)>&&) { return false; }
+    virtual void showContactPicker(WebCore::ContactsRequestData&&, WTF::CompletionHandler<void(std::optional<Vector<WebCore::ContactInfo>>&&)>&& completionHandler) { completionHandler(std::nullopt); }
 
     virtual void showDigitalCredentialsPicker(const WebCore::DigitalCredentialsRequestData&, WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&& completionHandler)
     {
         completionHandler(makeUnexpected(WebCore::ExceptionData { WebCore::ExceptionCode::NotSupportedError, "Digital credentials are not supported."_s }));
     }
     virtual void dismissDigitalCredentialsPicker(WTF::CompletionHandler<void(bool)>&& completionHandler) { completionHandler(true); }
+    virtual void dismissAnyOpenPicker() { }
 
     virtual void didChangeContentSize(const WebCore::IntSize&) = 0;
 
     virtual void obscuredContentInsetsDidChange() { }
 
-    virtual void showBrowsingWarning(const BrowsingWarning&, CompletionHandler<void(std::variant<ContinueUnsafeLoad, URL>&&)>&& completionHandler) { completionHandler(ContinueUnsafeLoad::Yes); }
+    virtual void showBrowsingWarning(const BrowsingWarning&, CompletionHandler<void(Variant<ContinueUnsafeLoad, URL>&&)>&& completionHandler) { completionHandler(ContinueUnsafeLoad::Yes); }
     virtual void clearBrowsingWarning() { }
     virtual void clearBrowsingWarningIfForMainFrameNavigation() { }
 
@@ -338,7 +347,7 @@ public:
 #if PLATFORM(GTK)
     virtual void startDrag(WebCore::SelectionData&&, OptionSet<WebCore::DragOperation>, RefPtr<WebCore::ShareableBitmap>&& dragImage, WebCore::IntPoint&& dragImageHotspot) = 0;
 #else
-    virtual void startDrag(const WebCore::DragItem&, WebCore::ShareableBitmap::Handle&&) { }
+    virtual void startDrag(const WebCore::DragItem&, WebCore::ShareableBitmap::Handle&&, const std::optional<WebCore::NodeIdentifier>&) { }
 #endif
     virtual void didPerformDragOperation(bool) { }
     virtual void didPerformDragControllerAction() { }
@@ -399,7 +408,7 @@ public:
     virtual WebCore::IntPoint accessibilityScreenToRootView(const WebCore::IntPoint&) = 0;
     virtual WebCore::IntRect rootViewToAccessibilityScreen(const WebCore::IntRect&) = 0;
 #if PLATFORM(IOS_FAMILY)
-    virtual void relayAccessibilityNotification(const String&, const RetainPtr<NSData>&) = 0;
+    virtual void relayAccessibilityNotification(String&&, RetainPtr<NSData>&&) = 0;
 #endif
 #if PLATFORM(MAC)
     virtual WebCore::IntRect rootViewToWindow(const WebCore::IntRect&) = 0;
@@ -437,7 +446,7 @@ public:
 
     virtual void doneWithKeyEvent(const NativeWebKeyboardEvent&, bool wasEventHandled) = 0;
 #if ENABLE(TOUCH_EVENTS)
-    virtual void doneWithTouchEvent(const NativeWebTouchEvent&, bool wasEventHandled) = 0;
+    virtual void doneWithTouchEvent(const WebTouchEvent&, bool wasEventHandled) = 0;
 #endif
 #if ENABLE(IOS_TOUCH_EVENTS)
     virtual void doneDeferringTouchStart(bool preventNativeGestures) = 0;
@@ -459,14 +468,12 @@ public:
     virtual RefPtr<WebDateTimePicker> createDateTimePicker(WebPageProxy&) = 0;
 
 #if PLATFORM(COCOA) || PLATFORM(GTK)
-    virtual Ref<WebCore::ValidationBubble> createValidationBubble(const String& message, const WebCore::ValidationBubble::Settings&) = 0;
+    virtual Ref<WebCore::ValidationBubble> createValidationBubble(String&& message, const WebCore::ValidationBubble::Settings&) = 0;
 #endif
 
 #if PLATFORM(COCOA)
-    virtual void setTextIndicator(Ref<WebCore::TextIndicator>, WebCore::TextIndicatorLifetime) = 0;
-    virtual void clearTextIndicator(WebCore::TextIndicatorDismissalAnimation) = 0;
-    virtual void setTextIndicatorAnimationProgress(float) = 0;
-    
+    virtual CALayer *textIndicatorInstallationLayer() = 0;
+
     virtual void didPerformDictionaryLookup(const WebCore::DictionaryPopupInfo&) = 0;
 #endif
 
@@ -519,7 +526,7 @@ public:
     virtual void startWindowDrag() = 0;
     virtual void setShouldSuppressFirstResponderChanges(bool) = 0;
 
-    virtual NSView *inspectorAttachmentView() = 0;
+    virtual RetainPtr<NSView> inspectorAttachmentView() = 0;
     virtual _WKRemoteObjectRegistry *remoteObjectRegistry() = 0;
 
     virtual void intrinsicContentSizeDidChange(const WebCore::IntSize& intrinsicContentSize) = 0;
@@ -531,7 +538,7 @@ public:
 
 #if PLATFORM(COCOA)
     virtual void didCommitLayerTree(const RemoteLayerTreeTransaction&) = 0;
-    virtual void layerTreeCommitComplete() = 0;
+    virtual void layerTreeCommitComplete() { }
 
     virtual void scrollingNodeScrollViewDidScroll(WebCore::ScrollingNodeID) = 0;
 
@@ -609,6 +616,7 @@ public:
     // Auxiliary Client Creation
 #if ENABLE(FULLSCREEN_API)
     virtual WebFullScreenManagerProxyClient& fullScreenManagerProxyClient() = 0;
+    CheckedRef<WebFullScreenManagerProxyClient> checkedFullScreenManagerProxyClient();
     virtual void setFullScreenClientForTesting(std::unique_ptr<WebFullScreenManagerProxyClient>&&) = 0;
 #endif
 
@@ -685,9 +693,11 @@ public:
     virtual void systemAudioCaptureChanged() { }
 
     virtual void videoControlsManagerDidChange() { }
+    virtual void videosInElementFullscreenChanged() { }
 
 #if ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(IOS_FAMILY)
     virtual WebCore::WebMediaSessionManager& mediaSessionManager() = 0;
+    CheckedRef<WebCore::WebMediaSessionManager> checkedMediaSessionManager();
 #endif
 
     virtual void refView() = 0;
@@ -703,19 +713,19 @@ public:
 
     virtual WebCore::UserInterfaceLayoutDirection userInterfaceLayoutDirection() = 0;
 
+    virtual void didChangeLocalInspectorAttachment() { }
+
 #if USE(QUICK_LOOK)
     virtual void requestPasswordForQuickLookDocument(const String& fileName, WTF::Function<void(const String&)>&&) = 0;
 #endif
 
 #if PLATFORM(IOS_FAMILY) && ENABLE(DRAG_SUPPORT)
-    virtual void didHandleDragStartRequest(bool started) = 0;
-    virtual void didHandleAdditionalDragItemsRequest(bool added) = 0;
     virtual void willReceiveEditDragSnapshot() = 0;
-    virtual void didReceiveEditDragSnapshot(std::optional<WebCore::TextIndicatorData>) = 0;
+    virtual void didReceiveEditDragSnapshot(RefPtr<WebCore::TextIndicator>&&) = 0;
 #endif
 
 #if ENABLE(MODEL_PROCESS)
-    virtual void didReceiveInteractiveModelElement(std::optional<WebCore::ElementIdentifier>) = 0;
+    virtual void didReceiveInteractiveModelElement(std::optional<WebCore::NodeIdentifier>) = 0;
 #endif
 
     virtual void requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteRequiresInteraction, const WebCore::IntRect& elementRect, const String& originIdentifier, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&) = 0;
@@ -818,7 +828,6 @@ public:
     virtual void scheduleVisibleContentRectUpdate() { }
 
 #if ENABLE(SCREEN_TIME)
-    virtual void installScreenTimeWebpageController() { }
     virtual void didChangeScreenTimeWebpageControllerURL() { };
     virtual void setURLIsPictureInPictureForScreenTime(bool) { };
     virtual void setURLIsPlayingVideoForScreenTime(bool) { };

@@ -34,6 +34,7 @@
 #import "MetalSPI.h"
 #import "Sampler.h"
 #import "TextureView.h"
+#import <ranges>
 #import <wtf/EnumeratedArray.h>
 #import <wtf/TZoneMallocInlines.h>
 #import <wtf/spi/cocoa/IOSurfaceSPI.h>
@@ -42,6 +43,7 @@
 #include <CoreVideo/CVPixelBufferPrivate.h>
 #else
 
+// FIXME: Move to CoreVideoSPI.h.
 enum {
     kCVPixelFormatType_420YpCbCr10PackedBiPlanarVideoRange = 'p420',
     kCVPixelFormatType_422YpCbCr10PackedBiPlanarVideoRange = 'p422',
@@ -237,7 +239,7 @@ static MTLPixelFormat metalPixelFormat(CVPixelBufferRef pixelBuffer, size_t plan
         return MTLPixelFormatRGBA8Unorm;
     case kCVPixelFormatType_64ARGB:     /* 64 bit ARGB, 16-bit big-endian samples */
         swizzle = MTLTextureSwizzleChannelsMake(MTLTextureSwizzleGreen, MTLTextureSwizzleZero, MTLTextureSwizzleZero, MTLTextureSwizzleZero);
-        FALLTHROUGH;
+        [[fallthrough]];
     case kCVPixelFormatType_64RGBALE:     /* 64 bit RGBA, 16-bit little-endian full-range (0-65535) samples */
         return MTLPixelFormatRGBA16Unorm;
 
@@ -272,10 +274,10 @@ static MTLPixelFormat metalPixelFormat(CVPixelBufferRef pixelBuffer, size_t plan
         return biplanarFormat(plane);
 
     case kCVPixelFormatType_422YpCbCr10:     /* Component Y'CbCr 10-bit 4:2:2 */
-        return biplanarFormat(plane);
+        return !plane && supportsExtendedFormats ? static_cast<MTLPixelFormat>(MTLPixelFormatYCBCR8_422_1P) : biplanarFormat(plane);
 
     case kCVPixelFormatType_444YpCbCr10:     /* Component Y'CbCr 10-bit 4:4:4 */
-        return biplanarFormat(plane);
+        return !plane && supportsExtendedFormats ? static_cast<MTLPixelFormat>(MTLPixelFormatYCBCR10_444_1P) : biplanarFormat(plane);
 
     case kCVPixelFormatType_420YpCbCr8Planar:   /* Planar Component Y'CbCr 8-bit 4:2:0.  baseAddr points to a big-endian CVPlanarPixelBufferInfo_YCbCrPlanar struct */
         return biplanarFormat(plane);
@@ -361,17 +363,17 @@ static MTLPixelFormat metalPixelFormat(CVPixelBufferRef pixelBuffer, size_t plan
         return MTLPixelFormatDepth32Float;
 
     case kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange: /* 2 plane YCbCr10 4:2:0, each 10 bits in the MSBs of 16bits, video-range (luma=[64,940] chroma=[64,960]) */
-        return biplanarFormat(plane);
+        return !plane && supportsExtendedFormats ? static_cast<MTLPixelFormat>(MTLPixelFormatYCBCR10_420_2P) : biplanarFormat(plane);
     case kCVPixelFormatType_422YpCbCr10BiPlanarVideoRange: /* 2 plane YCbCr10 4:2:2, each 10 bits in the MSBs of 16bits, video-range (luma=[64,940] chroma=[64,960]) */
-        return biplanarFormat(plane);
+        return !plane && supportsExtendedFormats ? static_cast<MTLPixelFormat>(MTLPixelFormatYCBCR10_422_2P) : biplanarFormat(plane);
     case kCVPixelFormatType_444YpCbCr10BiPlanarVideoRange: /* 2 plane YCbCr10 4:4:4, each 10 bits in the MSBs of 16bits, video-range (luma=[64,940] chroma=[64,960]) */
-        return biplanarFormat(plane);
+        return !plane && supportsExtendedFormats ? static_cast<MTLPixelFormat>(MTLPixelFormatYCBCR10_444_2P) : biplanarFormat(plane);
     case kCVPixelFormatType_420YpCbCr10BiPlanarFullRange: /* 2 plane YCbCr10 4:2:0, each 10 bits in the MSBs of 16bits, full-range (Y range 0-1023) */
-        return biplanarFormat(plane);
+        return !plane && supportsExtendedFormats ? static_cast<MTLPixelFormat>(MTLPixelFormatYCBCR10_422_2P) : biplanarFormat(plane);
     case kCVPixelFormatType_422YpCbCr10BiPlanarFullRange: /* 2 plane YCbCr10 4:2:2, each 10 bits in the MSBs of 16bits, full-range (Y range 0-1023) */
-        return biplanarFormat(plane);
+        return !plane && supportsExtendedFormats ? static_cast<MTLPixelFormat>(MTLPixelFormatYCBCR10_422_2P) : biplanarFormat(plane);
     case kCVPixelFormatType_444YpCbCr10BiPlanarFullRange: /* 2 plane YCbCr10 4:4:4, each 10 bits in the MSBs of 16bits, full-range (Y range 0-1023) */
-        return biplanarFormat(plane);
+        return !plane && supportsExtendedFormats ? static_cast<MTLPixelFormat>(MTLPixelFormatYCBCR10_444_2P) : biplanarFormat(plane);
     case kCVPixelFormatType_420YpCbCr8VideoRange_8A_TriPlanar: /* first and second planes as per 420YpCbCr8BiPlanarVideoRange (420v), alpha 8 bits in third plane full-range.  No CVPlanarPixelBufferInfo struct. */
         return biplanarFormat(plane);
 
@@ -398,10 +400,10 @@ static MTLPixelFormat metalPixelFormat(CVPixelBufferRef pixelBuffer, size_t plan
         return biplanarFormat(plane);
 
     case kCVPixelFormatType_Lossless_420YpCbCr10PackedBiPlanarVideoRange: /* Lossless-compressed-packed form of case kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange.  No CVPlanarPixelBufferInfo struct. Format is compressed-packed with no padding bits between pixels. */
-        return biplanarFormat(plane);
+        return !plane && supportsExtendedFormats ? static_cast<MTLPixelFormat>(MTLPixelFormatYCBCR10_420_2P_PACKED) : biplanarFormat(plane);
 
     case kCVPixelFormatType_Lossless_422YpCbCr10PackedBiPlanarVideoRange: /* Lossless-compressed form of case kCVPixelFormatType_422YpCbCr10BiPlanarVideoRange.  No CVPlanarPixelBufferInfo struct. Format is compressed-packed with no padding bits between pixels. */
-        return biplanarFormat(plane);
+        return !plane && supportsExtendedFormats ? static_cast<MTLPixelFormat>(MTLPixelFormatYCBCR10_422_2P_PACKED) : biplanarFormat(plane);
 
     case kCVPixelFormatType_Lossy_32BGRA: /* Lossy-compressed form of case kCVPixelFormatType_32BGRA. No CVPlanarPixelBufferInfo struct.  */
         return MTLPixelFormatBGRA8Unorm;
@@ -411,17 +413,17 @@ static MTLPixelFormat metalPixelFormat(CVPixelBufferRef pixelBuffer, size_t plan
         return biplanarFormat(plane);
 
     case kCVPixelFormatType_Lossy_420YpCbCr10PackedBiPlanarVideoRange: /* Lossy-compressed form of case kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange.  No CVPlanarPixelBufferInfo struct. Format is compressed-packed with no padding bits between pixels. */
-        return biplanarFormat(plane);
+        return !plane && supportsExtendedFormats ? static_cast<MTLPixelFormat>(MTLPixelFormatYCBCR10_420_2P_PACKED_PQ) : biplanarFormat(plane);
 
     case kCVPixelFormatType_Lossy_422YpCbCr10PackedBiPlanarVideoRange: /* Lossy-compressed form of kCVPixelFormatType_422YpCbCr10BiPlanarVideoRange.  No CVPlanarPixelBufferInfo struct. Format is compressed-packed with no padding bits between pixels. */
-        return biplanarFormat(plane);
+        return !plane && supportsExtendedFormats ? static_cast<MTLPixelFormat>(MTLPixelFormatYCBCR10_422_2P_PACKED) : biplanarFormat(plane);
 
     case kCVPixelFormatType_420YpCbCr10PackedBiPlanarVideoRange:
-        return !plane && supportsExtendedFormats ? static_cast<MTLPixelFormat>(MTLPixelFormatYCBCR10_420_2P_PACKED) : MTLPixelFormatInvalid;
+        return !plane && supportsExtendedFormats ? static_cast<MTLPixelFormat>(MTLPixelFormatYCBCR10_420_2P_PACKED) : biplanarFormat(plane);
     case kCVPixelFormatType_422YpCbCr10PackedBiPlanarVideoRange:
-        return !plane && supportsExtendedFormats ? static_cast<MTLPixelFormat>(MTLPixelFormatYCBCR10_422_2P_PACKED) : MTLPixelFormatInvalid;
+        return !plane && supportsExtendedFormats ? static_cast<MTLPixelFormat>(MTLPixelFormatYCBCR10_422_2P_PACKED) : biplanarFormat(plane);
     case kCVPixelFormatType_444YpCbCr10PackedBiPlanarVideoRange:
-        return !plane && supportsExtendedFormats ? static_cast<MTLPixelFormat>(MTLPixelFormatYCBCR10_444_2P_PACKED) : MTLPixelFormatInvalid;
+        return !plane && supportsExtendedFormats ? static_cast<MTLPixelFormat>(MTLPixelFormatYCBCR10_444_2P_PACKED) : biplanarFormat(plane);
     }
 
     return MTLPixelFormatInvalid;
@@ -519,7 +521,7 @@ Device::ExternalTextureData Device::createExternalTextureFromPixelBuffer(CVPixel
         auto format0 = metalPixelFormat(pixelBuffer, 0, firstPlaneSwizzle, supportsExtendedFormats);
         if (format0 != MTLPixelFormatInvalid)
             status1 = CVMetalTextureCacheCreateTextureFromImage(nullptr, m_coreVideoTextureCache.get(), pixelBuffer, nullptr, format0, CVPixelBufferGetWidthOfPlane(pixelBuffer, 0), CVPixelBufferGetHeightOfPlane(pixelBuffer, 0), 0, &plane0);
-        auto format1 = metalPixelFormat(pixelBuffer, 1, firstPlaneSwizzle, supportsExtendedFormats);
+        auto format1 = metalPixelFormat(pixelBuffer, 1, secondPlaneSwizzle, supportsExtendedFormats);
         if (format1 != MTLPixelFormatInvalid)
             status2 = CVMetalTextureCacheCreateTextureFromImage(nullptr, m_coreVideoTextureCache.get(), pixelBuffer, nullptr, format1, CVPixelBufferGetWidthOfPlane(pixelBuffer, 1), CVPixelBufferGetHeightOfPlane(pixelBuffer, 1), 1, &plane1);
     }
@@ -938,7 +940,8 @@ Ref<BindGroup> Device::createBindGroup(const WGPUBindGroupDescriptor& descriptor
     BindGroup::ShaderStageArray<BindGroupLayout::ArgumentIndices> argumentIndices;
     for (ShaderStage stage : stages) {
         auto encodedLength = bindGroupLayout->encodedLength(stage);
-        argumentBuffer[stage] = encodedLength ? safeCreateBuffer(encodedLength, MTLStorageModeShared) : nil;
+        if (encodedLength)
+            argumentBuffer[stage] = safeCreateBuffer(encodedLength, MTLStorageModeShared);
         [argumentEncoder[stage] setArgumentBuffer:argumentBuffer[stage] offset:0];
         argumentIndices[stage] = bindGroupLayout->argumentIndices(stage);
     }
@@ -998,7 +1001,7 @@ Ref<BindGroup> Device::createBindGroup(const WGPUBindGroupDescriptor& descriptor
                 bool isDestroyed = apiBuffer->isDestroyed();
                 if (isDestroyed && stage != ShaderStage::Undefined) {
                     argumentEncoder[stage] = nil;
-                    argumentBuffer[stage] = nil;
+                    argumentBuffer[stage] = { };
                 }
 
                 auto entryOffset = isDestroyed ? 0 : entry.offset;
@@ -1142,7 +1145,7 @@ Ref<BindGroup> Device::createBindGroup(const WGPUBindGroupDescriptor& descriptor
                     }
                 } else if (stage != ShaderStage::Undefined) {
                     argumentEncoder[stage] = nil;
-                    argumentBuffer[stage] = nil;
+                    argumentBuffer[stage] = { };
                 }
 
                 if (stage != ShaderStage::Undefined) {
@@ -1214,8 +1217,9 @@ Ref<BindGroup> Device::createBindGroup(const WGPUBindGroupDescriptor& descriptor
             auto renderStage = metalRenderStage(stage);
             auto &v = stageResources[renderStage][i];
             auto &u = stageResourceUsages[renderStage][i];
+            static_assert(MTLResourceUsageRead == 1 && !BindGroupLayout::BindingAccessReadOnly);
             if (v.size()) {
-                if (stage != ShaderStage::Undefined)
+                if (stage != ShaderStage::Undefined && i == BindGroupLayout::BindingAccessReadOnly)
                     externalTextureIndices[stage].containerIndex = resources.size();
                 resources.append(BindableResources {
                     .mtlResources = WTFMove(v),
@@ -1231,10 +1235,14 @@ Ref<BindGroup> Device::createBindGroup(const WGPUBindGroupDescriptor& descriptor
     argumentBuffer[ShaderStage::Fragment].label = bindGroupLayout->fragmentArgumentEncoder().label;
     argumentBuffer[ShaderStage::Compute].label = bindGroupLayout->computeArgumentEncoder().label;
 
-    std::sort(dynamicBuffers.begin(), dynamicBuffers.end(), [](const BindGroup::BufferAndType& a, const BindGroup::BufferAndType& b) {
-        return a.bindingIndex < b.bindingIndex;
-    });
-    return BindGroup::create(argumentBuffer[ShaderStage::Vertex], argumentBuffer[ShaderStage::Fragment], argumentBuffer[ShaderStage::Compute], WTFMove(resources), bindGroupLayout, WTFMove(dynamicBuffers), WTFMove(samplersSet), WTFMove(externalTextureIndices), *this);
+    std::ranges::sort(dynamicBuffers, { }, &BindGroup::BufferAndType::bindingIndex);
+
+    if (m_bindGroupId == std::numeric_limits<decltype(m_bindGroupId)>::max()) {
+        loseTheDevice(WGPUDeviceLostReason_Undefined);
+        return BindGroup::createInvalid(*this);
+    }
+
+    return BindGroup::create(argumentBuffer[ShaderStage::Vertex], argumentBuffer[ShaderStage::Fragment], argumentBuffer[ShaderStage::Compute], WTFMove(resources), bindGroupLayout, WTFMove(dynamicBuffers), WTFMove(samplersSet), WTFMove(externalTextureIndices), ++m_bindGroupId, *this);
 #undef VALIDATION_ERROR
 #undef INTERNAL_ERROR_STRING
 }
@@ -1244,7 +1252,7 @@ bool BindGroup::isValid() const
     return !!bindGroupLayout();
 }
 
-BindGroup::BindGroup(id<MTLBuffer> vertexArgumentBuffer, id<MTLBuffer> fragmentArgumentBuffer, id<MTLBuffer> computeArgumentBuffer, Vector<BindableResources>&& resources, const BindGroupLayout& bindGroupLayout, DynamicBuffersContainer&& dynamicBuffers, SamplersContainer&& samplers, ShaderStageArray<ExternalTextureIndices>&& externalTextureIndices, Device& device)
+BindGroup::BindGroup(id<MTLBuffer> vertexArgumentBuffer, id<MTLBuffer> fragmentArgumentBuffer, id<MTLBuffer> computeArgumentBuffer, Vector<BindableResources>&& resources, const BindGroupLayout& bindGroupLayout, DynamicBuffersContainer&& dynamicBuffers, SamplersContainer&& samplers, ShaderStageArray<ExternalTextureIndices>&& externalTextureIndices, uint32_t uniqueIdentifier, Device& device)
     : m_vertexArgumentBuffer(vertexArgumentBuffer)
     , m_fragmentArgumentBuffer(fragmentArgumentBuffer)
     , m_computeArgumentBuffer(computeArgumentBuffer)
@@ -1254,6 +1262,7 @@ BindGroup::BindGroup(id<MTLBuffer> vertexArgumentBuffer, id<MTLBuffer> fragmentA
     , m_dynamicBuffers(WTFMove(dynamicBuffers))
     , m_samplers(WTFMove(samplers))
     , m_externalTextureIndices(WTFMove(externalTextureIndices))
+    , m_uniqueIdentifier(uniqueIdentifier)
 {
     for (size_t index = 0, maxIndex = m_dynamicBuffers.size(); index < maxIndex; ++index)
         m_dynamicOffsetsIndices.add(m_dynamicBuffers[index].bindingIndex, index);
@@ -1284,10 +1293,10 @@ uint32_t BindGroup::dynamicOffset(uint32_t bindingIndex, const Vector<uint32_t>*
 
 void BindGroup::setLabel(String&& label)
 {
-    auto labelString = label;
-    m_vertexArgumentBuffer.label = labelString;
-    m_fragmentArgumentBuffer.label = labelString;
-    m_computeArgumentBuffer.label = labelString;
+    RetainPtr labelString = label.createNSString();
+    m_vertexArgumentBuffer.label = labelString.get();
+    m_fragmentArgumentBuffer.label = labelString.get();
+    m_computeArgumentBuffer.label = labelString.get();
 }
 
 bool BindGroup::allowedUsage(const OptionSet<BindGroupEntryUsage>& allowedUsage)
@@ -1440,6 +1449,23 @@ bool BindGroup::makeSubmitInvalid(ShaderStage stage, const BindGroupLayout* pipe
     }
 
     return true;
+}
+
+static uint64_t makePipelineBindGroupKey(uint32_t groupIndex, uint64_t pipelineIndex)
+{
+    return static_cast<uint64_t>(groupIndex) | (pipelineIndex << Device::maxBindGroups);
+}
+
+void BindGroup::validatedSuccessfully(uint32_t groupIndex, uint64_t pipelineIndex, uint32_t maxOffset) const
+{
+    auto it = m_validatedBindGroup.add(makePipelineBindGroupKey(groupIndex, pipelineIndex), maxOffset).iterator;
+    it->value = std::max(it->value, maxOffset);
+}
+
+bool BindGroup::previouslyValidatedBindGroup(uint32_t groupIndex, uint64_t pipelineIndex, uint32_t maxOffset) const
+{
+    auto it = m_validatedBindGroup.find(makePipelineBindGroupKey(groupIndex, pipelineIndex));
+    return it != m_validatedBindGroup.end() && it->value >= maxOffset;
 }
 
 } // namespace WebGPU

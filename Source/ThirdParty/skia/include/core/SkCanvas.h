@@ -19,6 +19,7 @@
 #include "include/core/SkMatrix.h"
 #include "include/core/SkPaint.h"
 #include "include/core/SkPoint.h"
+#include "include/core/SkRSXform.h"
 #include "include/core/SkRasterHandleAllocator.h"
 #include "include/core/SkRect.h"
 #include "include/core/SkRefCnt.h"
@@ -54,6 +55,7 @@ class GrRecordingContext;
 
 class SkBitmap;
 class SkBlender;
+class SkBlurMaskFilterImpl;
 class SkColorSpace;
 class SkData;
 class SkDevice;
@@ -67,6 +69,7 @@ class SkPicture;
 class SkPixmap;
 class SkRRect;
 class SkRegion;
+class SkRecorder;
 class SkShader;
 class SkSpecialImage;
 class SkSurface;
@@ -74,7 +77,6 @@ class SkSurface_Base;
 class SkTextBlob;
 class SkVertices;
 struct SkDrawShadowRec;
-struct SkRSXform;
 
 template<typename E>
 class SkEnumBitMask;
@@ -326,12 +328,17 @@ public:
      */
     virtual GrRecordingContext* recordingContext() const;
 
-
     /** Returns Recorder for the GPU surface associated with SkCanvas.
 
         @return  Recorder, if available; nullptr otherwise
      */
     virtual skgpu::graphite::Recorder* recorder() const;
+
+    /** Returns Recorder for the surface associated with SkCanvas.
+
+        @return  Recorder, should be non-null
+     */
+    virtual SkRecorder* baseRecorder() const;
 
     /** Sometimes a canvas is owned by a surface. If it is, getSurface() will return a bare
      *  pointer to that surface, else this will return nullptr.
@@ -1320,7 +1327,12 @@ public:
 
         example: https://fiddle.skia.org/c/@Canvas_drawPoints
     */
-    void drawPoints(PointMode mode, size_t count, const SkPoint pts[], const SkPaint& paint);
+    void drawPoints(PointMode mode, SkSpan<const SkPoint>, const SkPaint& paint);
+#ifdef SK_SUPPORT_UNSPANNED_APIS
+    void drawPoints(PointMode mode, size_t count, const SkPoint pts[], const SkPaint& paint) {
+        this->drawPoints(mode, {pts, count}, paint);
+    }
+#endif
 
     /** Draws point at (x, y) using clip, SkMatrix and SkPaint paint.
 
@@ -1892,19 +1904,28 @@ public:
        SkColorFilter, and SkImageFilter; apply to text. By
        default, draws filled black glyphs.
 
-       @param count           number of glyphs to draw
-       @param glyphs          the array of glyphIDs to draw
+       @param glyphs          the span of glyphIDs to draw
        @param positions       where to draw each glyph relative to origin
-       @param clusters        array of size count of cluster information
-       @param textByteCount   size of the utf8text
+       @param clusters        cluster information
        @param utf8text        utf8text supporting information for the glyphs
        @param origin          the origin of all the positions
        @param font            typeface, text size and so, used to describe the text
        @param paint           blend, color, and so on, used to draw
     */
+    void drawGlyphs(SkSpan<const SkGlyphID> glyphs, SkSpan<const SkPoint> positions,
+                    SkSpan<const uint32_t> clusters, SkSpan<const char> utf8text,
+                    SkPoint origin, const SkFont& font, const SkPaint& paint);
+#ifdef SK_SUPPORT_UNSPANNED_APIS
     void drawGlyphs(int count, const SkGlyphID glyphs[], const SkPoint positions[],
                     const uint32_t clusters[], int textByteCount, const char utf8text[],
-                    SkPoint origin, const SkFont& font, const SkPaint& paint);
+                    SkPoint origin, const SkFont& font, const SkPaint& paint) {
+        this->drawGlyphs({glyphs,    count},
+                         {positions, count},
+                         {clusters,  count},
+                         {utf8text,  textByteCount},
+                         origin, font, paint);
+    }
+#endif
 
     /** Draws count glyphs, at positions relative to origin styled with font and paint.
 
@@ -1924,8 +1945,14 @@ public:
         @param font        typeface, text size and so, used to describe the text
         @param paint       blend, color, and so on, used to draw
     */
-    void drawGlyphs(int count, const SkGlyphID glyphs[], const SkPoint positions[],
+    void drawGlyphs(SkSpan<const SkGlyphID> glyphs, SkSpan<const SkPoint> positions,
                     SkPoint origin, const SkFont& font, const SkPaint& paint);
+#ifdef SK_SUPPORT_UNSPANNED_APIS
+    void drawGlyphs(int count, const SkGlyphID glyphs[], const SkPoint positions[],
+                    SkPoint origin, const SkFont& font, const SkPaint& paint) {
+        this->drawGlyphs({glyphs, count}, {positions, count}, origin, font, paint);
+    }
+#endif
 
     /** Draws count glyphs, at positions relative to origin styled with font and paint.
 
@@ -1946,8 +1973,14 @@ public:
         @param font     typeface, text size and so, used to describe the text
         @param paint    blend, color, and so on, used to draw
     */
+    void drawGlyphsRSXform(SkSpan<const SkGlyphID> glyphs, SkSpan<const SkRSXform> xforms,
+                           SkPoint origin, const SkFont& font, const SkPaint& paint);
+#ifdef SK_SUPPORT_UNSPANNED_APIS
     void drawGlyphs(int count, const SkGlyphID glyphs[], const SkRSXform xforms[],
-                    SkPoint origin, const SkFont& font, const SkPaint& paint);
+                    SkPoint origin, const SkFont& font, const SkPaint& paint) {
+        this->drawGlyphsRSXform({glyphs, count}, {xforms, count}, origin, font, paint);
+    }
+#endif
 
     /** Draws SkTextBlob blob at (x, y), using clip, SkMatrix, and SkPaint paint.
 
@@ -2679,11 +2712,14 @@ private:
     // into the canvas' global space.
     SkRect computeDeviceClipBounds(bool outsetForAA=true) const;
 
-    // Attempt to draw a rrect with an analytic blur. If the paint does not contain a blur, or the
-    // geometry can't be drawn with an analytic blur by the device, a layer is returned for a
-    // regular draw. If the draw succeeds or predrawNotify fails, nullopt is returned indicating
-    // that nothing further should be drawn.
+    // Returns the paint's mask filter if it can be used to draw an rrect with an analytic blur, and
+    // returns null otherwise.
+    const SkBlurMaskFilterImpl* canAttemptBlurredRRectDraw(const SkPaint&) const;
+
+    // Attempt to draw a rrect with an analytic blur. If the draw succeeds or predrawNotify fails,
+    // nullopt is returned indicating that nothing further should be drawn.
     std::optional<AutoLayerForImageFilter> attemptBlurredRRectDraw(const SkRRect&,
+                                                                   const SkBlurMaskFilterImpl*,
                                                                    const SkPaint&,
                                                                    SkEnumBitMask<PredrawFlags>);
 

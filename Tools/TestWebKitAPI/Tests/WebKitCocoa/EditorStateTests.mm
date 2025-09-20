@@ -443,6 +443,44 @@ NSString *applyAhemStyle(NSString *htmlString)
 
 }
 
+TEST(EditorStateTests, SelectedTextRange_CaretSelectionWithZoom)
+{
+    IPhoneUserInterfaceSwizzler userInterfaceSwizzler;
+
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 980, 600)]);
+    RetainPtr inputDelegate = adoptNS([[TestInputDelegate alloc] init]);
+    [inputDelegate setFocusStartsInputSessionPolicyHandler:[] (WKWebView *, id<_WKFocusedElementInfo>) {
+        return _WKFocusStartsInputSessionPolicyAllow;
+    }];
+    [webView _setInputDelegate:inputDelegate.get()];
+
+    [webView synchronouslyLoadHTMLStringAndWaitUntilAllImmediateChildFramesPaint:EditorStateTests::applyAhemStyle(@"<input id='input' value='.' style='margin-top: 100px;'>")]; // . is dummy to force Ahem to load
+
+    [webView stringByEvaluatingJavaScript:@"input.focus()"];
+    [webView _synchronouslyExecuteEditCommand:@"InsertText" argument:@"Test"];
+
+    [webView waitForNextVisibleContentRectUpdate];
+    [webView waitForNextPresentationUpdate];
+
+    CGFloat zoomScale = 4;
+    [webView setZoomScaleSimulatingUserTriggeredZoom:zoomScale];
+
+    [webView waitForNextPresentationUpdate];
+
+    RetainPtr contentView = [webView textInputContentView];
+    RetainPtr selectedTextRange = [contentView selectedTextRange];
+
+    EXPECT_EQ([[contentView layer] transform].m11, zoomScale);
+
+#if ENABLE(FORM_CONTROL_REFRESH)
+    CGRect caretRect = CGRectMake(137, 107, 2, EditorStateTests::glyphWidth);
+#else
+    CGRect caretRect = CGRectMake(137, 106, 3, EditorStateTests::glyphWidth);
+#endif
+    EXPECT_EQ(caretRect, [contentView caretRectForPosition:[selectedTextRange start]]);
+    EXPECT_EQ(caretRect, [contentView caretRectForPosition:[selectedTextRange end]]);
+}
+
 TEST(EditorStateTests, MarkedTextRange_HorizontalCaretSelection)
 {
     IPhoneUserInterfaceSwizzler userInterfaceSwizzler;

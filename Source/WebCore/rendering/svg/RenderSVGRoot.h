@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2004, 2005, 2007 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005, 2007 Rob Buis <buis@kde.org>
- * Copyright (C) 2009-2016 Google, Inc.  All rights reserved.
+ * Copyright (C) 2009-2016 Google, Inc. All rights reserved.
  * Copyright (C) 2009 Apple Inc. All rights reserved.
  * Copyright (C) 2020, 2021, 2022 Igalia S.L.
  *
@@ -45,7 +45,7 @@ public:
     bool isEmbeddedThroughSVGImage() const;
     bool isEmbeddedThroughFrameContainingSVGDocument() const;
 
-    void computeIntrinsicRatioInformation(FloatSize& intrinsicSize, FloatSize& intrinsicRatio) const final;
+    std::pair<FloatSize, FloatSize> computeIntrinsicSizeAndPreferredAspectRatio() const final;
     bool hasIntrinsicAspectRatio() const final;
 
     bool isLayoutSizeChanged() const { return m_isLayoutSizeChanged; }
@@ -116,7 +116,7 @@ private:
     IntSize m_containerSize;
     FloatRect m_objectBoundingBox;
     FloatRect m_objectBoundingBoxWithoutTransformations;
-    mutable Markable<FloatRect, FloatRect::MarkableTraits> m_strokeBoundingBox;
+    mutable Markable<FloatRect> m_strokeBoundingBox;
 };
 
 } // namespace WebCore

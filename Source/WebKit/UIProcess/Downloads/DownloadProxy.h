@@ -158,7 +158,7 @@ private:
     Vector<URL> m_redirectChain;
     bool m_wasUserInitiated { true };
     bool m_downloadIsCancelled { false };
-    Ref<API::FrameInfo> m_frameInfo;
+    const Ref<API::FrameInfo> m_frameInfo;
     CompletionHandler<void(DownloadProxy*)> m_didStartCallback;
 #if PLATFORM(COCOA)
     RetainPtr<NSProgress> m_progress;
@@ -169,3 +169,7 @@ private:
 };
 
 } // namespace WebKit
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::DownloadProxy)
+static bool isType(const API::Object& object) { return object.type() == API::Object::Type::Download; }
+SPECIALIZE_TYPE_TRAITS_END()

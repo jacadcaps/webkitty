@@ -56,7 +56,7 @@ OBJC_CLASS WebCoreAVFMovieObserver;
 OBJC_CLASS WebCoreAVFPullDelegate;
 
 typedef struct CGImage *CGImageRef;
-typedef struct __CVBuffer *CVPixelBufferRef;
+typedef struct CF_BRIDGED_TYPE(id) __CVBuffer *CVPixelBufferRef;
 typedef struct OpaqueFigVideoTarget *FigVideoTargetRef;
 typedef NSString *AVMediaCharacteristic;
 typedef double NSTimeInterval;
@@ -191,6 +191,7 @@ private:
     NSArray *timedMetadata() const final;
     String accessLog() const final;
     String errorLog() const final;
+    void sceneIdentifierDidChange() final;
 #endif
 
     bool supportsAcceleratedRendering() const final { return true; }
@@ -299,7 +300,7 @@ private:
 #endif
 
     void setCurrentTextTrack(InbandTextTrackPrivateAVF*) final;
-    InbandTextTrackPrivateAVF* currentTextTrack() const final { return m_currentTextTrack.get().get(); }
+    ThreadSafeWeakPtr<InbandTextTrackPrivateAVF> currentTextTrack() const final { return m_currentTextTrack; }
 
     void updateAudioTracks();
     void updateVideoTracks();
@@ -342,6 +343,8 @@ private:
     void setShouldObserveTimeControlStatus(bool);
 
     void setPreferredDynamicRangeMode(DynamicRangeMode) final;
+    void setPlatformDynamicRangeLimit(PlatformDynamicRangeLimit) final;
+
     void audioOutputDeviceChanged() final;
 
     void currentTimeDidChange(MediaTime&&) const;
@@ -398,9 +401,9 @@ private:
     RetainPtr<AVPlayer> m_avPlayer;
     RetainPtr<AVPlayerItem> m_avPlayerItem;
     RetainPtr<AVPlayerLayer> m_videoLayer WTF_GUARDED_BY_CAPABILITY(mainThread);
-    std::unique_ptr<VideoLayerManagerObjC> m_videoLayerManager;
+    const UniqueRef<VideoLayerManagerObjC> m_videoLayerManager;
     MediaPlayer::VideoGravity m_videoFullscreenGravity { MediaPlayer::VideoGravity::ResizeAspect };
-    RetainPtr<WebCoreAVFMovieObserver> m_objcObserver;
+    const RetainPtr<WebCoreAVFMovieObserver> m_objcObserver;
     RetainPtr<id> m_timeObserver;
     mutable String m_languageOfPrimaryAudioTrack;
     bool m_videoFrameHasDrawn { false };
@@ -424,8 +427,8 @@ private:
     std::unique_ptr<PixelBufferConformerCV> m_pixelBufferConformer;
 
     friend class WebCoreAVFResourceLoader;
-    UncheckedKeyHashMap<RetainPtr<CFTypeRef>, RefPtr<WebCoreAVFResourceLoader>> m_resourceLoaderMap;
-    RetainPtr<WebCoreAVFLoaderDelegate> m_loaderDelegate;
+    HashMap<RetainPtr<CFTypeRef>, RefPtr<WebCoreAVFResourceLoader>> m_resourceLoaderMap;
+    const RetainPtr<WebCoreAVFLoaderDelegate> m_loaderDelegate;
     MemoryCompactRobinHoodHashMap<String, RetainPtr<AVAssetResourceLoadingRequest>> m_keyURIToRequestMap;
     MemoryCompactRobinHoodHashMap<String, RetainPtr<AVAssetResourceLoadingRequest>> m_sessionIDToRequestMap;
 

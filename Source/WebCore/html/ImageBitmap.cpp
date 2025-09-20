@@ -30,6 +30,7 @@
 #include "Blob.h"
 #include "CSSStyleImageValue.h"
 #include "CachedImage.h"
+#include "ContainerNodeInlines.h"
 #include "EventLoop.h"
 #include "ExceptionCode.h"
 #include "ExceptionOr.h"
@@ -50,11 +51,11 @@
 #include "LocalFrameView.h"
 #include "RenderElement.h"
 #include "SVGImageElement.h"
+#include "ScriptExecutionContextInlines.h"
 #include "SharedBuffer.h"
 #include "WebCodecsVideoFrame.h"
 #include "WorkerClient.h"
 #include "WorkerGlobalScope.h"
-#include <variant>
 #include <wtf/Scope.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -642,7 +643,7 @@ void ImageBitmap::createCompletionHandler(ScriptExecutionContext& scriptExecutio
     const bool originClean = !taintsOrigin(scriptExecutionContext.securityOrigin(), *video);
 
     // FIXME: Add support for pixel formats to ImageBitmap.
-    auto bitmapData = video->createBufferForPainting(outputSize, bufferRenderingMode(scriptExecutionContext), *colorSpace, ImageBufferPixelFormat::BGRA8);
+    auto bitmapData = video->createBufferForPainting(outputSize, bufferRenderingMode(scriptExecutionContext), *colorSpace, { ImageBufferPixelFormat::BGRA8 });
     if (!bitmapData) {
         completionHandler(createBlankImageBuffer(scriptExecutionContext, originClean));
         return;
@@ -752,6 +753,7 @@ public:
 
     void imageFrameAvailable(const Image&, ImageAnimatingState, const IntRect* = nullptr, DecodingStatus = DecodingStatus::Invalid) override { }
     void changedInRect(const Image&, const IntRect* = nullptr) override { }
+    void imageContentChanged(const Image&) override { }
     void scheduleRenderingUpdate(const Image&) override { }
 
 private:
@@ -935,7 +937,7 @@ void ImageBitmap::createCompletionHandler(ScriptExecutionContext& scriptExecutio
     const auto alphaPremultiplication = alphaPremultiplicationForPremultiplyAlpha(options.premultiplyAlpha);
     const bool premultiplyAlpha = alphaPremultiplication == AlphaPremultiplication::Premultiplied;
     if (sourceRectangle.returnValue().location().isZero() && sourceRectangle.returnValue().size() == imageData->size() && sourceRectangle.returnValue().size() == outputSize && options.orientation != ImageBitmapOptions::Orientation::FlipY) {
-        bitmapData->putPixelBuffer(imageData->pixelBuffer(), sourceRectangle.releaseReturnValue(), { }, alphaPremultiplication);
+        bitmapData->putPixelBuffer(imageData->byteArrayPixelBuffer().get(), sourceRectangle.releaseReturnValue(), { }, alphaPremultiplication);
 
         auto imageBitmap = create(bitmapData.releaseNonNull(), originClean, premultiplyAlpha);
         completionHandler(WTFMove(imageBitmap));
@@ -949,7 +951,7 @@ void ImageBitmap::createCompletionHandler(ScriptExecutionContext& scriptExecutio
         completionHandler(createBlankImageBuffer(scriptExecutionContext, true));
         return;
     }
-    tempBitmapData->putPixelBuffer(imageData->pixelBuffer(), IntRect(0, 0, imageData->width(), imageData->height()), { }, alphaPremultiplication);
+    tempBitmapData->putPixelBuffer(imageData->byteArrayPixelBuffer().get(), IntRect(0, 0, imageData->width(), imageData->height()), { }, alphaPremultiplication);
     FloatRect destRect(FloatPoint(), outputSize);
     bitmapData->context().drawImageBuffer(*tempBitmapData, destRect, sourceRectangle.releaseReturnValue(), { interpolationQualityForResizeQuality(options.resizeQuality), options.resolvedImageOrientation(ImageOrientation::Orientation::None) });
 

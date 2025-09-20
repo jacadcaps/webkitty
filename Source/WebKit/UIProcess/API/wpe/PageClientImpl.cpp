@@ -44,6 +44,9 @@
 #include <WebCore/Cursor.h>
 #include <WebCore/DOMPasteAccess.h>
 #include <WebCore/NotImplemented.h>
+#include <WebCore/PasteboardCustomData.h>
+#include <WebCore/SharedBuffer.h>
+#include <WebCore/SystemSettings.h>
 #include <wpe/wpe.h>
 #include <wtf/TZoneMallocInlines.h>
 
@@ -118,7 +121,7 @@ bool PageClientImpl::isViewFocused()
     return m_view.viewState().contains(WebCore::ActivityState::IsFocused);
 }
 
-bool PageClientImpl::isViewVisible()
+bool PageClientImpl::isActiveViewVisible()
 {
     return m_view.viewState().contains(WebCore::ActivityState::IsVisible);
 }
@@ -167,21 +170,24 @@ void PageClientImpl::setCursorHiddenUntilMouseMoves(bool hiddenUntilMouseMoves)
         setCursor(WebCore::noneCursor());
 }
 
-void PageClientImpl::registerEditCommand(Ref<WebEditCommandProxy>&&, UndoOrRedo)
+void PageClientImpl::registerEditCommand(Ref<WebEditCommandProxy>&& command, UndoOrRedo undoOrRedo)
 {
+    m_undoController.registerEditCommand(WTFMove(command), undoOrRedo);
 }
 
 void PageClientImpl::clearAllEditCommands()
 {
+    m_undoController.clearAllEditCommands();
 }
 
-bool PageClientImpl::canUndoRedo(UndoOrRedo)
+bool PageClientImpl::canUndoRedo(UndoOrRedo undoOrRedo)
 {
-    return false;
+    return m_undoController.canUndoRedo(undoOrRedo);
 }
 
-void PageClientImpl::executeUndoRedo(UndoOrRedo)
+void PageClientImpl::executeUndoRedo(UndoOrRedo undoOrRedo)
 {
+    m_undoController.executeUndoRedo(undoOrRedo);
 }
 
 WebCore::FloatRect PageClientImpl::convertToDeviceSpace(const WebCore::FloatRect& rect)
@@ -224,7 +230,7 @@ void PageClientImpl::doneWithKeyEvent(const NativeWebKeyboardEvent&, bool)
 }
 
 #if ENABLE(TOUCH_EVENTS)
-void PageClientImpl::doneWithTouchEvent(const NativeWebTouchEvent& touchEvent, bool wasEventHandled)
+void PageClientImpl::doneWithTouchEvent(const WebTouchEvent& touchEvent, bool wasEventHandled)
 {
     if (wasEventHandled) {
 #if ENABLE(WPE_PLATFORM)
@@ -243,8 +249,8 @@ void PageClientImpl::doneWithTouchEvent(const NativeWebTouchEvent& touchEvent, b
         return;
 #endif
 
-    const struct wpe_input_touch_event_raw* touchPoint = touchEvent.nativeFallbackTouchPoint();
-    if (touchPoint->type == wpe_input_touch_event_type_null)
+    const struct wpe_input_touch_event_raw* touchPoint = touchEvent.isNativeWebTouchEvent() ? static_cast<const NativeWebTouchEvent&>(touchEvent).nativeFallbackTouchPoint() : nullptr;
+    if (!touchPoint || touchPoint->type == wpe_input_touch_event_type_null)
         return;
 
     auto& page = m_view.page();
@@ -393,6 +399,11 @@ void PageClientImpl::didChangeBackgroundColor()
 {
 }
 
+void PageClientImpl::themeColorDidChange()
+{
+    m_view.themeColorDidChange();
+}
+
 void PageClientImpl::refView()
 {
 }
@@ -486,17 +497,42 @@ void PageClientImpl::beganExitFullScreen(const WebCore::IntRect& /* initialFrame
 
 #endif // ENABLE(FULLSCREEN_API)
 
-void PageClientImpl::requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteRequiresInteraction, const WebCore::IntRect&, const String&, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&& completionHandler)
+void PageClientImpl::requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteRequiresInteraction requiresInteraction, const WebCore::IntRect&, const String& originIdentifier, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&& completionHandler)
 {
+#if ENABLE(WPE_PLATFORM)
+    if (auto* view = m_view.wpeView()) {
+        if (requiresInteraction == WebCore::DOMPasteRequiresInteraction::No) {
+            auto* clipboard = wpe_display_get_clipboard(wpe_view_get_display(view));
+            if (GRefPtr<GBytes> bytes = adoptGRef(wpe_clipboard_read_bytes(clipboard, WebCore::PasteboardCustomData::wpeType().characters()))) {
+                Ref buffer = WebCore::SharedBuffer::create(bytes.get());
+                if (WebCore::PasteboardCustomData::fromSharedBuffer(buffer.get()).origin() == originIdentifier) {
+                    completionHandler(WebCore::DOMPasteAccessResponse::GrantedForGesture);
+                    return;
+                }
+            }
+        }
+        // FIXME: add WebKitClipboardPermissionRequest support.
+    }
+#endif
     completionHandler(WebCore::DOMPasteAccessResponse::DeniedForGesture);
 }
 
 #if USE(ATK)
 AtkObject* PageClientImpl::accessible()
 {
-    return ATK_OBJECT(m_view.accessible());
+#if ENABLE(WPE_PLATFORM)
+    if (m_view.wpeView())
+        return nullptr;
+#endif
+
+    return ATK_OBJECT(static_cast<WKWPE::ViewLegacy&>(m_view).accessible());
 }
 #endif
+
+bool PageClientImpl::effectiveAppearanceIsDark() const
+{
+    return WebCore::SystemSettings::singleton().darkMode().value_or(false);
+}
 
 void PageClientImpl::didChangeWebPageID() const
 {

@@ -50,10 +50,10 @@ namespace WebDriver {
 struct ConnectToBrowserAsyncData;
 
 #if ENABLE(WEBDRIVER_BIDI)
-class BiDiEventHandler : public CanMakeWeakPtr<BiDiEventHandler>, public RefCounted<BiDiEventHandler> {
+class BidiMessageHandler : public CanMakeWeakPtr<BidiMessageHandler>, public RefCounted<BidiMessageHandler> {
 public:
-    virtual ~BiDiEventHandler() = default;
-    virtual void dispatchEvent(RefPtr<JSON::Object>&&) = 0;
+    virtual ~BidiMessageHandler() = default;
+    virtual void dispatchBidiMessage(RefPtr<JSON::Object>&&) = 0;
 };
 #endif
 
@@ -63,7 +63,7 @@ class SessionHost final
     , public Inspector::RemoteInspectorConnectionClient
 #endif
 {
-    WTF_MAKE_FAST_ALLOCATED(SessionHost);
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(SessionHost);
 public:
 
     static Ref<SessionHost> create(Capabilities&& capabilities)
@@ -97,7 +97,7 @@ public:
     long sendCommandToBackend(const String&, RefPtr<JSON::Object>&& parameters, Function<void (CommandResponse&&)>&&);
 
 #if ENABLE(WEBDRIVER_BIDI)
-    void addEventHandler(WeakPtr<BiDiEventHandler>&& handler) { m_eventHandler = WTFMove(handler); }
+    void setBidiHandler(WeakPtr<BidiMessageHandler>&& handler) { m_bidiHandler = WTFMove(handler); }
 #endif
 
 private:
@@ -117,7 +117,7 @@ private:
     void sendMessageToBackend(const String&);
     void dispatchMessage(const String&);
 #if ENABLE(WEBDRIVER_BIDI)
-    void dispatchEvent(RefPtr<JSON::Object>&&);
+    void dispatchBidiMessage(RefPtr<JSON::Object>&&);
 #endif
 
 #if USE(GLIB)
@@ -153,7 +153,7 @@ private:
     HashMap<long, Function<void (CommandResponse&&)>> m_commandRequests;
 
 #if ENABLE(WEBDRIVER_BIDI)
-    WeakPtr<BiDiEventHandler> m_eventHandler;
+    WeakPtr<BidiMessageHandler> m_bidiHandler;
 #endif
 
     String m_targetIp;

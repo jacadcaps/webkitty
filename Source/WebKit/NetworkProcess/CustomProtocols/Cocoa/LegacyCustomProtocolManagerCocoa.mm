@@ -61,19 +61,21 @@ void LegacyCustomProtocolManager::networkProcessCreated(NetworkProcess& networkP
     };
 
     RELEASE_ASSERT(!firstNetworkProcess() || !hasRegisteredSchemes(RefPtr { protectedFirstNetworkProcess()->supplement<LegacyCustomProtocolManager>() }.get()));
-    firstNetworkProcess() = &networkProcess;
+    firstNetworkProcess() = networkProcess;
 }
 
+NS_REQUIRES_PROPERTY_DEFINITIONS
 @interface WKCustomProtocol : NSURLProtocol {
 @private
     Markable<LegacyCustomProtocolID> _customProtocolID;
-    RetainPtr<CFRunLoopRef> _initializationRunLoop;
 }
 @property (nonatomic, readonly) Markable<LegacyCustomProtocolID> customProtocolID;
 @property (nonatomic, readonly) CFRunLoopRef initializationRunLoop;
 @end
 
-@implementation WKCustomProtocol
+@implementation WKCustomProtocol {
+    RetainPtr<CFRunLoopRef> _initializationRunLoop;
+}
 
 @synthesize customProtocolID = _customProtocolID;
 
@@ -169,9 +171,9 @@ bool LegacyCustomProtocolManager::supportsScheme(const String& scheme)
 
 static inline void dispatchOnInitializationRunLoop(WKCustomProtocol* protocol, void (^block)())
 {
-    CFRunLoopRef runloop = protocol.initializationRunLoop;
-    CFRunLoopPerformBlock(runloop, kCFRunLoopDefaultMode, block);
-    CFRunLoopWakeUp(runloop);
+    RetainPtr<CFRunLoopRef> runloop = protocol.initializationRunLoop;
+    CFRunLoopPerformBlock(runloop.get(), kCFRunLoopDefaultMode, block);
+    CFRunLoopWakeUp(runloop.get());
 }
 
 void LegacyCustomProtocolManager::didFailWithError(LegacyCustomProtocolID customProtocolID, const WebCore::ResourceError& error)

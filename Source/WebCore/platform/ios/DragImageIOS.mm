@@ -39,7 +39,8 @@
 #import "GraphicsContextCG.h"
 #import "Image.h"
 #import "ImageBuffer.h"
-#import "LocalFrame.h"
+#import "LocalFrameInlines.h"
+#import "NativeImage.h"
 #import "NotImplemented.h"
 #import "Page.h"
 #import "Range.h"
@@ -122,7 +123,7 @@ static RetainPtr<CGImageRef> cgImageFromTextIndicator(const TextIndicator& textI
     return nativeImage->platformImage();
 }
 
-DragImageRef createDragImageForLink(Element& linkElement, URL&, const String&, TextIndicatorData& indicatorData, float)
+DragImageData createDragImageForLink(Element& linkElement, URL&, const String&, float)
 {
     constexpr OptionSet<TextIndicatorOption> defaultLinkIndicatorOptions {
         TextIndicatorOption::TightlyFitContent,
@@ -132,12 +133,11 @@ DragImageRef createDragImageForLink(Element& linkElement, URL&, const String&, T
         TextIndicatorOption::ComputeEstimatedBackgroundColor
     };
 
-    auto textIndicator = TextIndicator::createWithRange(makeRangeSelectingNodeContents(linkElement), defaultLinkIndicatorOptions, TextIndicatorPresentationTransition::None, { });
+    RefPtr textIndicator = TextIndicator::createWithRange(makeRangeSelectingNodeContents(linkElement), defaultLinkIndicatorOptions, TextIndicatorPresentationTransition::None, { });
     if (!textIndicator)
-        return nullptr;
+        return  { nullptr, nullptr };
 
-    indicatorData = textIndicator->data();
-    return cgImageFromTextIndicator(*textIndicator).autorelease();
+    return  { cgImageFromTextIndicator(*textIndicator).autorelease(), textIndicator };
 }
 
 DragImageRef createDragImageIconForCachedImageFilename(const String&)
@@ -159,7 +159,7 @@ constexpr OptionSet<TextIndicatorOption> defaultSelectionDragImageTextIndicatorO
     TextIndicatorOption::ComputeEstimatedBackgroundColor
 };
 
-DragImageRef createDragImageForSelection(LocalFrame& frame, TextIndicatorData& indicatorData, bool forceBlackText)
+DragImageData createDragImageForSelection(LocalFrame& frame, bool forceBlackText)
 {
     if (auto document = frame.document())
         document->updateLayout();
@@ -168,12 +168,11 @@ DragImageRef createDragImageForSelection(LocalFrame& frame, TextIndicatorData& i
     if (!forceBlackText)
         options.add(TextIndicatorOption::RespectTextColor);
 
-    auto textIndicator = TextIndicator::createWithSelectionInFrame(frame, options, TextIndicatorPresentationTransition::None, FloatSize());
+    RefPtr textIndicator = TextIndicator::createWithSelectionInFrame(frame, options, TextIndicatorPresentationTransition::None, FloatSize());
     if (!textIndicator)
-        return nullptr;
+        return { nullptr, nullptr };
 
-    indicatorData = textIndicator->data();
-    return cgImageFromTextIndicator(*textIndicator).autorelease();
+    return { cgImageFromTextIndicator(*textIndicator).autorelease(), textIndicator };
 }
 
 DragImageRef dissolveDragImageToFraction(DragImageRef image, float)

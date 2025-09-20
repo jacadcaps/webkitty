@@ -26,7 +26,6 @@
     DispatchedTo=UI
 ]
 messages -> WebInspectorUIProxy {
-    RequestOpenLocalInspectorFrontend()
     SetFrontendConnection(IPC::ConnectionHandle connectionHandle)
 
     SendMessageToBackend(String message)
@@ -37,23 +36,16 @@ messages -> WebInspectorUIProxy {
     Reopen()
     ResetState()
 
-    SetForcedAppearance(WebCore::InspectorFrontendClient::Appearance appearance)
-    EffectiveAppearanceDidChange(WebCore::InspectorFrontendClient::Appearance appearance)
+    SetForcedAppearance(enum:uint8_t WebCore::InspectorFrontendClientAppearance appearance)
+    EffectiveAppearanceDidChange(enum:uint8_t WebCore::InspectorFrontendClientAppearance appearance)
 
     OpenURLExternally(String url)
     RevealFileExternally(String path)
 
     InspectedURLChanged(String urlString)
     ShowCertificate(WebCore::CertificateInfo certificateInfo)
-    ElementSelectionChanged(bool active)
-    TimelineRecordingChanged(bool active)
 
-    SetDeveloperPreferenceOverride(enum:uint8_t WebCore::InspectorClientDeveloperPreference developerPreference, std::optional<bool> overrideValue)
-#if ENABLE(INSPECTOR_NETWORK_THROTTLING)
-    SetEmulatedConditions(std::optional<int64_t> bytesPerSecondLimit)
-#endif
-
-    Save(Vector<WebCore::InspectorFrontendClient::SaveData> saveDatas, bool forceSaveAs)
+    Save(Vector<WebCore::InspectorFrontendClientSaveData> saveDatas, bool forceSaveAs)
     Load(String path) -> (String content)
     PickColorFromScreen() -> (std::optional<WebCore::Color> color)
 
@@ -61,8 +53,6 @@ messages -> WebInspectorUIProxy {
     AttachRight()
     AttachLeft()
     Detach()
-
-    AttachAvailabilityChanged(bool available)
 
     SetAttachedWindowHeight(unsigned height)
     SetAttachedWindowWidth(unsigned width)

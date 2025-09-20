@@ -289,6 +289,7 @@ class Plan < BasePlan
                 outp.puts "START_TIME=$(($(date +%s%N)/1000000))"
             end
             outp.puts "echo Running #{Shellwords.shellescape(@name)}"
+            outp.puts "trap 'echo \"Killing #{@name}\" 1>&2' INT"
             #
             # +--------------------------------------------------------------------+
             # | +-----------------------------------------------+                  |

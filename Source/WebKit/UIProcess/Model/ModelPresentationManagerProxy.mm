@@ -61,6 +61,7 @@ RetainPtr<WKPageHostedModelView> ModelPresentationManagerProxy::setUpModelView(R
     [view setShouldDisablePortal:modelContext->disablePortal() == WebCore::ModelContextDisablePortal::Yes];
     [view applyBackgroundColor:modelContext->backgroundColor()];
 
+    pageScaleDidChange(webPageProxy->pageScaleFactor());
     return view;
 }
 
@@ -78,6 +79,9 @@ RetainPtr<UIView> ModelPresentationManagerProxy::startDragForModel(const WebCore
 #if PLATFORM(VISION)
     CGRect frame = [modelView frame];
     [modelView _setAssumedNoncoplanarHostedContentSize:SPSize3DMake(CGRectGetWidth(frame), CGRectGetHeight(frame), 100)];
+
+    auto hostedView = modelPresentation->pageHostedModelView;
+    [hostedView setPortalCrossing:YES];
 #endif
 
     m_activelyDraggedModelLayerIDs.add(layerIdentifier);
@@ -87,7 +91,29 @@ RetainPtr<UIView> ModelPresentationManagerProxy::startDragForModel(const WebCore
 
 void ModelPresentationManagerProxy::doneWithCurrentDragSession()
 {
+    for (WebCore::PlatformLayerIdentifier layerIdentifier : m_activelyDraggedModelLayerIDs) {
+        auto iterator = m_modelPresentations.find(layerIdentifier);
+        if (iterator == m_modelPresentations.end())
+            continue;
+
+        auto& modelPresentation = iterator->value;
+        if (auto pageHostedModelView = modelPresentation->pageHostedModelView)
+            [modelPresentation->pageHostedModelView setPortalCrossing:NO];
+    }
+
     m_activelyDraggedModelLayerIDs.clear();
+}
+
+void ModelPresentationManagerProxy::pageScaleDidChange(CGFloat newScale)
+{
+    for (auto& modelPresentation : m_modelPresentations.values()) {
+        // This is safe because only the pageHostedView is part of the RemoteLayerTree
+        if (RetainPtr modelView = modelPresentation->remoteModelView) {
+            CATransform3D newTransform = [modelView transform3D];
+            newTransform.m33 = newScale;
+            modelView.get().transform3D = newTransform;
+        }
+    }
 }
 
 void ModelPresentationManagerProxy::invalidateModel(const WebCore::PlatformLayerIdentifier& layerIdentifier)

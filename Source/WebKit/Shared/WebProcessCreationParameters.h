@@ -30,7 +30,7 @@
 #include "AuxiliaryProcessCreationParameters.h"
 #include "CacheModel.h"
 #include "SandboxExtension.h"
-#include "ScriptTelemetry.h"
+#include "ScriptTrackingPrivacyFilter.h"
 #include "TextCheckerState.h"
 #include "UserData.h"
 
@@ -60,9 +60,14 @@
 #endif
 
 #if PLATFORM(GTK) || PLATFORM(WPE)
+#include "AvailableInputDevices.h"
 #include "RendererBufferTransportMode.h"
 #include <WebCore/SystemSettings.h>
 #include <wtf/MemoryPressureHandler.h>
+#endif
+
+#if USE(GBM)
+#include <WebCore/DRMDevice.h>
 #endif
 
 namespace API {
@@ -88,7 +93,9 @@ struct WebProcessCreationParameters {
     Vector<String> urlSchemesRegisteredAsBypassingContentSecurityPolicy;
     Vector<String> urlSchemesForWhichDomainRelaxationIsForbidden;
     Vector<String> urlSchemesRegisteredAsLocal;
+#if ENABLE(ALL_LEGACY_REGISTERED_SPECIAL_URL_SCHEMES)
     Vector<String> urlSchemesRegisteredAsNoAccess;
+#endif
     Vector<String> urlSchemesRegisteredAsDisplayIsolated;
     Vector<String> urlSchemesRegisteredAsCORSEnabled;
     Vector<String> urlSchemesRegisteredAsAlwaysRevalidated;
@@ -107,7 +114,7 @@ struct WebProcessCreationParameters {
 
     CacheModel cacheModel;
 
-    Markable<double, WTF::DoubleMarkableTraits> defaultRequestTimeoutInterval;
+    Markable<double> defaultRequestTimeoutInterval;
     unsigned backForwardCacheCapacity { 0 };
 
     bool shouldAlwaysUseComplexTextCodePath { false };
@@ -188,10 +195,6 @@ struct WebProcessCreationParameters {
 #endif
 
     std::optional<WebProcessDataStoreParameters> websiteDataStoreParameters;
-    
-#if PLATFORM(IOS) || PLATFORM(VISION)
-    Vector<SandboxExtension::Handle> compilerServiceExtensionHandles;
-#endif
 
     std::optional<SandboxExtension::Handle> mobileGestaltExtensionHandle;
     std::optional<SandboxExtension::Handle> launchServicesExtensionHandle;
@@ -201,10 +204,6 @@ struct WebProcessCreationParameters {
 #endif
     bool enableDecodingHEIC { false };
     bool enableDecodingAVIF { false };
-#endif
-
-#if PLATFORM(IOS_FAMILY)
-    Vector<SandboxExtension::Handle> dynamicIOKitExtensionHandles;
 #endif
 
 #if PLATFORM(VISION)
@@ -227,12 +226,15 @@ struct WebProcessCreationParameters {
 #endif
 
 #if USE(GBM)
-    String renderDeviceFile;
+    WebCore::DRMDevice drmDevice;
 #endif
 
 #if PLATFORM(GTK) || PLATFORM(WPE)
     OptionSet<RendererBufferTransportMode> rendererBufferTransportMode;
     WebCore::SystemSettings::State systemSettings;
+    std::optional<MemoryPressureHandler::Configuration> memoryPressureHandlerConfiguration;
+    bool disableFontHintingForTesting { false };
+    OptionSet<AvailableInputDevices> availableInputDevices;
 #endif
 
 #if PLATFORM(GTK)
@@ -245,17 +247,12 @@ struct WebProcessCreationParameters {
 
 #if HAVE(IOSURFACE)
     WebCore::IntSize maximumIOSurfaceSize;
-    size_t bytesPerRowIOSurfaceAlignment;
+    uint64_t bytesPerRowIOSurfaceAlignment;
 #endif
     
     AccessibilityPreferences accessibilityPreferences;
 #if PLATFORM(IOS_FAMILY)
     bool applicationAccessibilityEnabled { false };
-#endif
-
-#if PLATFORM(GTK) || PLATFORM(WPE)
-    std::optional<MemoryPressureHandler::Configuration> memoryPressureHandlerConfiguration;
-    bool disableFontHintingForTesting { false };
 #endif
 
 #if USE(GLIB)
@@ -275,13 +272,21 @@ struct WebProcessCreationParameters {
 
     HashMap<WebCore::RegistrableDomain, String> storageAccessUserAgentStringQuirksData;
     HashSet<WebCore::RegistrableDomain> storageAccessPromptQuirksDomains;
-    ScriptTelemetryRules scriptTelemetryRules;
+    ScriptTrackingPrivacyRules scriptTrackingPrivacyRules;
 
     Seconds memoryFootprintPollIntervalForTesting;
-    Vector<size_t> memoryFootprintNotificationThresholds;
+    Vector<uint64_t> memoryFootprintNotificationThresholds;
 
 #if ENABLE(NOTIFY_BLOCKING)
     Vector<std::pair<String, uint64_t>> notifyState;
+#endif
+
+#if ENABLE(INITIALIZE_ACCESSIBILITY_ON_DEMAND)
+    bool shouldInitializeAccessibility { false };
+#endif
+
+#if HAVE(LIQUID_GLASS)
+    bool isLiquidGlassEnabled { false };
 #endif
 };
 

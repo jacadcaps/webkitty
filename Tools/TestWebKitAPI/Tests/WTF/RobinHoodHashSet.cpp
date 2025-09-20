@@ -52,7 +52,7 @@ struct RobinHoodHash : public DefaultHash<T> {
 
 static constexpr unsigned capacityForSize(unsigned size)
 {
-    unsigned capacity = WTF::roundUpToPowerOfTwo(size);
+    unsigned capacity = roundUpToPowerOfTwo(size);
     if (size * 100 >= capacity * 95)
         return capacity * 2;
     return capacity;
@@ -297,7 +297,7 @@ TEST(WTF_RobinHoodHashSet, CopyCapacityIsNotOnBoundary)
 }
 
 struct DerefObserver {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(DerefObserver);
     NEVER_INLINE void ref()
     {
         ++count;

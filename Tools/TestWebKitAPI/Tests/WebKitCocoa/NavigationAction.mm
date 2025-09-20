@@ -209,7 +209,7 @@ TEST(WKNavigationAction, BlobRequestBody)
         if ([action.request.URL.absoluteString isEqualToString:@"about:blank"])
             completionHandler(WKNavigationActionPolicyAllow);
         else {
-            EXPECT_WK_STREQ(action.request.URL.absoluteString, "");
+            EXPECT_WK_STREQ(action.request.URL.absoluteString, "/formAction");
             completionHandler(WKNavigationActionPolicyCancel);
             done = true;
         }

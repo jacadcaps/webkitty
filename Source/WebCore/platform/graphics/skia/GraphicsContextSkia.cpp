@@ -35,6 +35,7 @@
 #include "GLContext.h"
 #include "ImageBuffer.h"
 #include "IntRect.h"
+#include "NativeImage.h"
 #include "NotImplemented.h"
 #include "PlatformDisplay.h"
 #include "ProcessCapabilities.h"
@@ -736,10 +737,12 @@ void GraphicsContextSkia::translate(float x, float y)
     m_canvas.translate(SkFloatToScalar(x), SkFloatToScalar(y));
 }
 
-void GraphicsContextSkia::didUpdateState(GraphicsContextState& state)
+void GraphicsContextSkia::didUpdateState(GraphicsContextState&)
 {
-    // FIXME: Handle stroke changes.
-    state.didApplyChanges();
+}
+
+void GraphicsContextSkia::didUpdateSingleState(GraphicsContextState&, GraphicsContextState::ChangeIndex)
+{
 }
 
 void GraphicsContextSkia::concatCTM(const AffineTransform& ctm)
@@ -856,11 +859,15 @@ void GraphicsContextSkia::setLineDash(const DashArray& dashArray, float dashOffs
 
     if (dashArray.size() % 2 == 1) {
         // Repeat the array to ensure even number of dash array elements, see e.g. 'stroke-dasharray' spec.
-        DashArray repeatedDashArray(dashArray);
-        repeatedDashArray.appendVector(dashArray);
-        m_skiaState.m_stroke.dash = SkDashPathEffect::Make(repeatedDashArray.data(), repeatedDashArray.size(), dashOffset);
-    } else
-        m_skiaState.m_stroke.dash = SkDashPathEffect::Make(dashArray.data(), dashArray.size(), dashOffset);
+        auto repeatedDashArray = DashArray::createWithSizeFromGenerator(dashArray.size() * 2, [&](auto i) {
+            return dashArray[i % dashArray.size()];
+        });
+        auto repeatedDashArraySpan = repeatedDashArray.span();
+        m_skiaState.m_stroke.dash = SkDashPathEffect::Make(repeatedDashArraySpan.data(), repeatedDashArraySpan.size(), dashOffset);
+    } else {
+        auto dashArraySpan = dashArray.span();
+        m_skiaState.m_stroke.dash = SkDashPathEffect::Make(dashArraySpan.data(), dashArraySpan.size(), dashOffset);
+    }
 }
 
 void GraphicsContextSkia::setLineJoin(LineJoin lineJoin)
@@ -1053,10 +1060,11 @@ inline std::unique_ptr<GLFence> createAcceleratedRenderingFence(T object)
 
     grContext->flush(object);
 
-    if (GLFence::isSupported()) {
+    auto& glDisplay = PlatformDisplay::sharedDisplay().glDisplay();
+    if (GLFence::isSupported(glDisplay)) {
         grContext->submit(GrSyncCpu::kNo);
 
-        if (auto fence = GLFence::create())
+        if (auto fence = GLFence::create(glDisplay))
             return fence;
     }
 

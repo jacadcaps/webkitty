@@ -40,6 +40,7 @@
 #if ENABLE(MEDIA_STREAM) || ENABLE(WEB_CODECS)
 #include "VideoFrame.h"
 #if USE(GSTREAMER)
+#include "VideoFrameContentHint.h"
 #include "VideoFrameGStreamer.h"
 #endif
 #endif
@@ -94,6 +95,14 @@ GraphicsContextGLANGLE::~GraphicsContextGLANGLE()
     GL_DeleteFramebuffers(1, &m_fbo);
 
     if (m_contextObj) {
+        for (auto* image : m_eglImages.values()) {
+            bool result = EGL_DestroyImageKHR(m_displayObj, image);
+            ASSERT_UNUSED(result, !!result);
+        }
+        for (auto* sync : m_eglSyncs.values()) {
+            bool result = EGL_DestroySync(m_displayObj, sync);
+            ASSERT_UNUSED(result, !!result);
+        }
         EGL_MakeCurrent(m_displayObj, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
         EGL_DestroyContext(m_displayObj, m_contextObj);
     }
@@ -126,7 +135,7 @@ void GraphicsContextGLANGLE::platformReleaseThreadResources()
 
 RefPtr<PixelBuffer> GraphicsContextGLTextureMapperANGLE::readCompositedResults()
 {
-    return readRenderingResults();
+    return readRenderingResultsForPainting();
 }
 
 RefPtr<GraphicsContextGL> createWebProcessGraphicsContextGL(const GraphicsContextGLAttributes& attributes)
@@ -185,8 +194,12 @@ bool GraphicsContextGLTextureMapperANGLE::copyTextureFromVideoFrame(VideoFrame&,
 RefPtr<VideoFrame> GraphicsContextGLTextureMapperANGLE::surfaceBufferToVideoFrame(SurfaceBuffer)
 {
 #if USE(GSTREAMER)
-    if (auto pixelBuffer = readCompositedResults())
-        return VideoFrameGStreamer::createFromPixelBuffer(pixelBuffer.releaseNonNull(), VideoFrameGStreamer::Rotation::UpsideDown, MediaTime::invalidTime(), { }, 30, true, { });
+    if (auto pixelBuffer = readCompositedResults()) {
+        VideoFrameGStreamer::CreateOptions options;
+        options.rotation = VideoFrameGStreamer::Rotation::UpsideDown;
+        options.isMirrored = true;
+        return VideoFrameGStreamer::createFromPixelBuffer(pixelBuffer.releaseNonNull(), { }, 30, options);
+    }
 #endif
     return nullptr;
 }
@@ -277,7 +290,7 @@ bool GraphicsContextGLTextureMapperANGLE::platformInitializeContext()
     }
     eglContextAttributes.append(EGL_NONE);
 
-    m_contextObj = EGL_CreateContext(m_displayObj, m_configObj, sharedDisplay.angleSharingGLContext(), eglContextAttributes.data());
+    m_contextObj = EGL_CreateContext(m_displayObj, m_configObj, sharedDisplay.angleSharingGLContext(), eglContextAttributes.span().data());
     if (m_contextObj == EGL_NO_CONTEXT) {
         LOG(WebGL, "EGLContext Initialization failed.");
         return false;
@@ -380,7 +393,8 @@ void GraphicsContextGLTextureMapperANGLE::prepareForDisplay()
     if (contextAttributes().alpha)
         flags.add(TextureMapperFlags::ShouldBlend);
     auto fboSize = getInternalFramebufferSize();
-    m_layerContentsDisplayDelegate->setDisplayBuffer(CoordinatedPlatformLayerBufferRGB::create(m_compositorTextureID, fboSize, flags, GLFence::create()));
+    auto fence = GLFence::create(PlatformDisplay::sharedDisplay().glDisplay());
+    m_layerContentsDisplayDelegate->setDisplayBuffer(CoordinatedPlatformLayerBufferRGB::create(m_compositorTextureID, fboSize, flags, WTFMove(fence)));
 #endif
 }
 
@@ -399,7 +413,50 @@ bool GraphicsContextGLTextureMapperANGLE::unmakeCurrentImpl()
     return !!EGL_MakeCurrent(m_displayObj, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 }
 
+unsigned GraphicsContextGLTextureMapperANGLE::glVersion() const
+{
+    if (!m_version) {
+        auto* versionString = byteCast<char>(GL_GetString(GL_VERSION));
+        m_version = GLContext::versionFromString(versionString);
+    }
+    return m_version;
+}
+
 #if ENABLE(WEBXR)
+GCGLExternalSync GraphicsContextGLTextureMapperANGLE::createExternalSync(ExternalSyncSource&&)
+{
+    const auto& display = PlatformDisplay::sharedDisplay();
+    if (!display.eglCheckVersion(1, 5) || !display.eglExtensions().ANDROID_native_fence_sync)
+        return { };
+
+    auto eglSync = EGL_CreateSync(m_displayObj, EGL_SYNC_NATIVE_FENCE_ANDROID, nullptr);
+    if (!eglSync) {
+        addError(GCGLErrorCode::InvalidOperation);
+        return { };
+    }
+
+    GL_Flush();
+    auto newName = ++m_nextExternalSyncName;
+    m_eglSyncs.add(newName, eglSync);
+    return newName;
+}
+
+#if USE(OPENXR)
+UnixFileDescriptor GraphicsContextGLTextureMapperANGLE::exportExternalSync(GCGLExternalSync sync)
+{
+    if (!sync)
+        return { };
+
+    auto eglSync = m_eglSyncs.get(sync);
+    if (!eglSync) {
+        addError(GCGLErrorCode::InvalidOperation);
+        return { };
+    }
+
+    return UnixFileDescriptor { EGL_DupNativeFenceFDANDROID(m_displayObj, eglSync), UnixFileDescriptor::Adopt };
+}
+#endif
+
 bool GraphicsContextGLTextureMapperANGLE::addFoveation(IntSize, IntSize, IntSize, std::span<const GCGLfloat>, std::span<const GCGLfloat>, std::span<const GCGLfloat>)
 {
     return false;

@@ -1,7 +1,7 @@
 /*
- * Copyright (C) 2003-2023 Apple Inc.  All rights reserved.
- * Copyright (C) 2014 Google Inc.  All rights reserved.
- * Copyright (C) 2005 Nokia.  All rights reserved.
+ * Copyright (C) 2003-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2014 Google Inc. All rights reserved.
+ * Copyright (C) 2005 Nokia. All rights reserved.
  *               2008 Eric Seidel <eric@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -42,11 +42,7 @@ typedef struct CGSize CGSize;
 #endif
 
 #if PLATFORM(MAC)
-#ifdef NSGEOMETRY_TYPES_SAME_AS_CGGEOMETRY_TYPES
 typedef struct CGSize NSSize;
-#else
-typedef struct _NSSize NSSize;
-#endif
 #endif // PLATFORM(MAC)
 
 namespace WTF {
@@ -148,11 +144,6 @@ public:
     WEBCORE_EXPORT operator CGSize() const;
 #endif
 
-#if PLATFORM(MAC) && !defined(NSGEOMETRY_TYPES_SAME_AS_CGGEOMETRY_TYPES)
-    WEBCORE_EXPORT explicit FloatSize(const NSSize&); // don't do this implicitly since it's lossy
-    operator NSSize() const;
-#endif
-
     static constexpr FloatSize nanSize();
     constexpr bool isNaN() const;
 
@@ -160,18 +151,6 @@ public:
     WEBCORE_EXPORT Ref<JSON::Object> toJSONObject() const;
 
     friend bool operator==(const FloatSize&, const FloatSize&) = default;
-
-    struct MarkableTraits {
-        constexpr static bool isEmptyValue(const FloatSize& size)
-        {
-            return size.isNaN();
-        }
-
-        constexpr static FloatSize emptyValue()
-        {
-            return FloatSize::nanSize();
-        }
-    };
 
 private:
     float m_width { 0 };
@@ -295,6 +274,19 @@ struct LogArgument<WebCore::FloatSize> {
     static String toString(const WebCore::FloatSize& size)
     {
         return size.toJSONString();
+    }
+};
+
+template<>
+struct MarkableTraits<WebCore::FloatSize> {
+    constexpr static bool isEmptyValue(const WebCore::FloatSize& size)
+    {
+        return size.isNaN();
+    }
+
+    constexpr static WebCore::FloatSize emptyValue()
+    {
+        return WebCore::FloatSize::nanSize();
     }
 };
     

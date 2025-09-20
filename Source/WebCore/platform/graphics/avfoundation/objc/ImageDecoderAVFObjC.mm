@@ -159,7 +159,7 @@
     if (auto infoRequest = request.contentInformationRequest) {
         RefPtr parent = _parent.get();
         RELEASE_ASSERT(parent);
-        infoRequest.contentType = parent->uti();
+        infoRequest.contentType = parent->uti().createNSString().get();
         infoRequest.byteRangeAccessSupported = YES;
         infoRequest.contentLength = _complete ? _data.get().length : _expectedContentSize;
     }
@@ -589,15 +589,6 @@ Vector<ImageDecoder::FrameInfo> ImageDecoderAVFObjC::frameInfos() const
         Ref imageSample = downcast<ImageDecoderAVFObjCSample>(sample.second.get());
         return ImageDecoder::FrameInfo { imageSample->hasAlpha(), Seconds(imageSample->duration().toDouble()) };
     });
-}
-
-unsigned ImageDecoderAVFObjC::frameBytesAtIndex(size_t index, SubsamplingLevel subsamplingLevel) const
-{
-    if (!frameIsCompleteAtIndex(index))
-        return 0;
-
-    IntSize frameSize = frameSizeAtIndex(index, subsamplingLevel);
-    return frameSize.area() * 4;
 }
 
 PlatformImagePtr ImageDecoderAVFObjC::createFrameImageAtIndex(size_t index, SubsamplingLevel, const DecodingOptions&)

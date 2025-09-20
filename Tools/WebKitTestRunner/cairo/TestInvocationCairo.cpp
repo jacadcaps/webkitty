@@ -77,7 +77,7 @@ static void dumpBitmap(cairo_surface_t* surface, const char* checksum)
     Vector<unsigned char> pixelData;
     cairo_surface_write_to_png_stream(surface, writeFunction, &pixelData);
     const size_t dataLength = pixelData.size();
-    const unsigned char* data = pixelData.data();
+    const unsigned char* data = pixelData.span().data();
 
     printPNG(data, dataLength, checksum);
 }

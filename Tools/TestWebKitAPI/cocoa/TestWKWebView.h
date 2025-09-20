@@ -25,6 +25,7 @@
 
 #import <WebKit/WebKit.h>
 #import <wtf/Forward.h>
+#import <wtf/IterationStatus.h>
 #import <wtf/RetainPtr.h>
 
 @class _WKFrameTreeNode;
@@ -106,8 +107,12 @@ class Color;
 #endif
 #endif // PLATFORM(IOS_FAMILY)
 
+- (CALayer *)firstLayerWithName:(NSString *)layerName;
+- (void)forEachCALayer:(IterationStatus(^)(CALayer *))visitor;
+
 @property (nonatomic, readonly) CGImageRef snapshotAfterScreenUpdates;
 @property (nonatomic, readonly) NSUInteger gpuToWebProcessConnectionCount;
+@property (nonatomic, readonly) NSUInteger modelProcessModelPlayerCount;
 @property (nonatomic, readonly) NSString *contentsAsString;
 @property (nonatomic, readonly) NSData *contentsAsWebArchive;
 @property (nonatomic, readonly) NSArray<NSString *> *tagsInBody;
@@ -135,7 +140,10 @@ class Color;
 - (id)objectByEvaluatingJavaScriptWithUserGesture:(NSString *)script;
 - (id)objectByEvaluatingJavaScript:(NSString *)script;
 - (id)objectByEvaluatingJavaScript:(NSString *)script inFrame:(WKFrameInfo *)frame;
+- (id)objectByEvaluatingJavaScript:(NSString *)script inFrame:(WKFrameInfo *)frame inContentWorld:(WKContentWorld *)world;
+- (id)objectByCallingAsyncFunction:(NSString *)script withArguments:(NSDictionary *)arguments;
 - (id)objectByCallingAsyncFunction:(NSString *)script withArguments:(NSDictionary *)arguments error:(NSError **)errorOut;
+- (id)objectByCallingAsyncFunction:(NSString *)script withArguments:(NSDictionary *)arguments inFrame:(WKFrameInfo *)frame inContentWorld:(WKContentWorld *)world;
 - (unsigned)waitUntilClientWidthIs:(unsigned)expectedClientWidth;
 - (CGRect)elementRectFromSelector:(NSString *)selector;
 - (CGPoint)elementMidpointFromSelector:(NSString *)selector;
@@ -178,6 +186,7 @@ class Color;
 - (std::optional<CGPoint>)getElementMidpoint:(NSString *)selector;
 - (Vector<WebCore::Color>)sampleColors;
 - (Vector<WebCore::Color>)sampleColorsWithInterval:(unsigned)interval;
+- (RetainPtr<_WKFrameTreeNode>)frameTree;
 @end
 
 #if PLATFORM(IOS_FAMILY)
@@ -199,6 +208,7 @@ class Color;
 - (_WKActivatedElementInfo *)activatedElementAtPosition:(CGPoint)position;
 - (void)evaluateJavaScriptAndWaitForInputSessionToChange:(NSString *)script;
 - (WKContentView *)wkContentView;
+- (void)setZoomScaleSimulatingUserTriggeredZoom:(CGFloat)zoomScale;
 @end
 #endif
 

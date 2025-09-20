@@ -23,10 +23,11 @@
 import logging
 import os
 import sys
+import time
 
 from webkitcorepy import Editor, OutputCapture, testing, mocks as wkmocks
 from webkitcorepy.mocks import Terminal as MockTerminal
-from webkitscmpy import local, program, mocks
+from webkitscmpy import local, program, mocks, Commit
 
 
 class TestSetup(testing.PathTestCase):
@@ -116,6 +117,7 @@ No project git config found, continuing
 Setting better Objective-C diffing behavior for this repository...
 Set better Objective-C diffing behavior for this repository!
 Using a rebase merge strategy for this repository
+Setting auto-updates for commit message changelogs when amending...
 Setting git editor for {repository}...
 Setting contents of 'SVN_LOG_EDITOR' as editor
 Set git editor to 'SVN_LOG_EDITOR' for this repository
@@ -125,10 +127,48 @@ Fetched 1 remote!
 '''.format(repository=self.path),
         )
 
+    def test_non_default_branch(self):
+        with OutputCapture(level=logging.INFO) as captured, mocks.remote.GitHub() as remote, \
+            MockTerminal.input('n', 'n'), mocks.local.Git(self.path, remote='https://{}.git'.format(remote.remote)) as repo, \
+            wkmocks.Environment(EMAIL_ADDRESS='', SVN_LOG_EDITOR=''):
+
+            self.assertEqual('https://github.example.com/WebKit/WebKit.git', local.Git(self.path).url())
+            repo.commits['eng/1234'] = [
+                repo.commits[repo.default_branch][-1],
+                Commit(
+                    hash='06de5d56554e693db72313f4ca1fb969c30b8ccb',
+                    branch='eng/1234',
+                    author=dict(name='Tim Contributor', emails=['tcontributor@example.com']),
+                    identifier="5.1@eng/1234",
+                    timestamp=int(time.time()),
+                    message='[Testing] Existing commit\n'
+                )
+            ]
+            repo.head = repo.commits['eng/1234'][-1]
+
+            self.assertEqual(1, program.main(
+                args=('setup', '-v'),
+                path=self.path,
+            ))
+
+        self.assertEqual(
+            captured.stdout.getvalue(),
+            '''For detailed information about the options configured by this script, please see:
+https://github.com/WebKit/WebKit/wiki/Git-Config#Configuration-Options
+Would you like to open this URL in your browser? ([Yes]/No): 
+
+
+Setup is currently being run on eng/1234. This may result in undefined behavior.
+Please ensure your branch is up-to-date with main or switch to main and rerun `git-webkit setup`.
+Would you like to continue setup? ([No]/Yes): 
+Setup cancelled
+''')
+        self.assertEqual(captured.stderr.getvalue(), '')
+
     def test_github_checkout(self):
         self.maxDiff = None
         with OutputCapture(level=logging.INFO) as captured, mocks.remote.GitHub() as remote, \
-            MockTerminal.input('n', 'n', 'committer@webkit.org', 'n', 'Committer', 's', 'overwrite', 'y', 'disabled', '1', 'y'), \
+            MockTerminal.input('n', 'n', 'committer@webkit.org', 'n', 'Committer', 's', 'overwrite', 'n', 'y', 'disabled', '1', 'y'), \
             mocks.local.Git(self.path, remote='https://{}.git'.format(remote.remote)) as repo, \
             wkmocks.Environment(EMAIL_ADDRESS='', SVN_LOG_EDITOR=''):
 
@@ -186,6 +226,7 @@ No project git config found, continuing
 Setting better Objective-C diffing behavior for this repository...
 Set better Objective-C diffing behavior for this repository!
 Using a rebase merge strategy for this repository
+Setting auto-updates for commit message changelogs when amending...
 Setting auto update on PR creation...
 Disabled auto update on PR creation
 Setting git editor for {repository}...
@@ -206,7 +247,7 @@ Fetched 2 remotes!
         )
 
     def test_commit_message(self):
-        with OutputCapture(level=logging.INFO), mocks.local.Git(self.path) as git, mocks.local.Svn():
+        with OutputCapture(level=logging.INFO), MockTerminal.input('n'), mocks.local.Git(self.path) as git, mocks.local.Svn():
             self.assertEqual(0, program.main(
                 args=('setup', '--defaults', '-v'),
                 path=self.path,
@@ -228,8 +269,9 @@ Fetched 2 remotes!
                     self.assertEqual(
                         file.read(),
                         '''Generated commit message
-# Please populate the above commit message. Lines starting
-# with '#' will be ignored
+# Please populate the above commit message. Lines starting with '#'
+# will be ignored. For any files or functions that don't have an
+# associated comment, please remove them from the commit message.
 
 # 'On branch main
 # Your branch is up to date with 'origin/main'.

@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2010-2024 Apple Inc. All rights reserved.
- * Portions Copyright (c) 2010 Motorola Mobility, Inc.  All rights reserved.
+ * Portions Copyright (c) 2010 Motorola Mobility, Inc. All rights reserved.
  * Copyright (C) 2011 Igalia S.L.
  * Copyright (C) 2017 Sony Interactive Entertainment Inc.
  *
@@ -53,7 +53,7 @@ class PageClientImpl : public PageClient
     , public WebFullScreenManagerProxyClient
 #endif
 {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(PageClientImpl);
 #if ENABLE(FULLSCREEN_API)
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(PageClientImpl);
 #endif
@@ -70,7 +70,7 @@ private:
     WebCore::IntSize viewSize() override;
     bool isViewWindowActive() override;
     bool isViewFocused() override;
-    bool isViewVisible() override;
+    bool isActiveViewVisible() override;
     bool isViewInWindow() override;
     void processDidExit() override;
     void didRelaunchProcess() override;
@@ -104,7 +104,7 @@ private:
     void exitAcceleratedCompositingMode() override;
     void updateAcceleratedCompositingMode(const LayerTreeContext&) override;
 
-    bool handleRunOpenPanel(WebPageProxy*, WebFrameProxy*, const FrameInfoData&, API::OpenPanelParameters*, WebOpenPanelResultListenerProxy*) override;
+    bool handleRunOpenPanel(const WebPageProxy&, const WebFrameProxy&, const FrameInfoData&, API::OpenPanelParameters&, WebOpenPanelResultListenerProxy&) override;
 
     void didChangeContentSize(const WebCore::IntSize&) override;
     void didCommitLoadForMainFrame(const String& mimeType, bool useCustomContentProvider) override;
@@ -144,7 +144,7 @@ private:
 
 
 #if ENABLE(TOUCH_EVENTS)
-    void doneWithTouchEvent(const NativeWebTouchEvent&, bool wasEventHandled) override;
+    void doneWithTouchEvent(const WebTouchEvent&, bool wasEventHandled) override;
 #endif
 
     void wheelEventWasNotHandledByWebCore(const NativeWebWheelEvent&) override;

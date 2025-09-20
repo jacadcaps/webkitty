@@ -23,13 +23,13 @@
 #if ENABLE(WEB_RTC)
 
 [
-    ExceptionForEnabledBy,
+    EnabledBy=PeerConnectionEnabled,
     DispatchedFrom=WebContent,
     DispatchedTo=Networking
 ]
 messages -> NetworkMDNSRegister {
     UnregisterMDNSNames(WebCore::ScriptExecutionContextIdentifier documentIdentifier)
-    RegisterMDNSName(WebCore::ScriptExecutionContextIdentifier documentIdentifier, String ipAddress) -> (String mdnsName, std::optional<WebCore::MDNSRegisterError> error)
+    RegisterMDNSName(WebCore::ScriptExecutionContextIdentifier documentIdentifier, String ipAddress) -> (String mdnsName, enum:uint8_t std::optional<WebCore::MDNSRegisterError> error)
 }
 
 #endif // ENABLE(WEB_RTC)

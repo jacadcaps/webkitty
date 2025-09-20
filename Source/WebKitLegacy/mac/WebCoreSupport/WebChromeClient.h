@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2025 Apple Inc. All rights reserved.
  * Copyright (C) 2008, 2010 Nokia Corporation and/or its subsidiary(-ies)
  *
  * Redistribution and use in source and binary forms, with or without
@@ -34,6 +34,7 @@
 
 namespace WebCore {
 class HTMLImageElement;
+enum class PointerLockRequestResult : uint8_t;
 }
 
 @class WebView;
@@ -88,7 +89,7 @@ private:
     void addMessageToConsole(JSC::MessageSource, JSC::MessageLevel, const String& message, unsigned lineNumber, unsigned columnNumber, const String& sourceURL) final;
 
     bool canRunBeforeUnloadConfirmPanel() final;
-    bool runBeforeUnloadConfirmPanel(const String& message, WebCore::LocalFrame&) final;
+    bool runBeforeUnloadConfirmPanel(String&& message, WebCore::LocalFrame&) final;
 
     void closeWindow() final;
 
@@ -129,7 +130,7 @@ private:
     void exceededDatabaseQuota(WebCore::LocalFrame&, const String& databaseName, WebCore::DatabaseDetails) final;
 
     void runOpenPanel(WebCore::LocalFrame&, WebCore::FileChooser&) override;
-    void showShareSheet(WebCore::ShareDataWithParsedURL&, CompletionHandler<void(bool)>&&) override;
+    void showShareSheet(WebCore::ShareDataWithParsedURL&&, CompletionHandler<void(bool)>&&) override;
 
     void loadIconForFiles(const Vector<String>&, WebCore::FileIconLoader&) final;
     RefPtr<WebCore::Icon> createIconForFiles(const Vector<String>& filenames) override;
@@ -147,10 +148,11 @@ private:
     RefPtr<WebCore::DateTimeChooser> createDateTimeChooser(WebCore::DateTimeChooserClient&) final;
 
     void setTextIndicator(const WebCore::TextIndicatorData&) const final;
+    void updateTextIndicator(const WebCore::TextIndicatorData&) const final;
 
 #if ENABLE(POINTER_LOCK)
-    bool requestPointerLock() final;
-    void requestPointerUnlock() final;
+    void requestPointerLock(CompletionHandler<void(WebCore::PointerLockRequestResult)>&&) final;
+    void requestPointerUnlock(CompletionHandler<void(bool)>&&) final;
 #endif
 
     WebCore::KeyboardUIMode keyboardUIMode() final;
@@ -198,7 +200,7 @@ private:
 #endif
 
 #if ENABLE(VIDEO)
-    bool canEnterVideoFullscreen(WebCore::HTMLMediaElementEnums::VideoFullscreenMode) const final;
+    bool canEnterVideoFullscreen(WebCore::HTMLVideoElement&, WebCore::HTMLMediaElementEnums::VideoFullscreenMode) const final;
     bool supportsVideoFullscreen(WebCore::HTMLMediaElementEnums::VideoFullscreenMode) final;
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     void setMockVideoPresentationModeEnabled(bool) final;

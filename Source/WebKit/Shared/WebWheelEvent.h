@@ -47,6 +47,7 @@ public:
         PhaseEnded       = 1 << 3,
         PhaseCancelled   = 1 << 4,
         PhaseMayBegin    = 1 << 5,
+        PhaseWillBegin   = 1 << 6,
     };
 
     enum class MomentumEndType : uint8_t {
@@ -82,9 +83,11 @@ public:
     const WebCore::FloatSize& unacceleratedScrollingDelta() const { return m_unacceleratedScrollingDelta; }
 #endif
 
-private:
+    bool isMomentumEvent() const { return momentumPhase() != Phase::PhaseNone && momentumPhase() != Phase::PhaseWillBegin; }
+
     static bool isWheelEventType(WebEventType);
 
+private:
     WebCore::IntPoint m_position;
     WebCore::IntPoint m_globalPosition;
     WebCore::FloatSize m_delta;
@@ -107,3 +110,7 @@ private:
 };
 
 } // namespace WebKit
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebWheelEvent)
+static bool isType(const WebKit::WebEvent& event) { return WebKit::WebWheelEvent::isWheelEventType(event.type()); }
+SPECIALIZE_TYPE_TRAITS_END()

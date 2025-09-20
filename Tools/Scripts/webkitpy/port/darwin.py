@@ -31,7 +31,7 @@ from webkitpy.common.system.executive import ScriptError
 from webkitpy.port.apple import ApplePort
 from webkitpy.port.leakdetector import LeakDetector
 
-from webkitcorepy import decorators
+from webkitcorepy import decorators, Version
 
 
 _log = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ _log = logging.getLogger(__name__)
 
 class DarwinPort(ApplePort):
 
-    CURRENT_VERSION = None
+    CURRENT_VERSION = Version(26)
     SDK = None
 
     API_TEST_BINARY_NAMES = ['TestWTF', 'TestWebKitAPI', 'TestIPC', 'TestWGSL']
@@ -255,7 +255,7 @@ class DarwinPort(ApplePort):
             plist_path = self._filesystem.join(app_bundle, 'Contents', 'Info.plist')
         if not self._filesystem.exists(plist_path):
             return None
-        return self._executive.run_command(['/usr/libexec/PlistBuddy', '-c', 'Print {}'.format(entry), plist_path]).rstrip()
+        return self._executive.run_command(['/usr/bin/plutil', '-extract', entry, 'raw', plist_path]).rstrip()
 
     def app_identifier_from_bundle(self, app_bundle):
         return self._plist_data_from_bundle(app_bundle, 'CFBundleIdentifier')

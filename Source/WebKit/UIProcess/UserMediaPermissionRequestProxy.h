@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 Igalia S.L.
- * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2025 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -64,8 +64,8 @@ public:
     bool requiresDisplayCapture() const { return m_request.type == WebCore::MediaStreamRequest::Type::DisplayMedia || m_request.type == WebCore::MediaStreamRequest::Type::DisplayMediaWithAudio; }
     bool requiresDisplayCaptureWithAudio() const { return m_request.type == WebCore::MediaStreamRequest::Type::DisplayMediaWithAudio; }
 
-    void setEligibleVideoDeviceUIDs(Vector<WebCore::CaptureDevice>&& devices) { m_eligibleVideoDevices = WTFMove(devices); }
-    void setEligibleAudioDeviceUIDs(Vector<WebCore::CaptureDevice>&& devices) { m_eligibleAudioDevices = WTFMove(devices); }
+    void setEligibleVideoDevices(Vector<WebCore::CaptureDevice>&& devices) { m_eligibleVideoDevices = WTFMove(devices); }
+    void setEligibleAudioDevices(Vector<WebCore::CaptureDevice>&& devices) { m_eligibleAudioDevices = WTFMove(devices); }
 
     Vector<String> videoDeviceUIDs() const;
     Vector<String> audioDeviceUIDs() const;
@@ -78,14 +78,12 @@ public:
     std::optional<WebCore::UserMediaRequestIdentifier> userMediaID() const { return m_userMediaID; }
     WebCore::FrameIdentifier mainFrameID() const { return m_mainFrameID; }
     const FrameInfoData& frameInfo() const { return m_frameInfo; }
-    WebCore::FrameIdentifier frameID() const { return *m_frameInfo.frameID; }
+    WebCore::FrameIdentifier frameID() const { return m_frameInfo.frameID; }
 
     WebCore::SecurityOrigin& topLevelDocumentSecurityOrigin() { return m_topLevelDocumentSecurityOrigin.get(); }
     WebCore::SecurityOrigin& userMediaDocumentSecurityOrigin() { return m_userMediaDocumentSecurityOrigin.get(); }
     const WebCore::SecurityOrigin& topLevelDocumentSecurityOrigin() const { return m_topLevelDocumentSecurityOrigin.get(); }
     const WebCore::SecurityOrigin& userMediaDocumentSecurityOrigin() const { return m_userMediaDocumentSecurityOrigin.get(); }
-    Ref<WebCore::SecurityOrigin> protectedTopLevelDocumentSecurityOrigin() const { return m_topLevelDocumentSecurityOrigin.get(); }
-    Ref<WebCore::SecurityOrigin> protectedUserMediaDocumentSecurityOrigin() const { return m_userMediaDocumentSecurityOrigin.get(); }
 
     const WebCore::MediaStreamRequest& userRequest() const { return m_request; }
 
@@ -116,8 +114,8 @@ private:
     Markable<WebCore::UserMediaRequestIdentifier> m_userMediaID;
     WebCore::FrameIdentifier m_mainFrameID;
     FrameInfoData m_frameInfo;
-    Ref<WebCore::SecurityOrigin> m_userMediaDocumentSecurityOrigin;
-    Ref<WebCore::SecurityOrigin> m_topLevelDocumentSecurityOrigin;
+    const Ref<WebCore::SecurityOrigin> m_userMediaDocumentSecurityOrigin;
+    const Ref<WebCore::SecurityOrigin> m_topLevelDocumentSecurityOrigin;
     Vector<WebCore::CaptureDevice> m_eligibleVideoDevices;
     Vector<WebCore::CaptureDevice> m_eligibleAudioDevices;
     WebCore::MediaStreamRequest m_request;
@@ -130,6 +128,10 @@ private:
 String convertEnumerationToString(UserMediaPermissionRequestProxy::UserMediaAccessDenialReason);
 
 } // namespace WebKit
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::UserMediaPermissionRequestProxy)
+static bool isType(const API::Object& object) { return object.type() == API::Object::Type::UserMediaPermissionRequest; }
+SPECIALIZE_TYPE_TRAITS_END()
 
 namespace WTF {
 

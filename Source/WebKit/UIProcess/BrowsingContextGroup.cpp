@@ -26,12 +26,14 @@
 #include "config.h"
 #include "BrowsingContextGroup.h"
 
+#include "APIPageConfiguration.h"
 #include "FrameProcess.h"
 #include "PageLoadState.h"
 #include "ProvisionalPageProxy.h"
 #include "RemotePageProxy.h"
 #include "WebFrameProxy.h"
 #include "WebPageProxy.h"
+#include "WebProcessPool.h"
 #include "WebProcessProxy.h"
 
 namespace WebKit {
@@ -42,12 +44,34 @@ BrowsingContextGroup::BrowsingContextGroup() = default;
 
 BrowsingContextGroup::~BrowsingContextGroup() = default;
 
+RefPtr<FrameProcess> BrowsingContextGroup::sharedProcessForSite(WebsiteDataStore& websiteDataStore, const WebPreferences& preferences, const WebCore::Site& site, WebProcessProxy::LockdownMode lockdownMode, API::PageConfiguration& pageConfiguration, IsMainFrame isMainFrame)
+{
+    if (!preferences.siteIsolationEnabled() || !preferences.siteIsolationSharedProcessEnabled())
+        return nullptr;
+    if (isMainFrame == IsMainFrame::Yes)
+        return nullptr;
+    if (site.isEmpty())
+        return nullptr;
+    // FIXME: Add a mechanism for WebKit / Safari to identify websites that need an isolation.
+    m_sharedProcessSites.add(site);
+    if (m_sharedProcess)
+        return m_sharedProcess.get();
+    Ref process = pageConfiguration.protectedProcessPool()->processForSite(websiteDataStore, site, lockdownMode, pageConfiguration, ProcessSwapDisposition::Other);
+    Ref frameProcess = FrameProcess::create(process, *this, std::nullopt, preferences, InjectBrowsingContextIntoProcess::Yes);
+    m_sharedProcess = frameProcess.ptr();
+    return frameProcess;
+}
+
 Ref<FrameProcess> BrowsingContextGroup::ensureProcessForSite(const Site& site, WebProcessProxy& process, const WebPreferences& preferences, InjectBrowsingContextIntoProcess injectBrowsingContextIntoProcess)
 {
-    if (!site.isEmpty() && preferences.siteIsolationEnabled()) {
-        if (auto* existingProcess = processForSite(site)) {
+    if (preferences.siteIsolationEnabled()) {
+        if (m_sharedProcess && m_sharedProcessSites.contains(site)) {
+            ASSERT(&m_sharedProcess->process() == &process);
+            return *m_sharedProcess;
+        }
+        if (RefPtr existingProcess = processForSite(site)) {
             if (existingProcess->process().coreProcessIdentifier() == process.coreProcessIdentifier())
-                return *existingProcess;
+                return existingProcess.releaseNonNull();
         }
     }
 
@@ -56,6 +80,8 @@ Ref<FrameProcess> BrowsingContextGroup::ensureProcessForSite(const Site& site, W
 
 FrameProcess* BrowsingContextGroup::processForSite(const Site& site)
 {
+    if (m_sharedProcessSites.contains(site))
+        return m_sharedProcess.get();
     auto process = m_processMap.get(site);
     if (!process)
         return nullptr;
@@ -79,17 +105,10 @@ void BrowsingContextGroup::addFrameProcess(FrameProcess& process)
 
 void BrowsingContextGroup::addFrameProcessAndInjectPageContextIf(FrameProcess& process, Function<bool(WebPageProxy&)> functor)
 {
-    auto& site = process.site();
-    if (m_processMap.get(site) == &process)
-        return;
-    ASSERT(site.isEmpty() || !m_processMap.get(site) || m_processMap.get(site)->process().state() == WebProcessProxy::State::Terminated);
-    m_processMap.set(site, process);
     Ref processProxy = process.process();
-    for (Ref page : m_pages) {
-        if (site == Site(URL(page->currentURL())))
-            return;
+    auto createRemotePageIfNeeded = [&](WebPageProxy& page, const Site& site) {
         if (!functor(page))
-            continue;
+            return;
         auto& set = m_remotePages.ensure(page, [] {
             return HashSet<Ref<RemotePageProxy>> { };
         }).iterator->value;
@@ -102,14 +121,38 @@ void BrowsingContextGroup::addFrameProcessAndInjectPageContextIf(FrameProcess& p
         }
 #endif
         set.add(WTFMove(newRemotePage));
+    };
+
+    if (process.isSharedProcess()) {
+        Ref processProxy = process.process();
+        for (Ref page : m_pages) {
+            for (auto site : m_sharedProcessSites)
+                createRemotePageIfNeeded(page, site);
+        }
+        return;
+    }
+    auto& site = *process.site();
+    if (m_processMap.get(site) == &process)
+        return;
+    ASSERT(!m_processMap.get(site) || m_processMap.get(site)->process().state() == WebProcessProxy::State::Terminated);
+    m_processMap.set(site, process);
+    for (Ref page : m_pages) {
+        if (site == Site(URL(page->currentURL())))
+            continue;
+        createRemotePageIfNeeded(page, site);
     }
 }
 
 void BrowsingContextGroup::removeFrameProcess(FrameProcess& process)
 {
-    ASSERT(process.site().isEmpty() || m_processMap.get(process.site()).get() == &process || process.process().state() == WebProcessProxy::State::Terminated);
-    m_processMap.remove(process.site());
-
+    if (process.isSharedProcess()) {
+        m_sharedProcess = nullptr;
+        m_sharedProcessSites.clear();
+    } else {
+        auto& site = *process.site();
+        ASSERT(site.isEmpty() || m_processMap.get(site).get() == &process || process.process().state() == WebProcessProxy::State::Terminated);
+        m_processMap.remove(site);
+    }
     m_remotePages.removeIf([&] (auto& pair) {
         auto& set = pair.value;
         set.removeIf([&] (auto& remotePage) {

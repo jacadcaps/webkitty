@@ -48,10 +48,10 @@ EventSenderProxy::EventSenderProxy(TestController* testController)
     , m_clickButton(kWKEventMouseButtonNoButton)
 {
 #if PLATFORM(WPE) && ENABLE(WPE_PLATFORM)
-    if (testController->useWPEPlatformAPI())
-        m_client = makeUnique<EventSenderProxyClientWPE>(*testController);
-    else
+    if (testController->useWPELegacyAPI())
         m_client = makeUnique<EventSenderProxyClientLibWPE>(*testController);
+    else
+        m_client = makeUnique<EventSenderProxyClientWPE>(*testController);
 #else
     m_client = makeUnique<EventSenderProxyClientLibWPE>(*testController);
 #endif
@@ -61,18 +61,31 @@ EventSenderProxy::~EventSenderProxy()
 {
 }
 
+void EventSenderProxy::updateClickCountForButton(int button)
+{
+    if (m_time - m_clickTime < 1 && m_position == m_clickPosition && button == m_clickButton) {
+        ++m_clickCount;
+        m_clickTime = m_time;
+        return;
+    }
+
+    m_clickCount = 1;
+    m_clickTime = m_time;
+    m_clickPosition = m_position;
+    m_clickButton = button;
+}
+
 void EventSenderProxy::mouseDown(unsigned button, WKEventModifiers wkModifiers, WKStringRef pointerType)
 {
-    m_clickButton = button;
-    m_clickPosition = m_position;
-    m_clickTime = m_time;
-    m_client->mouseDown(button, m_time, wkModifiers, m_position.x, m_position.y, m_mouseButtonsCurrentlyDown);
+    updateClickCountForButton(button);
+    m_client->mouseDown(button, m_time, wkModifiers, m_position.x, m_position.y, m_clickCount, m_mouseButtonsCurrentlyDown);
 }
 
 void EventSenderProxy::mouseUp(unsigned button, WKEventModifiers wkModifiers, WKStringRef pointerType)
 {
-    m_clickButton = kWKEventMouseButtonNoButton;
     m_client->mouseUp(button, m_time, wkModifiers, m_position.x, m_position.y, m_mouseButtonsCurrentlyDown);
+    m_clickPosition = m_position;
+    m_clickTime = m_time;
 }
 
 void EventSenderProxy::mouseMoveTo(double x, double y, WKStringRef pointerType)

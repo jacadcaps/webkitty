@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2023 Apple Inc.  All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -38,6 +38,7 @@
 #include "DOMPointInit.h"
 #include "Document.h"
 #include "Element.h"
+#include "EventTargetInlines.h"
 #include "FloatPoint.h"
 #include "Gradient.h"
 #include "HTMLCanvasElement.h"
@@ -89,7 +90,6 @@
 #include <JavaScriptCore/IdentifiersFactory.h>
 #include <JavaScriptCore/ScriptCallStackFactory.h>
 #include <JavaScriptCore/TypedArrays.h>
-#include <variant>
 #include <wtf/Function.h>
 #include <wtf/RefPtr.h>
 #include <wtf/Scope.h>
@@ -149,7 +149,7 @@ JSC::JSValue InspectorCanvas::resolveContext(JSC::JSGlobalObject* exec)
     RELEASE_ASSERT_NOT_REACHED();
 }
 
-UncheckedKeyHashSet<Element*> InspectorCanvas::clientNodes() const
+HashSet<Element*> InspectorCanvas::clientNodes() const
 {
     return m_context->canvasBase().cssCanvasClients();
 }
@@ -1264,7 +1264,7 @@ Ref<Inspector::Protocol::Recording::InitialState> InspectorCanvas::buildInitialS
             else if (auto canvasPattern = state.strokeStyle.canvasPattern())
                 strokeStyleIndex = indexForData(canvasPattern);
             else
-                strokeStyleIndex = indexForData(state.strokeStyle.color());
+                strokeStyleIndex = indexForData(state.strokeStyle.colorString());
             statePayload->setInteger(stringIndexForKey("strokeStyle"_s), strokeStyleIndex);
 
             int fillStyleIndex;
@@ -1273,7 +1273,7 @@ Ref<Inspector::Protocol::Recording::InitialState> InspectorCanvas::buildInitialS
             else if (auto canvasPattern = state.fillStyle.canvasPattern())
                 fillStyleIndex = indexForData(canvasPattern);
             else
-                fillStyleIndex = indexForData(state.fillStyle.color());
+                fillStyleIndex = indexForData(state.fillStyle.colorString());
             statePayload->setInteger(stringIndexForKey("fillStyle"_s), fillStyleIndex);
 
             statePayload->setBoolean(stringIndexForKey("imageSmoothingEnabled"_s), state.imageSmoothingEnabled);

@@ -198,8 +198,7 @@ bool shape_contains_rect(const GrShape& a, const SkMatrix& aToDevice, const SkMa
     }
 
     for (int i = 0; i < 4; ++i) {
-        SkPoint cornerInA = deviceQuad.point(i);
-        deviceToA.mapPoints(&cornerInA, 1);
+        SkPoint cornerInA = deviceToA.mapPoint(deviceQuad.point(i));
         if (!a.conservativeContains(cornerInA)) {
             return false;
         }
@@ -553,7 +552,7 @@ bool ClipStack::RawElement::contains(const RawElement& e) const {
                     == e.fShape.rrect();
         } else if (fShape.isPath() && e.fShape.isPath()) {
             return fShape.path().getGenerationID() == e.fShape.path().getGenerationID() ||
-                   (fShape.path().getPoints(nullptr, 0) <= kMaxPathComparePoints &&
+                   (fShape.path().countPoints() <= kMaxPathComparePoints &&
                     fShape.path() == e.fShape.path());
         } // else fall through to shape_contains_rect
     }
@@ -1341,7 +1340,7 @@ GrClip::Effect ClipStack::apply(GrRecordingContext* rContext,
         static const GrColorInfo kCoverageColorInfo{GrColorType::kUnknown, kPremul_SkAlphaType,
                                                     nullptr};
         GrFPArgs args(
-                rContext, &kCoverageColorInfo, sdc->surfaceProps(), GrFPArgs::Scope::kDefault);
+                sdc, &kCoverageColorInfo, sdc->surfaceProps(), GrFPArgs::Scope::kDefault);
         clipFP = GrFragmentProcessors::Make(cs.shader(), args, *fCTM);
         if (clipFP) {
             // The initial input is the coverage from the geometry processor, so this ensures it

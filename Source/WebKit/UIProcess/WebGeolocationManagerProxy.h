@@ -105,7 +105,7 @@ private:
 #endif
 
     struct PerDomainData {
-        WTF_MAKE_STRUCT_FAST_ALLOCATED;
+        WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(PerDomainData);
         WeakHashSet<WebProcessProxy> watchers;
         WeakHashSet<WebProcessProxy> watchersNeedingHighAccuracy;
         std::optional<WebCore::GeolocationPositionData> lastPosition;
@@ -127,3 +127,7 @@ private:
 };
 
 } // namespace WebKit
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebGeolocationManagerProxy)
+static bool isType(const API::Object& object) { return object.type() == API::Object::Type::GeolocationManager; }
+SPECIALIZE_TYPE_TRAITS_END()

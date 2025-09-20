@@ -104,7 +104,10 @@ bool AccessibilityController::enhancedAccessibilityEnabled()
 
 Ref<AccessibilityUIElement> AccessibilityController::rootElement(JSContextRef context)
 {
-    auto root = static_cast<PlatformUIElement>(WKAccessibilityRootObject(WKBundleFrameForJavaScriptContext(context)));
+    PlatformUIElement root;
+    executeOnAXThreadAndWait([&] () {
+        root = static_cast<PlatformUIElement>(_WKAccessibilityRootObjectForTesting(WKBundleFrameForJavaScriptContext(context)));
+    });
     return AccessibilityUIElement::create(root);
 }
 
@@ -191,7 +194,7 @@ AXThread::AXThread()
 
 bool AXThread::isCurrentThread()
 {
-    return AXThread::singleton().m_thread == &Thread::current();
+    return AXThread::singleton().m_thread == &Thread::currentSingleton();
 }
 
 void AXThread::dispatch(Function<void()>&& function)

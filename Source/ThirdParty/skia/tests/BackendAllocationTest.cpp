@@ -25,9 +25,9 @@
 #include "include/gpu/ganesh/GrTypes.h"
 #include "include/gpu/ganesh/SkImageGanesh.h"
 #include "include/gpu/ganesh/SkSurfaceGanesh.h"
-#include "include/private/SkColorData.h"
 #include "include/private/gpu/ganesh/GrTypesPriv.h"
 #include "src/core/SkAutoPixmapStorage.h"
+#include "src/core/SkColorData.h"
 #include "src/gpu/RefCntedCallback.h"
 #include "src/gpu/Swizzle.h"
 #include "src/gpu/ganesh/GrCaps.h"
@@ -307,7 +307,7 @@ static void check_base_readbacks(GrDirectContext* dContext,
                                  skiatest::Reporter* reporter,
                                  const char* label) {
     if (isRGB(backendTex.getBackendFormat())) {
-        // readPixels is busted for the RGB backend format (skbug.com/8862)
+        // readPixels is busted for the RGB backend format (skbug.com/40040143)
         // TODO: add a GrColorType::kRGB_888 to fix the situation
         return;
     }
@@ -420,7 +420,7 @@ static void check_mipmaps(GrDirectContext* dContext,
                           skiatest::Reporter* reporter,
                           const char* label) {
 #ifdef SK_GL
-    // skbug.com/9141 (RGBA_F32 mipmaps appear to be broken on some Mali devices)
+    // skbug.com/40040438 (RGBA_F32 mipmaps appear to be broken on some Mali devices)
     if (GrBackendApi::kOpenGL == dContext->backend()) {
         GrGLGpu* glGPU = static_cast<GrGLGpu*>(dContext->priv().getGpu());
 
@@ -432,7 +432,7 @@ static void check_mipmaps(GrDirectContext* dContext,
 #endif
 
     if (isRGB(backendTex.getBackendFormat())) {
-        // readPixels is busted for the RGB backend format (skbug.com/8862)
+        // readPixels is busted for the RGB backend format (skbug.com/40040143)
         // TODO: add a GrColorType::kRGB_888 to fix the situation
         return;
     }
@@ -649,7 +649,7 @@ void color_type_backend_allocation_test(const sk_gpu_test::ContextInfo& ctxInfo,
         SkColorType colorType = combo.fColorType;
 
         if (GrBackendApi::kMetal == context->backend()) {
-            // skbug.com/9086 (Metal caps may not be handling RGBA32 correctly)
+            // skbug.com/40040379 (Metal caps may not be handling RGBA32 correctly)
             if (kRGBA_F32_SkColorType == combo.fColorType) {
                 continue;
             }

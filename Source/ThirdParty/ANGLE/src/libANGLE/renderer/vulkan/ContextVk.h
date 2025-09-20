@@ -454,7 +454,7 @@ class ContextVk : public ContextImpl, public vk::Context, public MultisampleText
     angle::Result optimizeRenderPassForPresent(vk::ImageViewHelper *colorImageView,
                                                vk::ImageHelper *colorImage,
                                                vk::ImageHelper *colorImageMS,
-                                               vk::PresentMode presentMode,
+                                               bool isSharedPresentMode,
                                                bool *imageResolved);
 
     vk::DynamicQueryPool *getQueryPool(gl::QueryType queryType);
@@ -930,9 +930,9 @@ class ContextVk : public ContextImpl, public vk::Context, public MultisampleText
         DIRTY_BIT_INDEX_BUFFER,
         DIRTY_BIT_UNIFORMS,
         DIRTY_BIT_DRIVER_UNIFORMS,
-        // Shader resources excluding textures, which are handled separately.
-        DIRTY_BIT_SHADER_RESOURCES,
         DIRTY_BIT_UNIFORM_BUFFERS,
+        // Shader resources excluding uniform buffers and textures, which are handled separately.
+        DIRTY_BIT_SHADER_RESOURCES,
         DIRTY_BIT_TRANSFORM_FEEDBACK_BUFFERS,
         DIRTY_BIT_TRANSFORM_FEEDBACK_RESUME,
         DIRTY_BIT_DESCRIPTOR_SETS,
@@ -1006,9 +1006,6 @@ class ContextVk : public ContextImpl, public vk::Context, public MultisampleText
                   "Render pass using dirty bit must be handled after the render pass dirty bit");
     static_assert(DIRTY_BIT_SHADER_RESOURCES > DIRTY_BIT_RENDER_PASS,
                   "Render pass using dirty bit must be handled after the render pass dirty bit");
-    static_assert(
-        DIRTY_BIT_UNIFORM_BUFFERS > DIRTY_BIT_SHADER_RESOURCES,
-        "Uniform buffer using dirty bit must be handled after the shader resource dirty bit");
     static_assert(DIRTY_BIT_TRANSFORM_FEEDBACK_BUFFERS > DIRTY_BIT_RENDER_PASS,
                   "Render pass using dirty bit must be handled after the render pass dirty bit");
     static_assert(DIRTY_BIT_TRANSFORM_FEEDBACK_RESUME > DIRTY_BIT_RENDER_PASS,
@@ -1193,11 +1190,12 @@ class ContextVk : public ContextImpl, public vk::Context, public MultisampleText
     void invalidateCurrentDefaultUniforms();
     angle::Result invalidateCurrentTextures(const gl::Context *context, gl::Command command);
     angle::Result invalidateCurrentShaderResources(gl::Command command);
-    angle::Result invalidateCurrentShaderUniformBuffers(gl::Command command);
+    angle::Result invalidateCurrentShaderUniformBuffers();
     void invalidateGraphicsDriverUniforms();
     void invalidateDriverUniforms();
 
     angle::Result handleNoopDrawEvent() override;
+    angle::Result handleNoopMultiDrawEvent() override;
 
     // Handlers for graphics pipeline dirty bits.
     angle::Result handleDirtyGraphicsMemoryBarrier(DirtyBits::Iterator *dirtyBitsIterator,
@@ -1329,15 +1327,11 @@ class ContextVk : public ContextImpl, public vk::Context, public MultisampleText
 
     void writeAtomicCounterBufferDriverUniformOffsets(uint32_t *offsetsOut, size_t offsetsSize);
 
-    enum class Submit
-    {
-        OutsideRenderPassCommandsOnly,
-        AllCommands,
-    };
+    void updateUniformBufferBlocksOffset();
 
+    void prepareToSubmitAllCommands();
     angle::Result submitCommands(const vk::Semaphore *signalSemaphore,
-                                 const vk::SharedExternalFence *externalFence,
-                                 Submit submission);
+                                 const vk::SharedExternalFence *externalFence);
     angle::Result flushImpl(const gl::Context *context);
 
     angle::Result synchronizeCpuGpuTime();
@@ -1378,12 +1372,12 @@ class ContextVk : public ContextImpl, public vk::Context, public MultisampleText
     // preserve the order of operations:
     //
     // - Transform feedback write (in render pass), then vertex/index read (in render pass)
-    // - Transform feedback write (in render pass), then ubo read (outside render pass)
+    // - Transform feedback write (in render pass), then ubo read (inside/outside render pass)
     // - Framebuffer attachment write (in render pass), then texture sample (outside render pass)
     //   * Note that texture sampling inside render pass would cause a feedback loop
     //
     angle::Result endRenderPassIfTransformFeedbackBuffer(const vk::BufferHelper *buffer);
-    angle::Result endRenderPassIfComputeReadAfterTransformFeedbackWrite();
+    angle::Result endRenderPassIfUniformBufferReadAfterTransformFeedbackWrite();
     angle::Result endRenderPassIfComputeAccessAfterGraphicsImageAccess();
 
     // Update read-only depth feedback loop mode.  Typically called from
@@ -1437,6 +1431,9 @@ class ContextVk : public ContextImpl, public vk::Context, public MultisampleText
     // avoided however, as on the affected driver that would disable certain optimizations.
     void updateStencilWriteWorkaround();
 
+    void updateUniformBuffersWithSharedCacheKey(
+        const vk::SharedDescriptorSetCacheKey &sharedCacheKey);
+
     void updateShaderResourcesWithSharedCacheKey(
         const vk::SharedDescriptorSetCacheKey &sharedCacheKey);
 
@@ -1459,8 +1456,6 @@ class ContextVk : public ContextImpl, public vk::Context, public MultisampleText
 
     vk::PipelineHelper *mCurrentGraphicsPipeline;
     vk::PipelineHelper *mCurrentGraphicsPipelineShaders;
-    vk::PipelineHelper *mCurrentGraphicsPipelineVertexInput;
-    vk::PipelineHelper *mCurrentGraphicsPipelineFragmentOutput;
     vk::PipelineHelper *mCurrentComputePipeline;
     gl::PrimitiveMode mCurrentDrawMode;
 
@@ -1561,6 +1556,10 @@ class ContextVk : public ContextImpl, public vk::Context, public MultisampleText
 
     IncompleteTextureSet mIncompleteTextures;
 
+    // Track sample shading state, this helps avoid redundant work by
+    // conditionally dirtying DIRTY_BIT_SAMPLE_SHADING bit
+    bool mSampleShadingEnabled;
+
     // If the current surface bound to this context wants to have all rendering flipped vertically.
     // Updated on calls to onMakeCurrent.
     bool mFlipYForCurrentSurface;
@@ -1573,10 +1572,6 @@ class ContextVk : public ContextImpl, public vk::Context, public MultisampleText
 
     // This info is used in the descriptor update step.
     gl::ActiveTextureArray<TextureVk *> mActiveTextures;
-
-    vk::DescriptorSetDescBuilder mShaderBuffersDescriptorDesc;
-    // The WriteDescriptorDescs from ProgramExecutableVk with InputAttachment update.
-    vk::WriteDescriptorDescs mShaderBufferWriteDescriptorDescs;
 
     gl::ActiveTextureArray<TextureVk *> mActiveImages;
 
@@ -1612,11 +1607,6 @@ class ContextVk : public ContextImpl, public vk::Context, public MultisampleText
 
     vk::OutsideRenderPassCommandBufferHelper *mOutsideRenderPassCommands;
     vk::RenderPassCommandBufferHelper *mRenderPassCommands;
-
-    // Allocators for the render pass command buffers. They are utilized only when shared ring
-    // buffer allocators are being used.
-    vk::SecondaryCommandMemoryAllocator mOutsideRenderPassCommandsAllocator;
-    vk::SecondaryCommandMemoryAllocator mRenderPassCommandsAllocator;
 
     // The following is used when creating debug-util markers for graphics debuggers (e.g. AGI).  A
     // given gl{Begin|End}Query command may result in commands being submitted to the outside or
@@ -1729,6 +1719,8 @@ class ContextVk : public ContextImpl, public vk::Context, public MultisampleText
     VulkanCacheStats mVulkanCacheStats;
 
     RangedSerialFactory mOutsideRenderPassSerialFactory;
+
+    uint32_t mCommandsPendingSubmissionCount;
 };
 
 ANGLE_INLINE angle::Result ContextVk::endRenderPassIfTransformFeedbackBuffer(

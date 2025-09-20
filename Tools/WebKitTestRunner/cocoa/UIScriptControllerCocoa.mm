@@ -34,12 +34,14 @@
 #import "TestRunnerWKWebView.h"
 #import "UIScriptContext.h"
 #import "WKTextExtractionTestingHelpers.h"
+#import "_WKTextExtractionInternal.h"
 #import <JavaScriptCore/JavaScriptCore.h>
 #import <WebKit/WKURLCF.h>
 #import <WebKit/WKWebViewPrivate.h>
 #import <WebKit/WKWebViewPrivateForTesting.h>
 #import <WebKit/_WKTargetedElementInfo.h>
 #import <WebKit/_WKTargetedElementRequest.h>
+#import <WebKit/_WKTextExtraction.h>
 #import <wtf/BlockPtr.h>
 
 @interface WKWebView (WKWebViewInternal)
@@ -157,12 +159,12 @@ void UIScriptControllerCocoa::overridePreference(JSStringRef preferenceRef, JSSt
 
 void UIScriptControllerCocoa::findString(JSStringRef string, unsigned long options, unsigned long maxCount)
 {
-    [webView() _findString:toWTFString(string) options:options maxCount:maxCount];
+    [webView() _findString:toWTFString(string).createNSString().get() options:options maxCount:maxCount];
 }
 
 JSObjectRef UIScriptControllerCocoa::contentsOfUserInterfaceItem(JSStringRef interfaceItem) const
 {
-    NSDictionary *contentDictionary = [webView() _contentsOfUserInterfaceItem:toWTFString(interfaceItem)];
+    NSDictionary *contentDictionary = [webView() _contentsOfUserInterfaceItem:toWTFString(interfaceItem).createNSString().get()];
     return JSValueToObject(m_context->jsContext(), [JSValue valueWithObject:contentDictionary inContext:[JSContext contextWithJSGlobalContextRef:m_context->jsContext()]].JSValueRef, nullptr);
 }
 
@@ -181,6 +183,12 @@ JSRetainPtr<JSStringRef> UIScriptControllerCocoa::lastUndoLabel() const
 JSRetainPtr<JSStringRef> UIScriptControllerCocoa::caLayerTreeAsText() const
 {
     return adopt(JSStringCreateWithCFString((CFStringRef)[webView() _caLayerTreeAsText]));
+}
+
+JSObjectRef UIScriptControllerCocoa::propertiesOfLayerWithID(uint64_t layerID) const
+{
+    RetainPtr jsValue = [JSValue valueWithObject:[webView() _propertiesOfLayerWithID:layerID] inContext:[JSContext contextWithJSGlobalContextRef:m_context->jsContext()]];
+    return JSValueToObject(m_context->jsContext(), [jsValue JSValueRef], nullptr);
 }
 
 JSRetainPtr<JSStringRef> UIScriptControllerCocoa::firstRedoLabel() const
@@ -262,9 +270,9 @@ void UIScriptControllerCocoa::insertAttachmentForFilePath(JSStringRef filePath, 
 {
     unsigned callbackID = m_context->prepareForAsyncTask(callback, CallbackTypeNonPersistent);
     auto testURL = adoptCF(WKURLCopyCFURL(kCFAllocatorDefault, TestController::singleton().currentTestURL()));
-    auto attachmentURL = [NSURL fileURLWithPath:toWTFString(filePath) relativeToURL:(__bridge NSURL *)testURL.get()];
+    auto attachmentURL = [NSURL fileURLWithPath:toWTFString(filePath).createNSString().get() relativeToURL:(__bridge NSURL *)testURL.get()];
     auto fileWrapper = adoptNS([[NSFileWrapper alloc] initWithURL:attachmentURL options:0 error:nil]);
-    [webView() _insertAttachmentWithFileWrapper:fileWrapper.get() contentType:toWTFString(contentType) completion:^(BOOL success) {
+    [webView() _insertAttachmentWithFileWrapper:fileWrapper.get() contentType:toWTFString(contentType).createNSString().get() completion:^(BOOL success) {
         if (!m_context)
             return;
         m_context->asyncTaskComplete(callbackID);
@@ -335,11 +343,15 @@ void UIScriptControllerCocoa::requestTextExtraction(JSValueRef callback, TextExt
 
     auto includeRects = options && options->includeRects ? IncludeRects::Yes : IncludeRects::No;
     unsigned callbackID = m_context->prepareForAsyncTask(callback, CallbackTypeNonPersistent);
-    [webView() _requestTextExtraction:extractionRect completionHandler:^(WKTextExtractionItem *item) {
+    RetainPtr configuration = adoptNS([_WKTextExtractionConfiguration new]);
+    [configuration setTargetRect:extractionRect];
+    [configuration setMergeParagraphs:YES];
+    [configuration setIgnoreTransparency:YES];
+    [webView() _requestTextExtraction:configuration.get() completionHandler:^(WKTextExtractionResult *result) {
         if (!m_context)
             return;
 
-        auto description = adopt(JSStringCreateWithCFString((__bridge CFStringRef)recursiveDescription(item, includeRects)));
+        auto description = adopt(JSStringCreateWithCFString((__bridge CFStringRef)recursiveDescription([result rootItem], includeRects)));
         m_context->asyncTaskComplete(callbackID, { JSValueMakeString(m_context->jsContext(), description.get()) });
     }];
 }
@@ -390,17 +402,19 @@ void UIScriptControllerCocoa::resetVisibilityAdjustments(JSValueRef callback)
 
 JSObjectRef UIScriptControllerCocoa::fixedContainerEdgeColors() const
 {
-    auto nsColorOrNSNull = [](WebCore::CocoaColor *color) -> id {
+    auto colorDescriptionOrNull = [fixedEdges = webView()._fixedContainerEdges](WebCore::CocoaColor *color, _WKRectEdge edge) -> id {
         if (color)
-            return (NSString *)WebCoreTestSupport::serializationForCSS(color);
+            return WebCoreTestSupport::serializationForCSS(color).createNSString().autorelease();
+        if (fixedEdges & edge)
+            return @"multiple";
         return NSNull.null;
     };
 
     RetainPtr jsValue = [JSValue valueWithObject:@{
-        @"top": nsColorOrNSNull(webView()._sampledTopFixedPositionContentColor),
-        @"left": nsColorOrNSNull(webView()._sampledLeftFixedPositionContentColor),
-        @"bottom": nsColorOrNSNull(webView()._sampledBottomFixedPositionContentColor),
-        @"right": nsColorOrNSNull(webView()._sampledRightFixedPositionContentColor)
+        @"top": colorDescriptionOrNull(webView()._sampledTopFixedPositionContentColor, _WKRectEdgeTop),
+        @"left": colorDescriptionOrNull(webView()._sampledLeftFixedPositionContentColor, _WKRectEdgeLeft),
+        @"bottom": colorDescriptionOrNull(webView()._sampledBottomFixedPositionContentColor, _WKRectEdgeBottom),
+        @"right": colorDescriptionOrNull(webView()._sampledRightFixedPositionContentColor, _WKRectEdgeRight)
     } inContext:[JSContext contextWithJSGlobalContextRef:m_context->jsContext()]];
     return JSValueToObject(m_context->jsContext(), [jsValue JSValueRef], nullptr);
 }
@@ -429,13 +443,29 @@ void UIScriptControllerCocoa::cookiesForDomain(JSStringRef jsDomain, JSValueRef 
     [cookieStore getAllCookies:[this, callbackID, domain = toWTFString(jsDomain)](NSArray<NSHTTPCookie *> *cookies) {
         RetainPtr matchingCookieProperties = adoptNS([NSMutableArray new]);
         for (NSHTTPCookie *cookie in cookies) {
-            if (![cookie.domain isEqualToString:domain])
+            if (![cookie.domain isEqualToString:domain.createNSString().get()])
                 continue;
             [matchingCookieProperties addObject:propertyDictionaryForJS(cookie)];
         }
         RetainPtr jsValue = [JSValue valueWithObject:matchingCookieProperties.get() inContext:[JSContext contextWithJSGlobalContextRef:m_context->jsContext()]];
         m_context->asyncTaskComplete(callbackID, { JSValueToObject(m_context->jsContext(), [jsValue JSValueRef], nullptr) });
     }];
+}
+
+void UIScriptControllerCocoa::cancelFixedColorExtensionFadeAnimations() const
+{
+    [webView() _cancelFixedColorExtensionFadeAnimationsForTesting];
+}
+
+void UIScriptControllerCocoa::setObscuredInsets(double top, double right, double bottom, double left)
+{
+#if PLATFORM(IOS_FAMILY)
+    auto insets = UIEdgeInsetsMake(top, left, bottom, right);
+    [webView() scrollView].contentInset = insets;
+#else
+    auto insets = NSEdgeInsetsMake(top, left, bottom, right);
+#endif
+    [webView() setObscuredContentInsets:insets];
 }
 
 } // namespace WTR

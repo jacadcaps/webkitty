@@ -46,7 +46,7 @@ TargetedElementInfo::TargetedElementInfo(WebPageProxy& page, WebCore::TargetedEl
 
 bool TargetedElementInfo::isSameElement(const TargetedElementInfo& other) const
 {
-    return m_info.elementIdentifier == other.m_info.elementIdentifier
+    return m_info.nodeIdentifier == other.m_info.nodeIdentifier
         && m_info.documentIdentifier == other.m_info.documentIdentifier
         && m_page == other.m_page;
 }
@@ -83,8 +83,9 @@ void TargetedElementInfo::childFrames(CompletionHandler<void(Vector<Ref<FrameTre
         if (frame->page() != page)
             continue;
 
-        frame->getFrameInfo([aggregator, aggregateData](auto&& data) {
-            aggregateData->append(WTFMove(data));
+        frame->getFrameTree([aggregator, aggregateData](auto&& data) {
+            if (data)
+                aggregateData->append(WTFMove(*data));
         });
     }
 }

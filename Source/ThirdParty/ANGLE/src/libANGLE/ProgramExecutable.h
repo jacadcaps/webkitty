@@ -322,6 +322,16 @@ class ProgramExecutable final : public angle::Subject
         return mActiveSamplerTypes;
     }
 
+    const ProgramUniformBlockMask &getActiveUniformBufferBlocks() const
+    {
+        return mActiveUniformBufferBlocks;
+    }
+
+    const ProgramStorageBlockMask &getActiveStorageBufferBlocks() const
+    {
+        return mActiveStorageBufferBlocks;
+    }
+
     void setActive(size_t textureUnit,
                    const SamplerBinding &samplerBinding,
                    const gl::LinkedUniform &samplerUniform);
@@ -749,6 +759,9 @@ class ProgramExecutable final : public angle::Subject
 
     void waitForPostLinkTasks(const Context *context);
 
+    void updateActiveUniformBufferBlocks();
+    void updateActiveStorageBufferBlocks();
+
   private:
     friend class Program;
     friend class ProgramPipeline;
@@ -900,8 +913,9 @@ class ProgramExecutable final : public angle::Subject
         int32_t geometryShaderMaxVertices;
         GLenum transformFeedbackBufferMode;
 
-        // 4 bytes each. GL_OVR_multiview / GL_OVR_multiview2
+        // GL_OVR_multiview
         int32_t numViews;
+
         // GL_ANGLE_multi_draw
         int32_t drawIDLocation;
 
@@ -935,6 +949,10 @@ class ProgramExecutable final : public angle::Subject
     // Cached mask of active images.
     ActiveTextureMask mActiveImagesMask;
     ActiveTextureArray<ShaderBitSet> mActiveImageShaderBits;
+
+    // Cached mask of active uniform and storage buffer blocks
+    ProgramUniformBlockMask mActiveUniformBufferBlocks;
+    ProgramStorageBlockMask mActiveStorageBufferBlocks;
 
     // Names and mapped names of output variables that are arrays include [0] in the end, similarly
     // to uniforms.
@@ -1021,6 +1039,8 @@ class ProgramExecutable final : public angle::Subject
     ShaderMap<SharedProgramExecutable> mPPOProgramExecutables;
     // Flag for an easy check for PPO without inspecting mPPOProgramExecutables
     bool mIsPPO;
+
+    bool mBinaryRetrieveableHint;
 
     // Cache for sampler validation
     mutable Optional<bool> mCachedValidateSamplersResult;

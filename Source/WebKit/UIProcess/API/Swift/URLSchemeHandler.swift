@@ -30,7 +30,7 @@ internal import WebKit_Internal
 ///
 /// Scheme names are case sensitive, must start with an ASCII letter, and may contain only ASCII letters,
 /// numbers, the “+” character, the “-” character, and the “.” character.
-@available(WK_IOS_TBA, WK_MAC_TBA, WK_XROS_TBA, *)
+@available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
 @available(watchOS, unavailable)
 @available(tvOS, unavailable)
 public struct URLScheme: Hashable, Sendable {
@@ -41,7 +41,7 @@ public struct URLScheme: Hashable, Sendable {
     /// - Parameter rawValue: The raw value of the scheme string; if this is an invalid scheme, of if WebKit already handles
     /// this scheme, the initializer returns `nil`.
     @MainActor
-    public init?(_ rawValue: String) {
+    public init?(_ rawValue: Swift.String) {
         guard WKWebViewConfiguration._isValidCustomScheme(rawValue) else {
             return nil
         }
@@ -50,10 +50,11 @@ public struct URLScheme: Hashable, Sendable {
     }
 
     /// The raw value of the scheme string.
-    public let rawValue: String
+    public let rawValue: Swift.String
 }
 
-@available(WK_IOS_TBA, WK_MAC_TBA, WK_XROS_TBA, *)
+/// A value used as part of a sequence of results from a ``URLSchemeHandler``, which can either be a `Data` or a `URLResponse`.
+@available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
 @available(watchOS, unavailable)
 @available(tvOS, unavailable)
 public enum URLSchemeTaskResult: Sendable {
@@ -89,7 +90,7 @@ public enum URLSchemeTaskResult: Sendable {
 /// If WebKit determines that it no longer needs a resource that your handler is loading, it will cancel
 /// the Task responsible for the async sequence. Typically, this may happen when the user navigates to another
 /// page, but may happen for other reasons.
-@available(WK_IOS_TBA, WK_MAC_TBA, WK_XROS_TBA, *)
+@available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
 @available(watchOS, unavailable)
 @available(tvOS, unavailable)
 public protocol URLSchemeHandler {
@@ -108,44 +109,6 @@ public protocol URLSchemeHandler {
     /// If an error occurs at any point during the load process, a value of type ``Failure`` can be thrown
     /// to report it.
     func reply(for request: URLRequest) -> TaskSequence
-}
-
-// MARK: Adapters
-
-final class WKURLSchemeHandlerAdapter: NSObject, WKURLSchemeHandler {
-    init(_ wrapped: any URLSchemeHandler) {
-        self.wrapped = wrapped
-    }
-
-    private let wrapped: any URLSchemeHandler
-
-    private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
-
-    func webView(_ webView: WKWebView, start urlSchemeTask: any WKURLSchemeTask) {
-        let task = Task {
-            do {
-                for try await result in wrapped.reply(for: urlSchemeTask.request) {
-                    switch result {
-                    case let .response(response):
-                        urlSchemeTask.didReceive(response)
-
-                    case let .data(data):
-                        urlSchemeTask.didReceive(data)
-                    }
-                }
-
-                urlSchemeTask.didFinish()
-            } catch {
-                urlSchemeTask.didFailWithError(error)
-            }
-        }
-
-        tasks[ObjectIdentifier(urlSchemeTask)] = task
-    }
-
-    func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {
-        tasks.removeValue(forKey: ObjectIdentifier(urlSchemeTask))?.cancel()
-    }
 }
 
 #endif

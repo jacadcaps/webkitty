@@ -235,6 +235,27 @@ void TileController::setAcceleratesDrawing(bool acceleratesDrawing)
     tileGrid().updateTileLayerProperties();
 }
 
+#if HAVE(SUPPORT_HDR_DISPLAY)
+bool TileController::setNeedsDisplayIfEDRHeadroomExceeds(float headroom)
+{
+    return tileGrid().setNeedsDisplayIfEDRHeadroomExceeds(headroom);
+}
+
+void TileController::setTonemappingEnabled(bool enabled)
+{
+    if (m_tonemappingEnabled == enabled)
+        return;
+
+    m_tonemappingEnabled = enabled;
+    tileGrid().updateTileLayerProperties();
+}
+
+bool TileController::tonemappingEnabled() const
+{
+    return m_tonemappingEnabled;
+}
+#endif
+
 void TileController::setContentsFormat(ContentsFormat contentsFormat)
 {
     if (m_contentsFormat == contentsFormat)
@@ -477,7 +498,7 @@ FloatRect TileController::adjustTileCoverageForDesktopPageScrolling(const FloatR
 }
 #endif
 
-FloatRect TileController::adjustTileCoverageWithScrollingVelocity(const FloatRect& coverageRect, const FloatSize& newSize, const FloatRect& visibleRect, float contentsScale) const
+FloatRect TileController::adjustTileCoverageWithScrollingVelocity(const FloatRect& coverageRect, const FloatSize& newSize, const FloatRect& visibleRect, float contentsScale, MonotonicTime timestamp) const
 {
     if (m_tileCoverage == CoverageForVisibleArea || MemoryPressureHandler::singleton().isUnderMemoryPressure())
         return visibleRect;
@@ -485,8 +506,7 @@ FloatRect TileController::adjustTileCoverageWithScrollingVelocity(const FloatRec
     double horizontalMargin = kDefaultTileSize / contentsScale;
     double verticalMargin = kDefaultTileSize / contentsScale;
 
-    MonotonicTime currentTime = MonotonicTime::now();
-    Seconds timeDelta = currentTime - m_velocity.lastUpdateTime;
+    Seconds timeDelta = timestamp - m_velocity.lastUpdateTime;
 
     FloatRect futureRect = visibleRect;
     futureRect.setLocation(FloatPoint(
@@ -546,6 +566,8 @@ FloatRect TileController::adjustTileCoverageRectForScrolling(const FloatRect& co
     UNUSED_PARAM(previousVisibleRect);
 #endif
 
+    MonotonicTime currentTime = MonotonicTime::now();
+
     auto computeVelocityIfNecessary = [&](FloatPoint scrollOffset) {
         if (m_haveExternalVelocityData)
             return;
@@ -553,12 +575,12 @@ FloatRect TileController::adjustTileCoverageRectForScrolling(const FloatRect& co
         if (!m_historicalVelocityData)
             m_historicalVelocityData = makeUnique<HistoricalVelocityData>();
 
-        m_velocity = m_historicalVelocityData->velocityForNewData(scrollOffset, contentsScale, MonotonicTime::now());
+        m_velocity = m_historicalVelocityData->velocityForNewData(scrollOffset, contentsScale, currentTime);
     };
     
     computeVelocityIfNecessary(visibleRect.location());
 
-    return adjustTileCoverageWithScrollingVelocity(coverageRect, newSize, visibleRect, contentsScale);
+    return adjustTileCoverageWithScrollingVelocity(coverageRect, newSize, visibleRect, contentsScale, currentTime);
 }
 
 void TileController::scheduleTileRevalidation(Seconds interval)
@@ -859,6 +881,9 @@ Ref<PlatformCALayer> TileController::createTileLayer(const IntRect& tileRect, Ti
     layer->setContentsScale(m_deviceScaleFactor * temporaryScaleFactor);
     layer->setAcceleratesDrawing(m_acceleratesDrawing);
     layer->setContentsFormat(m_contentsFormat);
+#if HAVE(SUPPORT_HDR_DISPLAY)
+    layer->setTonemappingEnabled(m_tonemappingEnabled);
+#endif
     layer->setNeedsDisplay();
     return layer;
 }
@@ -896,6 +921,25 @@ void TileController::logFilledVisibleFreshTile(unsigned blankPixelCount)
     if (m_shouldAllowScrollPerformanceLogging == AllowScrollPerformanceLogging::Yes)
         owningGraphicsLayer()->platformCALayerLogFilledVisibleFreshTile(blankPixelCount);
 }
+
+#if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
+std::optional<DynamicContentScalingDisplayList> TileController::dynamicContentScalingDisplayListForTile(const TileGrid& tileGrid, TileIndex index)
+{
+    if (!m_client)
+        return std::nullopt;
+    return m_client->dynamicContentScalingDisplayListForTile(*this, tileGrid.identifier(), index);
+}
+#endif
+
+FloatRect TileController::adjustedTileClipRectForObscuredInsets(const FloatRect& clipRect) const
+{
+    auto delta = m_obscuredInsetsDelta;
+    if (!delta)
+        return clipRect;
+    FloatSize sizeAdjustment { delta->left() + delta->right(), delta->top() + delta->bottom() };
+    return { clipRect.location(), clipRect.size() + sizeAdjustment.expandedTo({ }) };
+}
+
 
 } // namespace WebCore
 

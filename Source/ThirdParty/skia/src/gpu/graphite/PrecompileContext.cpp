@@ -4,19 +4,25 @@
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
-
 #include "include/gpu/graphite/PrecompileContext.h"
 
-#include "src/gpu/graphite/GraphicsPipelineDesc.h"
-#include "src/gpu/graphite/Log.h"
-#include "src/gpu/graphite/RenderPassDesc.h"
+#include "include/core/SkTypes.h"
+#include "src/gpu/GpuTypesPriv.h"
+#include "src/gpu/graphite/GlobalCache.h"
 #include "src/gpu/graphite/ResourceProvider.h"
-#include "src/gpu/graphite/RuntimeEffectDictionary.h"
 #include "src/gpu/graphite/SharedContext.h"
 
 #if defined(SK_ENABLE_PRECOMPILE)
+#include "src/gpu/graphite/ContextUtils.h"
+#include "src/gpu/graphite/GraphicsPipelineDesc.h"
+#include "src/gpu/graphite/Log.h"
+#include "src/gpu/graphite/RenderPassDesc.h"
+#include "src/gpu/graphite/RendererProvider.h"
+#include "src/gpu/graphite/RuntimeEffectDictionary.h"
 #include "src/gpu/graphite/precompile/SerializationUtils.h"
 #endif
+
+#include <cstddef>
 
 namespace skgpu::graphite {
 
@@ -44,6 +50,15 @@ void PrecompileContext::purgePipelinesNotUsedInMs(std::chrono::milliseconds msNo
     fSharedContext->globalCache()->purgePipelinesNotUsedSince(purgeTime);
 }
 
+void PrecompileContext::reportPipelineStats(StatOptions option) {
+    ASSERT_SINGLE_OWNER
+
+    if (option == StatOptions::kPrecompile) {
+        fSharedContext->globalCache()->reportPrecompileStats();
+    } else {
+        fSharedContext->globalCache()->reportCacheStats();
+    }
+}
 
 bool PrecompileContext::precompile(sk_sp<SkData> serializedPipelineKey) {
 #if defined(SK_ENABLE_PRECOMPILE)
@@ -70,10 +85,42 @@ bool PrecompileContext::precompile(sk_sp<SkData> serializedPipelineKey) {
         return false;
     }
 
+    SkASSERT(rtEffectDict->empty());
+
     return true;
 #else
     return false;
 #endif
 }
+
+std::string PrecompileContext::getPipelineLabel(sk_sp<SkData> serializedPipelineKey) {
+#if defined(SK_ENABLE_PRECOMPILE)
+    GraphicsPipelineDesc pipelineDesc;
+    RenderPassDesc renderPassDesc;
+
+    if (!DataToPipelineDesc(fSharedContext->caps(),
+                            fSharedContext->shaderCodeDictionary(),
+                            serializedPipelineKey.get(),
+                            &pipelineDesc,
+                            &renderPassDesc)) {
+        return "";
+    }
+
+    const RendererProvider* rendererProvider = fSharedContext->rendererProvider();
+
+    const RenderStep* renderStep = rendererProvider->lookup(pipelineDesc.renderStepID());
+    if (!renderStep) {
+        return "";
+    }
+
+    return GetPipelineLabel(fSharedContext->shaderCodeDictionary(),
+                            renderPassDesc,
+                            renderStep,
+                            pipelineDesc.paintParamsID());
+#else
+    return "";
+#endif
+}
+
 
 } // namespace skgpu::graphite

@@ -22,7 +22,7 @@
 
 #if ENABLE(GPU_PROCESS)
 
-[RValue] struct WebKit::GPUProcessCreationParameters {
+[RValue, DebugDecodingFailure] struct WebKit::GPUProcessCreationParameters {
     WebKit::AuxiliaryProcessCreationParameters auxiliaryProcessParameters;
 
 #if ENABLE(MEDIA_STREAM)
@@ -43,11 +43,6 @@
     String containerCachesDirectory;
 #endif
 
-#if PLATFORM(IOS_FAMILY)
-    Vector<WebKit::SandboxExtensionHandle> compilerServiceExtensionHandles;
-    Vector<WebKit::SandboxExtensionHandle> dynamicIOKitExtensionHandles;
-#endif
-
     std::optional<WebKit::SandboxExtensionHandle> mobileGestaltExtensionHandle;
 
 #if PLATFORM(COCOA) && ENABLE(REMOTE_INSPECTOR)
@@ -57,7 +52,7 @@
     String applicationVisibleName;
 
 #if USE(GBM)
-    String renderDeviceFile;
+    WebCore::DRMDevice drmDevice;
 #endif
 
     Vector<String> overrideLanguages;

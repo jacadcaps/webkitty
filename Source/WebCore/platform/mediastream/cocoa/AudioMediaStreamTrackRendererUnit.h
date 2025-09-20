@@ -48,7 +48,7 @@ class AudioSampleBufferList;
 class CAAudioStreamDescription;
 
 class AudioMediaStreamTrackRendererUnit : public BaseAudioMediaStreamTrackRendererUnit {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(AudioMediaStreamTrackRendererUnit);
 public:
     WEBCORE_EXPORT static AudioMediaStreamTrackRendererUnit& singleton();
     static bool supportsPerDeviceRendering();
@@ -99,7 +99,7 @@ private:
         OSStatus render(size_t sampleCount, AudioBufferList&, uint64_t sampleTime, double hostTime, AudioUnitRenderActionFlags&) final;
         void reset() final;
 
-        UncheckedKeyHashSet<Ref<AudioSampleDataSource>> m_sources WTF_GUARDED_BY_CAPABILITY(mainThread);
+        HashSet<Ref<AudioSampleDataSource>> m_sources WTF_GUARDED_BY_CAPABILITY(mainThread);
         Vector<Ref<AudioSampleDataSource>> m_renderSources;
 
         Lock m_pendingRenderSourcesLock;

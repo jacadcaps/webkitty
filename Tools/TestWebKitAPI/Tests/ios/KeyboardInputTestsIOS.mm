@@ -35,6 +35,7 @@
 #import "TestInputDelegate.h"
 #import "TestNavigationDelegate.h"
 #import "TestProtocol.h"
+#import "TestUIDelegate.h"
 #import "TestWKWebView.h"
 #import "UIKitSPIForTesting.h"
 #import "UserInterfaceSwizzler.h"
@@ -757,7 +758,10 @@ TEST(KeyboardInputTests, TestWebViewAdditionalContextForStrongPasswordAssistance
         return expected;
     }];
 
-    [inputDelegate setFocusRequiresStrongPasswordAssistanceHandler:[&] (WKWebView *, id<_WKFocusedElementInfo>, void(^completionHandler)(BOOL)) {
+    bool verifiedFrame { false };
+    [inputDelegate setFocusRequiresStrongPasswordAssistanceHandler:[&] (WKWebView *, id<_WKFocusedElementInfo> info, void(^completionHandler)(BOOL)) {
+        EXPECT_NOT_NULL(info.frame);
+        verifiedFrame = true;
         completionHandler(YES);
     }];
 
@@ -769,6 +773,7 @@ TEST(KeyboardInputTests, TestWebViewAdditionalContextForStrongPasswordAssistance
     NSDictionary *actual = [[webView textInputContentView] _autofillContext];
     EXPECT_TRUE([[actual allValues] containsObject:expected]);
     EXPECT_TRUE([actual[@"_automaticPasswordKeyboard"] boolValue]);
+    EXPECT_TRUE(verifiedFrame);
 }
 
 TEST(KeyboardInputTests, TestWebViewAdditionalContextForNonAutofillCredentialType)
@@ -1101,8 +1106,8 @@ TEST(KeyboardInputTests, NoCrashWhenDiscardingMarkedText)
     [webView _setEditable:YES];
 
     auto navigateAndSetMarkedText = [&](const String& urlString) {
-        auto request = [NSURLRequest requestWithURL:[NSURL URLWithString:(NSString *)urlString]];
-        [webView loadSimulatedRequest:request responseHTMLString:@"<body>Hello world</body>"];
+        RetainPtr request = adoptNS([[NSURLRequest alloc] initWithURL:adoptNS([[NSURL alloc] initWithString:urlString.createNSString().get()]).get()]);
+        [webView loadSimulatedRequest:request.get() responseHTMLString:@"<body>Hello world</body>"];
         [navigationDelegate waitForDidFinishNavigation];
         [webView selectAll:nil];
         [[webView textInputContentView] setMarkedText:@"Hello" selectedRange:NSMakeRange(0, 5)];
@@ -1367,7 +1372,10 @@ TEST(KeyboardInputTests, AutocorrectionIndicatorColorNotAffectedByAuthorDefinedA
     CGImagePixelReader snapshotReaderExpected { expected.get() };
     CGImagePixelReader snapshotReaderActual { actual.get() };
 
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    // FIXME: <rdar://155548417> ([ Build-Failure ] [ iOS26+ ] error: 'mainScreen' is deprecated: first deprecated in iOS 26.0)
     auto scale = UIScreen.mainScreen.scale;
+ALLOW_DEPRECATED_DECLARATIONS_END
 
     for (int x = 0; x < frame.size.width * scale; ++x) {
         for (int y = 0; y < frame.size.height * scale; ++y)
@@ -1377,6 +1385,43 @@ TEST(KeyboardInputTests, AutocorrectionIndicatorColorNotAffectedByAuthorDefinedA
 #endif
 
 #endif // HAVE(REDESIGNED_TEXT_CURSOR)
+
+#if HAVE(UI_CONVERSATION_CONTEXT)
+
+TEST(KeyboardInputTests, SetConversationContext)
+{
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 400, 400)]);
+    RetainPtr conversationContext = adoptNS([UIMailConversationContext new]);
+    [webView setConversationContext:conversationContext.get()];
+
+    RetainPtr suggestionForTesting = adoptNS([UIInputSuggestion new]);
+    RetainPtr uiDelegate = adoptNS([TestUIDelegate new]);
+    __block bool didInsertInputSuggestion = false;
+    [uiDelegate setInsertInputSuggestion:^(WKWebView *view, UIInputSuggestion *suggestion) {
+        EXPECT_EQ(view, webView.get());
+        EXPECT_EQ(suggestion, suggestionForTesting.get());
+        didInsertInputSuggestion = true;
+    }];
+    RetainPtr inputDelegate = adoptNS([TestInputDelegate new]);
+    [inputDelegate setFocusStartsInputSessionPolicyHandler:[](WKWebView *, id<_WKFocusedElementInfo>) {
+        return _WKFocusStartsInputSessionPolicyAllow;
+    }];
+    __block bool didStartInputSession = false;
+    [inputDelegate setDidStartInputSessionHandler:^(WKWebView *, id<_WKFormInputSession>) {
+        didStartInputSession = true;
+    }];
+    [webView setUIDelegate:uiDelegate.get()];
+    [webView _setInputDelegate:inputDelegate.get()];
+    [webView synchronouslyLoadHTMLString:@"<textarea autofocus>"];
+
+    Util::run(&didStartInputSession);
+    EXPECT_EQ([webView effectiveTextInputTraits].conversationContext, conversationContext.get());
+
+    [[webView textInputContentView] insertInputSuggestion:suggestionForTesting.get()];
+    EXPECT_TRUE(didInsertInputSuggestion);
+}
+
+#endif // HAVE(UI_CONVERSATION_CONTEXT)
 
 #if HAVE(ESIM_AUTOFILL_SYSTEM_SUPPORT)
 
@@ -1466,6 +1511,9 @@ TEST(KeyboardInputTests, ImplementAllOptionalTextInputTraits)
     EXPECT_FALSE(traits.secureTextEntry);
     EXPECT_NULL(traits.textContentType);
     EXPECT_NULL(traits.passwordRules);
+#if HAVE(UI_CONVERSATION_CONTEXT)
+    EXPECT_NULL(traits.conversationContext);
+#endif
 #if USE(BROWSERENGINEKIT)
     auto extendedTraits = [webView extendedTextInputTraits];
     EXPECT_FALSE(extendedTraits.singleLineDocument);

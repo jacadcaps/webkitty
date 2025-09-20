@@ -7,6 +7,12 @@ load(
     "RECORD_TESTS",
 )
 
+package(
+    default_applicable_licenses = ["//:license"],
+)
+
+licenses(["notice"])
+
 skia_cc_library(
     name = "test_type",
     hdrs = ["TestType.h"],
@@ -76,7 +82,7 @@ skia_cc_library(
             "@skia//:fontmgr_fontconfig_freetype",
         ],
         # TODO(kjlubick) mac, windows
-        "//conditions:default": ["//:fontmgr_empty"],
+        "//conditions:default": ["//:fontmgr_empty_freetype"],
     }),
 )
 

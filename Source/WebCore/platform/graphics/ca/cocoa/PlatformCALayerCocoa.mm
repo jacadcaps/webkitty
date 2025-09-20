@@ -74,7 +74,7 @@
 
 namespace WebCore {
 
-using LayerToPlatformCALayerMap = UncheckedKeyHashMap<void*, PlatformCALayer*>;
+using LayerToPlatformCALayerMap = HashMap<void*, PlatformCALayer*>;
 
 static Lock layerToPlatformLayerMapLock;
 static LayerToPlatformCALayerMap& layerToPlatformLayerMap() WTF_REQUIRES_LOCK(layerToPlatformLayerMapLock)
@@ -394,7 +394,7 @@ Ref<PlatformCALayer> PlatformCALayerCocoa::clone(PlatformCALayerClient* owner) c
         AVPlayerLayer *sourcePlayerLayer = avPlayerLayer();
         ASSERT(sourcePlayerLayer);
 
-        RunLoop::protectedMain()->dispatch([destinationPlayerLayer = retainPtr(destinationPlayerLayer), sourcePlayerLayer = retainPtr(sourcePlayerLayer)] {
+        RunLoop::mainSingleton().dispatch([destinationPlayerLayer = retainPtr(destinationPlayerLayer), sourcePlayerLayer = retainPtr(sourcePlayerLayer)] {
             [destinationPlayerLayer setPlayer:[sourcePlayerLayer player]];
         });
     }
@@ -564,20 +564,20 @@ void PlatformCALayerCocoa::addAnimationForKey(const String& key, PlatformCAAnima
         [propertyAnimation setDelegate:static_cast<id>(m_delegate.get())];
 
     BEGIN_BLOCK_OBJC_EXCEPTIONS
-    [m_layer addAnimation:propertyAnimation forKey:key];
+    [m_layer addAnimation:propertyAnimation forKey:key.createNSString().get()];
     END_BLOCK_OBJC_EXCEPTIONS
 }
 
 void PlatformCALayerCocoa::removeAnimationForKey(const String& key)
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
-    [m_layer removeAnimationForKey:key];
+    [m_layer removeAnimationForKey:key.createNSString().get()];
     END_BLOCK_OBJC_EXCEPTIONS
 }
 
 RefPtr<PlatformCAAnimation> PlatformCALayerCocoa::animationForKey(const String& key)
 {
-    CAAnimation *propertyAnimation = static_cast<CAAnimation *>([m_layer animationForKey:key]);
+    CAAnimation *propertyAnimation = static_cast<CAAnimation *>([m_layer animationForKey:key.createNSString().get()]);
     if (!propertyAnimation)
         return nullptr;
     return PlatformCAAnimationCocoa::create(propertyAnimation);
@@ -939,6 +939,9 @@ bool PlatformCALayerCocoa::filtersCanBeComposited(const FilterOperations& filter
             if (i < (filters.size() - 1))
                 return false;
             break;
+        case FilterOperation::Type::DropShadowWithStyleColor:
+            ASSERT_NOT_REACHED();
+            break;
         default:
             break;
         }
@@ -955,7 +958,7 @@ void PlatformCALayerCocoa::setBlendMode(BlendMode blendMode)
 void PlatformCALayerCocoa::setName(const String& value)
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
-    [m_layer setName:value];
+    [m_layer setName:value.createNSString().get()];
     END_BLOCK_OBJC_EXCEPTIONS
 }
 
@@ -1183,7 +1186,9 @@ void PlatformCALayerCocoa::updateContentsFormat()
             [m_layer setContentsFormat:formatString];
 #if ENABLE(PIXEL_FORMAT_RGBA16F)
         if (contentsFormat == ContentsFormat::RGBA16F) {
+            ALLOW_DEPRECATED_DECLARATIONS_BEGIN
             [m_layer setWantsExtendedDynamicRangeContent:true];
+            ALLOW_DEPRECATED_DECLARATIONS_END
             [m_layer setToneMapMode:CAToneMapModeIfSupported];
         }
 #endif
@@ -1212,7 +1217,7 @@ bool PlatformCALayer::isWebLayer()
 
 void PlatformCALayer::setBoundsOnMainThread(CGRect bounds)
 {
-    RunLoop::protectedMain()->dispatch([layer = m_layer, bounds] {
+    RunLoop::mainSingleton().dispatch([layer = m_layer, bounds] {
         BEGIN_BLOCK_OBJC_EXCEPTIONS
         [layer setBounds:bounds];
         END_BLOCK_OBJC_EXCEPTIONS
@@ -1221,7 +1226,7 @@ void PlatformCALayer::setBoundsOnMainThread(CGRect bounds)
 
 void PlatformCALayer::setPositionOnMainThread(CGPoint position)
 {
-    RunLoop::protectedMain()->dispatch([layer = m_layer, position] {
+    RunLoop::mainSingleton().dispatch([layer = m_layer, position] {
         BEGIN_BLOCK_OBJC_EXCEPTIONS
         [layer setPosition:position];
         END_BLOCK_OBJC_EXCEPTIONS
@@ -1230,7 +1235,7 @@ void PlatformCALayer::setPositionOnMainThread(CGPoint position)
 
 void PlatformCALayer::setAnchorPointOnMainThread(FloatPoint3D value)
 {
-    RunLoop::protectedMain()->dispatch([layer = m_layer, value] {
+    RunLoop::mainSingleton().dispatch([layer = m_layer, value] {
         BEGIN_BLOCK_OBJC_EXCEPTIONS
         [layer setAnchorPoint:CGPointMake(value.x(), value.y())];
         [layer setAnchorPointZ:value.z()];

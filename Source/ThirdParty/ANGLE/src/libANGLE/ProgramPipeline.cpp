@@ -625,6 +625,9 @@ angle::Result ProgramPipeline::link(const Context *context)
         mState.mExecutable->copySamplerBindingsFromProgram(*executable);
         mState.mExecutable->copyImageBindingsFromProgram(*executable);
     }
+    // Update active uniform and storage buffer block indices mask
+    mState.mExecutable->updateActiveUniformBufferBlocks();
+    mState.mExecutable->updateActiveStorageBufferBlocks();
 
     if (mState.mExecutable->hasLinkedShaderStage(ShaderType::Fragment))
     {
@@ -713,6 +716,7 @@ void ProgramPipeline::validate(const Context *context)
     const Caps &caps = context->getCaps();
     mState.mValid    = true;
     mState.mInfoLog.reset();
+    bool noActiveStage = true;
 
     if (mState.mExecutable->hasLinkedShaderStage(gl::ShaderType::TessControl) !=
         mState.mExecutable->hasLinkedShaderStage(gl::ShaderType::TessEvaluation))
@@ -728,6 +732,7 @@ void ProgramPipeline::validate(const Context *context)
         Program *shaderProgram = mState.mPrograms[shaderType];
         if (shaderProgram)
         {
+            noActiveStage = false;
             shaderProgram->resolveLink(context);
             shaderProgram->validate(caps);
             std::string shaderInfoString = shaderProgram->getExecutable().getInfoLogString();
@@ -745,6 +750,13 @@ void ProgramPipeline::validate(const Context *context)
                 return;
             }
         }
+    }
+
+    if (noActiveStage)
+    {
+        mState.mValid = false;
+        mState.mInfoLog << "Program pipeline has no active stage yet.\n";
+        return;
     }
 
     intptr_t programPipelineError = context->getStateCache().getProgramPipelineError(context);

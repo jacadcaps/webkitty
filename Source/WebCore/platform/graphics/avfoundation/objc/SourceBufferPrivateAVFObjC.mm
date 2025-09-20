@@ -456,8 +456,9 @@ Ref<MediaPromise> SourceBufferPrivateAVFObjC::appendInternal(Ref<SharedBuffer>&&
                 protectedThis->didProvideContentKeyRequestInitializationDataForTrackID(WTFMove(initData), trackID, nullptr);
         });
 
-        return MediaPromise::createAndSettle(parser->appendData(WTFMove(data)));
-    })->whenSettled(RunLoop::protectedCurrent(), [weakThis = ThreadSafeWeakPtr { *this }](auto&& result) {
+        Ref ensureDestroyedSharedBuffer = WTFMove(data);
+        return MediaPromise::createAndSettle(parser->appendData(WTFMove(ensureDestroyedSharedBuffer)));
+    })->whenSettled(RunLoop::currentSingleton(), [weakThis = ThreadSafeWeakPtr { *this }](auto&& result) {
         if (RefPtr protectedThis = weakThis.get())
             protectedThis->appendCompleted(!!result);
         return MediaPromise::createAndSettle(WTFMove(result));
@@ -649,20 +650,22 @@ void SourceBufferPrivateAVFObjC::trackDidChangeEnabled(AudioTrackPrivate& track,
 void SourceBufferPrivateAVFObjC::setCDMSession(LegacyCDMSession* session)
 {
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA)
-    if (session == m_session)
+  RefPtr oldSession = m_session.get();
+    if (session == oldSession)
         return;
 
     ALWAYS_LOG(LOGIDENTIFIER);
 
-    if (RefPtr session = m_session.get()) {
-        session->removeSourceBuffer(this);
+    if (oldSession) {
+        oldSession->removeSourceBuffer(this);
 
         auto parser = this->streamDataParser();
         if (parser && shouldAddContentKeyRecipients())
-            [session->contentKeySession() removeContentKeyRecipient:parser];
+            [oldSession->contentKeySession() removeContentKeyRecipient:parser];
     }
 
-    m_session = toCDMSessionAVContentKeySession(session);
+    // FIXME: This is a false positive. Remove the suppression once rdar://145631564 is fixed.
+    SUPPRESS_UNCOUNTED_ARG m_session = toCDMSessionAVContentKeySession(session);
 
     if (RefPtr session = m_session.get()) {
         session->addSourceBuffer(this);
@@ -712,7 +715,7 @@ void SourceBufferPrivateAVFObjC::setCDMInstance(CDMInstance* instance)
             for (auto& pair : m_audioRenderers)
                 [cdmInstance->contentKeySession() removeContentKeyRecipient:pair.second.get()];
         }
-        cdmInstance->removeKeyStatusesChangedObserver(*m_keyStatusesChangedObserver);
+        cdmInstance->removeKeyStatusesChangedObserver(m_keyStatusesChangedObserver);
     }
 
     m_cdmInstance = fpsInstance;
@@ -725,7 +728,7 @@ void SourceBufferPrivateAVFObjC::setCDMInstance(CDMInstance* instance)
             for (auto& pair : m_audioRenderers)
                 [cdmInstance->contentKeySession() addContentKeyRecipient:pair.second.get()];
         }
-        cdmInstance->addKeyStatusesChangedObserver(*m_keyStatusesChangedObserver);
+        cdmInstance->addKeyStatusesChangedObserver(m_keyStatusesChangedObserver);
     }
 
     attemptToDecrypt();
@@ -749,7 +752,7 @@ void SourceBufferPrivateAVFObjC::attemptToDecrypt()
             if (auto parser = this->streamDataParser())
                 [instanceSession->contentKeySession() addContentKeyRecipient:parser];
         }
-    } else if (!m_session)
+    } else if (!m_session.get())
         return;
 
     if (m_hasSessionSemaphore) {
@@ -815,7 +818,7 @@ void SourceBufferPrivateAVFObjC::registerForErrorNotifications(SourceBufferPriva
 void SourceBufferPrivateAVFObjC::unregisterForErrorNotifications(SourceBufferPrivateAVFObjCErrorClient* client)
 {
     ASSERT(m_errorClients.contains(client));
-    m_errorClients.remove(m_errorClients.find(client));
+    m_errorClients.removeFirst(client);
 }
 
 void SourceBufferPrivateAVFObjC::videoRendererDidReceiveError(WebSampleBufferVideoRendering *renderer, NSError *error)
@@ -949,6 +952,33 @@ void SourceBufferPrivateAVFObjC::flushVideo()
     }
 }
 
+void SourceBufferPrivateAVFObjC::setLayerRequiresFlush()
+{
+    ALWAYS_LOG(LOGIDENTIFIER);
+    m_layerRequiresFlush = true;
+#if PLATFORM(IOS_FAMILY)
+    if (m_applicationIsActive)
+        flushIfNeeded();
+#else
+    flushIfNeeded();
+#endif
+}
+
+#if PLATFORM(IOS_FAMILY)
+void SourceBufferPrivateAVFObjC::applicationWillResignActive()
+{
+    ALWAYS_LOG(LOGIDENTIFIER);
+    m_applicationIsActive = false;
+}
+
+void SourceBufferPrivateAVFObjC::applicationDidBecomeActive()
+{
+    ALWAYS_LOG(LOGIDENTIFIER);
+    m_applicationIsActive = true;
+    flushIfNeeded();
+}
+#endif
+
 ALLOW_NEW_API_WITHOUT_GUARDS_BEGIN
 RetainPtr<AVSampleBufferAudioRenderer> SourceBufferPrivateAVFObjC::audioRendererForTrackID(TrackID trackID) const
 ALLOW_NEW_API_WITHOUT_GUARDS_END
@@ -1009,7 +1039,7 @@ bool SourceBufferPrivateAVFObjC::canEnqueueSample(TrackID trackID, const MediaSa
         return true;
 
     // if sample is encrypted, but we are not attached to a CDM: do not enqueue sample.
-    if (!m_cdmInstance && !m_session)
+    if (!m_cdmInstance && !m_session.get())
         return false;
 
     // DecompressionSessions doesn't support encrypted media.
@@ -1096,7 +1126,7 @@ void SourceBufferPrivateAVFObjC::enqueueSample(Ref<MediaSampleAVFObjC>&& sample,
         if (!m_videoRenderer)
             return;
 
-        enqueueSampleBuffer(sample.get());
+        enqueueSampleBuffer(sample.get(), minimumUpcomingPresentationTimeForTrackID(trackID));
 
     } else {
         // AVSampleBufferAudioRenderer will throw an un-documented exception if passed a sample
@@ -1118,12 +1148,12 @@ void SourceBufferPrivateAVFObjC::enqueueSample(Ref<MediaSampleAVFObjC>&& sample,
     }
 }
 
-void SourceBufferPrivateAVFObjC::enqueueSampleBuffer(MediaSampleAVFObjC& sample)
+void SourceBufferPrivateAVFObjC::enqueueSampleBuffer(MediaSampleAVFObjC& sample, const MediaTime& minimumUpcomingTime)
 {
     attachContentKeyToSampleIfNeeded(sample);
     WebSampleBufferVideoRendering *renderer = nil;
     if (RefPtr videoRenderer = m_videoRenderer) {
-        videoRenderer->enqueueSample(sample);
+        videoRenderer->enqueueSample(sample, minimumUpcomingTime);
 
         // Enqueuing a sample for display my synchronously fire an error, which can cause m_videoRenderer to become null.
         videoRenderer = m_videoRenderer;
@@ -1281,15 +1311,6 @@ void SourceBufferPrivateAVFObjC::setMinimumUpcomingPresentationTime(TrackID trac
     }
 }
 
-void SourceBufferPrivateAVFObjC::clearMinimumUpcomingPresentationTime(TrackID trackID)
-{
-    ASSERT(canSetMinimumUpcomingPresentationTime(trackID));
-    if (canSetMinimumUpcomingPresentationTime(trackID)) {
-        if (RefPtr videoRenderer = m_videoRenderer)
-            videoRenderer->resetUpcomingSampleBufferPresentationTimeExpectations();
-    }
-}
-
 bool SourceBufferPrivateAVFObjC::canSwitchToType(const ContentType& contentType)
 {
     ALWAYS_LOG(LOGIDENTIFIER, contentType);
@@ -1316,6 +1337,10 @@ void SourceBufferPrivateAVFObjC::configureVideoRenderer(VideoMediaSampleRenderer
         if (RefPtr protectedThis = weakThis.get(); protectedThis && protectedThis->m_enabledVideoTrackID)
             protectedThis->didBecomeReadyForMoreSamples(*protectedThis->m_enabledVideoTrackID);
     });
+    videoRenderer.notifyWhenVideoRendererRequiresFlushToResumeDecoding([weakThis = ThreadSafeWeakPtr { *this }] {
+        if (RefPtr protectedThis = weakThis.get())
+            protectedThis->setLayerRequiresFlush();
+    });
     m_listener->beginObservingVideoRenderer(videoRenderer.renderer());
 }
 
@@ -1323,6 +1348,7 @@ void SourceBufferPrivateAVFObjC::invalidateVideoRenderer(VideoMediaSampleRendere
 {
     videoRenderer.flush();
     videoRenderer.stopRequestingMediaData();
+    videoRenderer.notifyWhenVideoRendererRequiresFlushToResumeDecoding({ });
     m_listener->stopObservingVideoRenderer(videoRenderer.renderer());
 
 #if ENABLE(ENCRYPTED_MEDIA) && HAVE(AVCONTENTKEYSESSION)

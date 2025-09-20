@@ -281,7 +281,7 @@ void MediaPlayerPrivateAVFoundation::seekToTarget(const SeekTarget& target)
     if (target.time > duration())
         adjustedTarget.time = duration();
 
-    if (RefPtr track = currentTextTrack())
+    if (RefPtr track = currentTextTrack().get())
         track->beginSeeking();
 
     ALWAYS_LOG(LOGIDENTIFIER, "seeking to ", adjustedTarget.time);
@@ -676,8 +676,8 @@ void MediaPlayerPrivateAVFoundation::seekCompleted(bool finished)
     if (!finished)
         return;
 
-    if (currentTextTrack())
-        currentTextTrack()->endSeeking();
+    if (RefPtr track = currentTextTrack().get())
+        track->endSeeking();
 
     updateStates();
 
@@ -783,7 +783,7 @@ void MediaPlayerPrivateAVFoundation::processNewAndRemovedTextTracks(const Vector
             }
             if (player)
                 player->removeTextTrack(Ref { *m_textTracks[i] });
-            m_textTracks.remove(i);
+            m_textTracks.removeAt(i);
         }
     }
 
@@ -841,7 +841,7 @@ bool MediaPlayerPrivateAVFoundation::extractKeyURIKeyIDAndCertificateFromInitDat
     if (!keyURIArray)
         return false;
 
-    keyURI = spanReinterpretCast<const UChar>(keyURIArray->span().first(keyURILength));
+    keyURI = spanReinterpretCast<const char16_t>(keyURIArray->span().first(keyURILength));
     offset += keyURILength;
 
     uint32_t keyIDLength = initDataView->get<uint32_t>(offset, true, &status);
@@ -853,7 +853,7 @@ bool MediaPlayerPrivateAVFoundation::extractKeyURIKeyIDAndCertificateFromInitDat
     if (!keyIDArray)
         return false;
 
-    keyID = spanReinterpretCast<const UChar>(keyIDArray->span().first(keyIDLength));
+    keyID = spanReinterpretCast<const char16_t>(keyIDArray->span().first(keyIDLength));
     offset += keyIDLength;
 
     uint32_t certificateLength = initDataView->get<uint32_t>(offset, true, &status);
