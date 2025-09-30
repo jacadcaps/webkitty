@@ -58,6 +58,10 @@
 #include <wtf/Int128.h>
 #include <wtf/MathExtras.h>
 
+#ifndef UINT64_MAX
+#define UINT64_MAX 0xffffffffffffffffULL /* 18446744073709551615ULL */
+#endif
+
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {

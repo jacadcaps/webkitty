@@ -380,13 +380,14 @@ bool Options::isAvailable(Options::ID id, Options::Availability availability)
     if (id == maxSingleAllocationSizeID)
         return true;
 #endif
+#if !OS(MORPHOS)
     if (id == traceLLIntExecutionID)
         return !!LLINT_TRACING;
     if (id == traceLLIntSlowPathID)
         return !!LLINT_TRACING;
     if (id == traceWasmLLIntExecutionID)
         return !!LLINT_TRACING;
-
+#endif
     if (id == validateVMEntryCalleeSavesID)
         return !!ASSERT_ENABLED;
     return false;
@@ -397,6 +398,10 @@ bool Options::isAvailable(Options::ID id, Options::Availability availability)
 template<typename T>
 bool overrideOptionWithHeuristic(T& variable, Options::ID id, const char* name, Options::Availability availability)
 {
+#if OS(MORPHOS)
+	(void)variable; (void)id; (void)name; (void)availability;
+	return false;
+#else
     bool available = (availability == Options::Availability::Normal)
         || Options::isAvailable(id, availability);
 
@@ -414,12 +419,17 @@ bool overrideOptionWithHeuristic(T& variable, Options::ID id, const char* name, 
     
     fprintf(stderr, "WARNING: failed to parse %s=%s\n", name, stringValue);
     return false;
+#endif
 }
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 bool Options::overrideAliasedOptionWithHeuristic(const char* name)
 {
+#if OS(MORPHOS)
+	(void)name;
+	return false;
+#else
     const char* stringValue = getenv(name);
     if (!stringValue)
         return false;
@@ -430,6 +440,7 @@ bool Options::overrideAliasedOptionWithHeuristic(const char* name)
 
     fprintf(stderr, "WARNING: failed to parse %s=%s\n", name, stringValue);
     return false;
+#endif
 }
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

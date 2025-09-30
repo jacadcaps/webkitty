@@ -476,7 +476,11 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncIncludes(VM& vm, JSGl
         if constexpr (ViewClass::elementSize == 2) {
             if (std::isnan(*targetOption)) {
                 for (; index < searchLength; ++index) {
+#if CPU(BIG_ENDIAN)
+                    if (std::isnan(flipBytes(uint16_t(array[index]))))
+#else
                     if (std::isnan(array[index]))
+#endif
                         return JSValue::encode(jsBoolean(true));
                 }
                 return JSValue::encode(jsBoolean(false));
@@ -484,7 +488,11 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncIncludes(VM& vm, JSGl
         } else {
             if (std::isnan(static_cast<double>(*targetOption))) {
                 for (; index < searchLength; ++index) {
+#if CPU(BIG_ENDIAN)
+                    if (std::isnan(static_cast<double>(flipBytes(array[index]))))
+#else
                     if (std::isnan(static_cast<double>(array[index])))
+#endif
                         return JSValue::encode(jsBoolean(true));
                 }
                 return JSValue::encode(jsBoolean(false));
@@ -575,6 +583,11 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncJoin(VM& vm, JSGlobal
                 value = thisObject->getIndexQuickly(i);
             else {
                 auto nativeValue = thisObject->getIndexQuicklyAsNativeValue(i);
+#if CPU(BIG_ENDIAN)
+                if constexpr (TypeFloat16 != ViewClass::Adaptor::typeValue && TypeFloat32 != ViewClass::Adaptor::typeValue && TypeFloat64 != ViewClass::Adaptor::typeValue) {
+                    nativeValue = flipBytes(nativeValue);
+                }
+#endif
                 value = ViewClass::Adaptor::toJSValue(globalObject, nativeValue);
                 RETURN_IF_EXCEPTION(scope, { });
             }
@@ -1681,12 +1694,30 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewPrivateFuncFromFast(VM& vm, JS
         RETURN_IF_EXCEPTION(scope, { });
 
         if (indexingType == Int32Shape) {
+#if CPU(BIG_ENDIAN)
+            for (unsigned i = 0; i < length; i++) {
+                JSValue value = array->butterfly()->contiguous().at(array, i).get();
+                if (LIKELY(!!value))
+                    result->setIndexQuicklyToNativeValue(i, ViewClass::Adaptor::toNativeFromInt32(value.asInt32()));
+                else
+                    result->setIndexQuicklyToNativeValue(i, ViewClass::Adaptor::toNativeFromUndefined());
+            }
+        } else {
+            ASSERT(indexingType == DoubleShape);
+            for (unsigned i = 0; i < length; i++) {
+                double d = array->butterfly()->contiguousDouble().at(array, i);
+                result->setIndexQuicklyToNativeValue(i, ViewClass::Adaptor::toNativeFromDouble(d));
+            }
+#else
             result->copyFromInt32ShapeArray(0, array, 0, length);
             return JSValue::encode(result);
+#endif
         }
 
+#if !CPU(BIG_ENDIAN)
         ASSERT(indexingType == DoubleShape);
         result->copyFromDoubleShapeArray(0, array, 0, length);
+#endif
         return JSValue::encode(result);
     }
 
