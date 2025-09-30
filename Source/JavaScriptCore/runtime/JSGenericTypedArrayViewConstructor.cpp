@@ -229,7 +229,7 @@ JSC_DEFINE_HOST_FUNCTION(uint8ArrayConstructorFromHex, (JSGlobalObject* globalOb
 #if CPU(BIG_ENDIAN)
     for (size_t i = 0; i < count * 2; ++i) {
         int digit = parseDigit(view[i], 16);
-        if (UNLIKELY(digit == -1))
+        if (digit == -1) [[unlikely]]
             return JSValue::encode(throwSyntaxError(globalObject, scope, "Uint8Array.prototype.fromHex requires a string containing only \"0123456789abcdefABCDEF\""_s));
     }
     JSUint8Array* uint8Array = JSUint8Array::create(globalObject, globalObject->typedArrayStructure(TypeUint8, false), count);

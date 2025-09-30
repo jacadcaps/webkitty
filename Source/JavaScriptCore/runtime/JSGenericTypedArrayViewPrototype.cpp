@@ -140,7 +140,7 @@ JSC_DEFINE_HOST_FUNCTION(uint8ArrayPrototypeSetFromHex, (JSGlobalObject* globalO
     size_t count = std::min(static_cast<size_t>(view.length() / 2), uint8Array->length());
     for (size_t i = 0; i < count * 2; ++i) {
         int digit = parseDigit(view[i], 16);
-        if (UNLIKELY(digit == -1))
+        if (digit == -1) [[unlikely]]
             return JSValue::encode(throwSyntaxError(globalObject, scope, "Uint8Array.prototype.setFromHex requires a string containing only \"0123456789abcdefABCDEF\""_s));
     }
     size_t read = 0;

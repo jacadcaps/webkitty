@@ -1697,7 +1697,7 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewPrivateFuncFromFast(VM& vm, JS
 #if CPU(BIG_ENDIAN)
             for (unsigned i = 0; i < length; i++) {
                 JSValue value = array->butterfly()->contiguous().at(array, i).get();
-                if (LIKELY(!!value))
+                if (!!value) [[likely]]
                     result->setIndexQuicklyToNativeValue(i, ViewClass::Adaptor::toNativeFromInt32(value.asInt32()));
                 else
                     result->setIndexQuicklyToNativeValue(i, ViewClass::Adaptor::toNativeFromUndefined());
