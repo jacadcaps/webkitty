@@ -202,6 +202,11 @@ WTF_EXPORT_PRIVATE MappedFileData mapToFile(const String& path, size_t bytesSize
 WTF_EXPORT_PRIVATE MappedFileData createMappedFileData(const String&, size_t, FileHandle* = nullptr);
 WTF_EXPORT_PRIVATE void finalizeMappedFileData(MappedFileData&, size_t);
 
+#if OS(MORPHOS)
+WTF_EXPORT_PRIVATE String temporaryFilePathForPrefix(const String& prefix);
+WTF_EXPORT_PRIVATE void setTemporaryFilePathForPrefix(const char * tmpPath, const String& prefix);
+#endif
+
 } // namespace FileSystemImpl
 } // namespace WTF
 

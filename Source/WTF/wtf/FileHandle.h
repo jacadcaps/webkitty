@@ -116,6 +116,16 @@ private:
     Markable<PlatformFileHandle, PlatformHandleTraits> m_handle;
 };
 
+#if OS(MORPHOS)
+// Async API
+WTF_EXPORT_PRIVATE std::pair<String, PlatformFileHandle> openTemporaryFileAsync(StringView prefix);
+WTF_EXPORT_PRIVATE PlatformFileHandle openFileAsync(const String& path, FileOpenMode);
+WTF_EXPORT_PRIVATE void closeFileAsync(PlatformFileHandle&);
+// Returns the resulting offset from the beginning of the file if successful, -1 otherwise.
+WTF_EXPORT_PRIVATE long long seekFileAsync(PlatformFileHandle, long long offset, FileSeekOrigin);
+WTF_EXPORT_PRIVATE int writeToFileAsync(PlatformFileHandle, std::span<const uint8_t> data);
+#endif
+
 } // namespace FileSystemImpl
 
 } // namespace WTF

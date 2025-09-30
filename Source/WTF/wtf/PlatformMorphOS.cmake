@@ -6,6 +6,7 @@ list(APPEND WTF_SOURCES
         generic/MainThreadGeneric.cpp
 
         posix/FileSystemPOSIX.cpp
+		posix/FileHandlePOSIX.cpp
         posix/OSAllocatorPOSIX.cpp
         posix/ThreadingPOSIX.cpp
         posix/CPUTimePOSIX.cpp
@@ -13,13 +14,14 @@ list(APPEND WTF_SOURCES
         text/unix/TextBreakIteratorInternalICUUnix.cpp
 
         unix/UniStdExtrasUnix.cpp
+        unix/LoggingUnix.cpp
 
         morphos/LanguageMorphOS.cpp
         morphos/Misc.cpp
-        morphos/MD5.cpp
         morphos/Signals.cpp
 
         morphos/MemoryPressureHandlerMorphOS.cpp
+		morphos/MappedFileDataMorphOS.cpp
     )
 
     list(APPEND WTF_SOURCES

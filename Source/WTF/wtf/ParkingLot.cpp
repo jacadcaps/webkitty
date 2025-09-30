@@ -38,6 +38,8 @@
 #include <wtf/WeakRandom.h>
 #include <wtf/WordLock.h>
 
+#include <proto/exec.h>
+
 namespace WTF {
 
 namespace {
@@ -423,6 +425,18 @@ void ensureHashtableSize(unsigned numThreads)
     unlockHashtable(bucketsToUnlock);
 }
 
+#if OS(MORPHOS)
+// A bit ugly but avoid a deadlock at app exit. If the thread is cancelled it already holds
+// the parkingLock. In this case the TLS destructors would result in a deadlock. Avoid this
+// by adding a thread-cancellation cleanup handler that unlocks the lock. - Piru
+ThreadData* myThreadData();
+static void parkinglockunlocker(void *arg)
+{
+    ThreadData* me = myThreadData();
+    me->parkingLock.unlock();
+}
+#endif
+
 ThreadData::ThreadData()
     : thread(Thread::currentSingleton())
 {
@@ -435,6 +449,9 @@ ThreadData::ThreadData()
     }
 
     ensureHashtableSize(currentNumThreads);
+#if OS(MORPHOS)
+    pthread_cleanup_push(parkinglockunlocker, NULL);
+#endif
 }
 
 ThreadData::~ThreadData()
@@ -595,7 +612,17 @@ NEVER_INLINE ParkingLot::ParkResult ParkingLot::parkConditionallyImpl(
     {
         MutexLocker locker(me->parkingLock);
         while (me->address && timeout.nowWithSameClock() < timeout) {
+#if OS(MORPHOS)
+            if (!me->parkingCondition.timedWait(
+                me->parkingLock, timeout.approximateWallTime())) {
+                // Usually this happens when the application is terminating.
+                // MorphOS pthread_cond_*wait keeps returning EINTR when the
+                // thread has been cancelled or libpthread is cleaning up.
+                break;
+            }
+#else
             me->parkingCondition.timedWait(me->parkingLock, timeout.approximateWallTime());
+#endif
 
             // It's possible for the OS to decide not to wait. If it does that then it will also
             // decide not to release the lock. If there's a bug in the time math, then this could
