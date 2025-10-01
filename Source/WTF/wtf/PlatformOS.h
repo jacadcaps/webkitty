@@ -131,6 +131,9 @@
 #define WTF_OS_WINDOWS 1
 #endif
 
+#ifdef __MORPHOS__
+#define WTF_OS_MORPHOS 1
+#endif
 
 /* OS(UNIX) - Any Unix-like system */
 #if    OS(AIX)              \

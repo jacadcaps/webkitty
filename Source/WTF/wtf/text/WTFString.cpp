@@ -591,51 +591,6 @@ float charactersToFloat(std::span<const char16_t> data, size_t& parsedLength)
 const StaticString nullStringData { nullptr };
 const StaticString emptyStringData { &StringImpl::s_emptyAtomString };
 
-} // namespace WTF
-
-#ifndef NDEBUG
-
-// For use in the debugger.
-String* string(const char*);
-Vector<char> asciiDebug(StringImpl* impl);
-Vector<char> asciiDebug(String& string);
-
-void String::show() const
-{
-    dataLogF("%s\n", asciiDebug(impl()).span().data());
-}
-
-String* string(const char* s)
-{
-    // Intentionally leaks memory!
-    return new String(String::fromLatin1(s));
-}
-
-Vector<char> asciiDebug(StringImpl* impl)
-{
-    if (!impl)
-        return asciiDebug(String("[null]"_s).impl());
-
-    StringBuilder buffer;
-    for (unsigned i = 0; i < impl->length(); ++i) {
-        char16_t ch = (*impl)[i];
-        if (isASCIIPrintable(ch)) {
-            if (ch == '\\')
-                buffer.append(ch);
-            buffer.append(ch);
-        } else {
-            buffer.append('\\', 'u', hex(ch, 4));
-        }
-    }
-    CString narrowString = buffer.toString().ascii();
-    return { narrowString.spanIncludingNullTerminator() };
-}
-
-Vector<char> asciiDebug(String& string)
-{
-    return asciiDebug(string.impl());
-}
-
 #if OS(MORPHOS)
 String::String(const char * characters, unsigned inlength, unsigned mib)
 {
@@ -683,5 +638,50 @@ CString String::native() const
     return result;
 }
 #endif
+
+} // namespace WTF
+
+#ifndef NDEBUG
+
+// For use in the debugger.
+String* string(const char*);
+Vector<char> asciiDebug(StringImpl* impl);
+Vector<char> asciiDebug(String& string);
+
+void String::show() const
+{
+    dataLogF("%s\n", asciiDebug(impl()).span().data());
+}
+
+String* string(const char* s)
+{
+    // Intentionally leaks memory!
+    return new String(String::fromLatin1(s));
+}
+
+Vector<char> asciiDebug(StringImpl* impl)
+{
+    if (!impl)
+        return asciiDebug(String("[null]"_s).impl());
+
+    StringBuilder buffer;
+    for (unsigned i = 0; i < impl->length(); ++i) {
+        char16_t ch = (*impl)[i];
+        if (isASCIIPrintable(ch)) {
+            if (ch == '\\')
+                buffer.append(ch);
+            buffer.append(ch);
+        } else {
+            buffer.append('\\', 'u', hex(ch, 4));
+        }
+    }
+    CString narrowString = buffer.toString().ascii();
+    return { narrowString.spanIncludingNullTerminator() };
+}
+
+Vector<char> asciiDebug(String& string)
+{
+    return asciiDebug(string.impl());
+}
 
 #endif

@@ -48,10 +48,6 @@
    macros, policy decision macros, and top-level port definitions. */
 #include <wtf/PlatformLegacy.h>
 
-#ifdef __MORPHOS__
-#define WTF_OS_MORPHOS 1
-#endif
-
 /* HAVE() - specific system features (headers, functions or similar) that are present or not */
 #include <wtf/PlatformHave.h>
 
@@ -129,7 +125,7 @@
 #define U_DISABLE_RENAMING 1
 #endif
 
-#if OS(MORPHOS)
+#ifdef __MORPHOS__
 #define USE_PTHREADS 1
 #endif
 
