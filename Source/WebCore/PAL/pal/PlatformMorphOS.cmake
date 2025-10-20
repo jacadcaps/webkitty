@@ -14,7 +14,6 @@ list(APPEND PAL_SOURCES
 
     text/KillRing.cpp
 
-    unix/LoggingUnix.cpp
     crypto/tasn1/Utilities.cpp
 )
 

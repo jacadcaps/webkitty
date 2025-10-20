@@ -31,7 +31,7 @@ namespace WebKit {
 class WebPage;
 
 class WebUserMediaClient : public WebCore::UserMediaClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(WebUserMediaClient);
 public:
     WebUserMediaClient(WebPage&);
     ~WebUserMediaClient() { }

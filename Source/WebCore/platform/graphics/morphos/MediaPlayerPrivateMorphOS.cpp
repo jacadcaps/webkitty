@@ -15,6 +15,10 @@
 #include "HTMLMediaElement.h"
 #include "Frame.h"
 #include "Page.h"
+#include "LocalFrame.h"
+#include "LocalFrameInlines.h"
+#include "FrameInlines.h"
+#include "Document.h"
 #include "CommonVM.h"
 #include <proto/exec.h>
 #include <exec/exec.h>
@@ -125,7 +129,7 @@ public:
 		
 		if (nullptr == page)
 		{
-			Frame* frame = lexicalFrameFromCommonVM();
+			auto* frame = lexicalFrameFromCommonVM();
 			DMHOST(dprintf("%s: vmframe %p\n", __func__, frame));
 			if (frame)
 			{

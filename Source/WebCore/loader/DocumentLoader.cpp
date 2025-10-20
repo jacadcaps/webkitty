@@ -283,18 +283,24 @@ void DocumentLoader::setMainDocumentError(const ResourceError& error)
     if (!error.isNull())
         DOCUMENTLOADER_RELEASE_LOG("setMainDocumentError: (type=%d, code=%d)", static_cast<int>(error.type()), error.errorCode());
 
-    m_mainDocumentError = error;    
-    protectedFrameLoader()->protectedClient()->setMainDocumentError(this, error);
+    m_mainDocumentError = error;
+    auto frameLoader = protectedFrameLoader();
+    if (!frameLoader)
+        return;
+    frameLoader->protectedClient()->setMainDocumentError(this, error);
 }
 
 void DocumentLoader::mainReceivedError(const ResourceError& error, LoadWillContinueInAnotherProcess loadWillContinueInAnotherProcess)
 {
     ASSERT(!error.isNull());
 
+    Ref<DocumentLoader> protectedThis(*this);
+
     if (auto createdCallback = std::exchange(m_whenDocumentIsCreatedCallback, { }))
         createdCallback(nullptr);
 
-    if (!frameLoader())
+    auto frameLoader = protectedFrameLoader();
+    if (!frameLoader)
         return;
 
     if (!error.isNull())
@@ -302,7 +308,7 @@ void DocumentLoader::mainReceivedError(const ResourceError& error, LoadWillConti
 
     if (m_identifierForLoadWithoutResourceLoader) {
         ASSERT(!mainResourceLoader());
-        protectedFrameLoader()->protectedClient()->dispatchDidFailLoading(this, IsMainResourceLoad::Yes, *m_identifierForLoadWithoutResourceLoader, error);
+        frameLoader->protectedClient()->dispatchDidFailLoading(this, IsMainResourceLoad::Yes, *m_identifierForLoadWithoutResourceLoader, error);
     }
 
     // There is a bug in CFNetwork where callbacks can be dispatched even when loads are deferred.
@@ -315,7 +321,7 @@ void DocumentLoader::mainReceivedError(const ResourceError& error, LoadWillConti
 
     setMainDocumentError(error);
     clearMainResourceLoader();
-    protectedFrameLoader()->receivedMainResourceError(error, loadWillContinueInAnotherProcess);
+    frameLoader->receivedMainResourceError(error, loadWillContinueInAnotherProcess);
 }
 
 void DocumentLoader::frameDestroyed()

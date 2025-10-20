@@ -31,6 +31,7 @@
 #include <WebCore/TextCheckerClient.h>
 #include <WebCore/UndoStep.h>
 #include <wtf/HashSet.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 class Element;
@@ -70,7 +71,7 @@ private:
 };
 
 class WebEditorClient final : public WebCore::EditorClient, public WebCore::TextCheckerClient {
-	WTF_MAKE_FAST_ALLOCATED;
+	WTF_MAKE_TZONE_ALLOCATED(WebEditorClient);
 public:
 	friend WebEditorClientCleanup;
 

@@ -358,8 +358,8 @@ RefPtr<AudioBus> createBusFromInMemoryAudioFile(std::span<const uint8_t> data, b
 	if (reader.hasAudioStream())
 	{
 		DINIT(dprintf("%s: initialized, duration %fs, channels %d mixMono %d rate %f\n", __PRETTY_FUNCTION__, float(reader.duration()), reader.channels(), mixToMono, float(sampleRate)));
-		auto bus = AudioBus::create(reader.channels(), ceil(reader.duration() * double(sampleRate)));
-		if (bus)
+		RefPtr bus = AudioBus::create(reader.channels(), ceil(reader.duration() * double(sampleRate)));
+		if (!!bus)
 		{
 			bus->setSampleRate(sampleRate);
 

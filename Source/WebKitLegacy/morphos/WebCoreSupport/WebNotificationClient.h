@@ -39,7 +39,7 @@ namespace WebKit {
 class WebPage;
 
 class WebNotificationClient final : public WebCore::NotificationClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(WebNotificationClient);
 public:
     WebNotificationClient(WebPage *);
 //    WebPage *page() { return m_webPage; }

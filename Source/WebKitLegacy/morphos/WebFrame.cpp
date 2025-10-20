@@ -100,7 +100,7 @@ Ref<WebFrame> WebFrame::createSubframe(WebPage* page, const WTF::AtomString& fra
 
     auto coreFrame = WebCore::LocalFrame::createSubframe(*page->corePage(), [frame] (auto&, auto& frameLoader) {
         return makeUniqueRefWithoutRefCountedCheck<WebFrameLoaderClient>(frameLoader, frame.get());
-    }, WebCore::FrameIdentifier::generate(), effectiveSandboxFlags, *ownerElement);
+    }, WebCore::FrameIdentifier::generate(), effectiveSandboxFlags, *ownerElement, WebCore::FrameTreeSyncData::create());
     frame->m_coreFrame = coreFrame.ptr();
 
     coreFrame->tree().setSpecifiedName(frameName);
@@ -378,7 +378,7 @@ unsigned WebFrame::pendingUnloadCount() const
     if (!m_coreFrame)
         return 0;
 
-    return m_coreFrame->document()->domWindow()->pendingUnloadEventListeners();
+    return m_coreFrame->document()->window()->pendingUnloadEventListeners();
 }
 
 bool WebFrame::allowsFollowingLink(const URL& url) const

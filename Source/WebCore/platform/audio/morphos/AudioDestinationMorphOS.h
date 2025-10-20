@@ -33,7 +33,7 @@ namespace WebCore {
 
 class AudioDestinationMorphOS : public AudioDestination, public AudioDestinationRenderer, public RefCounted<AudioDestinationMorphOS> {
 public:
-    AudioDestinationMorphOS(AudioIOCallback&, float sampleRate);
+    AudioDestinationMorphOS(const CreationOptions& options);
     ~AudioDestinationMorphOS();
 
     void ref() const final { return RefCounted<AudioDestinationMorphOS>::ref(); }

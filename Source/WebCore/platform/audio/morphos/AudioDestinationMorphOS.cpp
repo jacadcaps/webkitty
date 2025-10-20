@@ -48,16 +48,16 @@ unsigned long AudioDestination::AudioDestination::maxChannelCount()
 	return 0; // stereo
 }
 
-Ref<AudioDestination> AudioDestination::create(AudioIOCallback&callback, const String& inputDeviceId, unsigned numberOfInputChannels, unsigned numberOfOutputChannels, float sampleRate)
+Ref<AudioDestination> AudioDestination::create(const CreationOptions& options)
 {
-    return adoptRef(*new AudioDestinationMorphOS(callback, sampleRate));
+    return adoptRef(*new AudioDestinationMorphOS(options));
 }
 
-AudioDestinationMorphOS::AudioDestinationMorphOS(AudioIOCallback&callback, float sampleRate)
-	: AudioDestination(callback, sampleRate)
-	, m_renderBus(AudioBus::create(2, framesToPull, true))
+AudioDestinationMorphOS::AudioDestinationMorphOS(const CreationOptions& options)
+	: AudioDestination(options)
+	, m_renderBus(AudioBus::create(options.numberOfOutputChannels, framesToPull, true))
 	, m_output(*this)
-	, m_sampleRate(sampleRate)
+	, m_sampleRate(options.sampleRate)
 	, m_isPlaying(false)
 {
 	m_renderBus->setSampleRate(44100);
@@ -137,7 +137,7 @@ void AudioDestinationMorphOS::render(int16_t *samplesStereo, size_t count)
 				
 				m_sampleTime += length;
 
-				callRenderCallback(nullptr, m_renderBus.get(), length, m_outputTimestamp);
+				callRenderCallback(*m_renderBus.get(), length, m_outputTimestamp);
 
 				AudioChannel *channelA = m_renderBus->channel(0);
 				AudioChannel *channelB = m_renderBus->channel(1);

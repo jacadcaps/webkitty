@@ -32,16 +32,16 @@ namespace WebKit {
 
 class WebDocumentLoader : public WebCore::DocumentLoader {
 public:
-    static Ref<WebDocumentLoader> create(const WebCore::ResourceRequest& request, const WebCore::SubstituteData& data)
+    static Ref<WebDocumentLoader> create(WebCore::ResourceRequest&& request, WebCore::SubstituteData&& data)
     {
-        return adoptRef(*new WebDocumentLoader(request, data));
+        return adoptRef(*new WebDocumentLoader(WTFMove(request), WTFMove(data)));
     }
 
     uint64_t navigationID() const { return m_navigationID; }
     void setNavigationID(uint64_t);
 
 private:
-    WebDocumentLoader(const WebCore::ResourceRequest&, const WebCore::SubstituteData&);
+    WebDocumentLoader(WebCore::ResourceRequest&&, WebCore::SubstituteData&&);
 
     void detachFromFrame(WebCore::LoadWillContinueInAnotherProcess) override;
 

@@ -353,7 +353,7 @@ void Engine::initialize(CompletionCallback&& callback)
     m_ioQueue->dispatch([this, weakThis = WeakPtr { *this }, rootPath = m_rootPath.isolatedCopy()] () mutable {
         FileSystem::makeAllDirectories(rootPath);
         String saltPath = FileSystem::pathByAppendingComponent(rootPath, "salt"_s);
-        RunLoop::main().dispatch([this, weakThis = WTFMove(weakThis), salt = FileSystem::readOrMakeSalt(saltPath)]() mutable {
+        RunLoop::mainSingleton().dispatch([this, weakThis = WTFMove(weakThis), salt = FileSystem::readOrMakeSalt(saltPath)]() mutable {
             if (!weakThis)
                 return;
 
@@ -475,7 +475,7 @@ void Engine::readFile(String&& filename, CompletionHandler<void(const NetworkCac
     m_ioQueue->dispatch([this, weakThis = WeakPtr { *this }, identifier = m_pendingCallbacksCounter, filename = WTFMove(filename).isolatedCopy()]() mutable {
         auto channel = IOChannel::open(WTFMove(filename), IOChannel::Type::Read);
         if (!channel->isOpened()) {
-            RunLoop::main().dispatch([this, weakThis = WTFMove(weakThis), identifier]() mutable {
+            RunLoop::mainSingleton().dispatch([this, weakThis = WTFMove(weakThis), identifier]() mutable {
                 if (!weakThis)
                     return;
 
@@ -519,7 +519,7 @@ void Engine::writeSizeFile(String&& path, uint64_t size, CompletionHandler<void(
         Locker locker { globalSizeFileLock };
         auto value = String::number(size).utf8();
         FileSystem::overwriteEntireFile(path, std::span { reinterpret_cast<uint8_t*>(const_cast<char*>(value.data())), value.length() });
-        RunLoop::main().dispatch(WTFMove(completionHandler));
+        RunLoop::mainSingleton().dispatch(WTFMove(completionHandler));
     });
 }
 
@@ -572,7 +572,7 @@ void Engine::getDirectories(CompletionHandler<void(const Vector<String>&)>&& com
                 folderPaths.append(WTFMove(filePath).isolatedCopy());
         }
 
-        RunLoop::main().dispatch([folderPaths = WTFMove(folderPaths), completionHandler = WTFMove(completionHandler)]() mutable {
+        RunLoop::mainSingleton().dispatch([folderPaths = WTFMove(folderPaths), completionHandler = WTFMove(completionHandler)]() mutable {
             completionHandler(folderPaths);
         });
     });
@@ -659,7 +659,7 @@ void Engine::clearAllCachesFromDisk(CompletionHandler<void()>&& completionHandle
             if (FileSystem::fileType(filePath) == FileSystem::FileType::Directory)
                 FileSystem::deleteNonEmptyDirectory(filePath);
         }
-        RunLoop::main().dispatch(WTFMove(completionHandler));
+        RunLoop::mainSingleton().dispatch(WTFMove(completionHandler));
     });
 }
 
@@ -717,7 +717,7 @@ void Engine::deleteNonEmptyDirectoryOnBackgroundThread(String&& path, Completion
         Locker locker { globalSizeFileLock };
         FileSystem::deleteNonEmptyDirectory(path);
 
-        RunLoop::main().dispatch(WTFMove(completionHandler));
+        RunLoop::mainSingleton().dispatch(WTFMove(completionHandler));
     });
 }
 

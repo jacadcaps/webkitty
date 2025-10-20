@@ -35,7 +35,7 @@
 namespace WebCore {
 
 class SelectionData {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(SelectionData);
 public:
 
     void setText(const String&);

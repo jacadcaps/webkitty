@@ -30,6 +30,7 @@
 #include "ResourceHandle.h"
 #include "ResourceRequest.h"
 #include "ResourceResponse.h"
+#include <wtf/FileHandle.h>
 #include <wtf/FileSystem.h>
 #include <wtf/Forward.h>
 #include <wtf/HashMap.h>
@@ -40,7 +41,7 @@
 namespace WebCore {
 
 class CurlCacheEntry {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(CurlCacheEntry);
 public:
     CurlCacheEntry(const String& url, ResourceHandle* job, const String& cacheDir);
     CurlCacheEntry(const String& url, uint64_t entrySize, double expireDate, const String& cacheDir);
@@ -78,7 +79,7 @@ private:
     String m_headerFilename;
     String m_contentFilename;
 
-    FileSystem::PlatformFileHandle m_contentFile;
+    FileSystem::AsyncFileHandle m_contentFile;
 
     uint64_t m_entrySize;
     WallTime m_expireDate;

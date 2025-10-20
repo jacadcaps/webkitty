@@ -510,10 +510,12 @@ RenderSVGResourceMasker* RenderLayerModelObject::svgMaskerResourceFromStyle() co
 
     auto resourceID = SVGURIReference::fragmentIdentifierFromIRIString(maskImageURL, protectedDocument());
 
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
     if (RefPtr referencedMaskElement = ReferencedSVGResources::referencedMaskElement(treeScopeForSVGReferences(), *maskImage)) {
         if (auto* referencedMaskerRenderer = dynamicDowncast<RenderSVGResourceMasker>(referencedMaskElement->renderer()))
             return referencedMaskerRenderer;
     }
+#endif
 
     if (auto* element = this->element())
         document().addPendingSVGResource(resourceID, downcast<SVGElement>(*element));
@@ -541,10 +543,12 @@ RenderSVGResourceMarker* RenderLayerModelObject::svgMarkerResourceFromStyle(cons
     if (markerResource.isNone() || !document().settings().layerBasedSVGEngineEnabled())
         return nullptr;
 
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
     if (RefPtr referencedMarkerElement = ReferencedSVGResources::referencedMarkerElement(treeScopeForSVGReferences(), markerResource)) {
         if (auto* referencedMarkerRenderer = dynamicDowncast<RenderSVGResourceMarker>(referencedMarkerElement->renderer()))
             return referencedMarkerRenderer;
     }
+#endif
 
     if (auto* element = dynamicDowncast<SVGElement>(this->element()))
         document().addPendingSVGResource(AtomString(markerResource.resolved.string()), *element);
@@ -561,10 +565,12 @@ RenderSVGResourcePaintServer* RenderLayerModelObject::svgFillPaintServerResource
     if (svgStyle.fill().type < Style::SVGPaintType::URINone)
         return nullptr;
 
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
     if (RefPtr referencedElement = ReferencedSVGResources::referencedPaintServerElement(treeScopeForSVGReferences(), svgStyle.fill().url)) {
         if (auto* referencedPaintServerRenderer = dynamicDowncast<RenderSVGResourcePaintServer>(referencedElement->renderer()))
             return referencedPaintServerRenderer;
     }
+#endif
 
     if (auto* element = this->element())
         document().addPendingSVGResource(AtomString(svgStyle.fill().url.resolved.string()), downcast<SVGElement>(*element));
@@ -581,10 +587,12 @@ RenderSVGResourcePaintServer* RenderLayerModelObject::svgStrokePaintServerResour
     if (svgStyle.stroke().type < Style::SVGPaintType::URINone)
         return nullptr;
 
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
     if (RefPtr referencedElement = ReferencedSVGResources::referencedPaintServerElement(treeScopeForSVGReferences(), svgStyle.stroke().url)) {
         if (auto* referencedPaintServerRenderer = dynamicDowncast<RenderSVGResourcePaintServer>(referencedElement->renderer()))
             return referencedPaintServerRenderer;
     }
+#endif
 
     if (auto* element = this->element())
         document().addPendingSVGResource(AtomString(svgStyle.stroke().url.resolved.string()), downcast<SVGElement>(*element));
@@ -750,9 +758,11 @@ void RenderLayerModelObject::paintSVGMask(PaintInfo& paintInfo, const LayoutPoin
     if (!paintInfo.shouldPaintWithinRoot(*this) || context.paintingDisabled())
         return;
 
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
     ASSERT(isSVGLayerAwareRenderer());
     if (auto* referencedMaskerRenderer = svgMaskerResourceFromStyle())
         referencedMaskerRenderer->applyMask(paintInfo, *this, adjustedPaintOffset);
+#endif
 }
 
 bool rendererNeedsPixelSnapping(const RenderLayerModelObject& renderer)

@@ -94,7 +94,7 @@ int MediaSourceChunkReaderDataProvider::pull(uint8_t *buf, int size)
                 if (m_bufferPosition == m_queue[0].buffer->size() && ChunkType::Data == m_queue[0].chunkType)
                 {
                     DPROVIDER(dprintf("[MSDP][%p]%s: removed read chunk\n", this, __func__));
-                    m_queue.remove(0);
+                    m_queue.removeAt(0);
                     m_bufferPosition = 0;
                 }
             }
@@ -118,7 +118,7 @@ int MediaSourceChunkReaderDataProvider::pull(uint8_t *buf, int size)
                 else
                 {
                     DPROVIDER(dprintf("[MSDP][%p]%s: chunk EOF due to reinitialization\n", this, __func__));
-                    m_queue.remove(0);
+                    m_queue.removeAt(0);
                     m_bufferPosition = 0;
                     m_onDataUnderrun(); // wake up the client
                     underrunSignalled = true;
@@ -136,7 +136,7 @@ int MediaSourceChunkReaderDataProvider::pull(uint8_t *buf, int size)
                     size -= readActual;
                 }
 
-                m_queue.remove(0);
+                m_queue.removeAt(0);
                 m_bufferPosition = 0;
                 DPROVIDER(dprintf("[MSDP][%p]%s: removed read chunk, readTotal %ld\n", this, __func__, readTotal));
             }

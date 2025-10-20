@@ -39,7 +39,7 @@ class WebPage;
 class WebDesktopNotificationsDelegate;
 
 class WebChromeClient final : public WebCore::ChromeClient {
-	WTF_MAKE_FAST_ALLOCATED;
+	WTF_MAKE_TZONE_ALLOCATED(WebChromeClient);
 public:
     WebChromeClient(WebKit::WebPage&);
     ~WebChromeClient() = default;
@@ -88,7 +88,7 @@ protected:
     void addMessageWithArgumentsToConsole(MessageSource, MessageLevel, const String&, std::span<const String>, unsigned, unsigned, const String&) final;
 
     bool canRunBeforeUnloadConfirmPanel() final;
-    bool runBeforeUnloadConfirmPanel(const WTF::String& message, WebCore::LocalFrame&) final;
+    bool runBeforeUnloadConfirmPanel(String&& message, WebCore::LocalFrame&) final;
 
     void closeWindow() final;
 
@@ -156,6 +156,7 @@ protected:
     void scrollContainingScrollViewsToRevealRect(const WebCore::IntRect&) const final { }
 
 	void setTextIndicator(const WebCore::TextIndicatorData&) const final { }
+    void updateTextIndicator(const WebCore::TextIndicatorData&) const final { };
 
     bool selectItemWritingDirectionIsNatural() final;
     bool selectItemAlignmentFollowsMenuWritingDirection() final;

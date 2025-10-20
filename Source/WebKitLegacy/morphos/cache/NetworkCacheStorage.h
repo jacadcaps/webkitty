@@ -57,7 +57,7 @@ public:
         Data body;
         std::optional<SHA1::Digest> bodyHash;
 
-        WTF_MAKE_FAST_ALLOCATED;
+        WTF_MAKE_TZONE_ALLOCATED(Record);
     };
 
     struct Timings {
@@ -74,7 +74,7 @@ public:
         bool shrinkInProgressAtDispatch { false };
         bool wasCanceled { false };
 
-        WTF_MAKE_FAST_ALLOCATED;
+        WTF_MAKE_TZONE_ALLOCATED(Timings);
     };
 
     // This may call completion handler synchronously on failure.

@@ -166,7 +166,7 @@ void Cache::open(CompletionCallback&& callback)
     TraversalResult traversalResult { m_identifier, { }, { } };
     m_caches.readRecordsList(*this, [caches = Ref { m_caches }, callback = WTFMove(callback), traversalResult = WTFMove(traversalResult)](const auto* storageRecord, const auto&) mutable {
         if (!storageRecord) {
-            RunLoop::main().dispatch([caches = WTFMove(caches), callback = WTFMove(callback), traversalResult = WTFMove(traversalResult).isolatedCopy() ]() mutable {
+            RunLoop::mainSingleton().dispatch([caches = WTFMove(caches), callback = WTFMove(callback), traversalResult = WTFMove(traversalResult).isolatedCopy() ]() mutable {
                 for (auto& key : traversalResult.failedRecords)
                     caches->removeCacheEntry(key);
 

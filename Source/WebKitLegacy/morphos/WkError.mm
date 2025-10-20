@@ -48,7 +48,7 @@
 				for (int i = chain.size() - 1; i >= 0; i--)
 				{
 					const auto &cert = chain[i];
-					[certArray addObject:[WkCertificate certificateWithData:(const char*)cert.data() length:cert.size()]];
+					[certArray addObject:[WkCertificate certificateWithData:(const char*)cert.span().data() length:cert.size()]];
 				}
 
 				_certificates = [[WkCertificateChain certificateChainWithCertificates:certArray] retain];

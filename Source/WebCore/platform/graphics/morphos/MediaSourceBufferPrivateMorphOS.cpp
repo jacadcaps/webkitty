@@ -81,7 +81,7 @@ Ref<MediaPromise> MediaSourceBufferPrivateMorphOS::appendInternal(Ref<SharedBuff
 
     m_appendPromise.emplace();
 
-    m_reader->decodeAsync(std::move(buffer))->then(RunLoop::main(),[protectedThis = Ref { *this }, this](MediaSourceChunkReader::DecodeResult result) {
+    m_reader->decodeAsync(std::move(buffer))->then(RunLoop::mainSingleton(),[protectedThis = Ref { *this }, this](MediaSourceChunkReader::DecodeResult result) {
         DAPPEND(dprintf("[MS][%c]appendInternal result %d\n", m_audioDecoderMask == 0 ?'V':'A', int(result)));
         if (!m_appendPromise)
             return;

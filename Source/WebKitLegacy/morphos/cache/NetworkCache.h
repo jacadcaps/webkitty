@@ -168,7 +168,7 @@ public:
         Storage::Timings storageTimings;
         bool wasSpeculativeLoad { false };
 
-        WTF_MAKE_FAST_ALLOCATED;
+        WTF_MAKE_TZONE_ALLOCATED(RetreiveInfo);
     };
     using RetrieveCompletionHandler = Function<void(std::unique_ptr<Entry>, const RetrieveInfo&)>;
     void retrieve(const WebCore::ResourceRequest&, const GlobalFrameID&, std::optional<NavigatingToAppBoundDomain>, bool allowPrivacyProxy, OptionSet<WebCore::NetworkConnectionIntegrity> networkConnectionIntegrityPolicy, RetrieveCompletionHandler&&);

@@ -61,10 +61,9 @@ PasteboardStrategy* WebPlatformStrategies::createPasteboardStrategy()
 class WebMediaStrategy final : public MediaStrategy {
 private:
 #if ENABLE(WEB_AUDIO)
-    Ref<AudioDestination> createAudioDestination(AudioIOCallback& callback, const String& inputDeviceId,
-		unsigned numberOfInputChannels, unsigned numberOfOutputChannels, float sampleRate) override
-	{
-        return AudioDestination::create(callback, inputDeviceId, numberOfInputChannels, numberOfOutputChannels, sampleRate);
+    Ref<AudioDestination> createAudioDestination(const AudioDestinationCreationOptions& options) override
+    {
+        return AudioDestination::create(options);
     }
 #endif
 };

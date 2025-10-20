@@ -78,7 +78,7 @@ void Caches::retrieveOriginFromDirectory(const String& folderPath, WorkQueue& qu
 {
     queue.dispatch([completionHandler = WTFMove(completionHandler), filename = cachesOriginFilename(folderPath)]() mutable {
         if (!FileSystem::fileExists(filename)) {
-            RunLoop::main().dispatch([completionHandler = WTFMove(completionHandler)]() mutable {
+            RunLoop::mainSingleton().dispatch([completionHandler = WTFMove(completionHandler)]() mutable {
                 completionHandler(std::nullopt);
             });
             return;

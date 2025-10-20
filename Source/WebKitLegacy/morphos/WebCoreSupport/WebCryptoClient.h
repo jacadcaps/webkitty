@@ -11,7 +11,8 @@ class WebCryptoClient:  public WebCore::CryptoClient {
 public:
     WebCryptoClient() = default;
     ~WebCryptoClient() = default;
-    std::optional<Vector<uint8_t>> wrapCryptoKey(const Vector<uint8_t>&) const override;
+    std::optional<Vector<uint8_t>> wrapCryptoKey(const Vector<uint8_t>&) const;
+    std::optional<Vector<uint8_t>> serializeAndWrapCryptoKey(WebCore::CryptoKeyData&&) const override;
     std::optional<Vector<uint8_t>> unwrapCryptoKey(const Vector<uint8_t>&) const override;
 private:
 };

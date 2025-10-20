@@ -33,7 +33,7 @@ namespace WebKit {
 class WebPage;
 
 class WebDragClient : public WebCore::DragClient {
-	WTF_MAKE_FAST_ALLOCATED;
+	WTF_MAKE_TZONE_ALLOCATED(WebDragClient);
 public:
     WebDragClient(WebPage* page)
         : m_page(page)
@@ -45,7 +45,7 @@ private:
     void willPerformDragSourceAction(WebCore::DragSourceAction, const WebCore::IntPoint&, WebCore::DataTransfer&) override;
     OptionSet<WebCore::DragSourceAction> dragSourceActionMaskForPoint(const WebCore::IntPoint& rootViewPoint) override;
 
-    void startDrag(WebCore::DragItem, WebCore::DataTransfer&, WebCore::Frame&) override;
+    void startDrag(WebCore::DragItem, WebCore::DataTransfer&, WebCore::Frame&, const std::optional<WebCore::NodeIdentifier>&) override;
     void didConcludeEditDrag() override;
 
     WeakPtr<WebPage> m_page;

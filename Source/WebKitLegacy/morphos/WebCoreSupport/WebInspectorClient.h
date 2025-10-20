@@ -30,7 +30,7 @@
 #define WebInspectorClient_h
 
 #include <JavaScriptCore/InspectorFrontendChannel.h>
-#include <WebCore/InspectorClient.h>
+#include <WebCore/InspectorBackendClient.h>
 #include <WebCore/InspectorFrontendClientLocal.h>
 
 namespace WebCore {
@@ -45,8 +45,8 @@ class WebInspectorFrontendClient;
 class WebNodeHighlight;
 class WebPage;
 
-class WebInspectorClient final : public WebCore::InspectorClient, public Inspector::FrontendChannel {
-    WTF_MAKE_FAST_ALLOCATED;
+class WebInspectorClient final : public WebCore::InspectorBackendClient, public Inspector::FrontendChannel {
+    WTF_MAKE_TZONE_ALLOCATED(WebInspectorClient);
 public:
     explicit WebInspectorClient(WebPage*);
     ~WebInspectorClient();

@@ -27,7 +27,7 @@
 #include "WebProgressTrackerClient.h"
 
 #include "WebPage.h"
-#include <WebCore/Frame.h>
+#include <WebCore/LocalFrame.h>
 #include <WebCore/Page.h>
 #include <WebCore/ProgressTracker.h>
 

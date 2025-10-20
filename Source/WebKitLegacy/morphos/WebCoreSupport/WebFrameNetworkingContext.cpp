@@ -28,6 +28,7 @@
 
 #include "NetworkStorageSessionMap.h"
 #include <WebCore/FrameLoader.h>
+#include <WebCore/FrameInlines.h>
 #include <WebCore/FrameLoaderClient.h>
 #include <WebCore/NetworkStorageSession.h>
 #include <WebCore/Page.h>

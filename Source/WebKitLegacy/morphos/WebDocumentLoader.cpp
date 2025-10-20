@@ -31,8 +31,8 @@
 namespace WebKit {
 using namespace WebCore;
 
-WebDocumentLoader::WebDocumentLoader(const ResourceRequest& request, const SubstituteData& substituteData)
-    : DocumentLoader(request, substituteData)
+WebDocumentLoader::WebDocumentLoader(ResourceRequest&& request, SubstituteData&& substituteData)
+    : DocumentLoader(WTFMove(request), WTFMove(substituteData))
     , m_navigationID(0)
 {
 }

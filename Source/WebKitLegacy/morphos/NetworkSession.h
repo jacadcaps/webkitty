@@ -8,6 +8,7 @@
 #include <wtf/WeakHashSet.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
+#include <wtf/TZoneMalloc.h>
 
 #define HAS_CACHE_STORAGE 0
 
@@ -18,7 +19,7 @@
 namespace WebKit {
 
 class NetworkSession : public CanMakeWeakPtr<NetworkSession> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(NetworkSession);
 public:
     static std::unique_ptr<NetworkSession> create() { return std::make_unique<NetworkSession>(); }
     virtual ~NetworkSession() = default;

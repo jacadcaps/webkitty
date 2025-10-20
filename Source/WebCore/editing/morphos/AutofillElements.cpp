@@ -49,7 +49,8 @@ static inline RefPtr<HTMLInputElement> nextAutofillableElement(Node* startNode, 
 
     RefPtr<Element> nextElement = downcast<Element>(startNode);
     do {
-        nextElement = focusController.nextFocusableElement(*nextElement.get());
+        auto result = focusController.nextFocusableElement(*nextElement.get());
+        nextElement = result.element;
     } while (nextElement && !isAutofillableElement(*nextElement.get()));
 
     if (!nextElement)
@@ -65,7 +66,8 @@ static inline RefPtr<HTMLInputElement> previousAutofillableElement(Node* startNo
 
     RefPtr<Element> previousElement = downcast<Element>(startNode);
     do {
-        previousElement = focusController.previousFocusableElement(*previousElement.get());
+         auto result = focusController.previousFocusableElement(*previousElement.get());
+         previousElement = result.element;
     } while (previousElement && !isAutofillableElement(*previousElement.get()));
 
     if (!previousElement)

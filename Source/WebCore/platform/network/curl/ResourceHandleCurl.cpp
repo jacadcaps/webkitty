@@ -475,7 +475,7 @@ void ResourceHandle::willSendRequest()
     bool crossOrigin = !protocolHostAndPortAreEqual(d->m_firstRequest.url(), newURL);
 
     ResourceRequest newRequest = d->m_firstRequest;
-    newRequest.setURL(newURL);
+    newRequest.setURL(WTFMove(newURL));
 
     if (shouldRedirectAsGET(newRequest, crossOrigin)) {
         newRequest.setHTTPMethod("GET"_s);
@@ -565,7 +565,7 @@ void ResourceHandle::handleDataURL()
     ResourceResponse response;
     response.setMimeType(WTFMove(mimeType));
     response.setTextEncodingName(charset.toString());
-    response.setURL(d->m_firstRequest.url());
+    response.setURL(URL(d->m_firstRequest.url()));
 
     if (base64) {
         data = PAL::decodeURLEscapeSequences(data);
@@ -579,7 +579,7 @@ void ResourceHandle::handleDataURL()
             options.add(Base64DecodeOption::ValidatePadding);
             auto decodedData = base64Decode(data, options);
             if (decodedData && decodedData->size() > 0)
-                client()->didReceiveBuffer(this, SharedBuffer::create(std::span<const uint8_t>((const uint8_t*)decodedData->data(), decodedData->size())), originalSize);
+                client()->didReceiveBuffer(this, SharedBuffer::create(decodedData->span()), originalSize);
         }
     } else {
         PAL::TextEncoding encoding(charset);

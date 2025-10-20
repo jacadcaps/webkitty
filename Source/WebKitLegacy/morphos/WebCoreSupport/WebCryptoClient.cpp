@@ -1,8 +1,11 @@
 #include "WebKit.h"
 #include "WebCryptoClient.h"
-#include <WebCore/SerializedCryptoKeyWrap.h>
-#include <WebCore/WrappedCryptoKey.h>
-#include <wtf/TZoneMallocInlines.h>
+#import <WebCore/CryptoKey.h>
+#import <WebCore/SerializedCryptoKeyWrap.h>
+#import <WebCore/SerializedScriptValue.h>
+#import <WebCore/WrappedCryptoKey.h>
+#import <optional>
+#import <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 
@@ -27,6 +30,16 @@ std::optional<Vector<uint8_t>> WebCryptoClient::unwrapCryptoKey(const Vector<uin
     if (auto masterKey = WebCore::defaultWebCryptoMasterKey())
         return WebCore::unwrapCryptoKey(*masterKey, *wrappedKey);
     return std::nullopt;
+}
+
+std::optional<Vector<uint8_t>> WebCryptoClient::serializeAndWrapCryptoKey(WebCore::CryptoKeyData&& keyData) const
+{
+    auto key = WebCore::CryptoKey::create(WTFMove(keyData));
+    if (!key)
+        return std::nullopt;
+
+    auto serializedKey = WebCore::SerializedScriptValue::serializeCryptoKey(*key);
+    return wrapCryptoKey(serializedKey);
 }
 
 }

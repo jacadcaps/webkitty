@@ -170,8 +170,8 @@ void CurlCacheManager::saveIndex()
     auto indexFilePath = makeString(m_cacheDir, "index.dat"_s);
 
     FileSystem::deleteFile(indexFilePath);
-    FileSystem::PlatformFileHandle indexFile = FileSystem::openFile(indexFilePath, FileSystem::FileOpenMode::Truncate);
-    if (!FileSystem::isHandleValid(indexFile)) {
+    auto indexFile = FileSystem::openFile(indexFilePath, FileSystem::FileOpenMode::Truncate);
+    if (!indexFile) {
         LOG(Network, "Cache Error: Could not open %s for write\n", indexFilePath.latin1().data());
         return;
     }
@@ -184,10 +184,10 @@ void CurlCacheManager::saveIndex()
         if (entryIt != m_index.end())
         {
             if (!entryIt->value->isLoading()) {
-                FileSystem::writeToFile(indexFile, byteCast<uint8_t>(urlLatin1.span()));
+                indexFile.write(byteCast<uint8_t>(urlLatin1.span()));
                 auto sizeAndTime = makeString("\t"_s, String::number(entryIt->value->entrySize()), "\t"_s, String::number(entryIt->value->expireDate().secondsSinceEpoch().seconds()), "\n"_s);
                 auto cSizeAndTime = sizeAndTime.latin1();
-                FileSystem::writeToFile(indexFile, byteCast<uint8_t>(cSizeAndTime.span()));
+                indexFile.write(byteCast<uint8_t>(cSizeAndTime.span()));
             }
             else {
                 entryIt->value->invalidate();
@@ -195,8 +195,6 @@ void CurlCacheManager::saveIndex()
         }
         ++it;
     }
-
-    FileSystem::closeFile(indexFile);
 }
 
 void CurlCacheManager::makeRoomForNewEntry()

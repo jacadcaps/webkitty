@@ -39,7 +39,7 @@ RefPtr<DisplayRefreshMonitorMorphOS> DisplayRefreshMonitorMorphOS::create(Platfo
 
 DisplayRefreshMonitorMorphOS::DisplayRefreshMonitorMorphOS(PlatformDisplayID displayID)
     : DisplayRefreshMonitor(displayID)
-    , m_timer(RunLoop::main(), this, &DisplayRefreshMonitorMorphOS::timerCallback)
+    , m_timer(RunLoop::mainSingleton(), "DisplayRefreshMonitorMorphOS::Timer"_s, this, &DisplayRefreshMonitorMorphOS::timerCallback)
 {
 	setMaxUnscheduledFireCount(1);
 }

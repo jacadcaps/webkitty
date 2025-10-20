@@ -42,7 +42,7 @@ using namespace WebCore;
 namespace WebKit {
 
 class WebInspectorFrontendClient final : public WebCore::InspectorFrontendClientLocal {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(WebInspectorFrontEndClient);
 public:
     WebInspectorFrontendClient(WebPage* inspectedWebView, WebCore::Page *frontendPage, WebInspectorClient* parent, std::unique_ptr<WebCore::InspectorFrontendClientLocal::Settings>&& settings)
 		: InspectorFrontendClientLocal(&inspectedWebView->corePage()->inspectorController(), frontendPage, std::move(settings))

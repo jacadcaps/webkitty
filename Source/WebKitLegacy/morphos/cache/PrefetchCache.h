@@ -39,7 +39,7 @@ namespace WebKit {
 
 class PrefetchCache {
     WTF_MAKE_NONCOPYABLE(PrefetchCache);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(PrefetchCache);
 public:
     PrefetchCache();
     ~PrefetchCache();

@@ -183,6 +183,10 @@ class EmptyChromeClient : public ChromeClient {
     void postAccessibilityFrameLoadingEventNotification(AccessibilityObject*, AXLoadingEvent) final { }
 #endif
 
+#if OS(MORPHOS)
+    void localStorageCreatedForDocument(const LocalFrame&, Storage*) const final { };
+#endif
+
 #if ENABLE(IOS_TOUCH_EVENTS)
     void didPreventDefaultForEvent() final { }
 #endif

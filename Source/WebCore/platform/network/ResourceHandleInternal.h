@@ -33,6 +33,12 @@
 #include "Timer.h"
 #include <wtf/MonotonicTime.h>
 
+#if USE(CURL)
+#include "CurlRequest.h"
+#include "SynchronousLoaderClient.h"
+#include <wtf/MessageQueue.h>
+#endif
+
 #if PLATFORM(COCOA)
 #include <wtf/WeakObjCPtr.h>
 
@@ -120,6 +126,14 @@ public:
     bool m_isMainFrameNavigation { false };
 #if PLATFORM(COCOA)
     bool m_startWhenScheduled { false };
+#endif
+#if USE(CURL)
+    std::unique_ptr<CurlResourceHandleDelegate> m_delegate;
+    RefPtr<CurlRequest> m_curlRequest;
+    RefPtr<SynchronousLoaderMessageQueue> m_messageQueue;
+    unsigned m_authFailureCount { 0 };
+    bool m_cancelled { false };
+    bool m_addedCacheValidationHeaders { false };
 #endif
 };
 

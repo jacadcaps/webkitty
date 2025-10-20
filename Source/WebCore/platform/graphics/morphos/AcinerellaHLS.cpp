@@ -380,7 +380,7 @@ void HLSStream::popUntil(double position)
 
 AcinerellaNetworkBufferHLS::AcinerellaNetworkBufferHLS(AcinerellaNetworkBufferResourceLoaderProvider *resourceProvider, const String &url, size_t readAhead)
 	: AcinerellaNetworkBuffer(resourceProvider, url, readAhead)
-	, m_playlistRefreshTimer(RunLoop::current(), this, &AcinerellaNetworkBufferHLS::refreshTimerFired)
+	, m_playlistRefreshTimer(RunLoop::currentSingleton(), "AcinerellaNetworkBufferHLS::Timer"_s, this, &AcinerellaNetworkBufferHLS::refreshTimerFired)
 	, m_baseURL({}, url)
 {
 	D(dprintf("%s(%p) - url %s\n", __func__, this, url.utf8().data()));

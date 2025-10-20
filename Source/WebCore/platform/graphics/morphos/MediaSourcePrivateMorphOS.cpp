@@ -35,8 +35,8 @@ Ref<MediaSourcePrivateMorphOS> MediaSourcePrivateMorphOS::create(MediaPlayerPriv
 MediaSourcePrivateMorphOS::MediaSourcePrivateMorphOS(MediaPlayerPrivateMorphOS& parent, MediaSourcePrivateClient& client, const String &url)
     : MediaSourcePrivate(client)
     , m_player(parent)
-    , m_watchdogTimer(RunLoop::current(), this, &MediaSourcePrivateMorphOS::watchdogTimerFired)
-    , m_seekingWatchdogTimer(RunLoop::current(), this, &MediaSourcePrivateMorphOS::seekingWatchdogTimerFired)
+    , m_watchdogTimer(RunLoop::currentSingleton(), "MediaSourcePrivateMorphOS::T1"_s, this, &MediaSourcePrivateMorphOS::watchdogTimerFired)
+    , m_seekingWatchdogTimer(RunLoop::currentSingleton(), "MediaSourcePrivateMorphOS::T2"_s, this, &MediaSourcePrivateMorphOS::seekingWatchdogTimerFired)
 {
 	DLIFETIME(dprintf("%s: \n", __PRETTY_FUNCTION__));
 	m_url = url.substring(5);
@@ -364,7 +364,7 @@ void MediaSourcePrivateMorphOS::seekToTarget(const SeekTarget& target)
 
     m_seekingWatchdogTimer.startOneShot(Seconds(6.0));
 
-    waitForTarget(pendingSeek)->whenSettled(RunLoop::current(), [this, protect = Ref{*this}] (auto&& result) mutable {
+    waitForTarget(pendingSeek)->whenSettled(RunLoop::currentSingleton(), [this, protect = Ref{*this}] (auto&& result) mutable {
         DSEEK(dprintf(">> MediaSourcePrivateMorphOS::seekToTarget: seek state %d\n", int(m_seekCompleted)));
         if (!result || m_seekCompleted != Pending || m_orphaned || m_sourceBuffers.size() == 0)
             return;
@@ -376,7 +376,7 @@ void MediaSourcePrivateMorphOS::seekToTarget(const SeekTarget& target)
             sourceBufferPrivate->willSeek(m_lastSeekTime.toDouble());
         }
 
-        seekToTime(seekedTime)->whenSettled(RunLoop::current(), [this, protect = Ref{*this}]() mutable {
+        seekToTime(seekedTime)->whenSettled(RunLoop::currentSingleton(), [this, protect = Ref{*this}]() mutable {
             maybeCompleteSeek();
         });
     });

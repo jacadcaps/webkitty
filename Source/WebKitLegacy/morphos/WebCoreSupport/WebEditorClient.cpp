@@ -44,6 +44,7 @@
 #include <WebCore/AutofillElements.h>
 #include <WebCore/Editor.h>
 #include <WebCore/UndoStep.h>
+#include <WebCore/LocalFrameInlines.h>
 #include <wtf/text/StringView.h>
 #include <proto/exec.h>
 #include <proto/spellchecker.h>

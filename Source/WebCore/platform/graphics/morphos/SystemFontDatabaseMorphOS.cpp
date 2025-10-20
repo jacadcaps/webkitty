@@ -25,36 +25,28 @@
  */
 
 #include "config.h"
-#include "APINavigationResponse.h"
+#include "SystemFontDatabase.h"
 
-#include "APIFrameInfo.h"
-#include "APINavigation.h"
-#include "FrameInfoData.h"
-#include "WebFrameProxy.h"
-#include "WebPageProxy.h"
+#include "NotImplemented.h"
+#include "WebKitFontFamilyNames.h"
+#include <wtf/NeverDestroyed.h>
 
-namespace API {
+namespace WebCore {
 
-NavigationResponse::NavigationResponse(API::FrameInfo& frame, const WebCore::ResourceRequest& request, const WebCore::ResourceResponse& response, bool canShowMIMEType, WTF::String&& downloadAttribute, Navigation* navigation)
-    : m_frame(frame)
-    , m_request(request)
-    , m_response(response)
-    , m_canShowMIMEType(canShowMIMEType)
-    , m_downloadAttribute(WTFMove(downloadAttribute))
-    , m_navigation(navigation) { }
-
-NavigationResponse::~NavigationResponse() = default;
-
-FrameInfo* NavigationResponse::navigationInitiatingFrame()
+SystemFontDatabase& SystemFontDatabase::singleton()
 {
-    if (!m_navigation)
-        return nullptr;
-    auto& frameInfo = m_navigation->originatingFrameInfo();
-    if (!frameInfo)
-        return nullptr;
-    RefPtr frame = WebKit::WebFrameProxy::webFrame(frameInfo->frameID);
-    m_sourceFrame = FrameInfo::create(WebKit::FrameInfoData { *frameInfo }, frame ? frame->page() : nullptr);
-    return m_sourceFrame.get();
+    static NeverDestroyed<SystemFontDatabase> database = SystemFontDatabase();
+    return database.get();
 }
 
+auto SystemFontDatabase::platformSystemFontShorthandInfo(FontShorthand fontShorthand) -> SystemFontShorthandInfo
+{
+    notImplemented();
+    return { WebKitFontFamilyNames::standardFamily, 16, normalWeightValue() };
 }
+
+void SystemFontDatabase::platformInvalidate()
+{
+}
+
+} // namespace WebCore

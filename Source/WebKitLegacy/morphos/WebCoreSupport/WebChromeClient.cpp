@@ -36,6 +36,8 @@
 #include "WebPage.h"
 #include <WebCore/ContextMenu.h>
 #include <WebCore/Cursor.h>
+#include <WebCore/Document.h>
+#include <WebCore/DocumentFullscreen.h>
 #include <WebCore/FileChooser.h>
 #include <WebCore/FileIconLoader.h>
 #include <WebCore/FloatRect.h>
@@ -64,7 +66,7 @@
 #include <WebCore/HTMLPlugInImageElement.h>
 #include <WebCore/Storage.h>
 #include <WebCore/DateTimeChooser.h>
-#include <WebCore/FullscreenManager.h>
+//#include <WebCore/FullscreenManager.h>
 #include "PopupMenu.h"
 
 #pragma GCC diagnostic ignored "-Wunused-parameter"
@@ -199,7 +201,7 @@ bool WebChromeClient::canRunBeforeUnloadConfirmPanel()
     return false;
 }
 
-bool WebChromeClient::runBeforeUnloadConfirmPanel(const String& message, LocalFrame& frame)
+bool WebChromeClient::runBeforeUnloadConfirmPanel(String&& message, WebCore::LocalFrame&)
 {
 // TODO!
 	notImplemented();
@@ -451,7 +453,7 @@ bool WebChromeClient::supportsFullScreenForElement(const Element& element, bool 
 
 void WebChromeClient::enterFullScreenForElement(Element& element, WebCore::HTMLMediaElementEnums::VideoFullscreenMode, CompletionHandler<void(WebCore::ExceptionOr<void>)>&& willEnterFullscreen, CompletionHandler<bool(bool)>&& didEnterFullscreen)
 {
-    willEnterFullscreen(element.document().fullscreenManager().willEnterFullscreen(element, WebCore::HTMLMediaElementEnums::VideoFullscreenModeStandard));
+    willEnterFullscreen(element.document().fullscreen().willEnterFullscreen(element, WebCore::HTMLMediaElementEnums::VideoFullscreenModeStandard));
     m_webPage.setFullscreenElement(&element);
     didEnterFullscreen(true);
 }

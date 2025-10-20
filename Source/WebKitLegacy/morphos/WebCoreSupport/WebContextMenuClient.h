@@ -33,7 +33,7 @@ namespace WebKit {
 class WebPage;
 
 class WebContextMenuClient : public WebCore::ContextMenuClient {
-	WTF_MAKE_FAST_ALLOCATED;
+	WTF_MAKE_TZONE_ALLOCATED(WebContextMenuClient);
 public:
     WebContextMenuClient(WebPage*);
 

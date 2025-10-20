@@ -35,7 +35,7 @@ namespace WebKit {
 namespace NetworkCache {
 
 class SubresourceInfo {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(SubresourceInfo);
 public:
     void encode(WTF::Persistence::Encoder&) const;
     static std::optional<SubresourceInfo> decode(WTF::Persistence::Decoder&);
@@ -75,7 +75,7 @@ private:
 };
 
 struct SubresourceLoad {
-    WTF_MAKE_NONCOPYABLE(SubresourceLoad); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_NONCOPYABLE(SubresourceLoad); WTF_MAKE_TZONE_ALLOCATED(SubresourceLoad);
 public:
     SubresourceLoad(const WebCore::ResourceRequest& request, const Key& key)
         : request(request)
@@ -87,7 +87,7 @@ public:
 };
 
 class SubresourcesEntry {
-    WTF_MAKE_NONCOPYABLE(SubresourcesEntry); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_NONCOPYABLE(SubresourcesEntry); WTF_MAKE_TZONE_ALLOCATED(SubresourcesEntry);
 public:
     SubresourcesEntry(Key&&, const Vector<std::unique_ptr<SubresourceLoad>>&);
     explicit SubresourcesEntry(const Storage::Record&);

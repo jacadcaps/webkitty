@@ -335,7 +335,7 @@ int mkstempasync(char *path)
     return fd;
 }
 
-std::pair<String, PlatformFileHandle> openTemporaryFileAsync(StringView prefix)
+std::pair<String, AsyncFileHandle> openTemporaryFileAsync(StringView prefix)
 {
     char buffer[PATH_MAX];
 
@@ -359,18 +359,17 @@ std::pair<String, PlatformFileHandle> openTemporaryFileAsync(StringView prefix)
     if (handle == -1)
         goto end;
 
-	return { String(buffer, strlen(buffer), MIBENUM_SYSTEM), handle };
+	return { String(buffer, strlen(buffer), MIBENUM_SYSTEM), AsyncFileHandle::adopt(handle) };
 end:
-    handle = invalidPlatformFileHandle;
-    return { String(), handle };
+    return { String(), AsyncFileHandle() };
 }
 
-PlatformFileHandle openFileAsync(const String& path, FileOpenMode mode)
+AsyncFileHandle openFileAsync(const String& path, FileOpenMode mode)
 {
     CString fsRep = fileSystemRepresentation(path);
 
     if (fsRep.isNull())
-        return invalidPlatformFileHandle;
+        return { };
 
     OpenModes dosMode = MODE_READ;
     switch (mode) {
@@ -387,18 +386,42 @@ PlatformFileHandle openFileAsync(const String& path, FileOpenMode mode)
     PlatformFileHandle fh = PlatformFileHandle(OpenAsync(STRPTR(fsRep.data()), dosMode, 512 * 1024));
 
     if (0 == fh)
-        return -1;
-    return fh;
+        return { };
+    return AsyncFileHandle::adopt(fh);
 }
 
-void closeFileAsync(PlatformFileHandle& fh)
+AsyncFileHandle::AsyncFileHandle()
+    : m_handle(invalidPlatformFileHandle)
 {
-    if (fh != -1)
-        CloseAsync((AsyncFile *)fh);
-    fh = -1;
+
 }
 
-long long seekFileAsync(PlatformFileHandle fh, long long offset, FileSeekOrigin origin)
+AsyncFileHandle::AsyncFileHandle(AsyncFileHandle&& other)
+    : m_handle(invalidPlatformFileHandle)
+{
+    std::swap(m_handle, other.m_handle);
+}
+
+AsyncFileHandle& AsyncFileHandle::operator=(AsyncFileHandle&& other)
+{
+    close();
+    std::swap(m_handle, other.m_handle);
+    return *this;
+}
+
+AsyncFileHandle::~AsyncFileHandle()
+{
+    close();
+}
+
+std::optional<uint64_t> AsyncFileHandle::write(std::span<const uint8_t> data)
+{
+    if (isValid())
+        return WriteAsync((AsyncFile *)m_handle, APTR(data.data()), ULONG(data.size()));
+    return { };
+}
+
+std::optional<uint64_t> AsyncFileHandle::seek(int64_t offset, FileSeekOrigin origin)
 {
     SeekModes whence = MODE_CURRENT;
     switch (origin) {
@@ -411,17 +434,21 @@ long long seekFileAsync(PlatformFileHandle fh, long long offset, FileSeekOrigin 
         ASSERT_NOT_REACHED();
     }
 
-    if (fh != -1)
-        return SeekAsync64((AsyncFile *)fh, offset, whence);
-    return -1;
+    if (m_handle != invalidPlatformFileHandle)
+        return SeekAsync64((AsyncFile *)m_handle, offset, whence);
+        
+    return { };
 }
 
-int writeToFileAsync(PlatformFileHandle fh, std::span<const uint8_t> data)
+void AsyncFileHandle::close()
 {
-    if (fh != -1)
-        return WriteAsync((AsyncFile *)fh, APTR(data.data()), ULONG(data.size()));
-    return -1;
+    if (isValid())
+    {
+        CloseAsync((AsyncFile *)m_handle);
+        m_handle = invalidPlatformFileHandle;
+    }
 }
+    
 #endif
 
 // On macOS, stat() used by std::filesystem is much slower than access() when sandboxed.

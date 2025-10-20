@@ -97,7 +97,7 @@ void WebDownload::initialize(_WkDownload *outer, OBURL *url)
 	{
 		WTF::URL wurl(WTF::URL(), String::fromUTF8([[url absoluteString] cString]));
 		D(dprintf("initialize %s context %p\n", [[url absoluteString] cString], WebKit::WebProcess::singleton().networkingContext()));
-		m_download->init(*this, wurl, WebKit::WebProcess::singleton().networkingContext());
+		m_download->init(*this, WTFMove(wurl), WebKit::WebProcess::singleton().networkingContext());
 	}
 }
 
@@ -618,21 +618,21 @@ void WebDownload::setUserPassword(const String& user, const String &password)
         {
             [self setFilename:name];
 
-            FileSystem::PlatformFileHandle downloadFileHandle;
+            FileSystem::AsyncFileHandle downloadFileHandle;
 
             @synchronized (self) {
-                auto [filePath, fileHandle] = FileSystem::openTemporaryFile("download"_s);
+                auto [filePath, fileHandle] = FileSystem::openTemporaryFileAsync("download"_s);
                 _downloadPath = filePath;
-                downloadFileHandle = fileHandle;
+                downloadFileHandle = WTFMove(fileHandle);
             }
 
-            if (downloadFileHandle != FileSystem::invalidPlatformFileHandle)
+            if (downloadFileHandle)
             {
-                if (-1 != FileSystem::writeToFile(downloadFileHandle, result->data.span()))
+                if (downloadFileHandle.write(result->data.span()).value_or(0) == result->data.size())
                 {
                     _downloadedSize = result->data.size();
                     [_delegate download:self didReceiveBytes:_downloadedSize];
-                    FileSystem::closeFile(downloadFileHandle);
+                    downloadFileHandle = { };
                     _isFinished = YES;
                     _isPending = NO;
                     [self finishedWithError:nil];
@@ -640,7 +640,7 @@ void WebDownload::setUserPassword(const String& user, const String &password)
                 else
                 {
                     ULONG err = IoErr();
-                    FileSystem::closeFile(downloadFileHandle);
+                    downloadFileHandle = { };
                     FileSystem::deleteFile(_downloadPath);
                     [self finishedWithError:[WkError errorWithURL:[self url] errorType:WkErrorType_Write code:err]];
                 }
@@ -773,7 +773,7 @@ void WebDownload::setUserPassword(const String& user, const String &password)
 
         auto blobReferences = registry->filesInBlob(_url);
         if (blobReferences.size() == 0)
-            _blobData = registry->getBlobDataFromURL(_url);
+            _blobData = registry->blobDataFromURL(_url);
         D(dprintf("%s: blobreferences %ld blobdata %d\n", __PRETTY_FUNCTION__, blobReferences.size(), !!_blobData));
     }
     
@@ -825,21 +825,21 @@ void WebDownload::setUserPassword(const String& user, const String &password)
         {
             [self setFilename:name];
 
-            FileSystem::PlatformFileHandle downloadFileHandle;
+            FileSystem::AsyncFileHandle downloadFileHandle;
 
             @synchronized (self) {
-                auto [filePath, fileHandle] = FileSystem::openTemporaryFile("download"_s);
+                auto [filePath, fileHandle] = FileSystem::openTemporaryFileAsync("download"_s);
                 _downloadPath = filePath;
-                downloadFileHandle = fileHandle;
+                downloadFileHandle = WTFMove(fileHandle);
             }
 
-            if (downloadFileHandle != FileSystem::invalidPlatformFileHandle)
+            if (downloadFileHandle)
             {
                 for (auto& item : items)
                 {
                     D(dprintf("%s: item offset %lld size %d\n", __PRETTY_FUNCTION__, item.offset(), item.data()->size()));
                 
-                    if (-1 != FileSystem::writeToFile(downloadFileHandle, item.data()->span()))
+                    if (downloadFileHandle.write(item.data()->span()).value_or(0) == item.data()->size())
                     {
                         _downloadedSize += item.data()->size();
                         [_delegate download:self didReceiveBytes:item.data()->size()];
@@ -847,14 +847,13 @@ void WebDownload::setUserPassword(const String& user, const String &password)
                     else
                     {
                         ULONG err = IoErr();
-                        FileSystem::closeFile(downloadFileHandle);
+                        downloadFileHandle = { };
                         FileSystem::deleteFile(_downloadPath);
                         [self finishedWithError:[WkError errorWithURL:[self url] errorType:WkErrorType_Write code:err]];
                         return;
                     }
                 }
 
-                FileSystem::closeFile(downloadFileHandle);
                 _isFinished = YES;
                 _isPending = NO;
                 [self finishedWithError:nil];

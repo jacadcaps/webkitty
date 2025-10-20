@@ -24,6 +24,8 @@
 #import <WebCore/UserGestureIndicator.h>
 #import <WebCore/Credential.h>
 #import <WebCore/Storage.h>
+#import <WebCore/ExceptionOr.h>
+#import <WebCore/NodeInlines.h>
 #import <wtf/MediaTime.h>
 #import <pal/text/TextEncoding.h>
 #import <wtf/text/Base64.h>
@@ -180,6 +182,7 @@ namespace  {
 	void                             *_playerRef;
 	OBArray                          *_hlsStreams;
 }
+- (void)update:(WebCore::MediaPlayerMorphOSInfo &)info;
 @end
 
 @implementation WkMediaLoadResponseHandlerPrivate
@@ -2449,7 +2452,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
                             auto decoded = WTF::base64Decode(data);
                             if (decoded.has_value())
                             {
-                                if (LONG(decoded->size()) != Write(f, APTR(decoded->data()), decoded->size()))
+                                if (LONG(decoded->size()) != Write(f, APTR(decoded->span().data()), decoded->size()))
                                     DisplayBeep(0);
                             }
                             else
@@ -3353,7 +3356,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	for (int i = chain.size() - 1; i >= 0; i--)
 	{
 		const auto &cert = chain[i];
-		[certArray addObject:[WkCertificate certificateWithData:(const char*)cert.data() length:cert.size()]];
+		[certArray addObject:[WkCertificate certificateWithData:(const char*)cert.span().data() length:cert.size()]];
 	}
 
 	return [WkCertificateChain certificateChainWithCertificates:certArray];

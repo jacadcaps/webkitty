@@ -24,7 +24,6 @@
 #include <WebCore/MediaPlayerMorphOS.h>
 #include <WebCore/FontCascade.h>
 #include <WebCore/PageDebugger.h>
-#include <wtf/Algorithms.h>
 #include <wtf/Language.h>
 #include <wtf/ProcessPrivilege.h>
 #include <wtf/RunLoop.h>
@@ -442,15 +441,14 @@ void WebProcess::initialize(int sigbit)
         easyListSerializedPath = builder.toString();
     }
 
-	WTF::FileSystemImpl::PlatformFileHandle fh = WTF::FileSystemImpl::openFile(easyListSerializedPath, WTF::FileSystemImpl::FileOpenMode::Read);
-
-	if (WTF::FileSystemImpl::invalidPlatformFileHandle != fh)
+	auto fh = WTF::FileSystemImpl::openFile(easyListSerializedPath, WTF::FileSystemImpl::FileOpenMode::Read);
+	if (fh)
 	{
-		long long size = WTF::FileSystemImpl::fileSize(fh).value_or(0);
+		long long size = fh.size().value_or(0);
 		if (size > 0ll)
 		{
 			m_urlFilterData.resize(size + 1);
-			if (size == WTF::FileSystemImpl::readFromFile(fh, std::span((unsigned char *)&m_urlFilterData[0], size)))
+			if (size == fh.read(std::span((unsigned char *)&m_urlFilterData[0], size)).value_or(0))
 			{
 				m_urlFilterData[size] = 0; // terminate just in case
 				m_urlFilter.deserialize(&m_urlFilterData[0]);
@@ -461,22 +459,19 @@ void WebProcess::initialize(int sigbit)
 				m_urlFilterData.clear();
 			}
 		}
-
-		WTF::FileSystemImpl::closeFile(fh);
 	}
 	else
 	{
-		WTF::FileSystemImpl::PlatformFileHandle fh = WTF::FileSystemImpl::openFile(easyListPath, WTF::FileSystemImpl::FileOpenMode::Read);
-
-		if (WTF::FileSystemImpl::invalidPlatformFileHandle != fh)
+		auto fh = WTF::FileSystemImpl::openFile(easyListPath, WTF::FileSystemImpl::FileOpenMode::Read);
+		if (fh)
 		{
-			long long size = WTF::FileSystemImpl::fileSize(fh).value_or(0);
+			long long size = fh.size().value_or(0);
 			if (size > 0ll)
 			{
 				char *buffer = (char *)malloc(size + 1);
 				if (buffer)
 				{
-					if (size == WTF::FileSystemImpl::readFromFile(fh, std::span((unsigned char *)buffer, int(size))))
+					if (size == fh.read(std::span((unsigned char *)buffer, int(size))).value_or(0))
 					{
 						buffer[size] = 0; // terminate, parser expects this to be a null-term string
 dprintf("Parsing easylist.txt; this will take a while... and will be faster on next launch!\n");
@@ -484,30 +479,27 @@ dprintf("Parsing easylist.txt; this will take a while... and will be faster on n
                         m_urlFilterInitialized = true;
 						int ssize;
 						char *sbuffer = m_urlFilter.serialize(&ssize, false);
-						WTF::FileSystemImpl::PlatformFileHandle dfh = WTF::FileSystemImpl::openFile(easyListSerializedPath, WTF::FileSystemImpl::FileOpenMode::Truncate);
-						if (WTF::FileSystemImpl::invalidPlatformFileHandle != dfh)
-						{
-							if (ssize != WTF::FileSystemImpl::writeToFile(dfh, std::span((unsigned char *)sbuffer, ssize)))
-							{
-								WTF::FileSystemImpl::closeFile(dfh);
-								WTF::FileSystemImpl::deleteFile(easyListSerializedPath);
-							}
-							else
-							{
-								WTF::FileSystemImpl::closeFile(dfh);
-							}
-						}
-						else
-						{
-							dprintf(">> failed opening easylist.dat for write\n");
-						}
+                        bool deleteSerializedPath = false;
+                        {
+                            auto dfh = WTF::FileSystemImpl::openFile(easyListSerializedPath, WTF::FileSystemImpl::FileOpenMode::Truncate);
+                            if (dfh)
+                            {
+                                if (ssize != dfh.write(std::span((unsigned char *)sbuffer, ssize)).value_or(0))
+                                    deleteSerializedPath = true;
+                            }
+                            else
+                            {
+                                dprintf(">> failed opening easylist.dat for write\n");
+                            }
+                        }
 						delete[] sbuffer;
+                        if (deleteSerializedPath)
+                            WTF::FileSystemImpl::deleteFile(easyListSerializedPath);
 					}
 					
 					free(buffer);
 				}
 			}
-			WTF::FileSystemImpl::closeFile(fh);
 		}
 	}
 #endif
@@ -560,14 +552,14 @@ void WebProcess::waitForThreads()
 			}
 		}
 		Delay(20);
-		RunLoop::current().iterate();
+		RunLoop::currentSingleton().iterate();
 	}
 	D(dprintf("..done waiting\n"));
 }
 
 void WebProcess::handleSignals(const uint32_t /* sigmask */)
 {
-	RunLoop::current().iterate();
+	RunLoop::currentSingleton().iterate();
 }
 
 float WebProcess::timeToNextTimerEvent()
@@ -724,13 +716,7 @@ void WebProcess::dumpWebCoreStatistics()
         ss << "JavaScriptGlobalObjectsCount " << commonVM().heap.globalObjectCount(); ss.nextLine();;
         ss << "JavaScriptProtectedObjectsCount " << commonVM().heap.protectedObjectCount(); ss.nextLine();;
         ss << "JavaScriptProtectedGlobalObjectsCount " << commonVM().heap.protectedGlobalObjectCount(); ss.nextLine();;
-		
-        std::unique_ptr<TypeCountSet> protectedObjectTypeCounts(commonVM().heap.protectedObjectTypeCounts());
-        fromCountedSetToDebug(protectedObjectTypeCounts.get(), ss);
-		
-        std::unique_ptr<TypeCountSet> objectTypeCounts(commonVM().heap.objectTypeCounts());
-        fromCountedSetToDebug(objectTypeCounts.get(), ss);
-		
+
         uint64_t javaScriptHeapSize = commonVM().heap.size();
         ss << "JavaScriptHeapSize " << javaScriptHeapSize; ss.nextLine();;
         ss << "JavaScriptFreeSize " << (commonVM().heap.capacity() - javaScriptHeapSize); ss.nextLine();;
@@ -901,13 +887,13 @@ static bool ytFilters(const char *mainPageURL, const char *url)
 bool WebProcess::shouldAllowRequest(const char *url, const char *mainPageURL, WebCore::DocumentLoader& loader)
 {
 #if USE_ADFILTER
-    if (UNLIKELY(!m_urlFilterInitialized))
+    if (!m_urlFilterInitialized) [[unlikely]]
         return true;
 
 	WebFrame *frame = WebFrame::fromCoreFrame(*loader.frame());
     WebPage *page = frame ? frame->page() : nullptr;
 
-	if (LIKELY(page) && !page->adBlockingEnabled())
+	if (page && !page->adBlockingEnabled())
 		return true;
 
 	if (m_urlFilter.matches(url, ABP::FONoFilterOption, mainPageURL))
@@ -957,21 +943,19 @@ RefPtr<WebCore::SharedBuffer> loadResourceIntoBuffer(const char* name);
 RefPtr<WebCore::SharedBuffer> loadResourceIntoBuffer(const char* name)
 {
 	WTF::String path = makeString("PROGDIR:Resources/"_s, StringView::fromLatin1(name), ".png"_s);
-	WTF::FileSystemImpl::PlatformFileHandle fh = WTF::FileSystemImpl::openFile(path, WTF::FileSystemImpl::FileOpenMode::Read);
+	auto fh = WTF::FileSystemImpl::openFile(path, WTF::FileSystemImpl::FileOpenMode::Read);
 
-	if (WTF::FileSystemImpl::invalidPlatformFileHandle != fh)
+	if (fh)
 	{
-		long long size = WTF::FileSystemImpl::fileSize(fh).value_or(0);
+		long long size = fh.size().value_or(0);
 		if (size > 0ll && size < (512ll * 1024ll))
 		{
 			char buffer[size];
-			if (size == WTF::FileSystemImpl::readFromFile(fh, std::span((unsigned char *)buffer, int(size))))
+			if (size == fh.read(std::span((unsigned char *)buffer, int(size))))
 			{
-				WTF::FileSystemImpl::closeFile(fh);
 				return WebCore::SharedBuffer::create(std::span(reinterpret_cast<const char*>(buffer), size));
 			}
 		}
-		WTF::FileSystemImpl::closeFile(fh);
 	}
 
 	return nullptr;
@@ -997,11 +981,14 @@ bool shouldLoadResource(const WebCore::ContentExtensions::ResourceLoadInfo& info
 
             // dprintf("%s: url '%s' main '%s' ext? %d\n", __PRETTY_FUNCTION__, url.data(), mainurl.data(), page && page->externalNetworkRequestsEnabled());
 
-            if (LIKELY(page) && UNLIKELY(!page->externalNetworkRequestsEnabled())) {
-                if (0 == strncmp(url.data(), "data:", 5))
-                    return true; // treat as local resource
-                if (0 == strncmp(mainurl.data(), "file:", 5) && 0 != strncmp(url.data(), "file:", 5)) {
-                    return false;
+            if (page) [[likely]]
+            {
+                if (!page->externalNetworkRequestsEnabled()) [[unlikely]]
+                {
+                    if (0 == strncmp(url.data(), "data:", 5))
+                        return true; // treat as local resource
+                    if (0 == strncmp(mainurl.data(), "file:", 5) && 0 != strncmp(url.data(), "file:", 5))
+                        return false;
                 }
             }
         }

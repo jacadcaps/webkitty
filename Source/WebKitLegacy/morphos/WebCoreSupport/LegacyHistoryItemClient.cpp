@@ -1,5 +1,8 @@
 #include "WebKit.h"
 #include "LegacyHistoryItemClient.h"
+#include <wtf/NeverDestroyed.h>
+
+namespace WebKit {
 
 LegacyHistoryItemClient& LegacyHistoryItemClient::singleton()
 {
@@ -13,4 +16,6 @@ void LegacyHistoryItemClient::historyItemChanged(const WebCore::HistoryItem&)
 
 void LegacyHistoryItemClient::clearChildren(const WebCore::HistoryItem&) const
 {
+}
+
 }

@@ -67,12 +67,13 @@
 #include <WebCore/AuthenticationChallenge.h>
 #include <WebCore/AuthenticationClient.h>
 #include <WebCore/BitmapImage.h>
-#include <WebCore/FullscreenManager.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/ProcessID.h>
 #include <wtf/ProcessPrivilege.h>
 #include <wtf/HexNumber.h>
-#include "../../WTF/wtf/morphos/MD5.h"
+#include <wtf/FileHandle.h>
+#include <wtf/FileSystem.h>
+#include <wtf/SHA1.h>
 
 #define D(x) 
 
@@ -376,9 +377,8 @@ void WebFrameLoaderClient::dispatchDidStartProvisionalLoad()
 	D(dprintf("%s: frame ID %llu\n", __PRETTY_FUNCTION__, m_frame->frameID()));
 
 #if ENABLE(FULLSCREEN_API)
-    auto* document = m_frame->coreFrame()->document();
-    if (document && document->fullscreenManager().fullscreenElement())
-		webPage->exitFullscreen();
+    if (webPage->isFullscreen())
+        webPage->setFullscreenElement(nullptr);
 #endif
 }
 
@@ -929,12 +929,16 @@ void WebFrameLoaderClient::updateGlobalHistoryRedirectLinks()
 #endif
 }
 
-bool WebFrameLoaderClient::shouldGoToHistoryItem(HistoryItem& item, WebCore::IsSameDocumentNavigation) const
+WebCore::ShouldGoToHistoryItem WebFrameLoaderClient::shouldGoToHistoryItem(WebCore::HistoryItem& item, WebCore::IsSameDocumentNavigation, WebCore::ProcessSwapDisposition) const
 {
     WebPage* webPage = m_frame->page();
     if (!webPage)
-        return false;
-    return true;
+        return WebCore::ShouldGoToHistoryItem::No;
+    return WebCore::ShouldGoToHistoryItem::Yes;
+}
+
+void WebFrameLoaderClient::shouldGoToHistoryItemAsync(WebCore::HistoryItem&, CompletionHandler<void(WebCore::ShouldGoToHistoryItem)>&&) const
+{
 }
 
 void WebFrameLoaderClient::didDisplayInsecureContent()
@@ -1034,10 +1038,6 @@ bool WebFrameLoaderClient::supportsAsyncShouldGoToHistoryItem() const
     return false;
 }
 
-void WebFrameLoaderClient::shouldGoToHistoryItemAsync(WebCore::HistoryItem&, CompletionHandler<void(bool)>&&) const
-{
-}
-
 void WebFrameLoaderClient::restoreViewState()
 {
     // Inform the UI process of the scale factor.
@@ -1077,9 +1077,9 @@ void WebFrameLoaderClient::prepareForDataSourceReplacement()
     notImplemented();
 }
 
-Ref<DocumentLoader> WebFrameLoaderClient::createDocumentLoader(const ResourceRequest& request, const SubstituteData& substituteData)
+Ref<DocumentLoader> WebFrameLoaderClient::createDocumentLoader(ResourceRequest&& request, SubstituteData&& substituteData)
 {
-    return m_frame->page()->createDocumentLoader(*m_frame->coreFrame(), request, substituteData);
+    return m_frame->page()->createDocumentLoader(*m_frame->coreFrame(), WTFMove(request), WTFMove(substituteData));
 }
 
 void WebFrameLoaderClient::updateCachedDocumentLoader(WebCore::DocumentLoader& loader)
@@ -1365,15 +1365,15 @@ String generateFileNameForIcon(const WTF::String &inHost)
 {
     CString url(inHost.utf8());
 
-    MD5 md5;
-    md5.addBytes(reinterpret_cast<const uint8_t*>(url.data()), url.length());
+    SHA1 sha1;
+    sha1.addBytes(std::span(reinterpret_cast<const uint8_t*>(url.data()), url.length()));
 
-    MD5::Digest sum;
-    md5.checksum(sum);
+    SHA1::Digest sum;
+    sha1.computeHash(sum);
     uint8_t* rawdata = sum.data();
 
     StringBuilder baseNameBuilder;
-    for (size_t i = 0; i < MD5::hashSize; i++)
+    for (size_t i = 0; i < SHA1::hashSize; i++)
         baseNameBuilder.append(WTF::hex(rawdata[i], WTF::Lowercase));
     return makeString("PROGDIR:Cache/FavIcons/"_s, baseNameBuilder.toString());
 }
@@ -1431,17 +1431,13 @@ void WebFrameLoaderClient::finishedLoadingIcon(WebCore::FragmentedSharedBuffer* 
 	if (!!data && data->size() > 0)
 	{
 		const String fileName(generateFileNameForIcon(documentLoader->url().host().toString()));
-		WTF::FileSystemImpl::PlatformFileHandle file = WTF::FileSystemImpl::openFile(fileName, WTF::FileSystemImpl::FileOpenMode::Truncate);
-		if (file != WTF::FileSystemImpl::invalidPlatformFileHandle)
+		auto file = WTF::FileSystemImpl::openFile(fileName, WTF::FileSystemImpl::FileOpenMode::Truncate);
+		if (file)
 		{
-			if (int(data->size()) != WTF::FileSystemImpl::writeToFile(file, data->span()))
+			if (int(data->size()) != file.write(data->span()).value_or(0))
 			{
-				WTF::FileSystemImpl::closeFile(file);
+				file = { };
 				WTF::FileSystemImpl::deleteFile(fileName);
-			}
-			else
-			{
-				WTF::FileSystemImpl::closeFile(file);
 			}
 		}
 	}

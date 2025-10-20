@@ -25,7 +25,7 @@ namespace Acinerella {
 Acinerella::Acinerella(AcinerellaClient *client, const String &url)
 	: m_client(client)
 	, m_url(url)
-	, m_watchdogTimer(RunLoop::current(), this, &Acinerella::watchdogTimerFired)
+	, m_watchdogTimer(RunLoop::currentSingleton(), "Acinerella::Timer"_s, this, &Acinerella::watchdogTimerFired)
 {
 	D(dprintf("%s: %p url '%s'\n", __func__, this, url.utf8().data()));
 	m_networkBuffer = AcinerellaNetworkBuffer::create(this, m_url);

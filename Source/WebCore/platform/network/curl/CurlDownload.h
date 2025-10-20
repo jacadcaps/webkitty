@@ -57,7 +57,7 @@ public:
     void ref() const override { ThreadSafeRefCounted<CurlDownload>::ref(); }
     void deref() const override { ThreadSafeRefCounted<CurlDownload>::deref(); }
 
-    WEBCORE_EXPORT void init(CurlDownloadListener&, const URL&, RefPtr<NetworkingContext>);
+    WEBCORE_EXPORT void init(CurlDownloadListener&, URL&&, RefPtr<NetworkingContext>);
     WEBCORE_EXPORT void init(CurlDownloadListener&, ResourceHandle*, const ResourceRequest&, const ResourceResponse&);
 
     void setListener(CurlDownloadListener* listener) { m_listener = listener; }

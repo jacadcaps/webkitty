@@ -181,7 +181,7 @@ DragImageRef createDragImageIconForCachedImageFilename(const String&)
     return nullptr;
 }
 
-DragImageRef createDragImageForLink(Element&, URL& url, const String& inLabel, TextIndicatorData&, float)
+DragImageData createDragImageForLink(Element& element, URL& url, const String& title, float deviceScaleFactor)
 {
     // This is more or less an exact match for the Mac OS X code.
 
@@ -198,7 +198,7 @@ DragImageRef createDragImageForLink(Element&, URL& url, const String& inLabel, T
     bool clipLabelString = false;
 
     String urlString = url.string();
-    String label = inLabel;
+    String label = title;
     if (label.isEmpty()) {
         drawURLString = false;
         label = urlString;
@@ -261,7 +261,7 @@ DragImageRef createDragImageForLink(Element&, URL& url, const String& inLabel, T
                 WebCoreDrawDoubledTextAtPoint(*context, label, textPos, *labelFont, topColor, bottomColor);
 
                 delete context;
-                return surface;
+                return { surface, nullptr };
             }
             
             cairo_destroy(cairo);
@@ -270,7 +270,7 @@ DragImageRef createDragImageForLink(Element&, URL& url, const String& inLabel, T
         cairo_surface_destroy(surface);
     }
     
-    return nullptr;
+    return { nullptr, nullptr };
 }
 
 

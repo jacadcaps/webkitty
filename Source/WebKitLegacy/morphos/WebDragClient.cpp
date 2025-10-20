@@ -23,7 +23,7 @@ OptionSet<WebCore::DragSourceAction> WebDragClient::dragSourceActionMaskForPoint
     return WebCore::anyDragSourceAction(); //m_page->allowedDragSourceActions();
 }
 
-void WebDragClient::startDrag(DragItem item, DataTransfer& transfer, Frame& frame)
+void WebDragClient::startDrag(DragItem item, DataTransfer& transfer, Frame& frame, const std::optional<WebCore::NodeIdentifier>&)
 {
     auto* localFrame = dynamicDowncast<LocalFrame>(frame);
     if (!localFrame)

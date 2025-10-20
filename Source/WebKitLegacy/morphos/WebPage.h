@@ -28,7 +28,6 @@ namespace WebCore {
 	class HTMLInputElement;
 	class HistoryItem;
 	class PrintContext;
-	class FullscreenManager;
 	class DragItem;
 	class DataTransfer;
     class GraphicsLayer;
@@ -144,7 +143,7 @@ public:
 	void didFinishLoad(WebFrame& frame);
 	void didFailLoad(const WebCore::ResourceError& error);
 
-    Ref<WebCore::DocumentLoader> createDocumentLoader(WebCore::Frame&, const WebCore::ResourceRequest&, const WebCore::SubstituteData&);
+    Ref<WebCore::DocumentLoader> createDocumentLoader(WebCore::Frame&, WebCore::ResourceRequest&&, WebCore::SubstituteData&&);
     void updateCachedDocumentLoader(WebDocumentLoader&, WebCore::Frame&);
 
     void scalePage(double scale, const WebCore::IntPoint& origin);
@@ -210,7 +209,6 @@ public:
     void setFocusedElement(WebCore::Element *);
     WebCore::IntRect getElementBounds(WebCore::Element *);
 	void setFullscreenElement(WebCore::Element *);
-    WebCore::FullscreenManager* fullscreenManager();
     bool isFullscreen() const;
     void exitFullscreen();
 

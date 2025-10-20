@@ -9,6 +9,7 @@
 #include <WebCore/DeprecatedGlobalSettings.h>
 #include <WebCore/Document.h>
 #include <WebCore/DocumentLoader.h>
+#include <WebCore/DocumentFullscreen.h>
 #include <WebCore/DragController.h>
 #include <WebCore/DragData.h>
 #include <WebCore/DragItem.h>
@@ -25,7 +26,6 @@
 #include <WebCore/FrameSelection.h>
 #include <WebCore/FrameTree.h>
 #include <WebCore/FrameView.h>
-#include <WebCore/FullscreenManager.h>
 #include <WebCore/GCController.h>
 #include <WebCore/GeolocationController.h>
 #include <WebCore/GeolocationError.h>
@@ -1221,12 +1221,12 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
             } },
             WebCore::SandboxFlags { } // Set by updateSandboxFlags after instantiation.
         },
-        WebCore::FrameIdentifier::generate(),
+        WebCore::generateFrameIdentifier(),
         nullptr,
         makeUniqueRef<WebCore::DummySpeechRecognitionProvider>(),
         WebBroadcastChannelRegistry::getOrCreate(false),
         makeUniqueRef<WebCore::DummyStorageProvider>(),
-        makeUniqueRef<WebCore::DummyModelPlayerProvider>(),
+        WebCore::DummyModelPlayerProvider::create(),
         WebCore::EmptyBadgeClient::create(),
         LegacyHistoryItemClient::singleton(),
         makeUniqueRef<WebContextMenuClient>(this),
@@ -1235,7 +1235,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
         makeUniqueRef<WebCore::ProcessSyncClient>()
     );
 
-	pageConfiguration.inspectorClient = makeUnique<WebInspectorClient>(this);
+	pageConfiguration.inspectorBackendClient = makeUnique<WebInspectorClient>(this);
 //    pageConfiguration.loaderClientForMainFrame = new WebFrameLoaderClient();
     pageConfiguration.storageNamespaceProvider = &m_webPageGroup->storageNamespaceProvider();
     pageConfiguration.visitedLinkStore = &m_webPageGroup->visitedLinkStore();
@@ -1319,7 +1319,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     settings.setLazyIframeLoadingEnabled(true);
 
     settings.setDirectoryUploadEnabled(true);
-    settings.setFileSystemAccessEnabled(true);
+    settings.setFileSystemEnabled(true);
 
     // new
     settings.setBeaconAPIEnabled(true);
@@ -1412,14 +1412,14 @@ void WebPage::load(const char *url, bool ignoreCaches)
 
     auto* coreFrame = m_mainFrame->coreFrame();
 	WTF::URL baseCoreURL = WTF::URL(WTF::URL(), String::fromUTF8(url));
-	WebCore::ResourceRequest request(baseCoreURL);
+	WebCore::ResourceRequest request(WTFMove(baseCoreURL));
 	
 	if (ignoreCaches)
 		request.setCachePolicy(ResourceRequestCachePolicy::ReloadIgnoringCacheData);
 
     coreFrame->loader().stopForUserCancel();
 	m_pendingNavigationID = navid ++;
-	coreFrame->loader().load(FrameLoadRequest(*coreFrame, request));
+	coreFrame->loader().load(FrameLoadRequest(*coreFrame, WTFMove(request)));
 	exitFullscreen();
 
 //    coreFrame->loader().urlSelected(baseCoreURL, { }, nullptr, LockHistory::No, LockBackForwardList::No, MaybeSendReferrer, ShouldOpenExternalURLsPolicy::ShouldNotAllow);
@@ -1429,12 +1429,12 @@ void WebPage::loadData(const char *data, size_t length, const char *url)
 {
 	WTF::URL baseURL = url ? WTF::URL(WTF::URL(), WTF::String::fromUTF8(url)) : WTF::aboutBlankURL();
 
-    ResourceRequest request(baseURL);
-    ResourceResponse response(WTF::aboutBlankURL(), "text/html"_s, length, "UTF-8"_s);
-    SubstituteData substituteData(WebCore::SharedBuffer::create(std::span(data, length)), WTF::aboutBlankURL(), response, SubstituteData::SessionHistoryVisibility::Hidden);
+    ResourceRequest request(WTFMove(baseURL));
+    ResourceResponse response(URL(WTF::aboutBlankURL()), "text/html"_s, length, "UTF-8"_s);
+    SubstituteData substituteData(WebCore::SharedBuffer::create(std::span(data, length)), URL(WTF::aboutBlankURL()), WTFMove(response), SubstituteData::SessionHistoryVisibility::Hidden);
 
 	auto* coreFrame = m_mainFrame->coreFrame();
-    coreFrame->loader().load(FrameLoadRequest(*coreFrame, request, substituteData));
+    coreFrame->loader().load(FrameLoadRequest(*coreFrame, WTFMove(request), WTFMove(substituteData)));
 	exitFullscreen();
 }
 
@@ -1583,8 +1583,8 @@ void WebPage::willBeDisposed()
 	D(dprintf("%s: self %p mf %p\n", __PRETTY_FUNCTION__, this, mainframe));
 	exitFullscreen();
 
-	if (nullptr != m_page->inspectorController().inspectorClient())
-		static_cast<WebInspectorClient*>(m_page->inspectorController().inspectorClient())->inspectedPageWillBeDestroyed();
+	if (nullptr != m_page->inspectorController().inspectorBackendClient())
+		static_cast<WebInspectorClient*>(m_page->inspectorController().inspectorBackendClient())->inspectedPageWillBeDestroyed();
 
 	clearDelegateCallbacks();
 	
@@ -1776,8 +1776,8 @@ void WebPage::setDeveloperToolsEnabled(bool enabled)
 	if (enabled)
 		m_page->inspectorController().show();
 	else
-		if (nullptr != m_page->inspectorController().inspectorClient())
-			static_cast<WebInspectorClient*>(m_page->inspectorController().inspectorClient())->inspectedPageWillBeDestroyed();
+		if (nullptr != m_page->inspectorController().inspectorBackendClient())
+			static_cast<WebInspectorClient*>(m_page->inspectorController().inspectorBackendClient())->inspectedPageWillBeDestroyed();
 }
 
 void WebPage::startLiveResize()
@@ -1809,7 +1809,8 @@ void WebPage::setFullscreenElement(WebCore::Element *element)
 	if (element)
 	{
 		m_fullscreenElement = Ref{*element};
-        m_fullscreenElement->document().fullscreenManager().requestFullscreenForElement(*m_fullscreenElement, FullscreenManager::ExemptIFrameAllowFullscreenRequirement, [](ExceptionOr<void> result) {});
+        m_fullscreenElement->webkitRequestFullscreen();
+//        m_fullscreenElement->document().fullscreenManager().requestFullscreenForElement(*m_fullscreenElement, FullscreenManager::ExemptIFrameAllowFullscreenRequirement, [](ExceptionOr<void> result) {});
 
 		if (_fZoomChangedByWheel)
 			_fZoomChangedByWheel();
@@ -1826,7 +1827,7 @@ void WebPage::setFullscreenElement(WebCore::Element *element)
 	{
 		if (m_fullscreenElement)
 		{
-			m_fullscreenElement->document().fullscreenManager().exitFullscreen([](ExceptionOr<void> result) {});
+            DocumentFullscreen::webkitExitFullscreen(m_fullscreenElement->document());
 
             if (_fZoomChangedByWheel)
                 _fZoomChangedByWheel();
@@ -1843,16 +1844,6 @@ void WebPage::setFullscreenElement(WebCore::Element *element)
 		m_fullscreenElement = nullptr;
 	}
 #endif
-}
-
-WebCore::FullscreenManager* WebPage::fullscreenManager()
-{
-#if ENABLE(FULLSCREEN_API)
-	auto* coreFrame = m_mainFrame->coreFrame();
-	if (coreFrame)
-		return &coreFrame->document()->fullscreenManager();
-#endif
-	return nullptr;
 }
 
 bool WebPage::isFullscreen() const
@@ -2052,9 +2043,9 @@ void WebPage::didFailLoad(const WebCore::ResourceError& error)
 		_fDidFailWithError(error);
 }
 
-Ref<DocumentLoader> WebPage::createDocumentLoader(Frame& frame, const ResourceRequest& request, const SubstituteData& substituteData)
+Ref<DocumentLoader> WebPage::createDocumentLoader(Frame& frame, ResourceRequest&& request, SubstituteData&& substituteData)
 {
-    Ref<WebDocumentLoader> documentLoader = WebDocumentLoader::create(request, substituteData);
+    Ref<WebDocumentLoader> documentLoader = WebDocumentLoader::create(WTFMove(request), WTFMove(substituteData));
 
     if (frame.isMainFrame()) {
         if (m_pendingNavigationID) {

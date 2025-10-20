@@ -52,10 +52,10 @@ CurlDownload::~CurlDownload()
         FileSystem::deleteFile(m_curlRequest->getDownloadedFilePath());
 }
 
-void CurlDownload::init(CurlDownloadListener& listener, const URL& url, RefPtr<NetworkingContext> networkingContext)
+void CurlDownload::init(CurlDownloadListener& listener, URL&& url, RefPtr<NetworkingContext> networkingContext)
 {
     m_listener = &listener;
-    m_request.setURL(url);
+    m_request.setURL(WTFMove(url));
     m_context = networkingContext;
 }
 
@@ -253,7 +253,7 @@ void CurlDownload::willSendRequest()
     bool crossOrigin = !protocolHostAndPortAreEqual(m_request.url(), newURL);
 
     ResourceRequest newRequest = m_request;
-    newRequest.setURL(newURL);
+    newRequest.setURL(WTFMove(newURL));
 
     if (shouldRedirectAsGET(newRequest, crossOrigin)) {
         newRequest.setHTTPMethod("GET"_s);

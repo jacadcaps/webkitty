@@ -27,7 +27,7 @@ class MediaPlayerPrivateMorphOS
     , public MediaPlayerPrivateInterface
     , public Acinerella::AcinerellaClient
 {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(MediaPlayerPrivateMorphOS);
 public:
     MediaPlayerPrivateMorphOS(MediaPlayer*);
     virtual ~MediaPlayerPrivateMorphOS();

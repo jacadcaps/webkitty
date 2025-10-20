@@ -225,7 +225,7 @@ OBMutableArray *_scripts;
                     WTF::URL(WTF::URL(), WTF::String::fromUTF8([[OBString stringWithFormat:@"file:///script_%08lx", script] cString])),
                     WTFMove(white), WTFMove(black),
                     (WkUserScript_InjectPosition_AtDocumentStart == [script injectPosition] ? WebCore::UserScriptInjectionTime::DocumentStart : WebCore::UserScriptInjectionTime::DocumentEnd),
-                    (WkUserScript_InjectInFrames_All == [script injectInFrames] ? WebCore::UserContentInjectedFrames::InjectInAllFrames : WebCore::UserContentInjectedFrames::InjectInTopFrameOnly), WebCore::WaitForNotificationBeforeInjecting::No));
+                    (WkUserScript_InjectInFrames_All == [script injectInFrames] ? WebCore::UserContentInjectedFrames::InjectInAllFrames : WebCore::UserContentInjectedFrames::InjectInTopFrameOnly)));
         }
         
         if ([cssContents length])
@@ -235,8 +235,7 @@ OBMutableArray *_scripts;
                 makeUnique<WebCore::UserStyleSheet>(WTF::String::fromUTF8([cssContents cString]),
                 WTF::URL(WTF::URL(), WTF::String::fromUTF8([[OBString stringWithFormat:@"file:///css_%08lx", script] cString])),
                 WTFMove(whiteCSS), WTFMove(blackCSS),
-                (WkUserScript_InjectInFrames_All == [script injectInFrames] ? WebCore::UserContentInjectedFrames::InjectInAllFrames : WebCore::UserContentInjectedFrames::InjectInTopFrameOnly),
-                WebCore::UserStyleLevel::User), WebCore::UserStyleInjectionTime::InjectInExistingDocuments);
+                (WkUserScript_InjectInFrames_All == [script injectInFrames] ? WebCore::UserContentInjectedFrames::InjectInAllFrames : WebCore::UserContentInjectedFrames::InjectInTopFrameOnly)), WebCore::UserStyleInjectionTime::InjectInExistingDocuments);
         }
 	}
 }

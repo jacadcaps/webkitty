@@ -27,6 +27,8 @@
 
 #include <WebCore/HistoryItem.h>
 
+namespace WebKit {
+
 class LegacyHistoryItemClient final : public WebCore::HistoryItemClient {
 public:
     static LegacyHistoryItemClient& singleton();
@@ -35,3 +37,5 @@ private:
     void historyItemChanged(const WebCore::HistoryItem&) final;
     void clearChildren(const WebCore::HistoryItem&) const final;
 };
+
+}
