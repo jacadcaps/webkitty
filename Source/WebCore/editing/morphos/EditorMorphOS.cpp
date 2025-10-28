@@ -33,6 +33,7 @@
 #include "HTMLImageElement.h"
 #include "HTMLInputElement.h"
 #include "HTMLNames.h"
+#include "ContainerNodeInlines.h"
 #include "HTMLObjectElement.h"
 #include "SVGElement.h"
 #include "SVGImageElement.h"
