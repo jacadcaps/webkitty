@@ -150,8 +150,8 @@ static std::optional<CSS::GradientDeprecatedColorStop> consumeDeprecatedGradient
         return std::nullopt;
 
     return CSS::GradientDeprecatedColorStop {
-        .color = WTFMove(*color),
-        .position = WTFMove(*position)
+        .position = WTFMove(*position),
+        .color = WTFMove(*color)
     };
 }
 
@@ -274,12 +274,15 @@ static std::optional<CSS::Color> consumeStopColor(CSSParserTokenRange& range, CS
 
 template<SupportsColorHints supportsColorHints, typename Stop, typename Consumer> static std::optional<CSS::GradientColorStopList<Stop>> consumeColorStopList(CSSParserTokenRange& range, CSS::PropertyParserState& state, Consumer&& consumeStopPosition)
 {
+dprintf("%s\n", __func__);
     typename CSS::GradientColorStopList<Stop>::Container stops;
 
     // The first color stop cannot be a color hint.
     bool previousStopWasColorHint = true;
     do {
-        Stop stop { consumeStopColor(range, state), consumeStopPosition(range) };
+        auto n1 = consumeStopColor(range, state);
+        auto n2 = consumeStopPosition(range);
+        Stop stop { WTFMove(n2), WTFMove(n1) };
         if (!stop.color && !stop.position)
             return std::nullopt;
 
@@ -313,6 +316,7 @@ template<SupportsColorHints supportsColorHints, typename Stop, typename Consumer
 
 template<SupportsColorHints supportsColorHints> static std::optional<CSS::GradientLinearColorStopList> consumeLinearColorStopList(CSSParserTokenRange& range, CSS::PropertyParserState& state)
 {
+dprintf("%s\n", __func__);
     return consumeColorStopList<supportsColorHints, CSS::GradientLinearColorStop>(range, state, [&](auto& range) {
         return MetaConsumer<CSS::LengthPercentage<>>::consume(range, state);
     });
@@ -602,7 +606,7 @@ template<CSSValueID Name> static RefPtr<CSSValue> consumeLinearGradient(CSSParse
     //   [ <angle> | to <side-or-corner> ]? || <color-interpolation-method>,
     //   <color-stop-list>
     // )
-
+dprintf("%s:\n", __func__);
     static constexpr std::pair<CSSValueID, CSS::Vertical> verticalMappings[] {
         { CSSValueTop, CSS::Vertical { CSS::Keyword::Top { } } },
         { CSSValueBottom, CSS::Vertical { CSS::Keyword::Bottom { } } },

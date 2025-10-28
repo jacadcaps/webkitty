@@ -44,6 +44,7 @@
 #include "RenderImage.h"
 #include "markup.h"
 #include "HTMLParserIdioms.h"
+#include "ContainerNodeInlines.h"
 #include "platform/morphos/SelectionData.h"
 #include "WebContentReader.h"
 

@@ -33,6 +33,8 @@
 #include <wtf/StdLibExtras.h>
 #include <wtf/text/TextStream.h>
 
+#include <proto/exec.h>
+
 namespace WebCore {
 
 Ref<Gradient> Gradient::create(Data&& data, ColorInterpolationMethod colorInterpolationMethod, GradientSpreadMethod spreadMethod, GradientColorStops&& stops, std::optional<RenderingResourceIdentifier> renderingResourceIdentifier)
@@ -47,6 +49,12 @@ Gradient::Gradient(Data&& data, ColorInterpolationMethod colorInterpolationMetho
     , m_spreadMethod { spreadMethod }
     , m_stops { WTFMove(stops) }
 {
+//DumpTaskState(FindTask(0));
+     for (auto& stop : m_stops)
+        dprintf("%s: stop offset %g\n", __func__, stop.offset);
+     for (auto& stop : m_stops.sorted())
+        dprintf("%s: sstop offset %g\n", __func__, stop.offset);
+
 }
 
 Gradient::~Gradient()
@@ -102,6 +110,7 @@ bool Gradient::isZeroSize() const
 
 void Gradient::addColorStop(GradientColorStop&& stop)
 {
+dprintf("%s: stop offset %g", __func__, stop.offset);
     m_stops.addColorStop(WTFMove(stop));
     m_cachedHash = 0;
     stopsChanged();
@@ -109,6 +118,8 @@ void Gradient::addColorStop(GradientColorStop&& stop)
 
 static void add(Hasher& hasher, const Gradient::LinearData& data)
 {
+//DumpTaskState(FindTask(0));
+// dprintf("%s: data %g-%g")
     add(hasher, data.point0, data.point1);
 }
 
