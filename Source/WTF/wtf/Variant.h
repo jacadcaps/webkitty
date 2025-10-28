@@ -25,7 +25,7 @@
 
 #pragma once
 
-#if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE) || defined(__MORPHOS__)
+#if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
 
 // MPark.Variant
 //

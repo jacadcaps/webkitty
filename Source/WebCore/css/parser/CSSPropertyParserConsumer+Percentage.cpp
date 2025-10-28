@@ -42,7 +42,6 @@ RefPtr<CSSPrimitiveValue> consumePercentageDividedBy100OrNumber(CSSParserTokenRa
     using PercentageConsumer = ConsumerDefinition<CSS::Percentage<>>;
 
     auto& token = range.peek();
-dprintf("%s: value %g from '%s'\n",  __func__, token.numericValue(), token.value().toString().utf8().data());
 
     switch (token.type()) {
     case FunctionToken:

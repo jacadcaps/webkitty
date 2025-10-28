@@ -47,7 +47,6 @@ void Gradient::stopsChanged()
 static void addColorStopRGBA(cairo_pattern_t *gradient, GradientColorStop stop, float globalAlpha)
 {
     auto [r, g, b, a] = stop.color.toColorTypeLossy<SRGBA<float>>().resolved();
-dprintf("%s: stop %g\n", __func__, stop.offset);
     cairo_pattern_add_color_stop_rgba(gradient, stop.offset, r, g, b, a * globalAlpha);
 }
 
@@ -216,7 +215,6 @@ RefPtr<cairo_pattern_t> Gradient::createPattern(float globalAlpha, const AffineT
 
     auto gradient = WTF::switchOn(m_data,
         [&] (const LinearData& data) {
-        dprintf("%s: %g %g %g %g\n", __func__, data.point0.x(), data.point0.y(), data.point1.x(), data.point1.y());
             auto gradient = adoptRef(cairo_pattern_create_linear(data.point0.x(), data.point0.y(), data.point1.x(), data.point1.y()));
             for (auto& stop : stops())
                 addColorStopRGBA(gradient.get(), stop, globalAlpha);

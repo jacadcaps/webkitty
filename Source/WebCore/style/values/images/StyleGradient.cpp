@@ -37,18 +37,7 @@
 #include "StylePrimitiveNumericTypes+Conversions.h"
 #include "StylePrimitiveNumericTypes+Evaluation.h"
 
-#include <proto/exec.h>
-
-#pragma GCC diagnostic push
-#pragma GCC optimize("O1")
-
 namespace WebCore {
-
-void morphosDump(void)
-{
-    DumpTaskState(FindTask(0));
-}
-
 namespace Style {
 
 // MARK: - IsRepeatingGradient
@@ -70,8 +59,8 @@ template<CSSValueID Name, typename T> static constexpr bool isRepeating(const Fu
 template<typename CSSStop, typename StyleStop> static auto toCSSColorStop(const StyleStop& stop, const RenderStyle& style) -> CSSStop
 {
     return CSSStop {
-        toCSS(stop.position, style),
         toCSS(stop.color, style),
+        toCSS(stop.position, style)
     };
 }
 
@@ -92,7 +81,6 @@ auto ToCSS<GradientDeprecatedColorStop>::operator()(const GradientDeprecatedColo
 
 // MARK: - Conversion: CSS -> Style
 
-#pragma GCC optimize("O1")
 template<typename T> decltype(auto) toStyleColorStop(const T& stop, const BuilderState& state)
 {
     return GradientColorStop {
@@ -108,15 +96,7 @@ auto ToStyle<CSS::GradientAngularColorStop>::operator()(const CSS::GradientAngul
 
 auto ToStyle<CSS::GradientLinearColorStop>::operator()(const CSS::GradientLinearColorStop& stop, const BuilderState& state) -> GradientLinearColorStop
 {
-return toStyleColorStop(stop, state);
-#if 0
-    auto raw = stop.position->raw();
-    auto cs = toStyleColorStop(stop, state);
-    auto position = cs.position.value();
-//dprintf("%s: stop %g -> has position? %d\n", __PRETTY_FUNCTION__, raw->value, position.holdsAlternative<Position>());
-    
-    return cs;
-#endif
+    return toStyleColorStop(stop, state);
 }
 
 auto ToStyle<CSS::GradientDeprecatedColorStop>::operator()(const CSS::GradientDeprecatedColorStop& stop, const BuilderState& state) -> GradientDeprecatedColorStop
@@ -144,20 +124,17 @@ static std::optional<float> resolveColorStopPosition(const GradientLinearColorSt
 {
     if (!position)
         return std::nullopt;
-dprintf("%s: ...\n", __func__);
+
     return WTF::switchOn(*position,
         [&](const typename LengthPercentage<>::Dimension& length) -> std::optional<float> {
-dprintf("%s: %d\n", __func__, __LINE__);
             if (gradientLength <= 0)
                 return 0;
             return length.value / gradientLength;
         },
         [&](const typename LengthPercentage<>::Percentage& percentage) -> std::optional<float> {
-dprintf("%s: %d %g\n", __func__, __LINE__, percentage.value);
             return percentage.value / 100.0;
         },
         [&](const typename LengthPercentage<>::Calc& calc) -> std::optional<float> {
-dprintf("%s: %d\n", __func__, __LINE__);
             if (gradientLength <= 0)
                 return 0;
             return calc.protectedCalculation()->evaluate(gradientLength) / gradientLength;
@@ -213,8 +190,6 @@ public:
 
     void normalizeStopsAndEndpointsOutsideRange(Vector<ResolvedGradientStop>& stops, ColorInterpolationMethod)
     {
-        for (auto& stop : stops)
-dprintf("%s: %g\n", __func__, stop.offset);
         float firstOffset = *stops.first().offset;
         float lastOffset = *stops.last().offset;
         if (firstOffset != lastOffset) {
@@ -401,7 +376,6 @@ template<typename GradientAdapter, typename StyleGradient> GradientColorStops co
     Vector<ResolvedGradientStop> stops(numberOfStops);
 
     float gradientLength = gradientAdapter.gradientLength();
-dprintf("%s: %d\n", __PRETTY_FUNCTION__, numberOfStops);
 
     for (size_t i = 0; i < numberOfStops; ++i) {
         auto& stop = styleGradient.parameters.stops[i];
@@ -834,15 +808,13 @@ static inline float horizontalEllipseRadius(const FloatSize& p, float aspectRati
     // a = sqrt(x^2 + y^2/(1/r^2))
     return std::hypot(p.width(), p.height() * aspectRatio);
 }
-//#pragma GCC optimize("O2")
 
 // MARK: - Linear create.
 
 template<CSSValueID Name> static Ref<WebCore::Gradient> createPlatformGradient(const FunctionNotation<Name, LinearGradient>& linear, const FloatSize& size, const RenderStyle& style)
 {
     ASSERT(!size.isEmpty());
-dprintf("%s\n", __PRETTY_FUNCTION__);
-//DumpTaskState(FindTask(0));
+
     auto [point0, point1] = WTF::switchOn(linear.parameters.gradientLine,
         [&](const Angle<>& angle) -> std::pair<FloatPoint, FloatPoint> {
             return endPointsFromAngle(angle.value, size);
@@ -892,7 +864,6 @@ dprintf("%s\n", __PRETTY_FUNCTION__);
 template<CSSValueID Name> static Ref<WebCore::Gradient> createPlatformGradient(const FunctionNotation<Name, PrefixedLinearGradient>& linear, const FloatSize& size, const RenderStyle& style)
 {
     ASSERT(!size.isEmpty());
-dprintf("%s\n", __PRETTY_FUNCTION__);
 
     auto [point0, point1] = WTF::switchOn(linear.parameters.gradientLine,
         [&](const Angle<>& angle) -> std::pair<FloatPoint, FloatPoint> {
@@ -948,7 +919,6 @@ dprintf("%s\n", __PRETTY_FUNCTION__);
 template<CSSValueID Name> static Ref<WebCore::Gradient> createPlatformGradient(const FunctionNotation<Name, DeprecatedLinearGradient>& linear, const FloatSize& size, const RenderStyle& style)
 {
     ASSERT(!size.isEmpty());
-dprintf("%s\n", __PRETTY_FUNCTION__);
 
     auto point0 = computeEndPoint(get<0>(linear.parameters.gradientLine), size);
     auto point1 = computeEndPoint(get<1>(linear.parameters.gradientLine), size);
@@ -1251,5 +1221,3 @@ bool isOpaque(const Gradient& gradient, const RenderStyle& style)
 
 } // namespace Style
 } // namespace WebCore
-
-#pragma GCC diagnostic pop

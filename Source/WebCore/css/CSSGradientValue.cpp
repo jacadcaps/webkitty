@@ -34,8 +34,6 @@
 #include "StylePrimitiveNumericTypes+Conversions.h"
 #include <wtf/text/StringBuilder.h>
 
-#include <proto/exec.h>
-
 namespace WebCore {
 namespace CSS {
 namespace {
@@ -94,10 +92,8 @@ template<VariantLike CSSType> struct StyleImageIsUncacheable<CSSType> {
 
 RefPtr<StyleImage> CSSGradientValue::createStyleImage(const Style::BuilderState& state) const
 {
-    //if (m_cachedStyleImage)
-    //    return m_cachedStyleImage;
-//DumpTaskState(FindTask(0));
-
+    if (m_cachedStyleImage)
+        return m_cachedStyleImage;
 
     auto styleImage = StyleGradientImage::create(
         Style::toStyle(m_gradient, state)

@@ -34,9 +34,6 @@
 #include <wtf/Forward.h>
 
 namespace WebCore {
-
-void morphosDump(void);
-
 namespace Style {
 
 template<typename> struct DimensionPercentageMapping;
@@ -137,8 +134,6 @@ template<CSS::DimensionPercentageNumeric CSSType> struct PrimitiveNumeric<CSSTyp
     PrimitiveNumeric(Percentage percentage)
         : m_value { WTFMove(percentage) }
     {
-    dprintf("%s/%d: %g\n", __PRETTY_FUNCTION__, __LINE__);//, get<Percentage>().get<float>());
-        morphosDump();
     }
 
     PrimitiveNumeric(Calc calc)
@@ -154,8 +149,6 @@ template<CSS::DimensionPercentageNumeric CSSType> struct PrimitiveNumeric<CSSTyp
     PrimitiveNumeric(WebCore::CSS::ValueLiteral<Percentage::UnitTraits::canonical> literal)
         : m_value { Percentage { literal } }
     {
-    dprintf("%s/%d:..\n", __PRETTY_FUNCTION__, __LINE__);
-        morphosDump();
     }
 
     // NOTE: CalculatedValue is intentionally not part of IPCData.
@@ -183,7 +176,7 @@ template<CSS::DimensionPercentageNumeric CSSType> struct PrimitiveNumeric<CSSTyp
     {
         return WTF::switchOn(m_value,
             []<std::same_as<T> U>(const U& alternative) -> T { return alternative; },
-            [](const auto&) -> T { RELEASE_ASSERT_NOT_REACHED(); }
+            [](const auto&) -> T { /* RELEASE_ASSERT_NOT_REACHED(); */ }
         );
     }
 

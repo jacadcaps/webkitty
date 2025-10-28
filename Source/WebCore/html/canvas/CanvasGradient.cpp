@@ -36,8 +36,6 @@ namespace WebCore {
 CanvasGradient::CanvasGradient(const FloatPoint& p0, const FloatPoint& p1)
     : m_gradient(Gradient::create(Gradient::LinearData { p0, p1 }, { ColorInterpolationMethod::SRGB { }, AlphaPremultiplication::Unpremultiplied }))
 {
-dprintf("%s\n", __PRETTY_FUNCTION__);
-
 }
 
 CanvasGradient::CanvasGradient(const FloatPoint& p0, float r0, const FloatPoint& p1, float r1)

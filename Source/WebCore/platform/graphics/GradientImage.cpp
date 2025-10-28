@@ -60,7 +60,7 @@ void GradientImage::drawPattern(GraphicsContext& destContext, const FloatRect& d
     FloatSize adjustedSize = size();
     FloatRect adjustedSrcRect = srcRect;
     m_gradient->adjustParametersForTiledDrawing(adjustedSize, adjustedSrcRect, spacing);
-dprintf("%s: size %g-%g. srcrect %g-%g-%g-%g\n", __func__, adjustedSize.width(), adjustedSize.height(), adjustedSrcRect.x(), adjustedSrcRect.y(), adjustedSrcRect.width(), adjustedSrcRect.height());
+
     // Factor in the destination context's scale to generate at the best resolution
     AffineTransform destContextCTM = destContext.getCTM(GraphicsContext::DefinitelyIncludeDeviceScale);
     double xScale = std::abs(destContextCTM.xScale());
@@ -71,7 +71,6 @@ dprintf("%s: size %g-%g. srcrect %g-%g-%g-%g\n", __func__, adjustedSize.width(),
 
     unsigned generatorHash = m_gradient->hash();
 
-dprintf("%s: adjsrcrect %g-%g-%g-%g\n", __func__, adjustedSrcRect.x(), adjustedSrcRect.y(), adjustedSrcRect.width(), adjustedSrcRect.height());
     if (!m_cachedImage || m_cachedGeneratorHash != generatorHash || m_cachedAdjustedSize != adjustedSize || !areEssentiallyEqual(destContext.scaleFactor(), m_cachedScaleFactor)) {
         auto imageBuffer = destContext.createAlignedImageBuffer(adjustedSize);
         if (!imageBuffer)

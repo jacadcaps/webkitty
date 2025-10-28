@@ -169,9 +169,7 @@ template<typename Primitive, typename Validator> struct PercentageConsumer {
         ASSERT(range.peek().type() == PercentageToken);
 
         auto rawValue = typename Primitive::Raw { CSS::PercentageUnit::Percentage, range.peek().numericValue() };
-    if (range.peek().type() == PercentageToken) {
-dprintf("%s - %g %s raw %g\n", __func__, range.peek().numericValue(), range.peek().value().toString().utf8().data(), rawValue.value);
-}
+
         if constexpr (rawValue.range.options != CSS::RangeOptions::Default)
             rawValue = performParseTimeClamp(rawValue);
 

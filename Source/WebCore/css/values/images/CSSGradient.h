@@ -72,8 +72,8 @@ template<typename C, typename P> struct GradientColorStop {
     using Position = P;
     using List = GradientColorStopList<GradientColorStop<C, P>>;
 
-    Position position;
     Color color;
+    Position position;
 
     bool operator==(const GradientColorStop<C, P>&) const = default;
 };

@@ -1569,7 +1569,6 @@ std::optional<TypedChild> parseCalcKeyword(const CSSParserToken& token, ParserSt
 
 std::optional<TypedChild> parseCalcNumber(const CSSParserToken& token, ParserState&)
 {
-dprintf("%s: value %g from '%s'\n",  __func__, token.numericValue(), token.value().toString().utf8().data());
     auto child = Number { .value = token.numericValue() };
     auto type = Type { };
 
@@ -1578,7 +1577,6 @@ dprintf("%s: value %g from '%s'\n",  __func__, token.numericValue(), token.value
 
 std::optional<TypedChild> parseCalcPercentage(const CSSParserToken& token, ParserState& state)
 {
-dprintf("%s: value %g from '%s'\n",  __func__, token.numericValue(), token.value().toString().utf8().data());
     auto child = Percentage { .value = token.numericValue(), .hint = Type::determinePercentHint(state.parserOptions.category) };
     auto type = getType(child);
 
@@ -1590,7 +1588,6 @@ std::optional<TypedChild> parseCalcDimension(const CSSParserToken& token, Parser
     if (token.unitType() == CSSUnitType::CSS_UNKNOWN)
         return std::nullopt;
 
-dprintf("%s: value %g from '%s'\n",  __func__, token.numericValue(), token.value().toString().utf8().data());
     auto child = makeNumeric(token.numericValue(), token.unitType());
     auto type = Type::determineType(token.unitType());
 
