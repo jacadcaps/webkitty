@@ -55,7 +55,11 @@ struct DynamicRangeLimit {
     bool operator==(const DynamicRangeLimit&) const;
 
 private:
+#if OS(MORPHOS)
+    using Kind = std::variant<
+#else
     using Kind = CompactVariant<
+#endif
        CSS::Keyword::Standard,
        CSS::Keyword::ConstrainedHigh,
        CSS::Keyword::NoLimit,

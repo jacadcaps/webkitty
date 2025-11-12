@@ -537,9 +537,7 @@ template<typename... StyleTypes> struct Blending<std::variant<StyleTypes...>> {
                 return WebCore::Style::blend(a, b, context);
             },
             [](const auto&, const auto&) -> std::variant<StyleTypes...> {
-#if !OS(MORPHOS)
                 RELEASE_ASSERT_NOT_REACHED();
-#endif
             }
         ), a, b);
     }
@@ -550,9 +548,7 @@ template<typename... StyleTypes> struct Blending<std::variant<StyleTypes...>> {
                 return WebCore::Style::blend(a, b, aStyle, bStyle, context);
             },
             [](const auto&, const auto&) -> std::variant<StyleTypes...> {
-#if !OS(MORPHOS)
                 RELEASE_ASSERT_NOT_REACHED();
-#endif
             }
         ), a, b);
     }
