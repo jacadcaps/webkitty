@@ -41,7 +41,7 @@ public:
     using Dimension = typename N::Dimension;
     using Keywords = WebCore::CSS::PrimitiveKeywordList<Ks...>;
 #if OS(MORPHOS)
-    using Representation = std::variant<Ks...>;
+    using Representation = Variant<Ks...>;
 #else
     using Representation = FlatteningCompactVariant<N, Ks...>;
 #endif

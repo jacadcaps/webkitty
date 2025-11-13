@@ -125,7 +125,7 @@ template<CSS::DimensionPercentageNumeric CSSType> struct PrimitiveNumeric<CSSTyp
     using Percentage = typename DimensionPercentageMapping<CSS>::Percentage;
     using Calc = UnevaluatedCalculation<CSS>;
 #if OS(MORPHOS)
-    using Representation = std::variant<Dimension, Percentage, Calc>;
+    using Representation = Variant<Dimension, Percentage, Calc>;
 #else
     using Representation = CompactVariant<Dimension, Percentage, Calc>;
 #endif

@@ -56,7 +56,7 @@ struct DynamicRangeLimit {
 
 private:
 #if OS(MORPHOS)
-    using Kind = std::variant<
+    using Kind = Variant<
 #else
     using Kind = CompactVariant<
 #endif
