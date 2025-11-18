@@ -125,6 +125,10 @@
 #define U_DISABLE_RENAMING 1
 #endif
 
+#ifdef __MORPHOS__
+#define USE_PTHREADS 1
+#endif
+
 #if COMPILER(MSVC)
 #undef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS

@@ -3324,6 +3324,13 @@ void RenderStyle::setColumnStylesFromPaginationMode(PaginationMode paginationMod
 
 void RenderStyle::deduplicateCustomProperties(const RenderStyle& other)
 {
+#if OS(MORPHOS)
+    /// trying to workaround some obscure gcc 11 bug...
+    const RenderStyle *ptr = &other;
+    if (uint32_t(ptr) < 1000) {
+        return;
+    }
+#endif
     auto deduplicate = [&] <typename T> (const DataRef<T>& data, const DataRef<T>& otherData) {
         auto& properties = const_cast<DataRef<Style::CustomPropertyData>&>(data->customProperties);
         auto& otherProperties = otherData->customProperties;

@@ -36,7 +36,9 @@
 
 #if USE(HARFBUZZ)
 #include "HbUniquePtr.h"
+#if !OS(MORPHOS)
 #include <hb-ot.h>
+#endif
 #endif
 
 namespace WebCore {

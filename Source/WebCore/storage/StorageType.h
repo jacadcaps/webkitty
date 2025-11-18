@@ -35,7 +35,11 @@ enum class StorageType : uint8_t {
 
 inline bool isLocalStorage(StorageType storageType)
 {
+#if OS(MORPHOS) && MORPHOS_MINIMAL
+    return false;
+#else
     return storageType == StorageType::Local || storageType == StorageType::TransientLocal;
+#endif
 }
 
 } // namespace WebCore

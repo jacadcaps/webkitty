@@ -39,6 +39,7 @@
 typedef ucontext_t mcontext_t;
 #elif OS(QNX)
 #include <ucontext.h>
+#elif OS(MORPHOS)
 #else
 #include <sys/ucontext.h>
 #endif

@@ -146,6 +146,7 @@ private:
 class Timer : public TimerBase {
     WTF_MAKE_TZONE_ALLOCATED_EXPORT(Timer, WEBCORE_EXPORT);
 public:
+#ifndef __MORPHOS_DISABLE
     static void schedule(Seconds delay, Function<void()>&& function)
     {
         auto* timer = new Timer([] { });
@@ -187,6 +188,7 @@ public:
             "Classes that use Timer should be ref-counted or CanMakeCheckedPtr. Please do not add new exceptions."
         );
     }
+#endif
 
     Timer(Function<void()>&& function)
         : m_function(WTFMove(function))

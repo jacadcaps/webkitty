@@ -50,8 +50,12 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(FileReader);
 
+#if OS(MORPHOS)
+static const auto progressNotificationInterval = 250_ms;
+#else
 // Fire the progress event at least every 50ms.
 static const auto progressNotificationInterval = 50_ms;
+#endif
 
 Ref<FileReader> FileReader::create(ScriptExecutionContext& context)
 {

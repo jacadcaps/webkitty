@@ -42,14 +42,29 @@
 #include <wtf/text/StringBuilder.h>
 #include <wtf/unicode/icu/ICUHelpers.h>
 
+#if OS(MORPHOS)
+#define _NO_PPCINLINE
+#include <proto/harfbuzz.h>
+#include <libraries/harfbuzz.h>
+#include <unicode/uchar.h>
+#include <unicode/unorm2.h>
+#include <unicode/ustring.h>
+#include <unicode/utf16.h>
+#include <unicode/uversion.h>
+#undef _NO_PPCINLINE
+#else
 #if USE(HARFBUZZ)
 #include <hb-icu.h>
 #include <hb.h>
 #endif
-
+#endif
 
 namespace WebCore {
 using namespace icu;
+
+#if OS(MORPHOS)
+hb_script_t hb_icu_script_to_script (UScriptCode script); // in ComplexTextControllerHarfbuzz
+#endif
 
 std::unique_ptr<Locale> Locale::create(const AtomString& locale)
 {

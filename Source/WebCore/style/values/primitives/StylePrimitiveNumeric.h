@@ -124,7 +124,11 @@ template<CSS::DimensionPercentageNumeric CSSType> struct PrimitiveNumeric<CSSTyp
     using Dimension = typename DimensionPercentageMapping<CSS>::Dimension;
     using Percentage = typename DimensionPercentageMapping<CSS>::Percentage;
     using Calc = UnevaluatedCalculation<CSS>;
+#if OS(MORPHOS)
+    using Representation = Variant<Dimension, Percentage, Calc>;
+#else
     using Representation = CompactVariant<Dimension, Percentage, Calc>;
+#endif
 
     PrimitiveNumeric(Dimension dimension)
         : m_value { WTFMove(dimension) }

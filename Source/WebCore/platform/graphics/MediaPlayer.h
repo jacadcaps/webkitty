@@ -63,6 +63,7 @@ OBJC_CLASS NSArray;
 namespace WebCore {
 class MediaPlayerClient;
 class MediaPlayerFactory;
+class Page;
 }
 
 namespace WTF {
@@ -120,6 +121,7 @@ struct VideoFrameMetadata;
 struct MediaEngineSupportParameters {
     ContentType type;
     URL url;
+    Page* page { nullptr };
     bool isMediaSource { false };
     bool isMediaStream { false };
     bool requiresRemotePlayback { false };
@@ -158,7 +160,8 @@ enum class MediaPlatformType {
     Mock,
     AVFObjC,
     GStreamer,
-    Remote
+    Remote,
+    MorphOS
 };
 
 enum class MediaPlayerType {
@@ -173,7 +176,8 @@ enum class MediaPlayerType {
     GStreamer,
     GStreamerMSE,
     HolePunch,
-    Remote
+    Remote,
+    MorphOS
 };
 
 using TrackID = uint64_t;
@@ -355,6 +359,10 @@ public:
 #if !RELEASE_LOG_DISABLED
     virtual uint64_t mediaPlayerLogIdentifier() { return 0; }
     virtual const Logger& mediaPlayerLogger() = 0;
+#endif
+
+#if OS(MORPHOS)
+    virtual Page* mediaPlayerPage() { return nullptr; }
 #endif
 
 #if PLATFORM(IOS_FAMILY)
@@ -676,6 +684,10 @@ public:
     bool isGStreamerHolePunchingEnabled();
 #endif
 
+#if OS(MORPHOS)
+	void selectHLSStream(const String& url);
+#endif
+
     void beginSimulatedHDCPError();
     void endSimulatedHDCPError();
 
@@ -819,8 +831,10 @@ private:
     MediaPlayer(MediaPlayerClient&);
     MediaPlayer(MediaPlayerClient&, MediaPlayerEnums::MediaEngineIdentifier);
 
+public:
     MediaPlayerClient& client() const { return *m_client; }
 
+private:
     RefPtr<MediaPlayerPrivateInterface> protectedPrivate() const;
 
     const MediaPlayerFactory* nextBestMediaEngine(const MediaPlayerFactory*);

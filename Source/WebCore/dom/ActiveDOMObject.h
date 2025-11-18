@@ -106,6 +106,7 @@ public:
     bool isContextStopped() const;
     bool isAllowedToRunScript() const;
 
+#ifndef __MORPHOS_DISABLE
     template<typename T, typename Task>
     static void queueTaskKeepingObjectAlive(T& object, TaskSource source, Task&& task)
     {
@@ -140,6 +141,7 @@ public:
     {
         target.queueCancellableTaskToDispatchEventInternal(target, source, cancellationGroup, WTFMove(event));
     }
+#endif
 
 protected:
     explicit ActiveDOMObject(ScriptExecutionContext*);

@@ -38,6 +38,31 @@ namespace WebCore {
 
 namespace StereoPanner {
 
+#if OS(MORPHOS)
+class precalculatedSinCos {
+	double valuesSin[160];
+	double valuesCos[160];
+public:
+	precalculatedSinCos() {
+		double val = 0;
+		for (size_t v = 0; v < 160; v++, val += 0.01) {
+			valuesSin[v] = sin(val);
+			valuesCos[v] = cos(val);
+		}
+	}
+	double xsin(double v) const {
+		v *= 100.0;
+		return valuesSin[static_cast<int>(v)];
+	}
+	double xcos(double v) const {
+		v *= 100.0;
+		return valuesCos[static_cast<int>(v)];
+	}
+};
+
+static const precalculatedSinCos precalculatedSinCos;
+#endif
+
 void panWithSampleAccurateValues(const AudioBus& inputBus, AudioBus& outputBus, std::span<const float> panValues)
 {
     bool isInputSafe = (inputBus.numberOfChannels() == 1 || inputBus.numberOfChannels() == 2) && panValues.size() <= inputBus.length();
@@ -68,8 +93,13 @@ void panWithSampleAccurateValues(const AudioBus& inputBus, AudioBus& outputBus, 
             double pan = clampTo(panValue, -1.0, 1.0);
             // Pan from left to right [-1; 1] will be normalized as [0; 1].
             panRadian = (pan * 0.5 + 0.5) * piOverTwoDouble;
+#if OS(MORPHOS)
+            gainL = precalculatedSinCos.xcos(panRadian);
+            gainR = precalculatedSinCos.xsin(panRadian);
+#else
             gainL = cos(panRadian);
             gainR = sin(panRadian);
+#endif
             destinationL[i] = static_cast<float>(inputL * gainL);
             destinationR[i] = static_cast<float>(inputL * gainR);
         }
@@ -80,8 +110,13 @@ void panWithSampleAccurateValues(const AudioBus& inputBus, AudioBus& outputBus, 
             double pan = clampTo(panValue, -1.0, 1.0);
             // Normalize [-1; 0] to [0; 1]. Do nothing when [0; 1].
             panRadian = (pan <= 0 ? pan + 1 : pan) * piOverTwoDouble;
+#if OS(MORPHOS)
+            gainL = precalculatedSinCos.xcos(panRadian);
+            gainR = precalculatedSinCos.xsin(panRadian);
+#else
             gainL = cos(panRadian);
             gainR = sin(panRadian);
+#endif
             if (pan <= 0) {
                 destinationL[i] = static_cast<float>(inputL + inputR * gainL);
                 destinationR[i] = static_cast<float>(inputR * gainR);
@@ -116,17 +151,27 @@ void panToTargetValue(const AudioBus& inputBus, AudioBus& outputBus, float panVa
     
     if (numberOfInputChannels == 1) {
         double panRadian = (targetPan * 0.5 + 0.5) * piOverTwoDouble;
-        
+
+#if OS(MORPHOS)
+        double gainL = precalculatedSinCos.xcos(panRadian);
+        double gainR = precalculatedSinCos.xsin(panRadian);
+#else
         double gainL = cos(panRadian);
         double gainR = sin(panRadian);
-        
+#endif
+
         VectorMath::multiplyByScalar(sourceL, gainL, destinationL);
         VectorMath::multiplyByScalar(sourceL, gainR, destinationR);
     } else {
         double panRadian = (targetPan <= 0 ? targetPan + 1 : targetPan) * piOverTwoDouble;
-        
+
+#if OS(MORPHOS)
+        double gainL = precalculatedSinCos.xcos(panRadian);
+        double gainR = precalculatedSinCos.xsin(panRadian);
+#else
         double gainL = cos(panRadian);
         double gainR = sin(panRadian);
+#endif
 
         if (targetPan <= 0) {
             VectorMath::multiplyByScalarThenAddToVector(sourceR, gainL, sourceL, destinationL);

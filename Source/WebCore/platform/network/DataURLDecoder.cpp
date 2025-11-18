@@ -69,6 +69,13 @@ static WorkQueue& decodeQueueSingleton()
     return queue.get();
 }
 
+#if OS(MORPHOS)
+void shutdownDecodePipeline()
+{
+    decodeQueueSingleton().shutdown();
+}
+#endif
+
 static Result parseMediaType(const String& mediaType)
 {
     if (std::optional<ParsedContentType> parsedContentType = ParsedContentType::create(mediaType))

@@ -283,6 +283,10 @@ public:
     virtual void simulateAudioInterruption() { }
 #endif
 
+#if OS(MORPHOS)
+	virtual void selectHLSStream(const String&) { }
+#endif
+
     virtual void beginSimulatedHDCPError() { }
     virtual void endSimulatedHDCPError() { }
 

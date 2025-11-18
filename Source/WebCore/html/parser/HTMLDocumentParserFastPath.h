@@ -41,7 +41,11 @@ class Element;
 
 enum class ParserContentPolicy : uint8_t;
 
+#if OS(MORPHOS)
+WEBCORE_EXPORT static inline bool tryFastParsingHTMLFragment(StringView, Document&, ContainerNode&, Element&, OptionSet<ParserContentPolicy>) { return false; }
+#else
 WEBCORE_EXPORT bool tryFastParsingHTMLFragment(StringView source, Document&, ContainerNode&, Element& contextElement, OptionSet<ParserContentPolicy>);
+#endif
 
 } // namespace WebCore
 

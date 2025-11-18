@@ -72,6 +72,12 @@ protected:
     {
         ASSERT(m_refCount);
 
+#ifdef __MORPHOS__
+        volatile void* vAddr = (volatile void *)&m_refCount;
+        if (vAddr < (void *)0x1000) {
+            return false;
+        }
+#endif
         if (!--m_refCount) [[unlikely]] {
             // Setting m_refCount to 1 here prevents double delete within the destructor but not from another thread
             // since such a thread could have ref'ed this object long after it had been deleted. See webkit.org/b/201576.

@@ -199,6 +199,14 @@ size_t BitVector::bitCountSlow() const
 
 bool BitVector::isEmptySlow() const
 {
+#if CPU(BIG_ENDIAN)
+    const OutOfLineBits* bits = outOfLineBits();
+    for (unsigned i = bits->numWords(); i--;) {
+        if (bits->wordsSpan().data()[i])
+            return false;
+    }
+    return true;
+#else
     ASSERT(!isInline());
     auto vectorMatch = [&](auto input) ALWAYS_INLINE_LAMBDA -> std::optional<uint8_t> {
         if (SIMD::isNonZero(input))
@@ -213,6 +221,7 @@ bool BitVector::isEmptySlow() const
     using UnitType = std::conditional_t<sizeof(uintptr_t) == sizeof(uint32_t), uint32_t, uint64_t>;
     auto span = spanReinterpretCast<const UnitType>(outOfLineBits()->wordsSpan());
     return SIMD::find(span, vectorMatch, scalarMatch) == std::to_address(span.end());
+#endif
 }
 
 bool BitVector::equalsSlowCase(const BitVector& other) const

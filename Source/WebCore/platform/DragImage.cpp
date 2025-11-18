@@ -285,7 +285,7 @@ DragImage::~DragImage()
         deleteDragImage(m_dragImageRef);
 }
 
-#if !PLATFORM(COCOA) && !PLATFORM(GTK) && !PLATFORM(WIN) && !(PLATFORM(WPE) && ENABLE(DRAG_SUPPORT) && USE(SKIA))
+#if !PLATFORM(COCOA) && !PLATFORM(GTK) && !PLATFORM(WIN) && !(PLATFORM(WPE) && ENABLE(DRAG_SUPPORT) && USE(SKIA)) && !OS(MORPHOS)
 
 IntSize dragImageSize(DragImageRef)
 {

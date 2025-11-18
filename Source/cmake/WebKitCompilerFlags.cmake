@@ -142,7 +142,7 @@ if (DEVELOPER_MODE OR ARM)
 endif ()
 
 if (COMPILER_IS_GCC_OR_CLANG)
-    if (COMPILER_IS_CLANG OR (DEVELOPER_MODE AND NOT ARM))
+    if (COMPILER_IS_CLANG OR (DEVELOPER_MODE AND !ARM))
         # Split debug information in ".debug_types" / ".debug_info" sections - this leads
         # to a smaller overall size of the debug information, and avoids linker relocation
         # errors on e.g. aarch64 (relocation R_AARCH64_ABS32 out of range: 4312197985 is not in [-2147483648, 4294967295])
@@ -190,11 +190,6 @@ if (COMPILER_IS_GCC_OR_CLANG)
     if ((CMAKE_CXX_COMPILER_ID MATCHES "GNU") AND (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "12.0.0"))
         WEBKIT_PREPEND_GLOBAL_COMPILER_FLAGS(-Wno-mismatched-new-delete)
         WEBKIT_PREPEND_GLOBAL_COMPILER_FLAGS(-Wno-uninitialized)
-    endif ()
-
-    # GCC gives false warnings for subobject-linkage <https://gcc.gnu.org/bugzilla/show_bug.cgi?id=105595>
-    if (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-        WEBKIT_PREPEND_GLOBAL_COMPILER_FLAGS(-Wno-subobject-linkage)
     endif ()
 
     WEBKIT_PREPEND_GLOBAL_CXX_FLAGS(-Wno-noexcept-type)
