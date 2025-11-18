@@ -191,13 +191,14 @@ struct VectorCopier<false, T>
 template<typename T>
 struct VectorCopier<true, T>
 {
-    static void uninitializedCopy(const T* src, const T* srcEnd, T* dst)
+    static void uninitializedCopy(const T* src, const T* srcEnd, std::remove_const_t<T>* dst)
     {
-        memcpy(static_cast<void*>(dst), static_cast<void*>(const_cast<T*>(src)), reinterpret_cast<const char*>(srcEnd) - reinterpret_cast<const char*>(src));
+        memcpy(static_cast<void*>(dst), static_cast<void*>(const_cast<std::remove_const_t<T>*>(src)), reinterpret_cast<const char*>(srcEnd) - reinterpret_cast<const char*>(src));
     }
     template<typename U>
     static void uninitializedCopy(const T* src, const T* srcEnd, U* dst)
     {
+        static_assert(!std::is_same_v<std::remove_const_t<T>, std::remove_const_t<U>>, "We should be using the faster overload for this, which uses memcpy()");
         VectorCopier<false, T>::uninitializedCopy(src, srcEnd, dst);
     }
 };

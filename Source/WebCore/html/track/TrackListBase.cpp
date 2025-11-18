@@ -180,6 +180,8 @@ void TrackListBase::scheduleChangeEvent()
     // change at the VideoTrackList object.
     m_isChangeEventScheduled = true;
     queueTaskKeepingObjectAlive(*this, TaskSource::MediaElement, [](auto& trackList) {
+        if (trackList.isContextStopped())
+            return;
         trackList.m_isChangeEventScheduled = false;
         trackList.dispatchEvent(Event::create(eventNames().changeEvent, Event::CanBubble::No, Event::IsCancelable::No));
     });

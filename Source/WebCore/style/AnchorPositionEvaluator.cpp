@@ -996,7 +996,7 @@ void AnchorPositionEvaluator::updateAnchorPositioningStatesAfterInterleavedLayou
                     });
                 }
                 document.styleScope().anchorPositionedToAnchorMap().set(*element, AnchorPositionedToAnchorEntry {
-                    .key = elementAndState.key,
+                    .pseudoElementIdentifier = elementAndState.key.second,
                     .anchors = WTFMove(anchors)
                 });
             }

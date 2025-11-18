@@ -1,4 +1,17 @@
 ================
+WebKitGTK 2.50.1
+================
+
+What's new in WebKitGTK 2.50.1?
+
+  - Improve text rendering performance.
+  - Fix audio playback broken on instagram.
+  - Fix rendering of layers with fractional transforms.
+  - Fix the build with ENABLE(VIDEO) disabled.
+  - Fix the build in s390x.
+  - Fix several crashes and rendering issues.
+
+================
 WebKitGTK 2.50.0
 ================
 

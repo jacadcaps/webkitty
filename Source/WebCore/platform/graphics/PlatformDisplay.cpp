@@ -132,9 +132,6 @@ void PlatformDisplay::clearGLContexts()
 #if ENABLE(VIDEO) && USE(GSTREAMER_GL)
     m_gstGLContext = nullptr;
 #endif
-#if ENABLE(WEBGL) && !PLATFORM(WIN)
-    clearANGLESharingGLContext();
-#endif
     m_sharingGLContext = nullptr;
 }
 

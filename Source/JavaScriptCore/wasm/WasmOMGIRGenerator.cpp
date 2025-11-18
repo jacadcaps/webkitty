@@ -4147,7 +4147,7 @@ void OMGIRGenerator::connectValuesAtEntrypoint(unsigned& indexInBuffer, Value* p
         Value* load = loadFromScratchBuffer(indexInBuffer, pointer, value->type());
         m_currentBlock->appendNew<VariableValue>(m_proc, Set, origin(), value.value(), load);
     }
-    if (exceptionVariable) {
+    if (!Options::useWasmIPInt() && exceptionVariable) {
         Value* load = loadFromScratchBuffer(indexInBuffer, pointer, pointerType());
         m_currentBlock->appendNew<VariableValue>(m_proc, Set, origin(), exceptionVariable, load);
     }
@@ -4184,14 +4184,23 @@ auto OMGIRGenerator::addLoop(BlockSignature signature, Stack& enclosingStack, Co
         for (auto& local : m_locals)
             m_currentBlock->appendNew<VariableValue>(m_proc, Set, Origin(), local, loadFromScratchBuffer(indexInBuffer, pointer, local->type()));
 
+        if (Options::useWasmIPInt()) {
+            for (unsigned controlIndex = 0; controlIndex < m_parser->controlStack().size(); ++controlIndex) {
+                auto& data = m_parser->controlStack()[controlIndex].controlData;
+                if (ControlType::isAnyCatch(data)) {
+                    auto* load = loadFromScratchBuffer(indexInBuffer, pointer, pointerType());
+                    m_currentBlock->appendNew<VariableValue>(m_proc, Set, origin(), data.exception(), load);
+                } else if (ControlType::isTry(data))
+                    ++indexInBuffer;
+            }
+        }
+
         for (unsigned controlIndex = 0; controlIndex < m_parser->controlStack().size(); ++controlIndex) {
             auto& data = m_parser->controlStack()[controlIndex].controlData;
             auto& expressionStack = m_parser->controlStack()[controlIndex].enclosedExpressionStack;
             ASSERT(&data != &block);
             Variable* exceptionVariable = ControlType::isAnyCatch(data) ? data.exception() : nullptr;
             connectValuesAtEntrypoint(indexInBuffer, pointer, expressionStack, exceptionVariable);
-            if (Options::useWasmIPInt() && ControlType::isTry(data))
-                ++indexInBuffer;
         }
         connectValuesAtEntrypoint(indexInBuffer, pointer, enclosingStack, nullptr);
         // The loop's stack can be read by the loop body, so the restored values should join using the loop-back phi nodes.

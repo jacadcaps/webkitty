@@ -144,6 +144,7 @@ void DocumentFullscreen::requestFullscreen(Ref<Element>&& element, FullscreenChe
             return;
         }
 
+#if ENABLE(VIDEO)
         Ref videoList = maybeVideoList.releaseReturnValue();
 
         RefPtr<HTMLVideoElement> largestVideo = nullptr;
@@ -166,6 +167,7 @@ void DocumentFullscreen::requestFullscreen(Ref<Element>&& element, FullscreenChe
         }
         if (largestVideo)
             largestVideo->webkitRequestFullscreen();
+#endif
 
         completionHandler({ });
         return;

@@ -575,6 +575,9 @@ bool GraphicsLayerCoordinated::addAnimation(const KeyframeValueList& valueList, 
     if (animation->isEmptyOrZeroDuration() || valueList.size() < 2)
         return false;
 
+    if (animation->playbackRate() != 1 || !animation->directionIsForwards())
+        return false;
+
     switch (valueList.property()) {
     case AnimatedProperty::WebkitBackdropFilter:
     case AnimatedProperty::Filter: {

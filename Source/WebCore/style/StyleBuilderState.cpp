@@ -29,6 +29,7 @@
 
 #include "config.h"
 #include "StyleBuilderState.h"
+#include "StyleBuilderStateInlines.h"
 
 #include "CSSAppleColorFilterPropertyValue.h"
 #include "CSSCalcRandomCachingKey.h"

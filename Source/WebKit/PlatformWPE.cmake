@@ -504,8 +504,26 @@ if (ENABLE_WPE_PLATFORM)
     )
 
     list(APPEND WebKit_PRIVATE_LIBRARIES
-        WPEPlatform-${WPE_API_VERSION}
+        WPEPlatform
     )
+
+    if (ENABLE_WPE_PLATFORM_DRM)
+        list(APPEND WebKit_PRIVATE_LIBRARIES
+            WPEPlatformDRM
+        )
+    endif ()
+
+    if (ENABLE_WPE_PLATFORM_HEADLESS)
+        list(APPEND WebKit_PRIVATE_LIBRARIES
+            WPEPlatformHeadless
+        )
+    endif ()
+
+    if (ENABLE_WPE_PLATFORM_WAYLAND)
+        list(APPEND WebKit_PRIVATE_LIBRARIES
+            WPEPlatformWayland
+        )
+    endif ()
 
     list(APPEND WebKit_MESSAGES_IN_FILES
         UIProcess/glib/AcceleratedBackingStore
@@ -590,7 +608,6 @@ if (ENABLE_WPE_QT_API)
                 WebKit
                 ${GLIB_GOBJECT_LIBRARIES}
                 ${GLIB_LIBRARIES}
-                WPEPlatform-${WPE_API_VERSION}
         )
         target_include_directories(qtwpe PRIVATE
             $<TARGET_PROPERTY:WebKit,INCLUDE_DIRECTORIES>

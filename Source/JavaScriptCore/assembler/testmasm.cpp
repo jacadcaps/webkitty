@@ -6027,6 +6027,61 @@ static void testBranchConvertDoubleToInt52()
 }
 #endif
 
+#if CPU(X86_64)
+#define CHECK_CODE_WAS_EMITTED(_jit, _emitter) do {                      \
+        size_t _beforeCodeSize = _jit.m_assembler.buffer().codeSize();   \
+        _emitter;                                                        \
+        size_t _afterCodeSize = _jit.m_assembler.buffer().codeSize();    \
+        if (_afterCodeSize > _beforeCodeSize)                            \
+            break;                                                       \
+        crashLock.lock();                                                \
+        dataLog("FAILED while testing " #_emitter ": expected it to emit code\n"); \
+        WTFReportAssertionFailure(__FILE__, __LINE__, WTF_PRETTY_FUNCTION, "CHECK_CODE_WAS_EMITTED("#_jit ", " #_emitter ")"); \
+        CRASH();                                                         \
+    } while (false)
+
+static void testAtomicAndEmitsCode()
+{
+    // On x86, atomic (seqcst) RMW operations must emit a seqcst store (so a
+    // LOCK-prefixed store or a fence or something).
+    //
+    // This tests that the optimization to elide and'ing -1 must not be
+    // applied when the and is atomic.
+
+    auto test32 = compile([] (CCallHelpers& jit) {
+        emitFunctionPrologue(jit);
+
+        GPRReg scratch = GPRInfo::argumentGPR2;
+        jit.move(CCallHelpers::TrustedImm32(0), scratch);
+        CHECK_CODE_WAS_EMITTED(jit, jit.atomicAnd32(CCallHelpers::TrustedImm32(-1), CCallHelpers::Address(GPRInfo::argumentGPR0)));
+        CHECK_CODE_WAS_EMITTED(jit, jit.atomicAnd32(CCallHelpers::TrustedImm32(-1), CCallHelpers::BaseIndex(GPRInfo::argumentGPR0, scratch, CCallHelpers::TimesEight, 0)));
+
+        emitFunctionEpilogue(jit);
+        jit.ret();
+    });
+
+    auto test64 = compile([] (CCallHelpers& jit) {
+        emitFunctionPrologue(jit);
+
+        GPRReg scratch = GPRInfo::argumentGPR2;
+        jit.move(CCallHelpers::TrustedImm32(0), scratch);
+        CHECK_CODE_WAS_EMITTED(jit, jit.atomicAnd64(CCallHelpers::TrustedImm32(-1), CCallHelpers::Address(GPRInfo::argumentGPR0)));
+        CHECK_CODE_WAS_EMITTED(jit, jit.atomicAnd64(CCallHelpers::TrustedImm32(-1), CCallHelpers::BaseIndex(GPRInfo::argumentGPR0, scratch, CCallHelpers::TimesEight, 0)));
+
+        emitFunctionEpilogue(jit);
+        jit.ret();
+    });
+
+    uint64_t value = 42;
+
+    invoke<void>(test32, &value);
+    CHECK_EQ(value, 42);
+
+    invoke<void>(test64, &value);
+    CHECK_EQ(value, 42);
+}
+#endif
+
 static void testGPRInfoConsistency()
 {
     for (unsigned index = 0; index < GPRInfo::numberOfRegisters; ++index) {
@@ -6288,6 +6343,10 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
     RUN(testBranchIfNotType());
 #if CPU(X86_64) || CPU(ARM64)
     RUN(testBranchConvertDoubleToInt52());
+#endif
+
+#if CPU(X86_64)
+    RUN(testAtomicAndEmitsCode());
 #endif
 
     RUN(testOrImmMem());

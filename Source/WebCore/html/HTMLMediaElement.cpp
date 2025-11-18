@@ -592,6 +592,8 @@ HTMLMediaElement::HTMLMediaElement(const QualifiedName& tagName, Document& docum
     , m_explicitlyMuted(false)
     , m_paused(true)
     , m_seeking(false)
+    , m_buffering(false)
+    , m_stalled(false)
     , m_seekRequested(false)
     , m_wasPlayingBeforeSeeking(false)
     , m_sentStalledEvent(false)
@@ -9063,7 +9065,8 @@ bool HTMLMediaElement::canProduceAudio() const
 
 bool HTMLMediaElement::isSuspended() const
 {
-    ASSERT(Node::scriptExecutionContext() == ActiveDOMObject::scriptExecutionContext());
+    ASSERT(Node::scriptExecutionContext() == ActiveDOMObject::scriptExecutionContext()
+        || (!ActiveDOMObject::scriptExecutionContext() && document().activeDOMObjectsAreStopped()));
     return document().activeDOMObjectsAreSuspended() || document().activeDOMObjectsAreStopped();
 }
 

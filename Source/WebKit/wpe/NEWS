@@ -1,3 +1,17 @@
+=================
+WPE WebKit 2.50.0
+=================
+
+What's new in WPE WebKit 2.50.0?
+
+  - WPEPlatform is no longer a standalone library; applications that use
+    the API must continue using the wpeplatform-2.0 pkg-config module.
+  - Fix wpe_renderer_backend_egl_target_interface::deinitialize callbacks
+    not being invoked.
+  - Fix rendering with software rasterization enabled.
+  - Fix WebAudio issues after idling for a minute.
+  - Fix several crashes and rendering issues.
+
 ==================
 WPE WebKit 2.49.90
 ==================

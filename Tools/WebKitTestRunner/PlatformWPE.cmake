@@ -42,12 +42,6 @@ list(APPEND WebKitTestRunner_PRIVATE_LIBRARIES
     ${LIBXKBCOMMON_LIBRARIES}
 )
 
-if (ENABLE_WPE_PLATFORM)
-    list(APPEND WebKitTestRunner_LIBRARIES
-        WPEPlatform-${WPE_API_VERSION}
-    )
-endif ()
-
 list(APPEND TestRunnerInjectedBundle_LIBRARIES
     ${GLIB_LIBRARIES}
 )

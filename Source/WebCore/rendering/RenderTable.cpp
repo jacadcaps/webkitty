@@ -317,7 +317,6 @@ void RenderTable::updateLogicalWidth()
         }
 
         // Ensure we aren't bigger than our available width.
-        setLogicalWidth(std::min(availableContentLogicalWidth, maxPreferredLogicalWidth()));
         LayoutUnit maxWidth = maxPreferredLogicalWidth();
         // scaledWidthFromPercentColumns depends on m_layoutStruct in TableLayoutAlgorithmAuto, which
         // maxPreferredLogicalWidth fills in. So scaledWidthFromPercentColumns has to be called after

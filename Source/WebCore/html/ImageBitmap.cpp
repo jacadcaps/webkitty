@@ -180,7 +180,7 @@ std::optional<DetachedImageBitmap> ImageBitmap::detach()
 {
     if (!m_bitmap)
         return std::nullopt;
-    RefPtr bitmap = std::exchange(m_bitmap, nullptr);
+    RefPtr bitmap = takeImageBuffer();
     if (!bitmap->hasOneRef())
         bitmap = bitmap->clone();
     std::unique_ptr serializedBitmap = ImageBuffer::sinkIntoSerializedImageBuffer(WTFMove(bitmap));
@@ -964,6 +964,7 @@ void ImageBitmap::createCompletionHandler(ScriptExecutionContext& scriptExecutio
 
 ImageBitmap::ImageBitmap(Ref<ImageBuffer> bitmap, bool originClean, bool premultiplyAlpha, bool forciblyPremultiplyAlpha)
     : m_bitmap(WTFMove(bitmap))
+    , m_memoryCost(m_bitmap->memoryCost())
     , m_originClean(originClean)
     , m_premultiplyAlpha(premultiplyAlpha)
     , m_forciblyPremultiplyAlpha(forciblyPremultiplyAlpha)
@@ -974,6 +975,7 @@ ImageBitmap::~ImageBitmap() = default;
 
 RefPtr<ImageBuffer> ImageBitmap::takeImageBuffer()
 {
+    m_memoryCost.store(0, std::memory_order_relaxed);
     return std::exchange(m_bitmap, nullptr);
 }
 
@@ -987,14 +989,9 @@ unsigned ImageBitmap::height() const
     return m_bitmap ? m_bitmap->truncatedLogicalSize().height() : 0;
 }
 
-void ImageBitmap::updateMemoryCost()
-{
-    m_memoryCost = m_bitmap ? m_bitmap->memoryCost() : 0;
-}
-
 size_t ImageBitmap::memoryCost() const
 {
-    return m_memoryCost;
+    return m_memoryCost.load(std::memory_order_relaxed);
 }
 
 } // namespace WebCore

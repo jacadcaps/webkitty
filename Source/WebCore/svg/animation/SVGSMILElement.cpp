@@ -1051,21 +1051,27 @@ float SVGSMILElement::calculateAnimationPercentAndRepeat(SMILTime elapsed, unsig
     ASSERT(simpleDuration.isFinite());
     SMILTime activeTime = elapsed - m_intervalBegin;
     SMILTime repeatingDuration = this->repeatingDuration();
-    if (elapsed >= m_intervalEnd || activeTime > repeatingDuration) {
+
+    if ((elapsed >= m_intervalEnd && !repeatingDuration.isIndefinite()) || activeTime > repeatingDuration) {
         repeat = static_cast<unsigned>(repeatingDuration.value() / simpleDuration.value());
         if (!fmod(repeatingDuration.value(), simpleDuration.value()))
             --repeat;
+    } else
+        repeat = static_cast<unsigned>(activeTime.value() / simpleDuration.value());
 
+    double percent;
+    if (elapsed >= m_intervalEnd || activeTime > repeatingDuration) {
         double lastActiveDuration = elapsed >= m_intervalEnd ? m_intervalEnd.value() - m_intervalBegin.value() : repeatingDuration.value();
-        double percent = lastActiveDuration / simpleDuration.value();
+        percent = lastActiveDuration / simpleDuration.value();
         percent = percent - floor(percent);
         if (percent < std::numeric_limits<float>::epsilon() || 1 - percent < std::numeric_limits<float>::epsilon())
-            return 1.0f;
-        return narrowPrecisionToFloat(percent);
+            percent = 1.0f;
+    } else {
+        SMILTime simpleTime = fmod(activeTime.value(), simpleDuration.value());
+        percent = simpleTime.value() / simpleDuration.value();
     }
-    repeat = static_cast<unsigned>(activeTime.value() / simpleDuration.value());
-    SMILTime simpleTime = fmod(activeTime.value(), simpleDuration.value());
-    return narrowPrecisionToFloat(simpleTime.value() / simpleDuration.value());
+
+    return narrowPrecisionToFloat(percent);
 }
     
 SMILTime SVGSMILElement::calculateNextProgressTime(SMILTime elapsed) const

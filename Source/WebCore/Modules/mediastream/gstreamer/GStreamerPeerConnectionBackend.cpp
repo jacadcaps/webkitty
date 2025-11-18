@@ -466,12 +466,25 @@ RTCPeerConnection& GStreamerPeerConnectionBackend::connection()
 void GStreamerPeerConnectionBackend::tearDown()
 {
     for (auto& transceiver : connection().currentTransceivers()) {
-        if (auto senderBackend = transceiver->sender().backend())
+        auto& sender = transceiver->sender();
+        sender.setTransport(nullptr);
+
+        if (auto senderBackend = sender.backend())
             static_cast<GStreamerRtpSenderBackend*>(senderBackend)->tearDown();
+
+        auto& receiver = transceiver->receiver();
+        receiver.setTransport(nullptr);
+
+        auto& incomingSource = static_cast<RealtimeIncomingSourceGStreamer&>(receiver.track().privateTrack().source());
+        incomingSource.tearDown();
+
+        if (auto receiverBackend = receiver.backend())
+            static_cast<GStreamerRtpReceiverBackend*>(receiverBackend)->tearDown();
 
         auto& backend = backendFromRTPTransceiver(*transceiver);
         backend.tearDown();
     }
+    connection().clearTransports();
 }
 
 void GStreamerPeerConnectionBackend::startGatheringStatLogs(Function<void(String&&)>&& callback)

@@ -283,6 +283,8 @@ static PAS_ALWAYS_INLINE void pas_assertion_failed_noreturn_silencer(
     pas_assertion_failed(filename, line, function, expression);
 }
 
+PAS_IGNORE_WARNINGS_END
+
 #if PAS_OS(DARWIN) && PAS_VA_OPT_SUPPORTED
 
 /* FIXME: Consider whether it makes sense to capture the filename, function, and expression
@@ -310,6 +312,8 @@ PAS_NEVER_INLINE void pas_report_assertion_failed(
 #define PAS_REPORT_ASSERTION_FAILED(filename, line, function, expression) \
     PAS_UNUSED_ASSERTION_FAILED_ARGS(filename, line, function, expression)
 #endif
+
+PAS_IGNORE_WARNINGS_BEGIN("missing-noreturn")
 
 static PAS_ALWAYS_INLINE void pas_assertion_failed_noreturn_silencer1(
     const char* filename, int line, const char* function, const char* expression, uint64_t misc1)

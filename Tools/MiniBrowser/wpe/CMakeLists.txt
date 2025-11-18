@@ -36,10 +36,6 @@ if (ENABLE_WPE_PLATFORM)
         ${WPEPlatform_DERIVED_SOURCES_DIR}
         ${WEBKIT_DIR}/WPEPlatform
     )
-
-    list(APPEND MiniBrowser_PRIVATE_LIBRARIES
-        WPEPlatform-${WPE_API_VERSION}
-    )
 endif ()
 
 if (NOT USE_GSTREAMER_FULL)

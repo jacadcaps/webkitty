@@ -16,7 +16,10 @@ set(WPEPlatformMock_SYSTEM_INCLUDE_DIRECTORIES
 )
 
 set(WPEPlatformMock_LIBRARIES
-    WPEPlatform-${WPE_API_VERSION}
+    LibDRM::LibDRM
+    WTF
+    WebKit
+    bmalloc
 )
 
 add_library(WPEPlatformMock STATIC ${WPEPlatformMock_SOURCES})

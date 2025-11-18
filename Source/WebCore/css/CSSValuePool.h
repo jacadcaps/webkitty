@@ -48,18 +48,18 @@ public:
 private:
     StaticCSSValuePool();
 
-    LazyNeverDestroyed<CSSPrimitiveValue> m_implicitInitialValue;
+    CSSPrimitiveValue m_implicitInitialValue;
 
-    LazyNeverDestroyed<CSSColorValue> m_transparentColor;
-    LazyNeverDestroyed<CSSColorValue> m_whiteColor;
-    LazyNeverDestroyed<CSSColorValue> m_blackColor;
+    CSSColorValue m_transparentColor;
+    CSSColorValue m_whiteColor;
+    CSSColorValue m_blackColor;
 
     static constexpr int maximumCacheableIntegerValue = 255;
 
-    std::array<LazyNeverDestroyed<CSSPrimitiveValue>, maximumCacheableIntegerValue + 1> m_pixelValues;
-    std::array<LazyNeverDestroyed<CSSPrimitiveValue>, maximumCacheableIntegerValue + 1> m_percentageValues;
-    std::array<LazyNeverDestroyed<CSSPrimitiveValue>, maximumCacheableIntegerValue + 1> m_numberValues;
-    std::array<LazyNeverDestroyed<CSSPrimitiveValue>, numCSSValueKeywords> m_identifierValues;
+    std::array<AlignedStorage<CSSPrimitiveValue>, maximumCacheableIntegerValue + 1> m_pixelValues;
+    std::array<AlignedStorage<CSSPrimitiveValue>, maximumCacheableIntegerValue + 1> m_percentageValues;
+    std::array<AlignedStorage<CSSPrimitiveValue>, maximumCacheableIntegerValue + 1> m_numberValues;
+    std::array<AlignedStorage<CSSPrimitiveValue>, numCSSValueKeywords> m_identifierValues;
 };
 
 WEBCORE_EXPORT extern LazyNeverDestroyed<StaticCSSValuePool> staticCSSValuePool;
@@ -85,13 +85,13 @@ private:
 
 inline CSSPrimitiveValue& CSSPrimitiveValue::implicitInitialValue()
 {
-    return staticCSSValuePool->m_implicitInitialValue.get();
+    return staticCSSValuePool->m_implicitInitialValue;
 }
 
 inline Ref<CSSPrimitiveValue> CSSPrimitiveValue::create(CSSValueID identifier)
 {
     RELEASE_ASSERT(identifier < numCSSValueKeywords);
-    return staticCSSValuePool->m_identifierValues[identifier].get();
+    return *staticCSSValuePool->m_identifierValues[identifier];
 }
 
 } // namespace WebCore

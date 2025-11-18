@@ -444,6 +444,7 @@ protected:
 
     GCGLDisplay m_displayObj { nullptr };
     GCGLContext m_contextObj { nullptr };
+    GCGLContext m_angleSharingContextObj { nullptr };
     GCGLConfig m_configObj { nullptr };
 #if USE(TEXTURE_MAPPER)
     GCEGLSurface m_surfaceObj { nullptr };

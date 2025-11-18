@@ -238,6 +238,9 @@ const Scope& Scope::forNode(const Node& node)
 
 Scope* Scope::forOrdinal(Element& element, ScopeOrdinal ordinal)
 {
+    if (CheckedPtr pseudoElement = dynamicDowncast<PseudoElement>(element))
+        return forOrdinal(*pseudoElement->hostElement(), ordinal);
+
     if (ordinal == ScopeOrdinal::Element)
         return &forNode(element);
     if (ordinal == ScopeOrdinal::Shadow) {

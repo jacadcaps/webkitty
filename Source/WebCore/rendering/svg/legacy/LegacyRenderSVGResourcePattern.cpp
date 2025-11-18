@@ -260,7 +260,7 @@ RefPtr<ImageBuffer> LegacyRenderSVGResourcePattern::createTileImage(GraphicsCont
     auto tileSize = roundedUnscaledImageBufferSize(size, scale);
 
     // FIXME: Use createImageBuffer(rect, scale), delete the above calculations and fix 'tileImageTransform'
-    auto tileImage = context.createScaledImageBuffer(tileSize, scale);
+    auto tileImage = context.createScaledImageBuffer(tileSize, scale.expandedTo(context.scaleFactor()));
     if (!tileImage)
         return nullptr;
 

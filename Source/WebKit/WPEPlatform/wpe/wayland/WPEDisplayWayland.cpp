@@ -188,16 +188,6 @@ static GRefPtr<GSource> wpeDisplayWaylandCreateEventSource(WPEDisplayWayland* di
     return source;
 }
 
-static void wpeDisplayWaylandConstructed(GObject* object)
-{
-    G_OBJECT_CLASS(wpe_display_wayland_parent_class)->constructed(object);
-#if USE(SYSPROF_CAPTURE)
-    // libWPEPlatform brings its own SysprofAnnotator copy, due to linking against static libWTF.
-    // Therefore we need to initialize it here, otherwise no marks will be received by sysprof.
-    SysprofAnnotator::createIfNeeded("WPE/Wayland Platform"_s);
-#endif
-}
-
 static void wpeDisplayWaylandDispose(GObject* object)
 {
     auto* priv = WPE_DISPLAY_WAYLAND(object)->priv;
@@ -655,7 +645,6 @@ struct zwp_linux_explicit_synchronization_v1* wpeDisplayWaylandGetLinuxExplicitS
 static void wpe_display_wayland_class_init(WPEDisplayWaylandClass* displayWaylandClass)
 {
     GObjectClass* objectClass = G_OBJECT_CLASS(displayWaylandClass);
-    objectClass->constructed = wpeDisplayWaylandConstructed;
     objectClass->dispose = wpeDisplayWaylandDispose;
 
     WPEDisplayClass* displayClass = WPE_DISPLAY_CLASS(displayWaylandClass);

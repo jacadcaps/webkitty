@@ -214,6 +214,8 @@ public:
     void startGatheringStatLogs(Function<void(String&&)>&&);
     void stopGatheringStatLogs();
 
+    void clearTransports();
+
 private:
     RTCPeerConnection(Document&);
 

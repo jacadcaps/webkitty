@@ -121,11 +121,11 @@ set(WPEPlatform_LIBRARIES
 
 if (USE_GBM)
     list(APPEND WPEPlatform_LIBRARIES GBM::GBM)
-elseif (USE_LIBDRM)
-    list(APPEND WPEPlatform_LIBRARIES LibDRM::LibDRM)
 endif ()
 
 if (USE_LIBDRM)
+    list(APPEND WPEPlatform_LIBRARIES LibDRM::LibDRM)
+
     list(APPEND WPEPlatform_SOURCES
         ${WEBKIT_DIR}/WPEPlatform/wpe/WPEScreenSyncObserverDRM.cpp
     )
@@ -187,14 +187,13 @@ if (ENABLE_WPE_PLATFORM_WAYLAND)
     list(APPEND WPEPlatform_LIBRARIES WPEPlatformWayland)
 endif ()
 
-add_library(WPEPlatform-${WPE_API_VERSION} SHARED ${WPEPlatform_SOURCES})
-set_target_properties(WPEPlatform-${WPE_API_VERSION} PROPERTIES VERSION ${WPE_PLATFORM_VERSION} SOVERSION ${WPE_PLATFORM_VERSION_MAJOR})
-target_include_directories(WPEPlatform-${WPE_API_VERSION} PRIVATE ${WPEPlatform_PRIVATE_INCLUDE_DIRECTORIES})
-target_include_directories(WPEPlatform-${WPE_API_VERSION} SYSTEM PRIVATE ${WPEPlatform_SYSTEM_INCLUDE_DIRECTORIES})
-target_link_libraries(WPEPlatform-${WPE_API_VERSION} ${WPEPlatform_LIBRARIES})
+add_library(WPEPlatform OBJECT ${WPEPlatform_SOURCES})
+target_include_directories(WPEPlatform PRIVATE ${WPEPlatform_PRIVATE_INCLUDE_DIRECTORIES})
+target_include_directories(WPEPlatform SYSTEM PRIVATE ${WPEPlatform_SYSTEM_INCLUDE_DIRECTORIES})
+target_link_libraries(WPEPlatform ${WPEPlatform_LIBRARIES})
 
 GI_INTROSPECT(WPEPlatform ${WPE_API_VERSION} wpe/wpe-platform.h
-    TARGET WPEPlatform-${WPE_API_VERSION}
+    TARGET WebKit
     PACKAGE wpe-platform
     IDENTIFIER_PREFIX WPE
     SYMBOL_PREFIX wpe
@@ -213,7 +212,7 @@ GI_DOCGEN(WPEPlatform docs/wpeplatform.toml.in)
 if (ENABLE_WPE_PLATFORM_DRM)
     get_target_property(WPEPlatformDRM_SOURCES_FOR_INTROSPECTION WPEPlatformDRM SOURCES_FOR_INTROSPECTION)
     GI_INTROSPECT(WPEPlatformDRM ${WPE_API_VERSION} wpe/drm/wpe-drm.h
-        TARGET WPEPlatform-${WPE_API_VERSION}
+        TARGET WebKit
         PACKAGE wpe-platform-drm
         IDENTIFIER_PREFIX WPE
         SYMBOL_PREFIX wpe
@@ -232,7 +231,7 @@ endif ()
 if (ENABLE_WPE_PLATFORM_HEADLESS)
     get_target_property(WPEPlatformHeadless_SOURCES_FOR_INTROSPECTION WPEPlatformHeadless SOURCES_FOR_INTROSPECTION)
     GI_INTROSPECT(WPEPlatformHeadless ${WPE_API_VERSION} wpe/headless/wpe-headless.h
-        TARGET WPEPlatform-${WPE_API_VERSION}
+        TARGET WebKit
         PACKAGE wpe-platform-headless
         IDENTIFIER_PREFIX WPE
         SYMBOL_PREFIX wpe
@@ -251,7 +250,7 @@ endif ()
 if (ENABLE_WPE_PLATFORM_WAYLAND)
     get_target_property(WPEPlatformWayland_SOURCES_FOR_INTROSPECTION WPEPlatformWayland SOURCES_FOR_INTROSPECTION)
     GI_INTROSPECT(WPEPlatformWayland ${WPE_API_VERSION} wpe/wayland/wpe-wayland.h
-        TARGET WPEPlatform-${WPE_API_VERSION}
+        TARGET WebKit
         PACKAGE wpe-platform-wayland
         IDENTIFIER_PREFIX WPE
         SYMBOL_PREFIX wpe
@@ -266,8 +265,6 @@ if (ENABLE_WPE_PLATFORM_WAYLAND)
 
     GI_DOCGEN(WPEPlatformWayland docs/wpeplatform-wayland.toml.in)
 endif ()
-
-install(TARGETS WPEPlatform-${WPE_API_VERSION} LIBRARY DESTINATION "${LIB_INSTALL_DIR}")
 
 install(FILES "${CMAKE_BINARY_DIR}/wpe-platform-${WPE_API_VERSION}.pc"
         DESTINATION "${LIB_INSTALL_DIR}/pkgconfig"

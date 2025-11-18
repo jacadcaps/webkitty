@@ -3354,6 +3354,9 @@ op(loop_osr_entry_gate, macro ()
     crash() # Should never reach here.
 end)
 
+op(op_instanceof_return_location, macro ()
+    crash() # Should never reach here.
+end)
 
 llintOpWithMetadata(op_check_private_brand, OpCheckPrivateBrand, macro (size, get, dispatch, metadata, return)
     metadata(t5, t2)

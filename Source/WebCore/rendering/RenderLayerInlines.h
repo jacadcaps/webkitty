@@ -29,7 +29,7 @@
 
 namespace WebCore {
 
-inline bool RenderLayer::canPaintTransparencyWithSetOpacity() const { return isBitmapOnly() && !hasNonOpacityTransparency(); }
+inline bool RenderLayer::canPaintTransparencyWithSetOpacity() const { return isBitmapOnly() && !hasNonOpacityTransparency() && !hasFilter(); }
 inline bool RenderLayer::hasBackdropFilter() const { return renderer().hasBackdropFilter(); }
 inline bool RenderLayer::hasFilter() const { return renderer().hasFilter(); }
 inline bool RenderLayer::hasPerspective() const { return renderer().style().hasPerspective(); }

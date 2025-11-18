@@ -95,9 +95,10 @@ struct ResolvedAnchor {
 };
 
 struct AnchorPositionedToAnchorEntry {
-    // This key can be used to access the AnchorPositionedState struct of the current element
-    // in an AnchorPositionedStates map.
-    AnchorPositionedKey key;
+    // The pseudo-element identifier can be used to access the AnchorPositionedState struct
+    // of the current element in an AnchorPositionedStates map, in combination with the relevant
+    // Element object.
+    std::optional<PseudoElementIdentifier> pseudoElementIdentifier;
 
     Vector<ResolvedAnchor> anchors;
 

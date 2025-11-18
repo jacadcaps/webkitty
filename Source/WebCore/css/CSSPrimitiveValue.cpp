@@ -423,14 +423,14 @@ Ref<CSSPrimitiveValue> CSSPrimitiveValue::create(CSSPropertyID propertyID)
     return adoptRef(*new CSSPrimitiveValue(propertyID));
 }
 
-static CSSPrimitiveValue* valueFromPool(std::span<LazyNeverDestroyed<CSSPrimitiveValue>> pool, double value)
+static CSSPrimitiveValue* valueFromPool(std::span<AlignedStorage<CSSPrimitiveValue>> pool, double value)
 {
     // Casting to a signed integer first since casting a negative floating point value to an unsigned
     // integer is undefined behavior.
     unsigned poolIndex = static_cast<unsigned>(static_cast<int>(value));
     double roundTripValue = poolIndex;
     if (equalSpans(asByteSpan(value), asByteSpan(roundTripValue)) && poolIndex < pool.size())
-        return &pool[poolIndex].get();
+        return pool[poolIndex].get();
     return nullptr;
 }
 

@@ -3101,9 +3101,12 @@ void Page::setShouldSuppressHDR(bool shouldSuppressHDR)
         return;
 
     m_shouldSuppressHDR = shouldSuppressHDR;
+
+#if ENABLE(VIDEO)
     forEachDocument([](auto& document) {
         document.shouldSuppressHDRDidChange();
     });
+#endif
 }
 
 #if ENABLE(MEDIA_STREAM)

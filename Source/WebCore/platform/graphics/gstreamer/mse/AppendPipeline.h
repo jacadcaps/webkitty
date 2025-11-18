@@ -89,6 +89,7 @@ private:
         GRefPtr<GstElement> parser;
         GRefPtr<GstElement> encoder;
         GRefPtr<GstElement> appsink;
+        GRefPtr<GstPad> demuxerSrcPad;
         GRefPtr<GstPad> entryPad; // Sink pad of the parser/GstIdentity.
         GRefPtr<GstPad> appsinkPad;
 

@@ -1234,6 +1234,12 @@ void RTCPeerConnection::stopGatheringStatLogs()
     protectedBackend()->stopGatheringStatLogs();
 }
 
+void RTCPeerConnection::clearTransports()
+{
+    m_dtlsTransports.clear();
+    m_iceTransports.clear();
+}
+
 } // namespace WebCore
 
 #endif // ENABLE(WEB_RTC)

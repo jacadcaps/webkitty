@@ -50,6 +50,12 @@ GStreamerRtpReceiverBackend::GStreamerRtpReceiverBackend(GRefPtr<GstWebRTCRTPTra
     g_object_get(m_rtcTransceiver.get(), "receiver", &m_rtcReceiver.outPtr(), nullptr);
 }
 
+void GStreamerRtpReceiverBackend::tearDown()
+{
+    m_rtcReceiver = nullptr;
+    m_rtcTransceiver = nullptr;
+}
+
 RTCRtpParameters GStreamerRtpReceiverBackend::getParameters()
 {
     RTCRtpParameters parameters;

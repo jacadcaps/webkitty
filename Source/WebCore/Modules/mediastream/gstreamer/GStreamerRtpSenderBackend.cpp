@@ -135,6 +135,8 @@ void GStreamerRtpSenderBackend::tearDown()
         source->teardown();
     }, [&](std::nullptr_t&) {
     });
+
+    m_rtcSender = nullptr;
 }
 
 bool GStreamerRtpSenderBackend::replaceTrack(RTCRtpSender& sender, MediaStreamTrack* track)

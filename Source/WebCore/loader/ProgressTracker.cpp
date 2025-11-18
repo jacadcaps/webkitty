@@ -174,7 +174,7 @@ void ProgressTracker::finalProgressComplete()
 
     // Before resetting progress value be sure to send client a least one notification
     // with final progress value.
-    if (!m_finalProgressChangedSent) {
+    if (frame && !m_finalProgressChangedSent) {
         m_progressValue = 1;
         progressEstimateChanged(*frame);
     }
