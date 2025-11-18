@@ -970,9 +970,9 @@ bool shouldLoadResource(const WebCore::ContentExtensions::ResourceLoadInfo& info
 	return instance.shouldAllowRequest(url.data(), mainurl.data(), loader);
 #else
     auto frameLoader = loader.frameLoader();
-    if (LIKELY(frameLoader)) {
+    if (frameLoader) [[likely]] {
         auto loaderClient = WebKit::toWebFrameLoaderClient(frameLoader->client());
-        if (LIKELY(loaderClient))
+        if (loaderClient) [[likely]]
         {
             WebKit::WebPage *page = loaderClient->webFrame().page();
 
