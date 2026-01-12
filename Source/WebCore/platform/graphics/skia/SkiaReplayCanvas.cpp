@@ -89,7 +89,9 @@ void SkiaReplayCanvas::invokeDrawFunctionWithPaint(const SkPaint& paint, Functio
     auto* shader = paint.getShader();
 
     SkMatrix localMatrix;
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
     SkTileMode mode[2];
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     auto* image = shader ? shader->isAImage(&localMatrix, mode) : nullptr;
     if (auto wrappedImage = waitForRenderingCompletionAndRewrapImageIfNeeded(image)) {
         // FIXME: There is no way to get the SkSamplingOptions that were used to create the original shader.
@@ -106,7 +108,9 @@ void SkiaReplayCanvas::invokeDrawFunctionWithPaint(const SkPaint& paint, Functio
 void SkiaReplayCanvas::invokeDrawFunctionWithShader(const SkShader* shader, Function<void(const SkShader*)>&& drawFunction)
 {
     SkMatrix localMatrix;
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
     SkTileMode mode[2];
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     auto* image = shader ? shader->isAImage(&localMatrix, mode) : nullptr;
     if (auto wrappedImage = waitForRenderingCompletionAndRewrapImageIfNeeded(image)) {
         // FIXME: There is no way to get the SkSamplingOptions that were used to create the original shader.

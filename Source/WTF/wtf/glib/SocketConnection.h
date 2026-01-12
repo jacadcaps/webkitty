@@ -50,6 +50,7 @@ public:
 private:
     WTF_EXPORT_PRIVATE SocketConnection(GRefPtr<GSocketConnection>&&, const MessageHandlers&, gpointer);
 
+    bool didReceiveInvalidMessage(const CString& message);
     bool read();
     bool readMessage();
     void write();

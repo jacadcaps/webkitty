@@ -493,30 +493,6 @@ RefPtr<CSSValue> consumeFontSizeAdjust(CSSParserTokenRange& range, CSS::Property
 
 // MARK: - @font-face
 
-// MARK: @font-face 'font-family'
-
-RefPtr<CSSValue> parseFontFaceFontFamily(const String& string, ScriptExecutionContext& context)
-{
-    // <'font-family'> = <family-name>
-    // https://drafts.csswg.org/css-fonts-4/#descdef-font-face-font-family
-
-    CSSParserContext parserContext(parserMode(context));
-    CSSParser parser(parserContext, string);
-    CSSParserTokenRange range = parser.tokenizer()->tokenRange();
-
-    range.consumeWhitespace();
-
-    if (range.atEnd())
-        return nullptr;
-
-    auto state = CSS::PropertyParserState { .context = parserContext, .pool = context.cssValuePool() };
-    auto parsedValue = CSSPropertyParsing::consumeFontFaceFontFamily(range, state);
-    if (!parsedValue || !range.atEnd())
-        return nullptr;
-
-    return parsedValue;
-}
-
 // MARK: @font-face 'src'
 
 Vector<FontTechnology> consumeFontTech(CSSParserTokenRange& range, CSS::PropertyParserState&, bool singleValue)

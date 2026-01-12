@@ -78,7 +78,7 @@ private:
 
     bool rendererIsNeeded(const RenderStyle&) final;
     RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
-    bool isReplaced(const RenderStyle&) const final { return true; }
+    bool isReplaced(const RenderStyle* = nullptr) const final { return true; }
 
     ReferrerPolicy referrerPolicyFromAttribute() const;
     bool shouldLoadFrameLazily() final;

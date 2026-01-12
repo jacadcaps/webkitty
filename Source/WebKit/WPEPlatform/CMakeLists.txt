@@ -103,7 +103,6 @@ set(WPEPlatform_PRIVATE_INCLUDE_DIRECTORIES
     "${WPEPlatform_DERIVED_SOURCES_DIR}/wpe"
     "${WEBKIT_DIR}/WPEPlatform"
     "${WEBKIT_DIR}/WPEPlatform/wpe"
-    "${WTF_FRAMEWORK_HEADERS_DIR}"
 )
 
 set(WPEPlatform_SYSTEM_INCLUDE_DIRECTORIES
@@ -112,7 +111,7 @@ set(WPEPlatform_SYSTEM_INCLUDE_DIRECTORIES
 
 set(WPEPlatform_LIBRARIES
     Epoxy::Epoxy
-    WTF
+    WebKit::WTF
     ${GLIB_GIO_LIBRARIES}
     ${GLIB_GOBJECT_LIBRARIES}
     ${GLIB_LIBRARIES}
@@ -191,6 +190,7 @@ add_library(WPEPlatform OBJECT ${WPEPlatform_SOURCES})
 target_include_directories(WPEPlatform PRIVATE ${WPEPlatform_PRIVATE_INCLUDE_DIRECTORIES})
 target_include_directories(WPEPlatform SYSTEM PRIVATE ${WPEPlatform_SYSTEM_INCLUDE_DIRECTORIES})
 target_link_libraries(WPEPlatform ${WPEPlatform_LIBRARIES})
+add_dependencies(WPEPlatform WPEPlatformGeneratedEnumTypesHeader)
 
 GI_INTROSPECT(WPEPlatform ${WPE_API_VERSION} wpe/wpe-platform.h
     TARGET WebKit

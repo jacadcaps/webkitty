@@ -55,7 +55,9 @@ enum class MatchElement : uint8_t {
     HasSibling,
     HasSiblingDescendant,
     HasAnySibling,
-    HasNonSubject, // FIXME: This is a catch-all for cases where :has() is in a non-subject position.
+    HasChildParent,
+    HasChildAncestor,
+    HasNonSubject, // FIXME: This is a catch-all for the rest of cases where :has() is in a non-subject position.
     HasScopeBreaking, // FIXME: This is a catch-all for cases where :has() contains a scope breaking sub-selector like, like :has(:is(.x .y)).
     Host,
     HostChild

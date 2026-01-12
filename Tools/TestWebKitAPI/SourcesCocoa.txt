@@ -239,6 +239,7 @@ Tests/WebKitCocoa/PushAPI.mm
 Tests/WebKitCocoa/QuickLook.mm
 Tests/WebKitCocoa/ReloadWithDifferingInitialScale.mm
 Tests/WebKitCocoa/RemoteObjectRegistry.mm
+Tests/WebKitCocoa/RemoveFullscreenElementFromDOM.mm
 Tests/WebKitCocoa/RenderedImageWithOptions.mm
 Tests/WebKitCocoa/RenderingProgress.mm
 Tests/WebKitCocoa/ReparentWebViewTimeout.mm

@@ -1,4 +1,51 @@
 =================
+WPE WebKit 2.50.3
+=================
+
+What's new in WPE WebKit 2.50.3?
+
+  - Fix pointer event processing no longer working after a mouse right button press.
+  - Fix seeking and looping of media elements that set the "loop" property.
+  - Fix several crashes and rendering issues.
+
+=================
+WPE WebKit 2.50.2
+=================
+
+What's new in WPE WebKit 2.50.2?
+
+  - Prevent unsafe URI schemes from participating in media playback.
+  - Make webkit_web_view_add_frame_displayed_callback() work with WPEPlatform.
+  - Make jsc_value_array_buffer_get_data() function introspectable.
+  - Fix logging in to Google accounts that have a WebAuthn second factor configured.
+  - Fix loading webkit://gpu when there are no threads configured for GPU rendering.
+  - Fix rendering gradiants that use the CSS hue interpolation method.
+  - Fix pasting image data from the clipboard.
+  - Fix font-family selection when the font name contains spaces.
+  - Fix the build with standard C libraries that lack execinfo.h,
+    like Musl or uClibc.
+  - Fix capturing canvas snapshots in the Web Inspector.
+  - Fix build dependencies to ensure that generated headers for WPEPlatform
+    are always created before they are needed.
+  - Fix several crashes and rendering issues.
+
+=================
+WPE WebKit 2.50.1
+=================
+
+What's new in WPE WebKit 2.50.1?
+
+  - Improve text rendering performance.
+  - On Android, the built library no longer includes versioning
+    information in its name.
+  - Fix audio playback broken on Instagram.
+  - Fix blurry rendering of SVG patterns when zoomed.
+  - Fix rendering of layers with fractional transforms.
+  - Fix the build with ENABLE(VIDEO) disabled.
+  - Fix the build in s390x.
+  - Fix several crashes and rendering issues.
+
+=================
 WPE WebKit 2.50.0
 =================
 

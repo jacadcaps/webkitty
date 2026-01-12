@@ -75,6 +75,7 @@ public:
     AnimationEvents prepareForPendingAnimationEventsDispatch();
     void documentDidUpdateAnimationsAndSendEvents();
     void styleOriginatedAnimationsWereCreated();
+    void pendingStartTimeWasSetOnAnimation();
 
     WEBCORE_EXPORT Seconds animationInterval() const;
     void suspendAnimations() override;

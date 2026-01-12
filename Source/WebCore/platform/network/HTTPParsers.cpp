@@ -613,65 +613,60 @@ OptionSet<ClearSiteDataValue> parseClearSiteDataHeader(const ResourceResponse& r
 
 // Implements <https://fetch.spec.whatwg.org/#simple-range-header-value>.
 // FIXME: this whole function could be more efficient by walking through the range value once.
-bool parseRange(StringView range, RangeAllowWhitespace allowWhitespace, long long& rangeStart, long long& rangeEnd)
+std::optional<HTTPRange> parseRange(StringView range, RangeAllowWhitespace allowWhitespace)
 {
-    rangeStart = rangeEnd = -1;
-
     // Only 0x20 and 0x09 matter as newlines are already gone by the time we parse a header value.
-    if (allowWhitespace == RangeAllowWhitespace::No && range.find(isTabOrSpace<char16_t>) != notFound)
-        return false;
+    if (allowWhitespace == RangeAllowWhitespace::No && range.contains(isTabOrSpace<char16_t>))
+        return std::nullopt;
 
     // The "bytes" unit identifier should be present.
     static const unsigned bytesLength = 5;
     if (!startsWithLettersIgnoringASCIICase(range, "bytes"_s))
-        return false;
+        return std::nullopt;
 
     auto byteRange = range.substring(bytesLength).trim(isASCIIWhitespaceWithoutFF<char16_t>);
 
     if (!byteRange.startsWith('='))
-        return false;
+        return std::nullopt;
 
     byteRange = byteRange.substring(1);
 
     // The '-' character needs to be present.
-    int index = byteRange.find('-');
-    if (index == -1)
-        return false;
+    size_t index = byteRange.find('-');
+    if (index == notFound)
+        return std::nullopt;
 
     // If the '-' character is at the beginning, the suffix length, which specifies the last N bytes, is provided.
     // Example:
     //     -500
     if (!index) {
-        auto value = parseInteger<long long>(byteRange.substring(index + 1));
+        auto value = parseInteger<uint64_t>(byteRange.substring(index + 1));
         if (!value)
-            return false;
-        rangeEnd = *value;
-        return true;
+            return std::nullopt;
+        return HTTPRange { std::nullopt, *value };
     }
 
     // Otherwise, the first-byte-position and the last-byte-position are provied.
     // Examples:
     //     0-499
     //     500-
-    auto firstBytePos = parseInteger<long long>(byteRange.left(index));
+    auto firstBytePos = parseInteger<uint64_t>(byteRange.left(index));
     if (!firstBytePos)
-        return false;
+        return std::nullopt;
 
     auto lastBytePosStr = byteRange.substring(index + 1);
-    long long lastBytePos = -1;
+    std::optional<uint64_t> lastBytePos;
     if (!lastBytePosStr.isEmpty()) {
-        auto value = parseInteger<long long>(lastBytePosStr);
+        auto value = parseInteger<uint64_t>(lastBytePosStr);
         if (!value)
-            return false;
+            return std::nullopt;
         lastBytePos = *value;
     }
 
-    if (*firstBytePos < 0 || !(lastBytePos == -1 || lastBytePos >= *firstBytePos))
-        return false;
+    if (lastBytePos && *firstBytePos > *lastBytePos)
+        return std::nullopt;
 
-    rangeStart = *firstBytePos;
-    rangeEnd = lastBytePos;
-    return true;
+    return HTTPRange { *firstBytePos, lastBytePos };
 }
 
 template<typename CharacterType>
@@ -962,14 +957,12 @@ bool isCrossOriginSafeRequestHeader(HTTPHeaderName name, const String& value)
             return false;
         break;
     }
-    case HTTPHeaderName::Range:
-        long long start;
-        long long end;
-        if (!parseRange(value, RangeAllowWhitespace::No, start, end))
-            return false;
-        if (start == -1)
+    case HTTPHeaderName::Range: {
+        auto range = parseRange(value, RangeAllowWhitespace::No);
+        if (!range || !range->start)
             return false;
         break;
+    }
     default:
         return false;
     }

@@ -420,6 +420,10 @@ bool RenderBlock::isSelfCollapsingBlock() const
     // (c) have border/padding,
     // (d) have a min-height
     // (e) have specified that one of our margins can't collapse using a CSS extension
+
+    if (isOutOfFlowPositioned())
+        return false;
+
     if (logicalHeight() > 0
         || isRenderTable() || borderAndPaddingLogicalHeight()
         || style().logicalMinHeight().isPositive())
@@ -760,6 +764,8 @@ bool RenderBlock::canPerformSimplifiedLayout() const
     if (auto wasSkippedDuringLastLayout = wasSkippedDuringLastLayoutDueToContentVisibility(); wasSkippedDuringLastLayout && *wasSkippedDuringLastLayout)
         return false;
     if (layoutContext().isSkippedContentRootForLayout(*this) && (outOfFlowChildNeedsLayout() || canContainFixedPositionObjects()))
+        return false;
+    if (isSkippedContentRoot(*this) && firstChild() && firstChild()->wasSkippedDuringLastLayoutDueToContentVisibility())
         return false;
     return outOfFlowChildNeedsLayout() || needsSimplifiedNormalFlowLayout();
 }
@@ -2117,8 +2123,11 @@ bool RenderBlock::nodeAtPoint(const HitTestRequest& request, HitTestResult& resu
 
 bool RenderBlock::hitTestContents(const HitTestRequest& request, HitTestResult& result, const HitTestLocation& locationInContainer, const LayoutPoint& accumulatedOffset, HitTestAction hitTestAction)
 {
-    if (childrenInline() && !isRenderTable())
+    if (childrenInline() && !isRenderTable()) {
+        if (style().isSkippedRootOrSkippedContent())
+            return false;
         return hitTestInlineChildren(request, result, locationInContainer, accumulatedOffset, hitTestAction);
+    }
 
     // Hit test our children.
     HitTestAction childHitTest = hitTestAction;

@@ -152,7 +152,7 @@ void WebPasteboardProxy::writeCustomData(IPC::Connection&, const Vector<Pasteboa
     clipboard.write(WTFMove(selectionData), WTFMove(completionHandler));
 }
 
-static WebCore::PasteboardItemInfo pasteboardIemInfoFromFormats(Vector<String>&& formats)
+static WebCore::PasteboardItemInfo pasteboardItemInfoFromFormats(Vector<String>&& formats)
 {
     WebCore::PasteboardItemInfo info;
     if (formats.contains("text/plain"_s) || formats.contains("text/plain;charset=utf-8"_s))
@@ -176,7 +176,7 @@ void WebPasteboardProxy::allPasteboardItemInfo(IPC::Connection&, const String& p
     }
 
     clipboard.formats([completionHandler = WTFMove(completionHandler)](Vector<String>&& formats) mutable {
-        completionHandler(Vector<WebCore::PasteboardItemInfo> { pasteboardIemInfoFromFormats(WTFMove(formats)) });
+        completionHandler(Vector<WebCore::PasteboardItemInfo> { pasteboardItemInfoFromFormats(WTFMove(formats)) });
     });
 }
 
@@ -189,7 +189,7 @@ void WebPasteboardProxy::informationForItemAtIndex(IPC::Connection&, uint64_t in
     }
 
     clipboard.formats([completionHandler = WTFMove(completionHandler)](Vector<String>&& formats) mutable {
-        completionHandler(pasteboardIemInfoFromFormats(WTFMove(formats)));
+        completionHandler(pasteboardItemInfoFromFormats(WTFMove(formats)));
     });
 }
 

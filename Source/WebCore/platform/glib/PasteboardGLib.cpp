@@ -266,6 +266,25 @@ void Pasteboard::setDragImage(DragImage, const IntPoint&)
 }
 #endif
 
+static constexpr std::array<ASCIILiteral, 6> imageTypes = { "image/png"_s, "image/jpeg"_s, "image/gif"_s, "image/bmp"_s, "image/vnd.microsoft.icon"_s, "image/x-icon"_s };
+
+static ASCIILiteral imageTypeToFakeFilename(const ASCIILiteral& type)
+{
+    if (type == "image/png"_s)
+        return "image.png"_s;
+    if (type == "image/jpeg"_s)
+        return "image.jpeg"_s;
+    if (type == "image/gif"_s)
+        return "image.gif"_s;
+    if (type == "image/bmp"_s)
+        return "image.bmp"_s;
+    if (type == "image/vnd.microsoft.icon"_s || type == "image/x-icon"_s)
+        return "image.ico"_s;
+
+    ASSERT_NOT_REACHED();
+    return { };
+}
+
 void Pasteboard::read(PasteboardWebContentReader& reader, WebContentReadingPolicy policy, std::optional<size_t>)
 {
     reader.setContentOrigin(readOrigin());
@@ -296,7 +315,6 @@ void Pasteboard::read(PasteboardWebContentReader& reader, WebContentReadingPolic
     if (policy == WebContentReadingPolicy::OnlyRichTextTypes)
         return;
 
-    static const ASCIILiteral imageTypes[] = { "image/png"_s, "image/jpeg"_s, "image/gif"_s, "image/bmp"_s, "image/vnd.microsoft.icon"_s, "image/x-icon"_s };
     for (const auto& imageType : imageTypes) {
         if (types.contains(imageType)) {
             auto buffer = platformStrategies()->pasteboardStrategy()->readBufferFromClipboard(m_name, imageType);
@@ -324,7 +342,7 @@ void Pasteboard::read(PasteboardWebContentReader& reader, WebContentReadingPolic
     }
 }
 
-void Pasteboard::read(PasteboardFileReader& reader, std::optional<size_t> index)
+void Pasteboard::read(PasteboardFileReader& reader, std::optional<size_t>)
 {
     if (m_selectionData) {
         for (const auto& filePath : m_selectionData->filenames())
@@ -332,16 +350,20 @@ void Pasteboard::read(PasteboardFileReader& reader, std::optional<size_t> index)
         return;
     }
 
-    if (!index) {
-        auto filePaths = platformStrategies()->pasteboardStrategy()->readFilePathsFromClipboard(m_name);
+    auto filePaths = platformStrategies()->pasteboardStrategy()->readFilePathsFromClipboard(m_name);
+    if (!filePaths.isEmpty()) {
         for (const auto& filePath : filePaths)
             reader.readFilename(filePath);
         return;
     }
 
-    if (reader.shouldReadBuffer("image/png"_s)) {
-        if (auto buffer = readBuffer(index, "image/png"_s))
-            reader.readBuffer({ }, { }, buffer.releaseNonNull());
+    for (const auto& imageType : imageTypes) {
+        if (!reader.shouldReadBuffer(imageType))
+            continue;
+        if (auto buffer = readBuffer(0, imageType)) {
+            reader.readBuffer(imageTypeToFakeFilename(imageType), imageType, buffer.releaseNonNull());
+            return;
+        }
     }
 }
 

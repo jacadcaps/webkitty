@@ -208,7 +208,8 @@ static void makeResponderFirstResponderIfDescendantOfView(NSWindow *window, NSRe
     // If the page doesn't respond in DefaultWatchdogTimerInterval seconds, it could be because
     // the WebProcess has hung, so exit anyway.
     if (!_watchdogTimer) {
-        [self _protectedManager]->requestExitFullScreen();
+        if (RefPtr manager = [self _manager])
+            manager->requestExitFullScreen();
         _watchdogTimer = adoptNS([[NSTimer alloc] initWithFireDate:[NSDate dateWithTimeIntervalSinceNow:DefaultWatchdogTimerInterval] interval:0 target:self selector:@selector(_watchdogTimerFired:) userInfo:nil repeats:NO]);
         [[NSRunLoop mainRunLoop] addTimer:_watchdogTimer.get() forMode:NSDefaultRunLoopMode];
     }
@@ -306,7 +307,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     _savedScale = page->pageScaleFactor();
     page->scalePageRelativeToScrollPosition(1, { });
-    [self _protectedManager]->setAnimatingFullScreen(true);
+    if (RefPtr manager = [self _manager])
+        manager->setAnimatingFullScreen(true);
     completionHandler(true);
 }
 
@@ -481,7 +483,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     page->startDeferringScrollEvents();
     [_webViewPlaceholder setTarget:nil];
 
-    [self _protectedManager]->setAnimatingFullScreen(true);
+    if (RefPtr manager = [self _manager])
+        manager->setAnimatingFullScreen(true);
     completionHandler();
 }
 
@@ -490,7 +493,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (_fullScreenState == NotInFullScreen)
         return;
 
-    [self _protectedManager]->requestExitFullScreen();
+    if (RefPtr manager = [self _manager])
+        manager->requestExitFullScreen();
     [_webViewPlaceholder setExitWarningVisible:NO];
     _fullScreenState = ExitingFullScreen;
     [self finishedExitFullScreenAnimationAndExitImmediately:YES];
@@ -503,7 +507,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)requestExitFullScreen
 {
-    [self _protectedManager]->requestExitFullScreen();
+    if (RefPtr manager = [self _manager])
+        manager->requestExitFullScreen();
 }
 
 - (void)beganExitFullScreenWithInitialFrame:(NSRect)initialFrame finalFrame:(NSRect)finalFrame completionHandler:(CompletionHandler<void()>&&)completionHandler
@@ -922,7 +927,8 @@ static RetainPtr<CAAnimation> fadeAnimation(CFTimeInterval duration, AnimationDi
     if ([self isFullScreen]) {
         // We still believe we're in full screen mode, so we must have been asked to exit full
         // screen by the system full screen button.
-        [self _protectedManager]->requestExitFullScreen();
+        if (RefPtr manager = [self _manager])
+            manager->requestExitFullScreen();
         [self exitFullScreen:[] { }];
         _fullScreenState = ExitingFullScreen;
     }

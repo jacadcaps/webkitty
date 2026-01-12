@@ -605,7 +605,7 @@ void GraphicsLayerCA::setPosition(const FloatPoint& point)
 
 void GraphicsLayerCA::syncPosition(const FloatPoint& point)
 {
-    if (point == m_position)
+    if (point == m_position && !m_approximatePosition)
         return;
 
     GraphicsLayer::syncPosition(point);

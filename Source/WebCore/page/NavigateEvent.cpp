@@ -185,4 +185,9 @@ void NavigateEvent::finish(Document& document, InterceptionHandlersDidFulfill di
     m_interceptionState = InterceptionState::Finished;
 }
 
+WebCoreOpaqueRoot root(NavigateEvent* event)
+{
+    return WebCoreOpaqueRoot { event };
+}
+
 } // namespace WebCore

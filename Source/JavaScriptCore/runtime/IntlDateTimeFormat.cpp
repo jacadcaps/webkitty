@@ -143,12 +143,23 @@ Vector<String> IntlDateTimeFormat::localeData(const String& locale, RelevantExte
         while (const char* availableName = uenum_next(calendars, &nameLength, &status)) {
             ASSERT(U_SUCCESS(status));
             String calendar = String(unsafeMakeSpan(availableName, static_cast<size_t>(nameLength)));
-            keyLocaleData.append(calendar);
             // Adding "islamicc" candidate for backward compatibility.
             if (calendar == "islamic-civil"_s)
                 keyLocaleData.append("islamicc"_s);
-            if (auto mapped = mapICUCalendarKeywordToBCP47(calendar))
+
+            if (auto mapped = mapICUCalendarKeywordToBCP47(calendar)) {
+                // Specially allowing non BCP-47 compliant cases here, e.g. "gregorian"
+                // This is fine because this function's purpose is collecting what calendar strings are accepted by IntlDateTimeFormat.
+                // When "gregorian" is specified, we convert it to "gregory" to make it aligned to BCP-47. Thus we accept non BCP-47 compliant
+                // calendar IDs only when we can convert it to corresponding BCP-47 compliant ID: when mapICUCalendarKeywordToBCP47 returns a mapped value.
+                keyLocaleData.append(WTFMove(calendar));
                 keyLocaleData.append(WTFMove(mapped.value()));
+            } else {
+                // Skip if the obtained calendar code is not meeting Unicode Locale Identifier's `type` definition
+                // as whole ECMAScript's i18n is relying on Unicode Local Identifiers.
+                if (isUnicodeLocaleIdentifierType(calendar))
+                    keyLocaleData.append(WTFMove(calendar));
+            }
         }
         uenum_close(calendars);
         break;
@@ -702,9 +713,9 @@ void IntlDateTimeFormat::initializeDateTimeFormat(JSGlobalObject* globalObject, 
     {
         String calendar = resolved.extensions[static_cast<unsigned>(RelevantExtensionKey::Ca)];
         if (auto mapped = mapICUCalendarKeywordToBCP47(calendar))
-            m_calendar = WTFMove(mapped.value());
-        else
-            m_calendar = WTFMove(calendar);
+            calendar = WTFMove(mapped.value());
+
+        m_calendar = WTFMove(calendar);
         // Handling "islamicc" candidate for backward compatibility.
         if (m_calendar == "islamicc"_s)
             m_calendar = "islamic-civil"_s;

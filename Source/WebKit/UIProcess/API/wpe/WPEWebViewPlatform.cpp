@@ -130,6 +130,10 @@ ViewPlatform::ViewPlatform(WPEDisplay* display, const API::PageConfiguration& co
         webView.page().preferredBufferFormatsDidChange();
     }), this);
 #endif
+    g_signal_connect_after(m_wpeView.get(), "buffer-rendered", G_CALLBACK(+[](WPEView*, WPEBuffer*, gpointer userData) {
+        auto& webView = *reinterpret_cast<ViewPlatform*>(userData);
+        webView.frameDisplayed();
+    }), this);
 
     createWebPage(configuration);
     m_pageProxy->setIntrinsicDeviceScaleFactor(wpe_view_get_scale(m_wpeView.get()));

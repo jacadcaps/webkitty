@@ -598,6 +598,7 @@ public:
     };
 
     bool isVisibilityHiddenOrOpacityZero() const;
+    bool isSubtreeVisibilityHiddenOrOpacityZero() const;
 
     // Returns true if this layer has visible content (ignoring any child layers).
     bool isVisuallyNonEmpty(PaintedContentRequest* = nullptr) const;

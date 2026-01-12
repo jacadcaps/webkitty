@@ -370,6 +370,8 @@ void WebAnimation::setTimelineInternal(RefPtr<AnimationTimeline>&& timeline)
 
     if (m_effect)
         m_effect->animationTimelineDidChange(m_timeline.get());
+
+    m_pendingStartTime = std::nullopt;
 }
 
 void WebAnimation::effectTargetDidChange(const std::optional<const Styleable>& previousTarget, const std::optional<const Styleable>& newTarget)
@@ -1571,6 +1573,14 @@ void WebAnimation::maybeMarkAsReady()
         runPendingPlayTask();
 
     m_pendingStartTime = std::nullopt;
+}
+
+void WebAnimation::setPendingStartTime(WebAnimationTime pendingStartTime)
+{
+    m_pendingStartTime = pendingStartTime;
+
+    ASSERT(is<DocumentTimeline>(m_timeline));
+    Ref { downcast<DocumentTimeline>(*m_timeline) }->pendingStartTimeWasSetOnAnimation();
 }
 
 OptionSet<AnimationImpact> WebAnimation::resolve(RenderStyle& targetStyle, const Style::ResolutionContext& resolutionContext)

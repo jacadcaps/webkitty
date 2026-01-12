@@ -1590,6 +1590,7 @@ CommandResult<void> WebAutomationSession::deleteAllCookies(const Inspector::Prot
     ASSERT(activeURL.isValid());
 
     String host = activeURL.host().toString();
+    SYNC_FAIL_WITH_PREDEFINED_ERROR_IF(host.isNull(), WindowNotFound);
 
     Ref cookieStore = page->protectedWebsiteDataStore()->cookieStore();
     cookieStore->deleteCookiesForHostnames({ host, domainByAddingDotPrefixIfNeeded(host) }, [] { });

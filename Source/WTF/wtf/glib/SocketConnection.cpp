@@ -25,6 +25,7 @@
 #include <wtf/ByteOrder.h>
 #include <wtf/CheckedArithmetic.h>
 #include <wtf/FastMalloc.h>
+#include <wtf/Logging.h>
 #include <wtf/RunLoop.h>
 #include <wtf/StdLibExtras.h>
 
@@ -59,6 +60,14 @@ SocketConnection::SocketConnection(GRefPtr<GSocketConnection>&& connection, cons
 }
 
 SocketConnection::~SocketConnection() = default;
+
+bool SocketConnection::didReceiveInvalidMessage(const CString& message)
+{
+    RELEASE_LOG_FAULT(Process, "Received invalid message (%s), closing SocketConnection", message.data());
+    close();
+    m_readBuffer.shrink(0);
+    return false;
+}
 
 bool SocketConnection::read()
 {
@@ -109,43 +118,54 @@ static inline bool messageIsByteSwapped(MessageFlags flags)
 #endif
 }
 
+#define MESSAGE_CHECK(assertion, message) do { \
+    if (!(assertion)) [[unlikely]] \
+        return didReceiveInvalidMessage(message); \
+} while (0)
+
 bool SocketConnection::readMessage()
 {
+    // Ensure we have enough data to read the message size.
     if (m_readBuffer.size() < sizeof(uint32_t))
         return false;
 
-    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GLib port.
-    auto* messageData = m_readBuffer.mutableSpan().data();
-    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
-    uint32_t bodySizeHeader;
-    memcpy(&bodySizeHeader, messageData, sizeof(uint32_t));
-    messageData += sizeof(uint32_t);
-    bodySizeHeader = ntohl(bodySizeHeader);
-    Checked<size_t> bodySize = bodySizeHeader;
-    MessageFlags flags;
-    memcpy(&flags, messageData, sizeof(MessageFlags));
-    messageData += sizeof(MessageFlags);
-    auto messageSize = sizeof(uint32_t) + sizeof(MessageFlags) + bodySize;
+    auto messageData = m_readBuffer.span();
+    const size_t bodySize = ntohl(consumeAndReinterpretCastTo<uint32_t>(messageData));
+
+    // The smallest possible message has no parameters, one character for the message
+    // name (an empty name is invalid), and a null terminator at the end of the name.
+    static auto constexpr MinimumMessageBodySize = 2;
+    MESSAGE_CHECK(bodySize >= MinimumMessageBodySize, "message body too small");
+
+    static auto constexpr MaximumMessageBodySize = 512 * MB;
+    MESSAGE_CHECK(bodySize <= MaximumMessageBodySize, "message body too big");
+
+    // Ensure the whole message has been read from the socket.
+    const size_t messageSize = sizeof(uint32_t) + sizeof(MessageFlags) + bodySize;
     if (m_readBuffer.size() < messageSize) {
         m_readBuffer.reserveCapacity(messageSize);
         return false;
     }
 
-    Checked<size_t> messageNameLength = strlen(messageData);
-    messageNameLength++;
-    if (m_readBuffer.size() < messageNameLength) {
-        ASSERT_NOT_REACHED();
-        return false;
-    }
+    const auto flags = consumeAndReinterpretCastTo<MessageFlags>(messageData);
 
-    const auto it = m_messageHandlers.find(messageData);
+    // Ensure that the span covers only the first message in the read buffer, and
+    // that parsing the message does not step onto the next one in the buffer.
+    messageData = messageData.first(bodySize);
+
+    const auto nullIndex = find(messageData, '\0');
+    MESSAGE_CHECK(nullIndex != notFound, "message name delimiter missing");
+
+    const CString messageName(consumeSpan(messageData, nullIndex));
+    ASSERT(messageData.front() == '\0');
+    skip(messageData, 1);
+
+    const auto it = m_messageHandlers.find(messageName);
     if (it != m_messageHandlers.end()) {
-        messageData += messageNameLength.value();
         GRefPtr<GVariant> parameters;
         if (!it->value.first.isNull()) {
             GUniquePtr<GVariantType> variantType(g_variant_type_new(it->value.first.data()));
-            size_t parametersSize = bodySize.value() - messageNameLength.value();
-            parameters = g_variant_new_from_data(variantType.get(), messageData, parametersSize, FALSE, nullptr, nullptr);
+            parameters = g_variant_new_from_data(variantType.get(), messageData.data(), messageData.size(), FALSE, nullptr, nullptr);
             if (messageIsByteSwapped(flags))
                 parameters = adoptGRef(g_variant_byteswap(parameters.get()));
         }
@@ -155,8 +175,8 @@ bool SocketConnection::readMessage()
     }
 
     if (m_readBuffer.size() > messageSize) {
-        memmoveSpan(m_readBuffer.mutableSpan(), m_readBuffer.subspan(messageSize.value()));
-        m_readBuffer.shrink(m_readBuffer.size() - messageSize.value());
+        memmoveSpan(m_readBuffer.mutableSpan(), m_readBuffer.subspan(messageSize));
+        m_readBuffer.shrink(m_readBuffer.size() - messageSize);
     } else
         m_readBuffer.shrink(0);
 
@@ -165,6 +185,8 @@ bool SocketConnection::readMessage()
 
     return true;
 }
+
+#undef MESSAGE_CHECK
 
 void SocketConnection::sendMessage(const char* messageName, GVariant* parameters)
 {

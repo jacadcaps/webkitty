@@ -187,7 +187,7 @@ class Pasteboard {
     WTF_MAKE_TZONE_ALLOCATED(Pasteboard);
     WTF_MAKE_NONCOPYABLE(Pasteboard);
 public:
-    Pasteboard(std::unique_ptr<PasteboardContext>&&);
+    explicit Pasteboard(std::unique_ptr<PasteboardContext>&&);
     virtual ~Pasteboard();
 
 #if PLATFORM(GTK) || PLATFORM(WPE)

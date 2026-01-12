@@ -97,8 +97,6 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(Quirks);
 
-static constexpr auto chromeUserAgentScript = "(function() { let userAgent = navigator.userAgent; Object.defineProperty(navigator, 'userAgent', { get: () => { return userAgent + ' Chrome/130.0.0.0 Android/15.0'; }, configurable: true }); })();"_s;
-
 static inline OptionSet<AutoplayQuirk> allowedAutoplayQuirks(Document& document)
 {
     auto* loader = document.loader();
@@ -1587,6 +1585,8 @@ std::optional<TargetedElementSelectors> Quirks::defaultVisibilityAdjustmentSelec
 String Quirks::scriptToEvaluateBeforeRunningScriptFromURL(const URL& scriptURL)
 {
 #if PLATFORM(IOS_FAMILY)
+    static constexpr auto chromeUserAgentScript = "(function() { let userAgent = navigator.userAgent; Object.defineProperty(navigator, 'userAgent', { get: () => { return userAgent + ' Chrome/130.0.0.0 Android/15.0'; }, configurable: true }); })();"_s;
+
     if (!needsQuirks())
         return { };
 
@@ -1948,6 +1948,15 @@ bool Quirks::shouldDelayReloadWhenRegisteringServiceWorker() const
 bool Quirks::shouldDisableDOMAudioSessionQuirk() const
 {
     return needsQuirks() && m_quirksData.shouldDisableDOMAudioSession;
+}
+
+bool Quirks::shouldExposeCredentialsContainerQuirk() const
+{
+#if ENABLE(WEB_AUTHN)
+    if (m_document && m_document->settings().webAuthenticationEnabled())
+        return true;
+#endif
+    return needsQuirks() && m_quirksData.isGoogleAccounts;
 }
 
 URL Quirks::topDocumentURL() const
@@ -2533,6 +2542,7 @@ static void handleGoogleQuirks(QuirksData& quirksData, const URL& quirksURL, con
 #if ENABLE(MEDIA_STREAM)
     quirksData.shouldEnableEnumerateDeviceQuirk = topDocumentHost == "meet.google.com"_s;
 #endif
+    quirksData.isGoogleAccounts = topDocumentHost == "accounts.google.com"_s;
 }
 
 static void handleHBOMaxQuirks(QuirksData& quirksData, const URL& quirksURL, const String& quirksDomainString, const URL& documentURL)

@@ -1625,15 +1625,21 @@ const Vector<String>& intlAvailableCalendars()
             return StringImpl::createStaticStringImpl(string.span16());
         };
 
-        availableCalendars.construct(count, [&](size_t) {
+        availableCalendars.construct();
+        for (int32_t i = 0; i < count; ++i) {
             int32_t length = 0;
             const char* pointer = uenum_next(enumeration.get(), &length, &status);
             ASSERT(U_SUCCESS(status));
             String calendar(unsafeMakeSpan(pointer, static_cast<size_t>(length)));
             if (auto mapped = mapICUCalendarKeywordToBCP47(calendar))
-                return createImmortalThreadSafeString(WTFMove(mapped.value()));
-            return createImmortalThreadSafeString(WTFMove(calendar));
-        });
+                calendar = WTFMove(mapped.value());
+
+            // Skip if the obtained calendar code is not meeting Unicode Locale Identifier's `type` definition
+            // as whole ECMAScript's i18n is relying on Unicode Local Identifiers.
+            if (!isUnicodeLocaleIdentifierType(calendar))
+                continue;
+            availableCalendars->append(createImmortalThreadSafeString(WTFMove(calendar)));
+        }
 
         // The AvailableCalendars abstract operation returns a List, ordered as if an Array of the same
         // values had been sorted using %Array.prototype.sort% using undefined as comparator

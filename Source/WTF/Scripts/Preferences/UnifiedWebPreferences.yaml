@@ -2625,6 +2625,20 @@ EnableInheritURIQueryComponent:
     WebCore:
       default: false
 
+EnableOpaqueLoadingForMedia:
+  type: bool
+  status: internal
+  category: media
+  humanReadableName: "Opaque loading for media"
+  humanReadableDescription: "Enable opaque loading for media"
+  defaultValue:
+    WebKitLegacy:
+      default: false
+    WebKit:
+      default: true
+    WebCore:
+      default: false
+
 EncryptedMediaAPIEnabled:
   type: bool
   status: embedder

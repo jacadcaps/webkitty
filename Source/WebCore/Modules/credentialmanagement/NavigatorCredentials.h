@@ -26,8 +26,6 @@
 
 #pragma once
 
-#if ENABLE(WEB_AUTHN)
-
 #include "CredentialsContainer.h"
 #include "Supplementable.h"
 #include <wtf/TZoneMalloc.h>
@@ -56,5 +54,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(WEB_AUTHN)

@@ -1584,8 +1584,7 @@ void NetworkConnectionToWebProcess::entangleLocalPortInThisProcessToRemote(const
 
 void NetworkConnectionToWebProcess::messagePortDisentangled(const MessagePortIdentifier& port)
 {
-    auto result = m_processEntangledPorts.remove(port);
-    ASSERT_UNUSED(result, result);
+    m_processEntangledPorts.remove(port);
 
     m_networkProcess->checkedMessagePortChannelRegistry()->didDisentangleMessagePort(port);
 }

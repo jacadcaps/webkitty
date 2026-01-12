@@ -680,9 +680,13 @@ JSArray* IntlLocale::calendars(JSGlobalObject* globalObject)
     while ((pointer = uenum_next(calendars.get(), &length, &status)) && U_SUCCESS(status)) {
         String calendar(unsafeMakeSpan(pointer, static_cast<size_t>(length)));
         if (auto mapped = mapICUCalendarKeywordToBCP47(calendar))
-            elements.append(WTFMove(mapped.value()));
-        else
-            elements.append(WTFMove(calendar));
+            calendar = WTFMove(mapped.value());
+
+        // Skip if the obtained calendar code is not meeting Unicode Locale Identifier's `type` definition
+        // as whole ECMAScript's i18n is relying on Unicode Local Identifiers.
+        if (!isUnicodeLocaleIdentifierType(calendar))
+            continue;
+        elements.append(WTFMove(calendar));
     }
     if (!U_SUCCESS(status)) {
         throwTypeError(globalObject, scope, "invalid locale"_s);

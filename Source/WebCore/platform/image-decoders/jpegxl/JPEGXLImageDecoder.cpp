@@ -271,6 +271,8 @@ void JPEGXLImageDecoder::decode(Query query, size_t frameIndex, bool allDataRece
         return;
     }
 
+    ASSERT(!failed());
+
     size_t remainingDataSize = JxlDecoderReleaseInput(m_decoder.get());
     m_readOffset = dataSize - remainingDataSize;
 }
@@ -300,7 +302,8 @@ JxlDecoderStatus JPEGXLImageDecoder::processInput(Query query)
             if (query == Query::Size) {
                 // setSize() must be called only if the query is Query::Size,
                 // otherwise this would roll back the encoded data status from completed.
-                setSize(IntSize(m_basicInfo->xsize, m_basicInfo->ysize));
+                if (!setSize(IntSize(m_basicInfo->xsize, m_basicInfo->ysize)))
+                    return JXL_DEC_ERROR;
                 return status;
             }
 

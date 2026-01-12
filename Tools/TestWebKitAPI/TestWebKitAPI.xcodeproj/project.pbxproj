@@ -261,6 +261,8 @@
 		53FCDE6B229EFFB900598ECF /* IsoHeap.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 53FCDE6A229EFFB900598ECF /* IsoHeap.cpp */; };
 		5597F8361D9596C80066BC21 /* SynchronizedFixedQueue.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 5597F8341D9596C80066BC21 /* SynchronizedFixedQueue.cpp */; };
 		55F9D2E52205031800A9AB38 /* AdditionalSupportedImageTypes.mm in Sources */ = {isa = PBXBuildFile; fileRef = 55F9D2E42205031800A9AB38 /* AdditionalSupportedImageTypes.mm */; };
+		562C003E2E82F4AC009D428B /* SafeFontParser-Worker.html in Copy Resources */ = {isa = PBXBuildFile; fileRef = 562C00362E82F4A7009D428B /* SafeFontParser-Worker.html */; };
+		56DBCC7E2E82A8A800F30138 /* SafeFontParser-Invalid.ttf in Copy Resources */ = {isa = PBXBuildFile; fileRef = 56DBCC7D2E82A8A800F30138 /* SafeFontParser-Invalid.ttf */; };
 		56EEE4782D8D6B85003D4FB1 /* coreipc.js in Copy Resources */ = {isa = PBXBuildFile; fileRef = 56EEE4772D8D6B85003D4FB1 /* coreipc.js */; };
 		56EEE4832D8D706F003D4FB1 /* RemoteObjectRegistry-BadReplyBlock.html in Copy Resources */ = {isa = PBXBuildFile; fileRef = 56EEE4822D8D706F003D4FB1 /* RemoteObjectRegistry-BadReplyBlock.html */; };
 		56EEE48F2D8DB402003D4FB1 /* coreipc-helpers.js in Copy Resources */ = {isa = PBXBuildFile; fileRef = 56EEE48E2D8DB402003D4FB1 /* coreipc-helpers.js */; };
@@ -719,6 +721,7 @@
 		A13EBBAB1B87434600097110 /* PlatformUtilitiesCocoa.mm in Sources */ = {isa = PBXBuildFile; fileRef = 0F139E721A423A2B00F590F5 /* PlatformUtilitiesCocoa.mm */; };
 		A13EBBB01B87436F00097110 /* BundleParametersPlugIn.mm in Sources */ = {isa = PBXBuildFile; fileRef = A13EBBAE1B87436F00097110 /* BundleParametersPlugIn.mm */; };
 		A14FC58B1B89927100D107EB /* ContentFilteringPlugIn.mm in Sources */ = {isa = PBXBuildFile; fileRef = A14FC5891B89927100D107EB /* ContentFilteringPlugIn.mm */; };
+		A16E590E2E7B713C0093E45F /* remove-fullscreen-element-from-dom.html in Copy Resources */ = {isa = PBXBuildFile; fileRef = A16E590D2E7B71310093E45F /* remove-fullscreen-element-from-dom.html */; };
 		A170E3AA2ABA7857009EA799 /* VectorCocoa.mm in Sources */ = {isa = PBXBuildFile; fileRef = A170E3A22ABA7857009EA799 /* VectorCocoa.mm */; };
 		A17191AD2CD2DB090088944E /* WKWebViewLogging.mm in Sources */ = {isa = PBXBuildFile; fileRef = A17191AC2CD2DB090088944E /* WKWebViewLogging.mm */; };
 		A176D24B2D6D2A4E00C63915 /* GPUExtension.appex in Embed Extensions */ = {isa = PBXBuildFile; fileRef = A176D2472D6D295400C63915 /* GPUExtension.appex */; platformFilters = (ios, ); settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -2186,6 +2189,7 @@
 				A17C46E32C98E54B0023F3C7 /* qr-code.png in Copy Resources */,
 				A17C46E42C98E54B0023F3C7 /* red.html in Copy Resources */,
 				56EEE4832D8D706F003D4FB1 /* RemoteObjectRegistry-BadReplyBlock.html in Copy Resources */,
+				A16E590E2E7B713C0093E45F /* remove-fullscreen-element-from-dom.html in Copy Resources */,
 				A17C46E52C98E54B0023F3C7 /* remove-node-on-drop.html in Copy Resources */,
 				A17C47EF2C98E5C20023F3C7 /* rendered-image-excluding-overflow.html in Copy Resources */,
 				A17C47F02C98E5C20023F3C7 /* resourceLoadStatisticsMissingUniqueIndex.db in Copy Resources */,
@@ -2194,6 +2198,8 @@
 				A17C47F32C98E5C20023F3C7 /* rich-text-attributes.html in Copy Resources */,
 				F470A9772D41DAB200F2A137 /* rtl-bidi-text.html in Copy Resources */,
 				07C02FD22D6D6FBC0004ED97 /* rtl-sideways-scrolling.html in Copy Resources */,
+				56DBCC7E2E82A8A800F30138 /* SafeFontParser-Invalid.ttf in Copy Resources */,
+				562C003E2E82F4AC009D428B /* SafeFontParser-Worker.html in Copy Resources */,
 				A17C46E62C98E54B0023F3C7 /* scroll-to-anchor.html in Copy Resources */,
 				A17C46652C98E4BB0023F3C7 /* scrollable-page.html in Copy Resources */,
 				A17C47F42C98E5C20023F3C7 /* selected-text-and-textarea.html in Copy Resources */,
@@ -3027,6 +3033,8 @@
 		55A817FD218101DF0004A39A /* 400x400-green.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "400x400-green.png"; sourceTree = "<group>"; };
 		55A817FE218101DF0004A39A /* 100x100-red.tga */ = {isa = PBXFileReference; lastKnownFileType = file; path = "100x100-red.tga"; sourceTree = "<group>"; };
 		55F9D2E42205031800A9AB38 /* AdditionalSupportedImageTypes.mm */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.objcpp; path = AdditionalSupportedImageTypes.mm; sourceTree = "<group>"; };
+		562C00362E82F4A7009D428B /* SafeFontParser-Worker.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = "SafeFontParser-Worker.html"; sourceTree = "<group>"; };
+		56DBCC7D2E82A8A800F30138 /* SafeFontParser-Invalid.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "SafeFontParser-Invalid.ttf"; sourceTree = "<group>"; };
 		56EEE4772D8D6B85003D4FB1 /* coreipc.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = coreipc.js; sourceTree = "<group>"; };
 		56EEE4822D8D706F003D4FB1 /* RemoteObjectRegistry-BadReplyBlock.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = "RemoteObjectRegistry-BadReplyBlock.html"; sourceTree = "<group>"; };
 		56EEE48E2D8DB402003D4FB1 /* coreipc-helpers.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "coreipc-helpers.js"; sourceTree = "<group>"; };
@@ -3489,6 +3497,7 @@
 		95B6B3B6251EBF2F00FC4382 /* MediaDocument.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = MediaDocument.mm; sourceTree = "<group>"; };
 		95C52728275F35E100DA7E40 /* FontShadowTests.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = FontShadowTests.cpp; sourceTree = "<group>"; };
 		96E05A012DF7B66F00285827 /* WKWebExtensionAPIBookmarks.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = WKWebExtensionAPIBookmarks.mm; sourceTree = "<group>"; };
+		9739F73F2E5C548E002E7C61 /* ExponentialRampAtTimeTest.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = ExponentialRampAtTimeTest.cpp; sourceTree = "<group>"; };
 		97DAA8CD2DF1F325004B3040 /* MetalCompilationTests.mm */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.objcpp; path = MetalCompilationTests.mm; sourceTree = "<group>"; };
 		97DAA8CF2DF70B91004B3040 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		97FB42D52E1D633600C63F41 /* access-expression.wgsl */ = {isa = PBXFileReference; lastKnownFileType = text; path = "access-expression.wgsl"; sourceTree = "<group>"; };
@@ -3662,6 +3671,8 @@
 		A1508C532DAEF1A500C3E213 /* process-entitlements.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "process-entitlements.sh"; sourceTree = "<group>"; };
 		A15502281E05020B00A24C57 /* DuplicateCompletionHandlerCalls.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = DuplicateCompletionHandlerCalls.mm; sourceTree = "<group>"; };
 		A155022B1E050BC500A24C57 /* duplicate-completion-handler-calls.html */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.html; path = "duplicate-completion-handler-calls.html"; sourceTree = "<group>"; };
+		A16E59052E7B6F820093E45F /* RemoveFullscreenElementFromDOM.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RemoveFullscreenElementFromDOM.mm; sourceTree = "<group>"; };
+		A16E590D2E7B71310093E45F /* remove-fullscreen-element-from-dom.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = "remove-fullscreen-element-from-dom.html"; sourceTree = "<group>"; };
 		A16F66B91C40EA2000BD4D24 /* ContentFiltering.html */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.html; path = ContentFiltering.html; sourceTree = "<group>"; };
 		A170E3A22ABA7857009EA799 /* VectorCocoa.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = VectorCocoa.mm; sourceTree = "<group>"; };
 		A17191AC2CD2DB090088944E /* WKWebViewLogging.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = WKWebViewLogging.mm; sourceTree = "<group>"; };
@@ -4901,6 +4912,7 @@
 				1A4F81D01BDFFDCF004E672E /* RemoteObjectRegistry.h */,
 				1A4F81C81BDFFD18004E672E /* RemoteObjectRegistry.mm */,
 				1A4F81CD1BDFFD53004E672E /* RemoteObjectRegistryPlugIn.mm */,
+				A16E59052E7B6F820093E45F /* RemoveFullscreenElementFromDOM.mm */,
 				A12DDBF91E836F0700CF6CAE /* RenderedImageWithOptions.mm */,
 				A12DDBFC1E836FF100CF6CAE /* RenderedImageWithOptionsPlugIn.mm */,
 				A12DDC011E8374F500CF6CAE /* RenderedImageWithOptionsProtocol.h */,
@@ -5154,6 +5166,7 @@
 				26F6E1EF1ADC749B00DE696B /* DFAMinimizer.cpp */,
 				7BC8628729B8B33500217CB5 /* DisplayListRecorderTests.cpp */,
 				93915A1624DB66C70019FF43 /* DocumentOrder.cpp */,
+				9739F73F2E5C548E002E7C61 /* ExponentialRampAtTimeTest.cpp */,
 				579651E6216BFD53006EBFE5 /* FidoHidMessageTest.cpp */,
 				572B40352176A029000AD43E /* FidoTestData.h */,
 				7A32D7491F02151500162C44 /* FileMonitor.cpp */,
@@ -5862,12 +5875,15 @@
 				F41AB9941EF4692C0083FA08 /* prevent-operation.html */,
 				F41AB99A1EF4692C0083FA08 /* prevent-start.html */,
 				56EEE4822D8D706F003D4FB1 /* RemoteObjectRegistry-BadReplyBlock.html */,
+				A16E590D2E7B71310093E45F /* remove-fullscreen-element-from-dom.html */,
 				A12DDBFF1E8373C100CF6CAE /* rendered-image-excluding-overflow.html */,
 				498D030926376B2C009CBFAD /* resourceLoadStatisticsMissingUniqueIndex.db */,
 				F46849BF1EEF5EDC00B937FE /* rich-and-plain-text.html */,
 				1CE6FAC12320264F00E48F6E /* rich-color-filtered.html */,
 				2E92B8F6216490C3005B64F0 /* rich-text-attributes.html */,
 				07C02FD12D6D6FBC0004ED97 /* rtl-sideways-scrolling.html */,
+				56DBCC7D2E82A8A800F30138 /* SafeFontParser-Invalid.ttf */,
+				562C00362E82F4A7009D428B /* SafeFontParser-Worker.html */,
 				F4E0A295211FC5A300AF7C7F /* selected-text-and-textarea.html */,
 				F4D65DA71F5E46C0009D8C27 /* selected-text-image-link-and-editable.html */,
 				467C565221B5ECDF0057516D /* SetSessionCookie.html */,

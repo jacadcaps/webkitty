@@ -336,7 +336,10 @@ StyleDifference RenderElement::adjustStyleDifference(StyleDifference diff, Optio
         else
             diff = std::max(diff, StyleDifference::RecompositeLayer);
     }
-    
+
+    if (isHTMLMarquee())
+        diff = std::max(diff, StyleDifference::Layout);
+
     // The answer to requiresLayer() for plugins, iframes, and canvas can change without the actual
     // style changing, since it depends on whether we decide to composite these elements. When the
     // layer status of one of these elements changes, we need to force a layout.
@@ -454,10 +457,6 @@ void RenderElement::updateShapeImage(const Style::ShapeOutside* oldShapeValue, c
 
 bool RenderElement::repaintBeforeStyleChange(StyleDifference diff, const RenderStyle& oldStyle, const RenderStyle& newStyle)
 {
-    if (oldStyle.usedVisibility() == Visibility::Hidden) {
-        // Repaint on hidden renderer is a no-op.
-        return false;
-    }
     enum class RequiredRepaint { None, RendererOnly, RendererAndDescendantsRenderersWithLayers };
     auto shouldRepaintBeforeStyleChange = [&]() -> RequiredRepaint {
         if (!parent()) {
@@ -540,6 +539,10 @@ bool RenderElement::repaintBeforeStyleChange(StyleDifference diff, const RenderS
 
     if (shouldRepaintBeforeStyleChange == RequiredRepaint::RendererOnly) {
         if (isOutOfFlowPositioned() && downcast<RenderLayerModelObject>(*this).checkedLayer()->isSelfPaintingLayer()) {
+            if (oldStyle.usedVisibility() == Visibility::Hidden) {
+                // Repaint on hidden renderer is a no-op.
+                return false;
+            }
             if (auto cachedClippedOverflowRect = downcast<RenderLayerModelObject>(*this).checkedLayer()->cachedClippedOverflowRect()) {
                 repaintUsingContainer(containerForRepaint().renderer.get(), *cachedClippedOverflowRect);
                 return true;

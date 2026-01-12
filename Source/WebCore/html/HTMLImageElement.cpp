@@ -469,9 +469,9 @@ RenderPtr<RenderElement> HTMLImageElement::createElementRenderer(RenderStyle&& s
     return createRenderer<RenderImage>(RenderObject::Type::Image, *this, WTFMove(style), nullptr, m_imageDevicePixelRatio);
 }
 
-bool HTMLImageElement::isReplaced(const RenderStyle& style) const
+bool HTMLImageElement::isReplaced(const RenderStyle* style) const
 {
-    return !style.hasContent();
+    return !style || !style->hasContent();
 }
 
 bool HTMLImageElement::canStartSelection() const

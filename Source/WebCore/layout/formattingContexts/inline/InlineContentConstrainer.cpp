@@ -618,19 +618,32 @@ std::optional<Vector<LayoutUnit>> InlineContentConstrainer::prettifyRange(Inline
                 break;
             slidingWidth.advanceStartTo(breakOpportunities[firstStartIndex]);
         }
-        ASSERT(firstStartIndex < breakIndex);
+        ASSERT(firstStartIndex <= breakIndex);
 
         // If the start of our slidingWidth is past the last valid breaking point, we will not be able to find a valid solution.
         // Try to find a solution using hyphenation.
         if (firstStartIndex>lastValidStateIndex.value()) {
+            // Sanity check indices before proceeding.
+            if (lastValidStateIndex.value() >= breakOpportunities.size()) {
+                ASSERT_NOT_REACHED_WITH_SECURITY_IMPLICATION();
+                return { };
+            }
+            if (lastValidStateIndex.value() >= state.size()) {
+                ASSERT_NOT_REACHED_WITH_SECURITY_IMPLICATION();
+                return { };
+            }
+
             // Perform a single line layout from lastValidStateIndex.value().
-            auto newEntry = layoutSingleLineForPretty({ state[lastValidStateIndex.value()].lineEnd.index, range.endIndex() }, idealLineWidth, state[lastValidStateIndex.value()], lastValidStateIndex.value());
+            auto newEntry = layoutSingleLineForPretty({ breakOpportunities[state[lastValidStateIndex.value()].lineEnd.index], range.endIndex() }, idealLineWidth, state[lastValidStateIndex.value()], lastValidStateIndex.value());
             auto it = std::ranges::find(breakOpportunities, newEntry.lineEnd.index);
             // If hyphenation does not create a valid solution, we should return early.
             if (it == breakOpportunities.end())
                 return { };
             lastValidStateIndex = std::distance(breakOpportunities.begin(), it);
             state[lastValidStateIndex.value()] = newEntry;
+            // If hyphenation does not create a valid solution, we should return early.
+            if (lastValidStateIndex.value() == state[lastValidStateIndex.value()].previousBreakIndex)
+                return { };
         }
 
         // Evaluate all possible lines that break before m_inlineItemList[end]

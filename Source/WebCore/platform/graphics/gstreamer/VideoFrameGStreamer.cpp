@@ -508,7 +508,9 @@ void VideoFrameGStreamer::setMetadataAndContentHint(std::optional<VideoFrameTime
     gst_sample_set_buffer(m_sample.get(), modifiedBuffer.get());
 }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 static void copyPlane(uint8_t* destination, const uint8_t* source, uint64_t sourceStride, const ComputedPlaneLayout& spanPlaneLayout)
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 {
     uint64_t sourceOffset = spanPlaneLayout.sourceTop * sourceStride;
     sourceOffset += spanPlaneLayout.sourceLeftBytes;

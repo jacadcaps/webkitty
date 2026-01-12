@@ -1215,6 +1215,27 @@ TEST(WTF_HashMap, Clear_Reenter)
     EXPECT_TRUE(map.isEmpty());
 }
 
+TEST(WTF_HashMap, Set_Reenter)
+{
+    HashMap<uint64_t, Variant<std::unique_ptr<TestObjectWithCustomDestructor>, int>> map;
+    map.add(1, makeUnique<TestObjectWithCustomDestructor>([&map] {
+        auto it = map.find(1);
+        EXPECT_TRUE(std::holds_alternative<std::unique_ptr<TestObjectWithCustomDestructor>>(it->value));
+    }));
+    map.set(1, 1);
+}
+
+TEST(WTF_HashMap, Take_Set_Reenter)
+{
+    HashMap<uint64_t, Variant<std::unique_ptr<TestObjectWithCustomDestructor>, int>> map;
+    map.add(1, makeUnique<TestObjectWithCustomDestructor>([&map] {
+        auto it = map.find(1);
+        EXPECT_FALSE(std::holds_alternative<std::unique_ptr<TestObjectWithCustomDestructor>>(it->value));
+    }));
+    auto value = map.take(1);
+    map.set(1, 1);
+}
+
 TEST(WTF_HashMap, Ensure_Translator)
 {
     HashMap<String, unsigned> map;

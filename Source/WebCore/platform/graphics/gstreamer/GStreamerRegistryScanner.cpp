@@ -349,7 +349,7 @@ GStreamerRegistryScanner::GStreamerRegistryScanner(bool isMediaSource)
     else {
         // This is still needed, mostly because of the webkit_web_view_can_show_mime_type() public API (so
         // running from UIProcess).
-        gst_init(nullptr, nullptr);
+        ensureGStreamerInitializedNonWebProcess();
     }
 
     GST_DEBUG_CATEGORY_INIT(webkit_media_gst_registry_scanner_debug, "webkitregistryscanner", 0, "WebKit GStreamer registry scanner");

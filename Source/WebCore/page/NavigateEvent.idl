@@ -1,4 +1,5 @@
 [
+  GenerateIsReachable=Impl,
   JSCustomMarkFunction,
   EnabledBySetting=NavigationAPIEnabled,
   Exposed=Window

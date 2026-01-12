@@ -43,6 +43,7 @@ static void fontconfigStyle(const SkFontStyle& style, int& weight, int& width, i
         SkScalar newValue;
     };
 
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
     auto mapRanges = [](SkScalar value, MapRanges const ranges[], int rangesCount) -> SkScalar {
         if (value < ranges[0].oldValue)
             return ranges[0].newValue;
@@ -53,6 +54,7 @@ static void fontconfigStyle(const SkFontStyle& style, int& weight, int& width, i
         }
         return ranges[rangesCount - 1].newValue;
     };
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
     static constexpr MapRanges weightRanges[] = {
         { SkFontStyle::kThin_Weight,       FC_WEIGHT_THIN },
@@ -218,7 +220,9 @@ private:
             : m_fontSet(fontSet)
         {
             for (int i = 0; i < m_fontSet->nfont; ++i) {
+                WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
                 FcPattern* pattern = m_fontSet->fonts[i];
+                WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
                 if (!pattern)
                     continue;
 

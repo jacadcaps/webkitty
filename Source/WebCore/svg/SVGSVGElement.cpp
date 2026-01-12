@@ -483,7 +483,7 @@ RenderPtr<RenderElement> SVGSVGElement::createElementRenderer(RenderStyle&& styl
     return createRenderer<LegacyRenderSVGViewportContainer>(*this, WTFMove(style));
 }
 
-bool SVGSVGElement::isReplaced(const RenderStyle&) const
+bool SVGSVGElement::isReplaced(const RenderStyle*) const
 {
     return isOutermostSVGSVGElement();
 }

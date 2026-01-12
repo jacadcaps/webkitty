@@ -265,6 +265,7 @@ UIProcess/wpe/WPEUtilities.cpp
 UIProcess/wpe/WebPageProxyWPE.cpp
 UIProcess/wpe/WebPasteboardProxyWPE.cpp
 UIProcess/wpe/WebPreferencesWPE.cpp
+UIProcess/wpe/WebContextMenuProxyWPE.cpp
 
 UIProcess/XR/openxr/OpenXRExtensions.cpp
 UIProcess/XR/openxr/OpenXRInput.cpp

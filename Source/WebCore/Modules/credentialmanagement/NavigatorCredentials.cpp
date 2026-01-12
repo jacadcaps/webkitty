@@ -27,10 +27,8 @@
 #include "config.h"
 #include "NavigatorCredentials.h"
 
-#if ENABLE(WEB_AUTHN)
-
 #include "Document.h"
-#include "LocalFrame.h"
+#include "LocalFrameInlines.h"
 #include "Navigator.h"
 #include <wtf/TZoneMallocInlines.h>
 
@@ -74,5 +72,3 @@ NavigatorCredentials* NavigatorCredentials::from(Navigator* navigator)
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(WEB_AUTHN)

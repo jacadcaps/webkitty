@@ -192,7 +192,7 @@ private:
 
     void didAttachRenderers() override;
     RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
-    bool isReplaced(const RenderStyle&) const final;
+    bool isReplaced(const RenderStyle* = nullptr) const final;
     void setBestFitURLAndDPRFromImageCandidate(const ImageCandidate&);
 
     bool canStartSelection() const override;

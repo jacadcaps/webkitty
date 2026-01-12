@@ -353,6 +353,11 @@ public:
             return false;
         }
 
+        if (!tail->terminal()->isBranch()) {
+            dataLogLnIf(Options::verboseLoopUnrolling(), "Skipping loop with header ", *header, " since the tail ", *tail, " has a non-branch terminal");
+            return false;
+        }
+
         for (BasicBlock* successor : tail->successors()) {
             if (data.loop->contains(successor))
                 continue;

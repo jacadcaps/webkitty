@@ -49,7 +49,10 @@ void ChildChangeInvalidation::invalidateForChangedElement(Element& changedElemen
     auto canAffectElementsWithStyle = [&](MatchElement matchElement) {
         switch (matchElement) {
         case MatchElement::HasSibling:
+        case MatchElement::HasAnySibling:
         case MatchElement::HasChild:
+        case MatchElement::HasChildAncestor:
+        case MatchElement::HasChildParent:
             return isChild;
         case MatchElement::HasDescendant:
         case MatchElement::HasSiblingDescendant:

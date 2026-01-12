@@ -2206,8 +2206,8 @@ static void webkitWebViewBaseTouchRelease(WebKitWebViewBase* webViewBase, int nP
 
     unsigned modifiers = modifiersForSynthesizedEvent(gtk_event_controller_get_current_event(GTK_EVENT_CONTROLLER(gesture)));
     webkitWebViewBaseSynthesizeMouseEvent(webViewBase, MouseEventType::Motion, 0, 0, x, y, modifiers, nPress, mousePointerEventType(), PlatformMouseEvent::IsTouch::Yes);
-    webkitWebViewBaseSynthesizeMouseEvent(webViewBase, MouseEventType::Press, button, 0, x, y, modifiers, nPress, mousePointerEventType(), PlatformMouseEvent::IsTouch::Yes);
-    webkitWebViewBaseSynthesizeMouseEvent(webViewBase, MouseEventType::Release, button, buttons, x, y, modifiers, nPress, mousePointerEventType(), PlatformMouseEvent::IsTouch::Yes);
+    webkitWebViewBaseSynthesizeMouseEvent(webViewBase, MouseEventType::Press, button, buttons, x, y, modifiers, nPress, mousePointerEventType(), PlatformMouseEvent::IsTouch::Yes);
+    webkitWebViewBaseSynthesizeMouseEvent(webViewBase, MouseEventType::Release, button, 0, x, y, modifiers, nPress, mousePointerEventType(), PlatformMouseEvent::IsTouch::Yes);
 }
 
 static void webkitWebViewBaseTouchDragBegin(WebKitWebViewBase* webViewBase, gdouble startX, gdouble startY, GtkGesture* gesture)
@@ -2244,7 +2244,7 @@ static void webkitWebViewBaseTouchDragUpdate(WebKitWebViewBase* webViewBase, dou
         if (priv->isLongPressed) {
             // Drag after long press forwards emulated mouse events (for e.g. text selection)
             webkitWebViewBaseSynthesizeMouseEvent(webViewBase, MouseEventType::Motion, 0, 0, x, y, modifiers, 1, mousePointerEventType(), PlatformMouseEvent::IsTouch::Yes);
-            webkitWebViewBaseSynthesizeMouseEvent(webViewBase, MouseEventType::Press, GDK_BUTTON_PRIMARY, 0, x, y, modifiers, 0, mousePointerEventType(), PlatformMouseEvent::IsTouch::Yes);
+            webkitWebViewBaseSynthesizeMouseEvent(webViewBase, MouseEventType::Press, GDK_BUTTON_PRIMARY, GDK_BUTTON1_MASK, x, y, modifiers, 1, mousePointerEventType(), PlatformMouseEvent::IsTouch::Yes);
         } else
             webkitWebViewBaseSynthesizeWheelEvent(webViewBase, event, 0, 0, x, y, WheelEventPhase::Began, WheelEventPhase::NoPhase, true);
     }
@@ -2279,7 +2279,7 @@ static void webkitWebViewBaseTouchDragEnd(WebKitWebViewBase* webViewBase, gdoubl
         double x, y;
         gtk_gesture_drag_get_start_point(GTK_GESTURE_DRAG(gesture), &x, &y);
         unsigned modifiers = modifiersForSynthesizedEvent(gtk_event_controller_get_current_event(GTK_EVENT_CONTROLLER(gesture)));
-        webkitWebViewBaseSynthesizeMouseEvent(webViewBase, MouseEventType::Release, GDK_BUTTON_PRIMARY, GDK_BUTTON1_MASK, x + offsetX, y + offsetY, modifiers, 0, mousePointerEventType(), PlatformMouseEvent::IsTouch::Yes);
+        webkitWebViewBaseSynthesizeMouseEvent(webViewBase, MouseEventType::Release, GDK_BUTTON_PRIMARY, 0, x + offsetX, y + offsetY, modifiers, 0, mousePointerEventType(), PlatformMouseEvent::IsTouch::Yes);
     }
 }
 
@@ -3169,13 +3169,13 @@ void webkitWebViewBaseSynthesizeMouseEvent(WebKitWebViewBase* webViewBase, Mouse
     case 0:
         webEventButton = WebMouseEventButton::None;
         break;
-    case 1:
+    case GDK_BUTTON_PRIMARY:
         webEventButton = WebMouseEventButton::Left;
         break;
-    case 2:
+    case GDK_BUTTON_MIDDLE:
         webEventButton = WebMouseEventButton::Middle;
         break;
-    case 3:
+    case GDK_BUTTON_SECONDARY:
         webEventButton = WebMouseEventButton::Right;
         break;
     }

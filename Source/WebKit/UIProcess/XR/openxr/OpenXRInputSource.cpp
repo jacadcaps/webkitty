@@ -213,7 +213,9 @@ std::optional<PlatformXR::FrameData::HandJointsVector> OpenXRInputSource::collec
     handJoints.reserveInitialCapacity(XR_HAND_JOINT_COUNT_EXT - 1);
     // WebXR does not define the palm joint, that is index 0 for OpenXR joints.
     for (size_t i = 1; i < XR_HAND_JOINT_COUNT_EXT; ++i) {
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
         auto jointLocation = locations.jointLocations[i];
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         if (jointLocation.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) {
             PlatformXR::FrameData::InputSourceHandJoint joint;
             joint.pose.pose = XrPosefToPose(jointLocation.pose);

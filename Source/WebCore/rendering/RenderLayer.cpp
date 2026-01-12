@@ -1298,8 +1298,8 @@ void RenderLayer::recursiveUpdateLayerPositions(OptionSet<UpdateLayerPositionsFl
     auto repaintIfNecessary = [&](bool checkForRepaint) {
         if (mode == Verify) {
             WeakPtr repaintContainer = renderer().containerForRepaint().renderer.get();
-            LAYER_POSITIONS_ASSERT(repaintRects() || (isVisibilityHiddenOrOpacityZero() || !isSelfPaintingLayer()));
-            if (isVisibilityHiddenOrOpacityZero())
+            LAYER_POSITIONS_ASSERT(repaintRects() || (isSubtreeVisibilityHiddenOrOpacityZero() || !isSelfPaintingLayer()));
+            if (isSubtreeVisibilityHiddenOrOpacityZero())
                 LAYER_POSITIONS_ASSERT(!m_repaintContainer);
             else
                 LAYER_POSITIONS_ASSERT(m_repaintContainer == repaintContainer);
@@ -1491,12 +1491,12 @@ void RenderLayer::computeRepaintRects(const RenderLayerModelObject* repaintConta
 {
     ASSERT(!m_visibleContentStatusDirty);
 
-    if (isVisibilityHiddenOrOpacityZero() || !isSelfPaintingLayer())
+    if (isSubtreeVisibilityHiddenOrOpacityZero() || !isSelfPaintingLayer())
         clearRepaintRects();
     else
         setRepaintRects(renderer().rectsForRepaintingAfterLayout(repaintContainer, RepaintOutlineBounds::Yes));
 
-    if (isVisibilityHiddenOrOpacityZero())
+    if (isSubtreeVisibilityHiddenOrOpacityZero())
         m_repaintContainer = nullptr;
     else
         m_repaintContainer = repaintContainer;
@@ -6116,6 +6116,11 @@ bool RenderLayer::hasVisibleBoxDecorations() const
 bool RenderLayer::isVisibilityHiddenOrOpacityZero() const
 {
     return !hasVisibleContent() || renderer().style().opacity().isTransparent();
+}
+
+bool RenderLayer::isSubtreeVisibilityHiddenOrOpacityZero() const
+{
+    return (!hasVisibleContent() && !hasVisibleDescendant()) || renderer().style().opacity().isTransparent();
 }
 
 bool RenderLayer::isVisuallyNonEmpty(PaintedContentRequest* request) const

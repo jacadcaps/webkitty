@@ -121,6 +121,9 @@ public:
     // The change is assumed to potentially affect all author and user stylesheets including shadow roots.
     WEBCORE_EXPORT void didChangeStyleSheetEnvironment();
 
+    // This is called when extension stylesheets change.
+    void didChangeExtensionStyleSheets();
+
     void didChangeViewportSize();
 
     void invalidateMatchedDeclarationsCache();
@@ -175,7 +178,7 @@ private:
 
     void didRemovePendingStylesheet();
 
-    enum class UpdateType : uint8_t { ActiveSet, ContentsOrInterpretation };
+    enum class UpdateType : uint8_t { ActiveSet, FullForExtensionStyleSheets, ContentsOrInterpretation };
     void updateActiveStyleSheets(UpdateType);
     void scheduleUpdate(UpdateType);
 

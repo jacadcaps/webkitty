@@ -33,6 +33,8 @@
 #include <WebCore/GStreamerCommon.h>
 #include <WebCore/GUniquePtrGStreamer.h>
 #include <WebCore/IntSize.h>
+#include <WebCore/PlatformVideoColorSpace.h>
+#include <wtf/URL.h>
 #include <wtf/text/MakeString.h>
 
 using namespace WebCore;
@@ -221,6 +223,138 @@ TEST_F(GStreamerTest, capsFromCodecString)
 #undef TEST_CAPS_FROM_CODEC_FULL
 }
 
+TEST_F(GStreamerTest, displayAspectRatioCalculation)
+{
+#define TEST_DAR_CALCULATION(videoWidth, videoHeight, parN, parD, displayWidth, displayHeight) G_STMT_START { \
+        auto caps = adoptGRef(gst_caps_new_simple("video/x-raw", "width", G_TYPE_INT, videoWidth, "height", G_TYPE_INT, videoHeight, "pixel-aspect-ratio", GST_TYPE_FRACTION, parN, parD, nullptr)); \
+        \
+        IntSize size; \
+        GstVideoFormat format = GST_VIDEO_FORMAT_UNKNOWN; \
+        int outParN = 0, outParD = 0, stride = 0; \
+        double frameRate = 0.0; \
+        PlatformVideoColorSpace colorSpace { }; \
+        \
+        bool ok = getVideoSizeAndFormatFromCaps(caps.get(), size, format, outParN, outParD, stride, frameRate, colorSpace); \
+        \
+        ASSERT_TRUE(ok); \
+        EXPECT_EQ(size.width(), videoWidth); \
+        EXPECT_EQ(size.height(), videoHeight); \
+        EXPECT_EQ(outParN, parN); \
+        EXPECT_EQ(outParD, parD); \
+        \
+        auto computedSize = getDisplaySize(size, outParN, outParD); \
+        \
+        ASSERT_TRUE(computedSize.has_value()); \
+        EXPECT_EQ(computedSize.value().width(), displayWidth); \
+        EXPECT_EQ(computedSize.value().height(), displayHeight); \
+    } G_STMT_END
+
+    TEST_DAR_CALCULATION(1280, 720, 1, 1, 1280, 720); // Square pixels 720p
+    TEST_DAR_CALCULATION(720, 576, 16, 15, 768, 576); // PAL 4:3
+    TEST_DAR_CALCULATION(352, 288, 12, 11, 384, 288); // CIF 352x288 (≈4:3)
+    TEST_DAR_CALCULATION(1920, 1080, 4, 3, 2560, 1080); // Anamorphic HD (64:27)
+    TEST_DAR_CALCULATION(720, 480, 10, 11, 720, 528); // NTSC 4:3 (PAR 10:11)
+    TEST_DAR_CALCULATION(1280, 720, 4, 3, 1280, 540); // 720p non-square pixels (64:27)
+    TEST_DAR_CALCULATION(720, 480, 32, 27, 720, 405); // NTSC widescreen 16:9
+    TEST_DAR_CALCULATION(720, 480, 8, 9, 640, 480); // NTSC 4:3
+    TEST_DAR_CALCULATION(1440, 1080, 4, 3, 1920, 1080); // HDV 1440x1080 anamorphic (16:9)
+    TEST_DAR_CALCULATION(1024, 576, 11, 10, 1126, 576); // 1024x576 custom PAR (≈88:45)
+    TEST_DAR_CALCULATION(330, 196, 7201628, 7170075, 331, 196); // 330x196 custom PAR (value too high)
+
+#undef TEST_DAR_CALCULATION
+}
+
+TEST_F(GStreamerTest, protocolValidation)
+{
+    // Test protocols allowed by default
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "https://example.com/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "file:///path/to/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "http://example.com/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "blob:https://example.com/uuid"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "data:video/mp4;base64,data"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "mediasourceblob://source-id"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "mediastream://stream-id"_s }));
+
+    // Test allowed protocols: mix of lower and upper-case
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "Https://example.com/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "fILe:///path/to/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "HTTP://example.com/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "bloB:https://example.com/uuid"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "DAta:video/mp4;base64,data"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "mediasourceBLOB://source-id"_s }));
+
+    // Test forbidden protocols
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "ftp://example.com/video.mp4"_s }));
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "rtsp://example.com/stream"_s }));
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "about:blank"_s }));
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "mediasource://source-id"_s }));
+
+    // Allow ftp protocol
+    g_setenv("WEBKIT_GST_ALLOWED_URI_PROTOCOLS", "ftp", TRUE);
+
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "https://example.com/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "file:///path/to/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "http://example.com/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "blob:https://example.com/uuid"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "data:video/mp4;base64,data"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "mediasourceblob://source-id"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "mediastream://stream-id"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "ftp://example.com/video.mp4"_s }));
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "rtsp://example.com/stream"_s }));
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "about:blank"_s }));
+
+    // Allow rtsp protocol
+    g_setenv("WEBKIT_GST_ALLOWED_URI_PROTOCOLS", "rtsp", TRUE);
+
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "https://example.com/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "file:///path/to/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "http://example.com/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "blob:https://example.com/uuid"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "data:video/mp4;base64,data"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "mediasourceblob://source-id"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "mediastream://stream-id"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "rtsp://example.com/stream"_s }));
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "ftp://example.com/video.mp4"_s }));
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "about:blank"_s }));
+
+    // Allow ftp and rtsp protocols
+    g_setenv("WEBKIT_GST_ALLOWED_URI_PROTOCOLS", "rtsp,ftp", TRUE);
+
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "https://example.com/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "file:///path/to/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "http://example.com/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "blob:https://example.com/uuid"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "data:video/mp4;base64,data"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "mediasourceblob://source-id"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "mediastream://stream-id"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "rtsp://example.com/stream"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "ftp://example.com/video.mp4"_s }));
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "about:blank"_s }));
+
+    g_unsetenv("WEBKIT_GST_ALLOWED_URI_PROTOCOLS");
+}
+
+TEST_F(GStreamerTest, protocolValidationEnvironmentVariable)
+{
+    // Introduce typos in the environment variable
+    g_setenv("WEBKIT_GST_ALLOWED_URI_PROTOCOLS", "rtsp;ftp", TRUE);
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "rtsp://example.com/stream"_s }));
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "ftp://example.com/video.mp4"_s }));
+
+    g_setenv("WEBKIT_GST_ALLOWED_URI_PROTOCOLS", "rtsp,   ftp   ", TRUE);
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "rtsp://example.com/stream"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "ftp://example.com/video.mp4"_s }));
+
+    g_setenv("WEBKIT_GST_ALLOWED_URI_PROTOCOLS", "rtsp:ftp", TRUE);
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "rtsp://example.com/stream"_s }));
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "ftp://example.com/video.mp4"_s }));
+
+    g_setenv("WEBKIT_GST_ALLOWED_URI_PROTOCOLS", "-rtsp-ftp", TRUE);
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "rtsp://example.com/stream"_s }));
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "ftp://example.com/video.mp4"_s }));
+
+    g_unsetenv("WEBKIT_GST_ALLOWED_URI_PROTOCOLS");
+}
 } // namespace TestWebKitAPI
 
 #endif // USE(GSTREAMER)

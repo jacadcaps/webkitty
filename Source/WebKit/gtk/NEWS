@@ -1,4 +1,41 @@
 ================
+WebKitGTK 2.50.4
+================
+
+What's new in WebKitGTK 2.50.4?
+
+  - Correctly handle the program name passed to the sleep disabler.
+  - Ensure GStreamer is initialized before using the Quirks.
+  - Fix several crashes and rendering issues.
+
+================
+WebKitGTK 2.50.3
+================
+
+What's new in WebKitGTK 2.50.3?
+
+  - Fix seeking and looping of media elements that set the "loop" property.
+  - Fix several crashes and rendering issues.
+
+================
+WebKitGTK 2.50.2
+================
+
+What's new in WebKitGTK 2.50.2?
+
+  - Prevent unsafe URI schemes from participating in media playback.
+  - Make jsc_value_array_buffer_get_data() function introspectable.
+  - Fix logging in to Google accounts that have a WebAuthn second factor configured.
+  - Fix loading webkit://gpu when there are no threads configured for GPU rendering.
+  - Fix rendering gradiants that use the CSS hue interpolation method.
+  - Fix pasting image data from the clipboard.
+  - Fix font-family selection when the font name contains spaces.
+  - Fix the build with standard C libraries that lack execinfo.h,
+    like Musl or uClibc.
+  - Fix capturing canvas snapshots in the Web Inspector.
+  - Fix several crashes and rendering issues.
+
+================
 WebKitGTK 2.50.1
 ================
 

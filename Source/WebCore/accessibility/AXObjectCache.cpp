@@ -2813,7 +2813,8 @@ void AXObjectCache::handleActiveDescendantChange(Element& element, const AtomStr
     AXTRACE("AXObjectCache::handleActiveDescendantChange"_s);
 
     // Use the element's document instead of the cache's document in case we're inside a frame that's managing focus.
-    if (!element.document().frame()->selection().isFocusedAndActive())
+    RefPtr frame = element.document().frame();
+    if (!frame || !frame->selection().isFocusedAndActive())
         return;
 
     RefPtr object = getOrCreate(element);

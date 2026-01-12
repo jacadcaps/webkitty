@@ -208,6 +208,7 @@ void WebFullScreenManager::setElement(WebCore::Element& element)
 
     m_element = element;
     m_elementToRestore = element;
+    m_elementFrameIdentifier = element.document().frame()->frameID();
 
     for (auto& eventName : eventsToObserve())
         m_element->addEventListener(eventName, *this, { true });
@@ -220,6 +221,7 @@ void WebFullScreenManager::clearElement()
     for (auto& eventName : eventsToObserve())
         m_element->removeEventListener(eventName, *this, { true });
     m_element = nullptr;
+    m_elementFrameIdentifier = std::nullopt;
 }
 
 #if ENABLE(QUICKLOOK_FULLSCREEN)
@@ -274,8 +276,6 @@ void WebFullScreenManager::enterFullScreenForElement(Element& element, HTMLMedia
     ALWAYS_LOG(LOGIDENTIFIER, "<", element.tagName(), " id=\"", element.getIdAttribute(), "\">");
 
     setElement(element);
-
-    auto frameID = element.document().frame()->frameID();
 
     FullScreenMediaDetails mediaDetails;
 #if PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))
@@ -338,7 +338,8 @@ void WebFullScreenManager::enterFullScreenForElement(Element& element, HTMLMedia
         willEnterFullScreen(element, WTFMove(willEnterFullScreenCallback), WTFMove(didEnterFullScreenCallback), mode);
         m_inWindowFullScreenMode = true;
     } else {
-        m_page->sendWithAsyncReply(Messages::WebFullScreenManagerProxy::EnterFullScreen(frameID, m_element->document().quirks().blocksReturnToFullscreenFromPictureInPictureQuirk(), WTFMove(mediaDetails)), [
+        ASSERT(m_elementFrameIdentifier);
+        m_page->sendWithAsyncReply(Messages::WebFullScreenManagerProxy::EnterFullScreen(*m_elementFrameIdentifier, m_element->document().quirks().blocksReturnToFullscreenFromPictureInPictureQuirk(), WTFMove(mediaDetails)), [
             this,
             protectedThis = Ref { *this },
             element = Ref { element },
@@ -481,7 +482,7 @@ void WebFullScreenManager::updateMainVideoElement()
 
 void WebFullScreenManager::willExitFullScreen(CompletionHandler<void()>&& completionHandler)
 {
-    if (!m_element || !m_element->document().frame())
+    if (!m_element || !m_elementFrameIdentifier)
         return completionHandler();
     ALWAYS_LOG(LOGIDENTIFIER, "<", m_element->tagName(), " id=\"", m_element->getIdAttribute(), "\">");
 
@@ -499,7 +500,7 @@ void WebFullScreenManager::willExitFullScreen(CompletionHandler<void()>&& comple
 #endif
     // FIXME: The order of these frames is switched, but that is kept for historical reasons.
     // It should probably be fixed to be consistent at some point.
-    m_page->sendWithAsyncReply(Messages::WebFullScreenManagerProxy::BeganExitFullScreen(m_element->document().frame()->frameID(), m_finalFrame, m_initialFrame), [this, protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)] mutable {
+    m_page->sendWithAsyncReply(Messages::WebFullScreenManagerProxy::BeganExitFullScreen(*m_elementFrameIdentifier, m_finalFrame, m_initialFrame), [this, protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)] mutable {
         didExitFullScreen(WTFMove(completionHandler));
     });
 }

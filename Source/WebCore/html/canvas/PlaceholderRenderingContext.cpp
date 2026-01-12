@@ -48,7 +48,7 @@ PlaceholderRenderingContextSource::PlaceholderRenderingContextSource(Placeholder
 {
 }
 
-void PlaceholderRenderingContextSource::setPlaceholderBuffer(ImageBuffer& imageBuffer, bool opaque)
+void PlaceholderRenderingContextSource::setPlaceholderBuffer(ImageBuffer& imageBuffer, bool originClean, bool opaque)
 {
     auto bufferVersion = ++m_bufferVersion;
     {
@@ -65,7 +65,7 @@ void PlaceholderRenderingContextSource::setPlaceholderBuffer(ImageBuffer& imageB
     std::unique_ptr serializedClone = ImageBuffer::sinkIntoSerializedImageBuffer(WTFMove(clone));
     if (!serializedClone)
         return;
-    callOnMainThread([weakPlaceholder = m_placeholder, buffer = WTFMove(serializedClone), bufferVersion, opaque] () mutable {
+    callOnMainThread([weakPlaceholder = m_placeholder, buffer = WTFMove(serializedClone), bufferVersion, originClean, opaque] () mutable {
         assertIsMainThread();
         RefPtr placeholder = weakPlaceholder.get();
         if (!placeholder)
@@ -85,7 +85,7 @@ void PlaceholderRenderingContextSource::setPlaceholderBuffer(ImageBuffer& imageB
             }
         }
 
-        placeholder->setPlaceholderBuffer(imageBuffer.releaseNonNull(), opaque);
+        placeholder->setPlaceholderBuffer(imageBuffer.releaseNonNull(), originClean, opaque);
         source->m_placeholderBufferVersion = bufferVersion;
     });
 }
@@ -134,9 +134,15 @@ void PlaceholderRenderingContext::setContentsToLayer(GraphicsLayer& layer)
     m_source->setContentsToLayer(layer, buffer.get(), m_opaque);
 }
 
-void PlaceholderRenderingContext::setPlaceholderBuffer(Ref<ImageBuffer>&& buffer, bool opaque)
+void PlaceholderRenderingContext::setPlaceholderBuffer(Ref<ImageBuffer>&& buffer, bool originClean, bool opaque)
 {
     m_opaque = opaque;
+
+    // Transfer the drawn bitmap and its origin-clean flag to the output canvas.
+    if (originClean)
+        canvasBase().setOriginClean();
+    else
+        canvasBase().setOriginTainted();
     canvasBase().setImageBufferAndMarkDirty(WTFMove(buffer));
 }
 

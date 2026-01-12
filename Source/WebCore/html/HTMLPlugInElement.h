@@ -91,7 +91,7 @@ protected:
 
     virtual bool requestObject(const String& url, const String& mimeType, const Vector<AtomString>& paramNames, const Vector<AtomString>& paramValues);
     RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
-    bool isReplaced(const RenderStyle&) const final;
+    bool isReplaced(const RenderStyle* = nullptr) const final;
     void didAddUserAgentShadowRoot(ShadowRoot&) final;
 
     // This will load the plugin if necessary.

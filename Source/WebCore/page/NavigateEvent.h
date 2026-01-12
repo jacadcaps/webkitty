@@ -141,4 +141,6 @@ private:
     RefPtr<AbortController> m_abortController;
 };
 
+WebCoreOpaqueRoot root(NavigateEvent*);
+
 } // namespace WebCore

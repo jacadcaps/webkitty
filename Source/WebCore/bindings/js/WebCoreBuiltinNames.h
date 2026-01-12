@@ -717,6 +717,7 @@ namespace WebCore {
     macro(showModalDialog) \
     macro(signal) \
     macro(signalAbort) \
+    macro(speechSynthesis) \
     macro(SpeechSynthesis) \
     macro(SpeechSynthesisErrorEvent) \
     macro(SpeechSynthesisEvent) \

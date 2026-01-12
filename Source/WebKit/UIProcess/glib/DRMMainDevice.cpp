@@ -79,7 +79,9 @@ static std::optional<std::pair<CString, CString>> drmFirstDeviceWithRenderNode()
         if (!(drmDevice->available_nodes & (1 << DRM_NODE_RENDER)))
             return true;
 
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
         device = { CString(drmDevice->nodes[DRM_NODE_PRIMARY]), CString(drmDevice->nodes[DRM_NODE_RENDER]) };
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         return false;
     });
     return device;
@@ -99,11 +101,13 @@ static CString drmPrimaryNodeDeviceForRenderNodeDevice(const CString& renderNode
         if (!(device->available_nodes & (1 << DRM_NODE_RENDER)))
             return true;
 
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
         auto node = CString(device->nodes[DRM_NODE_RENDER]);
         if (node == renderNode) {
             primaryNode = CString(device->nodes[DRM_NODE_PRIMARY]);
             return false;
         }
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
         return true;
     });
@@ -125,12 +129,14 @@ static CString drmRenderNodeDeviceFromPrimaryNodeDevice(const CString& primaryNo
         if (!(device->available_nodes & (1 << DRM_NODE_PRIMARY)))
             return true;
 
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
         auto node = CString(device->nodes[DRM_NODE_PRIMARY]);
         if (node == primaryNode) {
             if (device->available_nodes & (1 << DRM_NODE_RENDER))
                 renderNode = CString(device->nodes[DRM_NODE_RENDER]);
             return false;
         }
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
         return true;
     });

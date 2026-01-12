@@ -178,8 +178,9 @@ inline SpeculatedType typeFilterFor(UseKind useKind)
     case SetObjectUse:
         return SpecSetObject;
     case MapIteratorObjectUse:
+        return SpecMapIteratorObject;
     case SetIteratorObjectUse:
-        return SpecObjectOther;
+        return SpecSetIteratorObject;
     case WeakMapObjectUse:
         return SpecWeakMapObject;
     case WeakSetObjectUse:

@@ -391,7 +391,7 @@ public:
     virtual void setApproximatePosition(const FloatPoint& p) { m_approximatePosition = p; }
 
     // For platforms that move underlying platform layers on a different thread for scrolling; just update the GraphicsLayer state.
-    virtual void syncPosition(const FloatPoint& p) { m_position = p; }
+    virtual void syncPosition(const FloatPoint& p) { m_approximatePosition = std::nullopt; m_position = p; }
 
     // Anchor point: (0, 0) is top left, (1, 1) is bottom right. The anchor point
     // affects the origin of the transforms.

@@ -2141,7 +2141,6 @@ public:
 
 #if ENABLE(DEVICE_ORIENTATION)
     void shouldAllowDeviceOrientationAndMotionAccess(IPC::Connection&, WebCore::FrameIdentifier, FrameInfoData&&, bool mayPrompt, CompletionHandler<void(WebCore::DeviceOrientationOrMotionPermissionState)>&&);
-    bool originHasDeviceOrientationAndMotionAccess(const WebCore::SecurityOriginData&);
 #endif
 
 #if ENABLE(IMAGE_ANALYSIS)

@@ -27,14 +27,12 @@
 #include "config.h"
 #include "CredentialsContainer.h"
 
-#if ENABLE(WEB_AUTHN)
-
 #include "CredentialCreationOptions.h"
 #include "CredentialRequestCoordinator.h"
 #include "CredentialRequestOptions.h"
 #include "DigitalCredential.h"
-#include "Document.h"
 #include "DocumentInlines.h"
+#include "JSBasicCredential.h"
 #include "JSDOMPromiseDeferred.h"
 #include "JSDigitalCredential.h"
 #include "LocalFrame.h"
@@ -56,12 +54,16 @@ void CredentialsContainer::get(CredentialRequestOptions&& options, CredentialPro
         return;
     }
 
+#if ENABLE(WEB_AUTHN)
     if (options.digital) {
         DigitalCredential::discoverFromExternalSource(*document(), WTFMove(promise), WTFMove(options));
         return;
     }
 
     document()->page()->authenticatorCoordinator().discoverFromExternalSource(*document(), WTFMove(options), WTFMove(promise));
+#else
+    promise.resolve(nullptr);
+#endif
 }
 
 void CredentialsContainer::store(const BasicCredential&, CredentialPromise&& promise)
@@ -80,10 +82,12 @@ void CredentialsContainer::isCreate(CredentialCreationOptions&& options, Credent
         return;
     }
 
+#if ENABLE(WEB_AUTHN)
     if (options.publicKey) {
         document()->page()->authenticatorCoordinator().create(*document(), WTFMove(options), WTFMove(options.signal), WTFMove(promise));
         return;
     }
+#endif
 
     promise.resolve(nullptr);
 }
@@ -138,5 +142,3 @@ bool CredentialsContainer::performCommonChecks(const Options& options, Credentia
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(WEB_AUTHN)

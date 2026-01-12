@@ -58,6 +58,8 @@ static bool isSiblingOrSubject(MatchElement matchElement)
     case MatchElement::HasChild:
     case MatchElement::HasDescendant:
     case MatchElement::HasSiblingDescendant:
+    case MatchElement::HasChildParent:
+    case MatchElement::HasChildAncestor:
     case MatchElement::HasNonSubject:
     case MatchElement::HasScopeBreaking:
         return false;
@@ -104,6 +106,8 @@ static bool isScopeBreaking(MatchElement matchElement)
     case MatchElement::HasChild:
     case MatchElement::HasDescendant:
     case MatchElement::HasSiblingDescendant:
+    case MatchElement::HasChildParent:
+    case MatchElement::HasChildAncestor:
     case MatchElement::HasNonSubject:
         return false;
     }
@@ -188,8 +192,15 @@ static MatchElement computeNextHasPseudoClassMatchElement(MatchElement matchElem
         return matchElement;
 
     // `:has(:is(foo bar))` can be affected by changes outside the :has scope.
-    if (relation == CSSSelector::Relation::DescendantSpace || relation == CSSSelector::Relation::Child)
+    if (relation == CSSSelector::Relation::DescendantSpace || relation == CSSSelector::Relation::Child) {
+        // However, for `:has(> :is(.x > .y))`, the child combinator (>) inside :is() is still scoped to the direct child's tree.
+        // The parent in the relationship must be the direct child itself, which is within the :has(>) scope.
+        // Only descendant combinators can reach outside this scope (to ancestors of the subject element).
+        if (matchElement == MatchElement::HasChild && relation == CSSSelector::Relation::Child)
+            return matchElement;
+
         return MatchElement::HasScopeBreaking;
+    }
 
     if (relation == CSSSelector::Relation::IndirectAdjacent || relation == CSSSelector::Relation::DirectAdjacent) {
         // `:has(~ :is(.x ~ .y))` must look at previous siblings of the :scope scope too.
@@ -230,6 +241,8 @@ MatchElement computeHasPseudoClassMatchElement(const CSSSelector& hasSelector)
     case MatchElement::HasSibling:
     case MatchElement::HasSiblingDescendant:
     case MatchElement::HasAnySibling:
+    case MatchElement::HasChildParent:
+    case MatchElement::HasChildAncestor:
     case MatchElement::HasNonSubject:
     case MatchElement::HasScopeBreaking:
     case MatchElement::Host:
@@ -258,9 +271,21 @@ static MatchElement computeSubSelectorMatchElement(MatchElement matchElement, co
             return MatchElement::Host;
 
         if (type == CSSSelector::PseudoClass::Has) {
+            auto hasSelectorMatchElement = computeHasPseudoClassMatchElement(childSelector);
+
+            if (hasSelectorMatchElement == MatchElement::HasChild) {
+                // :has(> .changed) > .subject
+                if (matchElement == MatchElement::Parent)
+                    return MatchElement::HasChildParent;
+                // :has(> .changed) .subject
+                if (matchElement == MatchElement::Ancestor)
+                    return MatchElement::HasChildAncestor;
+            }
+
             if (matchElement != MatchElement::Subject)
                 return MatchElement::HasNonSubject;
-            return computeHasPseudoClassMatchElement(childSelector);
+
+            return hasSelectorMatchElement;
         }
 
     }

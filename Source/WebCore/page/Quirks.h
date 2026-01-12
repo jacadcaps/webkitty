@@ -275,14 +275,16 @@ public:
 
     bool shouldDisableDOMAudioSessionQuirk() const;
 
+    bool shouldExposeCredentialsContainerQuirk() const;
+
+    void determineRelevantQuirks();
+
 private:
     bool needsQuirks() const;
     bool isDomain(const String&) const;
     bool domainStartsWith(const String&) const;
     bool isEmbedDomain(const String&) const;
     bool isYoutubeEmbedDomain() const;
-
-    void determineRelevantQuirks();
 
     static bool domainNeedsAvoidResizingWhenInputViewBoundsChangeQuirk(const URL&, QuirksData&);
     static bool domainNeedsScrollbarWidthThinDisabledQuirk(const URL&, QuirksData&);

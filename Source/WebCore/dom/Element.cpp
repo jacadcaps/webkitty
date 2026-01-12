@@ -3618,7 +3618,8 @@ void Element::childrenChanged(const ChildChange& change)
     }
 
     if (document().isDirAttributeDirty()) [[unlikely]] {
-        if (selfOrPrecedingNodesAffectDirAuto())
+        // Inserting a replaced Element (image, canvas, input, etc) should be treated as a neutral character.
+        if (selfOrPrecedingNodesAffectDirAuto() && !(change.type == ChildChange::Type::ElementInserted && change.siblingChanged->isReplaced()))
             updateEffectiveTextDirection();
     }
 }
@@ -6160,6 +6161,9 @@ void Element::setContentRelevancy(OptionSet<ContentRelevancy> contentRelevancy)
 bool Element::checkVisibility(const CheckVisibilityOptions& options)
 {
     document().updateStyleIfNeeded();
+
+    if (!renderer())
+        return false;
 
     auto* style = computedStyle();
 

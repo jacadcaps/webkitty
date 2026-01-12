@@ -3238,7 +3238,7 @@
 		83102B271F9EADD900E404B9 /* JSExtendableMessageEvent.h in Headers */ = {isa = PBXBuildFile; fileRef = 83102B231F9EADC200E404B9 /* JSExtendableMessageEvent.h */; };
 		8311C0031FAA2E9500E3C8E5 /* SWServerJobQueue.h in Headers */ = {isa = PBXBuildFile; fileRef = 8311C0021FAA2E8900E3C8E5 /* SWServerJobQueue.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		83120C711C56F3FB001CB112 /* HTMLDataElement.h in Headers */ = {isa = PBXBuildFile; fileRef = 834B86A71C56E83A00F3F0E3 /* HTMLDataElement.h */; };
-		83198FBF24A160DD00420B05 /* BaseAudioContext.h in Headers */ = {isa = PBXBuildFile; fileRef = 83198FBE24A160C100420B05 /* BaseAudioContext.h */; };
+		83198FBF24A160DD00420B05 /* BaseAudioContext.h in Headers */ = {isa = PBXBuildFile; fileRef = 83198FBE24A160C100420B05 /* BaseAudioContext.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		8321507E1F27EA1B0095B136 /* NavigatorBeacon.h in Headers */ = {isa = PBXBuildFile; fileRef = 8321507B1F27EA150095B136 /* NavigatorBeacon.h */; };
 		8326BF8E24D35C33001F8A85 /* OverSampleType.h in Headers */ = {isa = PBXBuildFile; fileRef = 8326BF8924D35C20001F8A85 /* OverSampleType.h */; };
 		8326BF8F24D35C39001F8A85 /* WaveShaperOptions.h in Headers */ = {isa = PBXBuildFile; fileRef = 8326BF8C24D35C20001F8A85 /* WaveShaperOptions.h */; };
@@ -6744,7 +6744,7 @@
 		FC9A0F75164094CF003D6B8D /* DOMCSSNamespace.h in Headers */ = {isa = PBXBuildFile; fileRef = FC9A0F72164094CF003D6B8D /* DOMCSSNamespace.h */; };
 		FC9E0E4D16419C1E00392BE3 /* JSDOMCSSNamespace.h in Headers */ = {isa = PBXBuildFile; fileRef = FC9E0E4B16419C1E00392BE3 /* JSDOMCSSNamespace.h */; };
 		FD00D7A514A3F61900734011 /* SincResampler.h in Headers */ = {isa = PBXBuildFile; fileRef = FD00D7A314A3F61900734011 /* SincResampler.h */; settings = {ATTRIBUTES = (Private, ); }; };
-		FD06DFA6134A4DEF006F5D7D /* DefaultAudioDestinationNode.h in Headers */ = {isa = PBXBuildFile; fileRef = FD06DFA4134A4DEF006F5D7D /* DefaultAudioDestinationNode.h */; };
+		FD06DFA6134A4DEF006F5D7D /* DefaultAudioDestinationNode.h in Headers */ = {isa = PBXBuildFile; fileRef = FD06DFA4134A4DEF006F5D7D /* DefaultAudioDestinationNode.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		FD1660A513787C6D001FFA7B /* DenormalDisabler.h in Headers */ = {isa = PBXBuildFile; fileRef = FD1660A413787C6D001FFA7B /* DenormalDisabler.h */; };
 		FD1762E0176686D900D836A8 /* UpSampler.h in Headers */ = {isa = PBXBuildFile; fileRef = FD1762DE176686D900D836A8 /* UpSampler.h */; };
 		FD1762E4176686EA00D836A8 /* DownSampler.h in Headers */ = {isa = PBXBuildFile; fileRef = FD1762E2176686EA00D836A8 /* DownSampler.h */; };
@@ -6756,7 +6756,7 @@
 		FD315FFC12B0267600C1A359 /* AudioBufferSourceNode.h in Headers */ = {isa = PBXBuildFile; fileRef = FD315FB212B0267500C1A359 /* AudioBufferSourceNode.h */; };
 		FD315FFF12B0267600C1A359 /* ChannelMergerNode.h in Headers */ = {isa = PBXBuildFile; fileRef = FD315FB512B0267500C1A359 /* ChannelMergerNode.h */; };
 		FD31600212B0267600C1A359 /* ChannelSplitterNode.h in Headers */ = {isa = PBXBuildFile; fileRef = FD315FB812B0267500C1A359 /* ChannelSplitterNode.h */; };
-		FD31600512B0267600C1A359 /* AudioContext.h in Headers */ = {isa = PBXBuildFile; fileRef = FD315FBB12B0267500C1A359 /* AudioContext.h */; };
+		FD31600512B0267600C1A359 /* AudioContext.h in Headers */ = {isa = PBXBuildFile; fileRef = FD315FBB12B0267500C1A359 /* AudioContext.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		FD31600812B0267600C1A359 /* AudioDestinationNode.h in Headers */ = {isa = PBXBuildFile; fileRef = FD315FBE12B0267500C1A359 /* AudioDestinationNode.h */; };
 		FD31600D12B0267600C1A359 /* GainNode.h in Headers */ = {isa = PBXBuildFile; fileRef = FD315FC312B0267500C1A359 /* GainNode.h */; };
 		FD31601012B0267600C1A359 /* AudioListener.h in Headers */ = {isa = PBXBuildFile; fileRef = FD315FC612B0267500C1A359 /* AudioListener.h */; };
@@ -6805,7 +6805,7 @@
 		FD3160AB12B026F700C1A359 /* ReverbConvolverStage.h in Headers */ = {isa = PBXBuildFile; fileRef = FD31607512B026F700C1A359 /* ReverbConvolverStage.h */; };
 		FD3160AD12B026F700C1A359 /* ReverbInputBuffer.h in Headers */ = {isa = PBXBuildFile; fileRef = FD31607712B026F700C1A359 /* ReverbInputBuffer.h */; };
 		FD3160AF12B026F700C1A359 /* VectorMath.h in Headers */ = {isa = PBXBuildFile; fileRef = FD31607912B026F700C1A359 /* VectorMath.h */; };
-		FD359190138DB22000E1EBEC /* AudioParamTimeline.h in Headers */ = {isa = PBXBuildFile; fileRef = FD35918E138DB22000E1EBEC /* AudioParamTimeline.h */; };
+		FD359190138DB22000E1EBEC /* AudioParamTimeline.h in Headers */ = {isa = PBXBuildFile; fileRef = FD35918E138DB22000E1EBEC /* AudioParamTimeline.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		FD45A94F175D3F3E00C21EC8 /* LayoutShape.h in Headers */ = {isa = PBXBuildFile; fileRef = FD08A87F175D3926002CD360 /* LayoutShape.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		FD45A952175D3F3E00C21EC8 /* ShapeOutsideInfo.h in Headers */ = {isa = PBXBuildFile; fileRef = FD08A887175D3926002CD360 /* ShapeOutsideInfo.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		FD45A957175D414C00C21EC8 /* PolygonLayoutShape.h in Headers */ = {isa = PBXBuildFile; fileRef = FD08A87B175D3926002CD360 /* PolygonLayoutShape.h */; settings = {ATTRIBUTES = (Private, ); }; };
@@ -11060,6 +11060,7 @@
 		460CBF341D4BCCFE0092E88E /* JSDOMWindowProperties.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = JSDOMWindowProperties.h; sourceTree = "<group>"; };
 		460D19441FCE21DD00C3DB85 /* JSServiceWorkerGlobalScopeCustom.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = JSServiceWorkerGlobalScopeCustom.cpp; sourceTree = "<group>"; };
 		46186BDB2906F37000C09164 /* CSSOMColorValue.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = CSSOMColorValue.cpp; sourceTree = "<group>"; };
+		46199AAA2EB9B994006C50D9 /* JSNavigationCustom.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = JSNavigationCustom.cpp; sourceTree = "<group>"; };
 		4625239C28E5034A00082F84 /* ScreenOrientationLockType.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ScreenOrientationLockType.h; sourceTree = "<group>"; };
 		4625239D28E5034B00082F84 /* ScreenOrientationType.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ScreenOrientationType.h; sourceTree = "<group>"; };
 		462553D228DD0FB100D48FCC /* WakeLockType.idl */ = {isa = PBXFileReference; lastKnownFileType = text; path = WakeLockType.idl; sourceTree = "<group>"; };
@@ -11261,6 +11262,7 @@
 		46DBB64E1AB8C96F00D9A813 /* PowerObserverMac.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = PowerObserverMac.h; sourceTree = "<group>"; };
 		46DC53BE28EB3D64005376B0 /* ScreenOrientationManager.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ScreenOrientationManager.h; sourceTree = "<group>"; };
 		46DD93D5269DE74B001AFD88 /* BroadcastChannelIdentifier.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BroadcastChannelIdentifier.h; sourceTree = "<group>"; };
+		46DE94B42EB09316008FBA02 /* JSNavigationCustom.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = JSNavigationCustom.cpp; sourceTree = "<group>"; };
 		46DE9BB4269DF9320024C5A6 /* BroadcastChannelRegistry.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BroadcastChannelRegistry.h; sourceTree = "<group>"; };
 		46DFF4961DC2601300B80B48 /* ShadowRootMode.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ShadowRootMode.h; sourceTree = "<group>"; };
 		46DFF4971DC2601300B80B48 /* ShadowRootMode.idl */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = ShadowRootMode.idl; sourceTree = "<group>"; };
@@ -30172,6 +30174,7 @@
 				C6F0917E143A2BB900685849 /* JSMutationObserverCustom.cpp */,
 				9B9CADA72165DC7600E8D858 /* JSMutationRecordCustom.cpp */,
 				460A3C5D2CA4EF7900D043CA /* JSNavigateEventCustom.cpp */,
+				46199AAA2EB9B994006C50D9 /* JSNavigationCustom.cpp */,
 				83B5DA451FA9079300B59DF4 /* JSNavigatorCustom.cpp */,
 				BCD9C2600C17AA67005C90A2 /* JSNodeCustom.cpp */,
 				BC9439C2116CF4940048C750 /* JSNodeCustom.h */,

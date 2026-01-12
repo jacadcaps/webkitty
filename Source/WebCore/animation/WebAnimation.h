@@ -138,7 +138,7 @@ public:
     virtual ExceptionOr<void> bindingsPause() { return pause(); }
     std::optional<WebAnimationTime> holdTime() const { return m_holdTime; }
 
-    void setPendingStartTime(WebAnimationTime pendingStartTime) { m_pendingStartTime = pendingStartTime; }
+    void setPendingStartTime(WebAnimationTime);
 
     virtual Variant<FramesPerSecond, AnimationFrameRatePreset> bindingsFrameRate() const { return m_bindingsFrameRate; }
     virtual void setBindingsFrameRate(Variant<FramesPerSecond, AnimationFrameRatePreset>&&);

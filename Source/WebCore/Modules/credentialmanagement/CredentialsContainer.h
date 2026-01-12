@@ -26,17 +26,12 @@
 
 #pragma once
 
-#if ENABLE(WEB_AUTHN)
-
-#include "AuthenticatorCoordinator.h"
-#include "CredentialRequestCoordinator.h"
-#include "DigitalCredential.h"
+#include "BasicCredential.h"
 #include <wtf/RefCounted.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
-template<typename> class DOMPromiseDeferred;
 using CredentialPromise = DOMPromiseDeferred<IDLNullable<IDLInterface<BasicCredential>>>;
 
 class Document;
@@ -73,5 +68,3 @@ protected:
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(WEB_AUTHN)

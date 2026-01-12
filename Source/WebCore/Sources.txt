@@ -724,6 +724,7 @@ bindings/js/JSMessagePortCustom.cpp
 bindings/js/JSMutationObserverCustom.cpp
 bindings/js/JSMutationRecordCustom.cpp
 bindings/js/JSNavigateEventCustom.cpp
+bindings/js/JSNavigationCustom.cpp
 bindings/js/JSNavigatorCustom.cpp
 bindings/js/JSNodeCustom.cpp
 bindings/js/JSNodeIteratorCustom.cpp

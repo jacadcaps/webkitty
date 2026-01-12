@@ -115,10 +115,9 @@ private:
     {
     }
     static Lock syncMessageStateMapLock;
-    // FIXME: Don't use raw pointers.
-    static HashMap<SerialFunctionDispatcher*, SyncMessageState*>& syncMessageStateMap() WTF_REQUIRES_LOCK(syncMessageStateMapLock)
+    static HashMap<RefPtr<SerialFunctionDispatcher>, SyncMessageState*>& syncMessageStateMap() WTF_REQUIRES_LOCK(syncMessageStateMapLock)
     {
-        static NeverDestroyed<HashMap<SerialFunctionDispatcher*, SyncMessageState*>> map;
+        static NeverDestroyed<HashMap<RefPtr<SerialFunctionDispatcher>, SyncMessageState*>> map;
         return map;
     }
 
@@ -1044,6 +1043,18 @@ void Connection::processIncomingMessage(UniqueRef<Decoder> message)
         return;
 
     if (message->messageReceiverName() == ReceiverName::AsyncReply) {
+        // Disallow async replies with invalid destinationIDs to be sent
+        if (!AtomicObjectIdentifier<AsyncReplyIDType>::isValidIdentifier(message->destinationID())) {
+            incomingMessagesLocker.unlockEarly();
+            waitForMessagesLocker.unlockEarly();
+#if ENABLE(IPC_TESTING_API)
+            // Don't terminate WebContent sender for IPC Testing
+            if (m_ignoreInvalidMessageForTesting)
+                return;
+#endif
+            dispatchDidReceiveInvalidMessage(message->messageName(), message->indicesOfObjectsFailingDecoding());
+            return;
+        }
         if (auto replyHandlerWithDispatcher = takeAsyncReplyHandlerWithDispatcherWithLockHeld(AtomicObjectIdentifier<AsyncReplyIDType>(message->destinationID()))) {
             replyHandlerWithDispatcher(this, message.moveToUniquePtr());
             return;

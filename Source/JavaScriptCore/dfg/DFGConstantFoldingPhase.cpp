@@ -114,6 +114,10 @@ public:
 private:
     bool foldConstants(BasicBlock* block)
     {
+        // CFAUnreachable, skip
+        if (!block->cfaHasVisited)
+            return false;
+
         bool changed = false;
         m_state.beginBasicBlock(block);
         for (unsigned indexInBlock = 0; indexInBlock < block->size(); ++indexInBlock) {

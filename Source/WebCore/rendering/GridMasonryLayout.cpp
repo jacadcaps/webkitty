@@ -71,7 +71,8 @@ void GridMasonryLayout::resizeAndResetRunningPositions()
 
 void GridMasonryLayout::placeMasonryItems(const GridTrackSizingAlgorithm& algorithm, GridMasonryLayout::MasonryLayoutPhase layoutPhase)
 {
-    ASSERT(m_gridAxisTracksCount);
+    if (!m_gridAxisTracksCount)
+        return;
 
     auto& grid = m_renderGrid->currentGrid();
     for (CheckedPtr gridItem = grid.orderIterator().first(); gridItem; gridItem = grid.orderIterator().next()) {

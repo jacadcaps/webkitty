@@ -76,6 +76,10 @@ public:
 
     void resetObservationSize(Element&);
 
+    const Vector<WeakPtr<Element, WeakPtrImplWithEventTargetData>>& activeObservationTargets() const WTF_REQUIRES_LOCK(m_observationTargetsLock) { return m_activeObservationTargets; }
+    const Vector<WeakPtr<Element, WeakPtrImplWithEventTargetData>>& targetsWaitingForFirstObservation() const WTF_REQUIRES_LOCK(m_observationTargetsLock) { return m_targetsWaitingForFirstObservation; }
+    Lock& observationTargetsLock() WTF_RETURNS_LOCK(m_observationTargetsLock) { return m_observationTargetsLock; }
+
     ResizeObserverCallback* callbackConcurrently();
     bool isReachableFromOpaqueRoots(JSC::AbstractSlotVisitor&) const;
 
@@ -94,9 +98,10 @@ private:
     Vector<Ref<ResizeObservation>> m_observations;
 
     Vector<Ref<ResizeObservation>> m_activeObservations;
-    Vector<GCReachableRef<Element>> m_activeObservationTargets;
-    Vector<GCReachableRef<Element>> m_targetsWaitingForFirstObservation;
+    Vector<WeakPtr<Element, WeakPtrImplWithEventTargetData>> m_activeObservationTargets WTF_GUARDED_BY_LOCK(m_observationTargetsLock);
+    Vector<WeakPtr<Element, WeakPtrImplWithEventTargetData>> m_targetsWaitingForFirstObservation WTF_GUARDED_BY_LOCK(m_observationTargetsLock);
 
+    mutable Lock m_observationTargetsLock;
     bool m_hasSkippedObservations { false };
 };
 

@@ -1788,6 +1788,11 @@ void WebPageProxy::close()
             automationSession->willClosePage(*this);
     }
 
+#if ENABLE(FULLSCREEN_API)
+    if (RefPtr fullscreenManager = std::exchange(m_fullScreenManager, nullptr))
+        fullscreenManager->detachFromClient();
+#endif
+
 #if ENABLE(WK_WEB_EXTENSIONS) && PLATFORM(COCOA)
     if (RefPtr webExtensionController = m_webExtensionController)
         webExtensionController->removePage(*this);
@@ -4192,7 +4197,7 @@ void WebPageProxy::sendWheelEvent(WebCore::FrameIdentifier frameID, const WebWhe
     Ref process = processContainingFrame(frameID);
     if (protectedDrawingArea()->shouldSendWheelEventsToEventDispatcher()) {
         sendWheelEventScrollingAccelerationCurveIfNecessary(frameID, event);
-        process->protectedConnection()->send(Messages::EventDispatcher::WheelEvent(webPageIDInProcess(process), event, rubberBandableEdges), 0, { }, Thread::QOS::UserInteractive);
+        sendToProcessContainingFrame(frameID, Messages::EventDispatcher::WheelEvent(webPageIDInProcess(process), event, rubberBandableEdges));
     } else {
         sendWithAsyncReplyToProcessContainingFrame(frameID, Messages::WebPage::HandleWheelEvent(frameID, event, processingSteps, willStartSwipe), [weakThis = WeakPtr { *this }, wheelEvent = event, processingSteps, rubberBandableEdges, willStartSwipe, wasHandledForScrolling] (IPC::Connection* connection, std::optional<ScrollingNodeID> nodeID, std::optional<WheelScrollGestureState> gestureState, bool handled, std::optional<RemoteUserInputEventData> remoteWheelEventData) mutable {
             RefPtr protectedThis = weakThis.get();
@@ -4293,8 +4298,7 @@ void WebPageProxy::sendWheelEventScrollingAccelerationCurveIfNecessary(WebCore::
         return;
 
     Ref process = processContainingFrame(frameID);
-    Ref connection = process->connection();
-    connection->send(Messages::EventDispatcher::SetScrollingAccelerationCurve(webPageIDInProcess(process), internals().scrollingAccelerationCurve), 0, { }, Thread::QOS::UserInteractive);
+    sendToProcessContainingFrame(frameID, Messages::EventDispatcher::SetScrollingAccelerationCurve(webPageIDInProcess(process), internals().scrollingAccelerationCurve));
     internals().lastSentScrollingAccelerationCurve = internals().scrollingAccelerationCurve;
 #endif
 }
@@ -12768,14 +12772,6 @@ void WebPageProxy::shouldAllowDeviceOrientationAndMotionAccess(IPC::Connection& 
     protectedWebsiteDataStore()->protectedDeviceOrientationAndMotionAccessController()->shouldAllowAccess(*this, *frame, WTFMove(frameInfo), mayPrompt, WTFMove(completionHandler));
 }
 
-bool WebPageProxy::originHasDeviceOrientationAndMotionAccess(const WebCore::SecurityOriginData& origin)
-{
-    if (!protectedPreferences()->deviceOrientationPermissionAPIEnabled())
-        return true;
-
-    return protectedWebsiteDataStore()->protectedDeviceOrientationAndMotionAccessController()->cachedDeviceOrientationPermission(origin) == DeviceOrientationOrMotionPermissionState::Granted;
-}
-
 #endif
 
 
@@ -15031,14 +15027,6 @@ void WebPageProxy::willAcquireUniversalFileReadSandboxExtension(WebProcessProxy&
 
 void WebPageProxy::simulateDeviceOrientationChange(double alpha, double beta, double gamma)
 {
-#if ENABLE(DEVICE_ORIENTATION)
-    auto origin = SecurityOrigin::createFromString(protectedPageLoadState()->activeURL())->data();
-    if (!originHasDeviceOrientationAndMotionAccess(origin)) {
-        WEBPAGEPROXY_RELEASE_LOG_ERROR(Process, "simulateDeviceOrientationChange: Not sending simulated orientation change to page because origin %" SENSITIVE_LOG_STRING " does not have access.", origin.toString().utf8().data());
-        return;
-    }
-#endif
-
     send(Messages::WebPage::SimulateDeviceOrientationChange(alpha, beta, gamma));
 }
 

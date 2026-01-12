@@ -1348,7 +1348,8 @@ void Document::setCompatibilityMode(DocumentCompatibilityMode mode)
         // All user stylesheets have to reparse using the different mode.
         if (auto* extensionStyleSheets = extensionStyleSheetsIfExists()) {
             extensionStyleSheets->clearPageUserSheet();
-            extensionStyleSheets->invalidateInjectedStyleSheetCache();
+            if (extensionStyleSheets->hasCachedInjectedStyleSheets())
+                extensionStyleSheets->invalidateInjectedStyleSheetCache();
         }
     }
 
@@ -3478,6 +3479,9 @@ void Document::didBecomeCurrentDocumentInFrame()
         if (m_timelinesController)
             m_timelinesController->resumeAnimations();
     }
+
+    if (isTopDocument() && m_quirks)
+        m_quirks->determineRelevantQuirks();
 }
 
 void Document::frameDestroyed()
@@ -3710,11 +3714,10 @@ void Document::resumeDeviceMotionAndOrientationUpdates()
         return;
     m_areDeviceMotionAndOrientationUpdatesSuspended = false;
 #if ENABLE(DEVICE_ORIENTATION) && PLATFORM(IOS_FAMILY)
-    auto origin = securityOrigin().data();
     if (m_deviceMotionController)
-        m_deviceMotionController->resumeUpdates(origin);
+        m_deviceMotionController->resumeUpdates();
     if (m_deviceOrientationController)
-        m_deviceOrientationController->resumeUpdates(origin);
+        m_deviceOrientationController->resumeUpdates();
 #endif
 }
 

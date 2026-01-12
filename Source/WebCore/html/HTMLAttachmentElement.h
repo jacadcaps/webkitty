@@ -111,7 +111,7 @@ private:
     void setNeedsIconRequest();
 
     RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
-    bool isReplaced(const RenderStyle&) const final { return true; }
+    bool isReplaced(const RenderStyle* = nullptr) const final { return true; }
     bool shouldSelectOnMouseDown() final {
 #if PLATFORM(IOS_FAMILY)
         return false;

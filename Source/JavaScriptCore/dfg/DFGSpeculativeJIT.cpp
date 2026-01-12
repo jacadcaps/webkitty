@@ -11416,7 +11416,7 @@ void SpeculativeJIT::compileNewRegExpUntyped(Node* node)
         flushRegisters();
         GPRFlushedCallResult result(this);
         GPRReg resultGPR = result.gpr();
-        callOperation(operationNewRegExpString, resultGPR, LinkableConstant::globalObject(*this, node), patternGPR, flagsGPR);
+        callOperation(operationNewRegExpString, resultGPR, LinkableConstant::globalObject(*this, node), TrustedImmPtr(node->structure()), patternGPR, flagsGPR);
         cellResult(resultGPR, node);
         return;
     }
@@ -11430,7 +11430,7 @@ void SpeculativeJIT::compileNewRegExpUntyped(Node* node)
     flushRegisters();
     GPRFlushedCallResult result(this);
     GPRReg resultGPR = result.gpr();
-    callOperation(operationNewRegExpUntyped, resultGPR, LinkableConstant::globalObject(*this, node), patternRegs, flagsRegs);
+    callOperation(operationNewRegExpUntyped, resultGPR, LinkableConstant::globalObject(*this, node), TrustedImmPtr(node->structure()), patternRegs, flagsRegs);
     cellResult(resultGPR, node);
 }
 
@@ -11880,12 +11880,12 @@ void SpeculativeJIT::speculateSetObject(Edge edge)
 
 void SpeculativeJIT::speculateMapIteratorObject(Edge edge, GPRReg cell)
 {
-    speculateCellType(edge, cell, SpecObjectOther, JSMapIteratorType);
+    speculateCellType(edge, cell, SpecMapIteratorObject, JSMapIteratorType);
 }
 
 void SpeculativeJIT::speculateMapIteratorObject(Edge edge)
 {
-    if (!needsTypeCheck(edge, SpecObjectOther))
+    if (!needsTypeCheck(edge, SpecMapIteratorObject))
         return;
 
     SpeculateCellOperand operand(this, edge);
@@ -11894,12 +11894,12 @@ void SpeculativeJIT::speculateMapIteratorObject(Edge edge)
 
 void SpeculativeJIT::speculateSetIteratorObject(Edge edge, GPRReg cell)
 {
-    speculateCellType(edge, cell, SpecObjectOther, JSSetIteratorType);
+    speculateCellType(edge, cell, SpecSetIteratorObject, JSSetIteratorType);
 }
 
 void SpeculativeJIT::speculateSetIteratorObject(Edge edge)
 {
-    if (!needsTypeCheck(edge, SpecObjectOther))
+    if (!needsTypeCheck(edge, SpecSetIteratorObject))
         return;
 
     SpeculateCellOperand operand(this, edge);

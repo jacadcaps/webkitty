@@ -64,6 +64,8 @@ public:
     const Vector<RefPtr<CSSStyleSheet>>& injectedAuthorStyleSheets() const;
     const Vector<RefPtr<CSSStyleSheet>>& authorStyleSheetsForTesting() const { return m_authorStyleSheetsForTesting; }
 
+    bool hasCachedInjectedStyleSheets() const;
+
     void clearPageUserSheet();
     void updatePageUserSheet();
     void invalidateInjectedStyleSheetCache();

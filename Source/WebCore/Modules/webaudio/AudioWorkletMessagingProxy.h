@@ -73,7 +73,7 @@ private:
     bool isAudioWorkletMessagingProxy() const final { return true; }
 
     WeakPtr<AudioWorklet> m_worklet;
-    const Ref<Document> m_document;
+    const ScriptExecutionContextIdentifier m_documentIdentifier;
     const Ref<AudioWorkletThread> m_workletThread;
 };
 

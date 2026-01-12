@@ -339,9 +339,8 @@ protected:
     void ensureAudioSourceProvider();
     virtual void checkPlayingConsistency();
 
-    virtual bool doSeek(const SeekTarget& position, float rate, bool isAsync = false);
+    virtual bool doSeek(const SeekTarget& position, float rate, bool isAsync = false, bool isSegment = false);
     void invalidateCachedPosition() const;
-    void ensureSeekFlags();
 
     static void sourceSetupCallback(MediaPlayerPrivateGStreamer*, GstElement*);
 
@@ -370,6 +369,9 @@ protected:
     bool m_didErrorOccur { false };
     mutable bool m_isEndReached { false };
     mutable std::optional<bool> m_isLiveStream;
+
+    bool isSeamlessSeekingEnabled() const;
+    bool m_isSegmentSeekAllowed { true };
 
     // Must reflect whether the last successfull call to gst_element_set_state() was for PLAYING.
     bool m_isPipelinePlaying = false;
@@ -438,7 +440,6 @@ protected:
 #endif
 
     std::optional<GstVideoDecoderPlatform> m_videoDecoderPlatform;
-    GstSeekFlags m_seekFlags;
     bool m_ignoreErrors { false };
 
     String errorMessage() const override { return m_errorMessage; }
@@ -653,6 +654,8 @@ private:
     const uint64_t m_logIdentifier;
 #endif
 
+    bool m_initialSegmentSeekDone { false };
+
     String m_errorMessage;
 
     GRefPtr<GstStreamCollection> m_streamCollection;
@@ -672,8 +675,6 @@ private:
     Lock m_codecsLock;
     TrackIDHashMap<String> m_codecs WTF_GUARDED_BY_LOCK(m_codecsLock);
 
-    bool isSeamlessSeekingEnabled() const { return m_seekFlags & GST_SEEK_FLAG_SEGMENT; }
-
     Ref<PlatformMediaResourceLoader> m_loader;
 
     RefPtr<GStreamerQuirksManager> m_quirksManagerForTesting;
@@ -684,6 +685,13 @@ private:
     std::optional<VideoFrameGStreamer::Info> m_videoInfo;
 
     bool m_volumeLocked { false };
+
+    void determineContainerTypeFromCaps(const GstCaps*);
+    enum ContainerType {
+        Ogg,
+        Other
+    };
+    ContainerType m_containerType { ContainerType::Other };
 };
 
 } // namespace WebCore

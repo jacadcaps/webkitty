@@ -26,6 +26,7 @@
 #include <wtf/Forward.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
+#include <wtf/WeakHashMap.h>
 #include <wtf/WeakPtr.h>
 
 namespace JSC {

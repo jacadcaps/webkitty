@@ -950,10 +950,12 @@ SDPStringBuilder::SDPStringBuilder(const GstSDPMessage* sdp)
 
             m_stringBuilder.append("t="_s, unsafeSpan(time->start), ' ', unsafeSpan(time->stop), CRLF);
             if (time->repeat) {
+                WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
                 m_stringBuilder.append("r="_s, unsafeSpan(g_array_index(time->repeat, char*, 0)));
                 for (unsigned ii = 0; ii < time->repeat->len; ii++)
                     m_stringBuilder.append(' ', unsafeSpan(g_array_index(time->repeat, char*, i)));
                 m_stringBuilder.append(CRLF);
+                WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
             }
         }
     }
@@ -1042,7 +1044,9 @@ GRefPtr<GstCaps> extractMidAndRidFromRTPBuffer(const GstMappedRtpBuffer& buffer,
 
         GST_DEBUG("Probed midExtID %u and ridExtID %u from SDP", midExtID, ridExtID);
 
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
         uint8_t* pdata;
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         uint16_t bits;
         unsigned wordLength;
         if (!gst_rtp_buffer_get_extension_data(buffer.mappedData(), &bits, reinterpret_cast<gpointer*>(&pdata), &wordLength))
