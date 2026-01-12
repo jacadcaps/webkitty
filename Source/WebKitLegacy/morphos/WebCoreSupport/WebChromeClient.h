@@ -115,7 +115,8 @@ protected:
     void contentsSizeChanged(WebCore::LocalFrame&, const WebCore::IntSize&) const final;
     void intrinsicContentsSizeChanged(const WebCore::IntSize&) const final;
 
-    void mouseDidMoveOverElement(const WebCore::HitTestResult&, OptionSet<WebCore::PlatformEventModifier>, const String&, WebCore::TextDirection) final { };
+    void mouseDidMoveOverElement(const WebCore::HitTestResult&, OptionSet<WebCore::PlatformEventModifier>, const String& tooltip, WebCore::TextDirection) final;
+
     bool shouldUnavailablePluginMessageBeButton(WebCore::PluginUnavailabilityReason) const final;
     void unavailablePluginButtonClicked(WebCore::Element&, WebCore::PluginUnavailabilityReason) const final;
 
@@ -199,6 +200,8 @@ protected:
 
 private:
     WebPage& m_webPage;
+    WTF::URL m_tooltipURL;
+    WTF::String m_tooltip;
 };
 
 }

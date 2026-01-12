@@ -92,7 +92,8 @@ struct WebViewDelegate
 	std::function<void(void)>  _fProgressFinished;
 	
 	std::function<void(const WTF::URL &url)> _fHoveredURLChanged;
-	
+    std::function<void(const WTF::URL &url, const WTF::String& tooltip)> _fTooltipChanged;
+
 	std::function<bool(const WTF::URL &url)> _fFavIconLoad;
 	std::function<void(RefPtr<WebCore::SharedBuffer>&&, const WTF::URL &url)> _fFavIconLoaded;
 
@@ -182,6 +183,7 @@ struct WebViewDelegate
 		_fProgressUpdated = nullptr;
 		_fProgressFinished = nullptr;
 		_fHoveredURLChanged = nullptr;
+        _fTooltipChanged = nullptr;
 		_fFavIconLoaded = nullptr;
 		_fFavIconLoad = nullptr;
 		_fPrint = nullptr;

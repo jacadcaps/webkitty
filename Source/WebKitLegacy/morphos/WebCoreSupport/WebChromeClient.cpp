@@ -44,8 +44,7 @@
 #include <WebCore/LocalFrame.h>
 #include <WebCore/FrameLoadRequest.h>
 #include <WebCore/FrameView.h>
-//#include <WebCore/FullScreenController.h>
-//#include <WebCore/FullscreenManager.h>
+#include <WebCore/HitTestResult.h>
 #include <WebCore/GraphicsLayer.h>
 #include <WebCore/HTMLNames.h>
 #include <WebCore/HTMLVideoElement.h>
@@ -320,6 +319,18 @@ void WebChromeClient::contentsSizeChanged(WebCore::LocalFrame& frame, const IntS
 void WebChromeClient::intrinsicContentsSizeChanged(const IntSize& size) const
 {
 //    dprintf("%s: to %dx%d\n", __PRETTY_FUNCTION__, size.width(), size.height());
+}
+
+void WebChromeClient::mouseDidMoveOverElement(const WebCore::HitTestResult& hitTest, OptionSet<WebCore::PlatformEventModifier>, const String& tooltip, WebCore::TextDirection)
+{
+    if (m_tooltip == tooltip && hitTest.absoluteLinkURL() == m_tooltipURL)
+        return;
+
+    m_tooltip = tooltip;
+    m_tooltipURL = hitTest.absoluteLinkURL();
+    
+    if (m_webPage._fTooltipChanged)
+        m_webPage._fTooltipChanged(m_tooltipURL, m_tooltip);
 }
 
 bool WebChromeClient::shouldUnavailablePluginMessageBeButton(WebCore::PluginUnavailabilityReason pluginUnavailabilityReason) const

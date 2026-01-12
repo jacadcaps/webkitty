@@ -628,6 +628,7 @@ namespace  {
 	bool                                    _isShown;
 	OBURL                                  *_url;
 	OBString                               *_title;
+    OBString                               *_tooltip;
 	OBURL                                  *_hover;
 	int                                     _scrollX, _scrollY;
 	int                                     _documentWidth, _documentHeight;
@@ -695,6 +696,7 @@ namespace  {
 	
 	[_url release];
 	[_title release];
+    [_tooltip release];
 	[_hover release];
 	[_protocolDelegates release];
 	[_backForwardList release];
@@ -817,6 +819,17 @@ namespace  {
 - (OBURL *)url
 {
 	return _url;
+}
+
+- (void)setTooltip:(OBString *)tooltip
+{
+    [_tooltip release];
+    _tooltip = [tooltip retain];
+}
+
+- (OBString *)tooltip
+{
+    return _tooltip;
 }
 
 - (void)onDrawPendingTimer
@@ -2248,6 +2261,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 		self.handledEvents = IDCMP_MOUSEBUTTONS | IDCMP_MOUSEMOVE | IDCMP_MOUSEHOVER | IDCMP_RAWKEY | IDCMP_INACTIVEWINDOW;
 		[self setEventHandlerGUIMode:YES];
 		self.cycleChain = YES;
+        [self setShortHelp:@""];
 
 		_private = [[WkWebViewPrivate alloc] initWithParent:self];
 		if (!_private)
@@ -2955,20 +2969,45 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			[progressDelegate webViewDidFinishProgress:self];
 		};
 		
-		webPage->_fHoveredURLChanged = [self](const WTF::URL &url) {
+		/* webPage->_fHoveredURLChanged = [self](const WTF::URL &url) { // _fTooltipChanged gets called for the same reason, contains the url
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
-			if (url.string().length() > 0)
-			{
-				auto uurl = url.string().utf8();
-				[privateObject setHover:[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]]];
-			}
-			else
-			{
-				[privateObject setHover:nil];
-			}
-			[[privateObject clientDelegate] webView:self changedHoveredURL:[privateObject hover]];
-		};
+
+            if (url.string().length() > 0)
+            {
+                auto uurl = url.string().utf8();
+                [privateObject setHover:[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]]];
+            }
+            else
+            {
+                [privateObject setHover:nil];
+            }
+            [[privateObject clientDelegate] webView:self changedHoveredURL:[privateObject hover]];
+        }; */
+
+        webPage->_fTooltipChanged = [self](const WTF::URL &url, const WTF::String& tooltip) {
+            validateObjCContext();
+            WkWebViewPrivate *privateObject = [self privateObject];
+            if (url.string().length() > 0)
+            {
+                auto uurl = url.string().utf8();
+                [privateObject setHover:[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]]];
+            }
+            else
+            {
+                [privateObject setHover:nil];
+            }
+            [[privateObject clientDelegate] webView:self changedHoveredURL:[privateObject hover]];
+            if (tooltip.length())
+            {
+                auto utooltip = tooltip.utf8();
+                [privateObject setTooltip:[OBString stringWithUTF8String:utooltip.data()]];
+            }
+            else
+            {
+                [privateObject setTooltip:nil];
+            }
+        };
 		
 		webPage->_fFavIconLoad = [self](const WTF::URL &url) -> bool {
 			validateObjCContext();
@@ -4050,6 +4089,12 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			[[OBRunLoop mainRunLoop] performSelector:@selector(lateRedraw) target:self];
 		}
 	}
+}
+
+// TODO: this needs checkShortHelp to work - MUI won't show a new bubble if it's within the same object otherwise
+- (OBString *)createShortHelp:(LONG)mx my:(LONG)my
+{
+    return [_private tooltip];
 }
 
 - (void)scrollToX:(int)sx y:(int)sy
