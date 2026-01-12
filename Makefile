@@ -144,6 +144,8 @@ source:
 sdk:
 
 Dummy/libdummy.a:
+	-mkdir Dummy
+	echo "//nothing" >Dummy/dummy.c
 	ppc-morphos-gcc-9 -c -o Dummy/dummy.o Dummy/dummy.c
 	ppc-morphos-ar rc Dummy/libdummy.a Dummy/dummy.o
 	ppc-morphos-ranlib Dummy/libdummy.a

@@ -5,6 +5,8 @@ morphos.cmake
 **._*
 **__pycache__
 **.rej
+Dummy
+Dummy/dummy.c
 Dummy/*.o
 Dummy/*.a
 ffmpeg/.buildstamp
