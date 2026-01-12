@@ -30,9 +30,21 @@
 
 namespace WebCore {
 
+#if OS(MORPHOS)
+static cairo_antialias_t cairoDefaultFontAntialias = CAIRO_ANTIALIAS_GRAY;
+
+void setDefaultCairoFontAntialias(cairo_antialias_t aa)
+{
+	cairoDefaultFontAntialias = aa;
+}
+#endif
+
 FontRenderOptions::FontRenderOptions()
     : m_fontOptions(cairo_font_options_create())
 {
+#if OS(MORPHOS)
+    cairo_font_options_set_antialias(m_fontOptions.get(), cairoDefaultFontAntialias);
+#endif
 }
 
 void FontRenderOptions::setHinting(std::optional<Hinting> hinting)

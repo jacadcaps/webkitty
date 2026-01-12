@@ -39,6 +39,11 @@
  */
 
 #include "config.h"
+
+#if OS(MORPHOS)
+#define __WANT_PNG_1_6__
+#endif
+
 #include "PNGImageDecoder.h"
 
 #include "Color.h"
@@ -55,6 +60,9 @@
 #define JMPBUF(png_ptr) png_jmpbuf(png_ptr)
 #else
 #define JMPBUF(png_ptr) png_ptr->jmpbuf
+#if OS(MORPHOS)
+#error "Fail" // ensure we're not using wrong lib version!
+#endif
 #endif
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
@@ -516,6 +524,8 @@ void PNGImageDecoder::rowAvailable(unsigned char* rowBuffer, unsigned rowIndex, 
 
     // Write the decoded row pixels to the frame buffer.
     auto destinationRow = buffer.backingStore()->pixelsStartingAt(0, rowIndex);
+    if (!destinationRow.data())
+        return;
     auto address = destinationRow;
     int width = size().width();
     unsigned char nonTrivialAlphaMask = 0;

@@ -285,7 +285,12 @@ inline RetainPtr<NSString> StringBuilder::createNSString() const
 
 inline unsigned StringBuilder::length() const
 {
+#if OS(MORPHOS)
+    if (hasOverflowed()) [[unlikely]]
+        return 0;
+#else
     RELEASE_ASSERT(!hasOverflowed());
+#endif
     return m_length;
 }
 

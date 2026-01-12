@@ -369,6 +369,11 @@ bool Styleable::animationListContainsNewlyValidAnimation(const AnimationList& an
     return false;
 }
 
+#if OS(MORPHOS)
+#pragma GCC diagnostic push
+#pragma GCC optimize ("O1")
+#endif
+
 void Styleable::updateCSSAnimations(const RenderStyle* currentStyle, const RenderStyle& newStyle, const Style::ResolutionContext& resolutionContext, WeakStyleOriginatedAnimations& newStyleOriginatedAnimations, Style::IsInDisplayNoneTree isInDisplayNoneTree) const
 {
     auto& keyframeEffectStack = ensureKeyframeEffectStack();
@@ -452,6 +457,10 @@ void Styleable::updateCSSAnimations(const RenderStyle* currentStyle, const Rende
 
     element.cssAnimationsDidUpdate(pseudoElementIdentifier);
 }
+
+#if OS(MORPHOS)
+#pragma GCC diagnostic pop
+#endif
 
 static KeyframeEffect* keyframeEffectForElementAndProperty(const Styleable& styleable, const AnimatableCSSProperty& property)
 {

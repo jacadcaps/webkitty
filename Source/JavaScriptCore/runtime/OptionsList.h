@@ -187,7 +187,7 @@ bool hasCapacityToUseLargeGigacage();
     v(Bool, reportFTLCompileTimes, false, Normal, "dumps JS function signature and the time it took to FTL compile"_s) \
     v(Bool, reportTotalCompileTimes, false, Normal, nullptr) \
     v(Bool, reportTotalPhaseTimes, false, Normal, "This prints phase times at the end of running script inside jsc.cpp"_s) \
-    v(Bool, reportParseTimes, false, Normal, "dumps JS function signature and the time it took to parse"_s) \
+    /* v(Bool, reportParseTimes, false, Normal, "dumps JS function signature and the time it took to parse"_s) */ \
     v(Bool, reportBytecodeCompileTimes, false, Normal, "dumps JS function signature and the time it took to bytecode compile"_s) \
     v(Bool, countParseTimes, false, Normal, "counts parse times"_s) \
     v(Bool, verboseExitProfile, false, Normal, nullptr) \
@@ -404,7 +404,7 @@ bool hasCapacityToUseLargeGigacage();
     v(Bool, sweepSynchronously, false, Normal, "debugging option to sweep all dead objects synchronously at GC end before resuming mutator"_s) \
     v(Unsigned, maxSingleAllocationSize, 0, Configurable, "debugging option to limit individual allocations to a max size (0 = limit not set, N = limit size in bytes)"_s) \
     \
-    v(GCLogLevel, logGC, GCLogging::None, Normal, "debugging option to log GC activity (0 = None, 1 = Basic, 2 = Verbose)"_s) \
+    /* v(GCLogLevel, logGC, GCLogging::None, Normal, "debugging option to log GC activity (0 = None, 1 = Basic, 2 = Verbose)"_s) */ \
     v(Bool, useGC, true, Normal, nullptr) \
     v(Bool, useGlobalGC, false, Normal, nullptr) \
     v(Bool, gcAtEnd, false, Normal, "If true, the jsc CLI will do a GC before exiting"_s) \
@@ -570,9 +570,9 @@ bool hasCapacityToUseLargeGigacage();
     v(Bool, useTracePoints, false, Normal, nullptr) \
     v(Bool, useCompilerSignpost, false, Normal, nullptr) \
     v(Bool, useGCSignpost, false, Normal, nullptr) \
-    v(Bool, traceLLIntExecution, false, Configurable, nullptr) \
+/*    v(Bool, traceLLIntExecution, false, Configurable, nullptr) */ \
     v(Bool, traceWasmLLIntExecution, false, Configurable, nullptr) \
-    v(Bool, traceLLIntSlowPath, false, Configurable, nullptr) \
+/*    v(Bool, traceLLIntSlowPath, false, Configurable, nullptr) */ \
     v(Bool, traceBaselineJITExecution, false, Normal, nullptr) \
     v(Unsigned, thresholdForGlobalLexicalBindingEpoch, UINT_MAX, Normal, "Threshold for global lexical binding epoch. If the epoch reaches to this value, CodeBlock metadata for scope operations will be revised globally. It needs to be greater than 1."_s) \
     v(OptionString, diskCachePath, nullptr, Restricted, nullptr) \

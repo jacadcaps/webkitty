@@ -49,11 +49,18 @@
 #include <wtf/NeverDestroyed.h>
 #include <wtf/SetForScope.h>
 #include <wtf/StackShot.h>
+#endif
 
 #if PLATFORM(COCOA)
 #include <notify.h>
 #endif
 
+#if OS(MORPHOS)
+#include <cstdint>
+extern "C" { void dprintf(const char *,... ); }
+#undef CRASH
+extern "C" { void _oomCrash() { std::abort(); }; void oomCrash() __attribute__((weak, alias ("_oomCrash"))); }
+#define CRASH oomCrash
 #endif
 
 namespace WTF {
@@ -179,6 +186,30 @@ void fastAlignedFree(void* p)
     _aligned_free(p);
 }
 
+#elif OS(MORPHOS)
+
+void* fastAlignedMalloc(size_t alignment, size_t size)
+{
+    ASSERT_IS_WITHIN_LIMIT(size);
+	void* p = aligned_alloc(alignment, size);
+    if (!p) { [[unlikely]]
+		dprintf("Failed allocating %lu bytes of memory aligned to %lu. WebKitty will now crash...\n", size, alignment);
+         CRASH();
+	}
+	return p;
+}
+
+void *tryFastAlignedMalloc(size_t alignment, size_t size)
+{
+    FAIL_IF_EXCEEDS_LIMIT(size);
+    return aligned_alloc(alignment, size);
+}
+
+void fastAlignedFree(void *p)
+{
+	free(p);
+}
+
 #else
 
 void* fastAlignedMalloc(size_t alignment, size_t size) 
@@ -277,8 +308,10 @@ TryMallocReturnValue tryFastRealloc(void* p, size_t n)
     return realloc(p, n);
 }
 
+#if !OS(MORPHOS)
 void releaseFastMallocFreeMemory() { }
 void releaseFastMallocFreeMemoryForThisThread() { }
+#endif
 
 FastMallocStatistics fastMallocStatistics()
 {

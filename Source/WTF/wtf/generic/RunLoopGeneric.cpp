@@ -350,4 +350,21 @@ Seconds RunLoop::TimerBase::secondsUntilFire() const
     return 0_s;
 }
 
+#if OS(MORPHOS)
+void RunLoop::iterate()
+{
+    RunLoop::currentSingleton().runImpl(RunMode::Iterate);
+}
+
+Seconds RunLoop::secondsUntilNextIterate()
+{
+	if (RunLoop::isMain() && !RunLoop::currentSingleton().m_schedules.isEmpty()) {
+		RefPtr<TimerBase::ScheduledTask> earliest = RunLoop::currentSingleton().m_schedules.first();
+		return std::max<Seconds>(earliest->scheduledTimePoint() - MonotonicTime::now(), 0_s);
+	}
+
+	return 10_s;
+}
+#endif
+
 } // namespace WTF

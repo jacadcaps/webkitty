@@ -41,7 +41,9 @@
 #include "MediaElementSession.h"
 #include "MediaPlayer.h"
 #include "MediaProducer.h"
+#ifndef __MORPHOS_DISABLE
 #include "MediaResourceSniffer.h"
+#endif
 #include "MediaUniqueIdentifier.h"
 #include "MessageTargetForTesting.h"
 #include "PlatformDynamicRangeLimit.h"
@@ -105,6 +107,7 @@ class MediaElementAudioSourceNode;
 class MediaError;
 class MediaKeys;
 class MediaResourceLoader;
+class MediaResourceSniffer;
 class MediaSession;
 class MediaSource;
 class MediaSourceHandle;
@@ -501,6 +504,10 @@ public:
     void isWirelessPlaybackTargetDisabledChanged();
     bool hasTargetAvailabilityListeners();
     bool hasEnabledTargetAvailabilityListeners();
+#endif
+
+#if OS(MORPHOS)
+    Page* mediaPlayerPage() final;
 #endif
 
     bool isPlayingToWirelessPlaybackTarget() const override { return m_isPlayingToWirelessTarget; };
@@ -1135,9 +1142,11 @@ private:
     void checkForAudioAndVideo();
 
     bool needsContentTypeToPlay() const;
+#ifndef __MORPHOS_DISABLE
     using SnifferPromise = MediaResourceSniffer::Promise;
     Ref<SnifferPromise> sniffForContentType(const URL&);
     void cancelSniffer();
+#endif
 
     void playPlayer();
     void pausePlayer();

@@ -30,6 +30,10 @@
 #include "TypeError.h"
 #include <wtf/Assertions.h>
 
+#if OS(MORPHOS)
+extern "C" { void oomCrash(); }
+#endif
+
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
@@ -2246,8 +2250,14 @@ inline JSArray* constructArray(ObjectInitializationScope& scope, Structure* arra
     // when making this change we should check that all clients of this
     // function will correctly handle an exception being thrown from here.
     // https://bugs.webkit.org/show_bug.cgi?id=169786
-    if constexpr (failureMode == AllocationFailureMode::Assert)
+    if constexpr (failureMode == AllocationFailureMode::Assert) {
+#if OS(MORPHOS)
+        if (!array)
+            oomCrash();
+#else
         RELEASE_ASSERT(array);
+#endif
+    }
     else if (!array)
         return nullptr;
 

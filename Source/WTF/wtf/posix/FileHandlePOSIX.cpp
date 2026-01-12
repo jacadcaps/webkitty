@@ -73,10 +73,17 @@ bool FileHandle::truncate(int64_t offset)
     return m_handle && !ftruncate(*m_handle, offset);
 }
 
+#if OS(MORPHOS)
+bool FileHandle::flush()
+{
+    return true;
+}
+#else
 bool FileHandle::flush()
 {
     return m_handle && !fsync(*m_handle);
 }
+#endif
 
 std::optional<uint64_t> FileHandle::seek(int64_t offset, FileSeekOrigin origin)
 {
@@ -187,6 +194,29 @@ std::optional<MappedFileData> FileHandle::map(MappedFileMode mapMode, FileOpenMo
         return { };
 
     return MappedFileData { WTFMove(fileData) };
+}
+#elif OS(MORPHOS)
+std::optional<MappedFileData> FileHandle::map(MappedFileMode mapMode, FileOpenMode openMode)
+{
+    if (!m_handle)
+        return { };
+
+    auto maybeSize = size();
+    if (!maybeSize)
+        return { };
+
+    uint64_t size = *maybeSize;
+
+    auto data = MallocSpan<uint8_t>::malloc(size);
+    if (!data) {
+        return { };
+    }
+
+    if (size != read(data.mutableSpan())) {
+        return { };
+    }
+
+    return MappedFileData { WTFMove(data) };
 }
 #endif // HAVE(MMAP)
 

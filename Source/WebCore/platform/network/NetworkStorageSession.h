@@ -191,6 +191,17 @@ public:
     WEBCORE_EXPORT void setCookieAcceptPolicy(CookieAcceptPolicy) const;
     WEBCORE_EXPORT void setProxySettings(const CurlProxySettings&);
 
+#if OS(MORPHOS)
+    enum class CurlHTTP2Mode {
+        Disabled, Enabled, EnabledExceptPost
+    };
+    WEBCORE_EXPORT void setHTTP2Mode(CurlHTTP2Mode mode);
+    enum class CurlHTTP3Mode {
+        Disabled, Enabled
+    };
+    WEBCORE_EXPORT void setHTTP3Mode(CurlHTTP3Mode mode);
+#endif
+
     WEBCORE_EXPORT void clearAlternativeServices();
 #else
     WEBCORE_EXPORT NetworkStorageSession(PAL::SessionID, NetworkingContext*);

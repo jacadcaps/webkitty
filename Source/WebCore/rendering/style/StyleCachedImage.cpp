@@ -150,6 +150,7 @@ LegacyRenderSVGResourceContainer* StyleCachedImage::legacyRenderSVGResource(cons
 
 RenderSVGResourceContainer* StyleCachedImage::renderSVGResource(const RenderElement* renderer) const
 {
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
     if (m_isRenderSVGResource)
         return nullptr;
 
@@ -180,6 +181,9 @@ RenderSVGResourceContainer* StyleCachedImage::renderSVGResource(const RenderElem
         return nullptr;
 
     return dynamicDowncast<RenderSVGResourceMasker>(referencedMaskElement->renderer());
+#else
+    return nullptr;
+#endif
 }
 
 bool StyleCachedImage::isRenderSVGResource(const RenderElement* renderer) const

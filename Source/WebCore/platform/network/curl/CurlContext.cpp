@@ -42,11 +42,28 @@
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/MakeString.h>
+#include <wtf/text/StringConcatenateNumbers.h>
+#include <wtf/StringPrintStream.h>
 
 #if OS(WINDOWS)
 #include "WebCoreBundleWin.h"
 #include <shlobj.h>
 #include <shlwapi.h>
+#endif
+
+#if OS(MORPHOS)
+#include <exec/libraries.h>
+#include <proto/exec.h>
+#include <ppcinline/macros.h>
+extern "C" {
+void dprintf(const char *fmt, ... );
+void CurlThreadForcedShutdown()
+{
+	WebCore::CurlContext::singleton().stopThread();
+}
+};
+#define CURL_TRACES 0
+#define CURL_DUMPDATA 0
 #endif
 
 namespace WebCore {
@@ -151,6 +168,13 @@ CurlContext::~CurlContext()
 #endif
 }
 
+#if OS(MORPHOS)
+void CurlContext::stopThread()
+{
+	m_scheduler->stopCurlThread();
+}
+#endif
+
 void CurlContext::initShareHandle()
 {
     CURL* curl = curl_easy_init();
@@ -169,10 +193,14 @@ CurlStreamScheduler& CurlContext::streamScheduler()
     return sharedInstance;
 }
 
-void CurlContext::clearAlternativeServicesStorageFile()
+bool CurlContext::isHttp2Enabled(bool forPost) const
 {
-    if (!m_alternativeServicesStorageFile.isEmpty())
-        FileSystem::deleteFile(m_alternativeServicesStorageFile);
+    if (!m_isHttp2Enabled)
+        return false;
+    if (forPost && !m_http2POSTEnabled)
+        return false;
+    curl_version_info_data* data = curl_version_info(CURLVERSION_NOW);
+    return data->features & CURL_VERSION_HTTP2;
 }
 
 // CurlShareHandle --------------------------------------------
@@ -268,6 +296,16 @@ CURLMcode CurlMultiHandle::removeHandle(CURL* handle)
     return curl_multi_remove_handle(m_multiHandle, handle);
 }
 
+CURLMcode CurlMultiHandle::getFdSet(fd_set& readFdSet, fd_set& writeFdSet, fd_set& excFdSet, int& maxFd)
+{
+    FD_ZERO(&readFdSet);
+    FD_ZERO(&writeFdSet);
+    FD_ZERO(&excFdSet);
+    maxFd = 0;
+
+    return curl_multi_fdset(m_multiHandle, &readFdSet, &writeFdSet, &excFdSet, &maxFd);
+}
+
 CURLMcode CurlMultiHandle::poll(const Vector<curl_waitfd>& extraFds, int timeoutMS)
 {
     int numFds = 0;
@@ -277,6 +315,11 @@ CURLMcode CurlMultiHandle::poll(const Vector<curl_waitfd>& extraFds, int timeout
 CURLMcode CurlMultiHandle::wakeUp()
 {
     return curl_multi_wakeup(m_multiHandle);
+}
+
+CURLMcode CurlMultiHandle::getTimeout(long &timeout)
+{
+	return curl_multi_timeout(m_multiHandle, &timeout);
 }
 
 CURLMcode CurlMultiHandle::perform(int& runningHandles)
@@ -291,6 +334,89 @@ CURLMsg* CurlMultiHandle::readInfo(int& messagesInQueue)
 
 // CurlHandle -------------------------------------------------
 
+#if CURL_TRACES
+static void dump(const char *text, unsigned char *ptr, size_t size)
+{
+  size_t i;
+  size_t c;
+  unsigned int width=0x20;
+	
+  dprintf("%s, %10.10ld bytes (0x%8.8lx)\n",
+          text, (long)size, (long)size);
+	
+  for(i=0; i<size; i+= width) {
+    dprintf( "%4.4lx: ", (long)i);
+ 
+    /* show hex to the left */
+    for(c = 0; c < width; c++) {
+      if(i+c < size)
+        dprintf("%02x ", ptr[i+c]);
+      else
+        dprintf("   ");
+    }
+ 
+    /* show data on the right */
+    for(c = 0; (c < width) && (i+c < size); c++) {
+      char x = (ptr[i+c] >= 0x20 && ptr[i+c] < 0x80) ? ptr[i+c] : '.';
+      dprintf("%c", x);
+    }
+ 
+    dprintf("\n"); /* newline */
+  }
+}
+	
+static int my_trace(CURL *handle, curl_infotype type,
+             char *data, size_t size,
+             void *userp)
+{
+  const char *text;
+  (void)handle; /* prevent compiler warning */
+  (void)userp;
+	
+  switch (type) {
+  case CURLINFO_TEXT:
+    dprintf("== Info: %s", data);
+  default: /* in case a new one is introduced to shock us */
+    return 0;
+ 
+  case CURLINFO_HEADER_OUT:
+    text = "=> Send header";
+    dump(text, (unsigned char *)data, size);
+    break;
+  case CURLINFO_DATA_OUT:
+    text = "=> Send data";
+#if CURL_DUMPDATA
+    dump(text, (unsigned char *)data, size);
+#endif
+    break;
+  case CURLINFO_SSL_DATA_OUT:
+    text = "=> Send SSL data";
+#if CURL_DUMPDATA
+    dump(text, (unsigned char *)data, size);
+#endif
+    break;
+  case CURLINFO_HEADER_IN:
+    text = "<= Recv header";
+    dump(text, (unsigned char *)data, size);
+    break;
+  case CURLINFO_DATA_IN:
+    text = "<= Recv data";
+#if CURL_DUMPDATA
+    dump(text, (unsigned char *)data, size);
+#endif
+    break;
+  case CURLINFO_SSL_DATA_IN:
+    text = "<= Recv SSL data";
+#if CURL_DUMPDATA
+    dump(text, (unsigned char *)data, size);
+#endif
+    break;
+  }
+
+  return 0;
+}
+#endif
+
 CurlHandle::CurlHandle()
 {
     m_handle = curl_easy_init();
@@ -299,9 +425,8 @@ CurlHandle::CurlHandle()
     curl_easy_setopt(m_handle, CURLOPT_COOKIEFILE, nullptr);
 
     enableShareHandle();
-    enableAcceptEncoding();
     enableAllowedProtocols();
-    enableAltSvc();
+    enableAcceptEncoding();
 
     setDnsCacheTimeout(CurlContext::singleton().dnsCacheTimeout());
     setConnectTimeout(CurlContext::singleton().connectTimeout());
@@ -311,6 +436,15 @@ CurlHandle::CurlHandle()
 #ifndef NDEBUG
     enableVerboseIfUsed();
     enableStdErrIfUsed();
+#endif
+
+#if OS(MORPHOS)
+    curl_easy_setopt(m_handle, CURLOPT_BUFFERSIZE, 64 * 1024);
+#endif
+
+#if CURL_TRACES
+	curl_easy_setopt(m_handle, CURLOPT_VERBOSE, 1);
+	curl_easy_setopt(m_handle, CURLOPT_DEBUGFUNCTION, my_trace);
 #endif
 }
 
@@ -325,10 +459,24 @@ const String CurlHandle::errorDescription(CURLcode errorCode)
     return String::fromLatin1(curl_easy_strerror(errorCode));
 }
 
-void CurlHandle::enableSSL()
+void CurlHandle::enableSSLForHost(const String& host)
 {
+#if OS(MORPHOS)
+	bool caCertOverride = false;
+#endif
     auto& sslHandle = CurlContext::singleton().sslHandle();
-    if (sslHandle.shouldIgnoreSSLErrors()) {
+    if (auto sslClientCertificate = sslHandle.getSSLClientCertificate(host)) {
+#if OS(MORPHOS)
+        setCACertPath(sslClientCertificate->first.utf8().data());
+        caCertOverride = true;
+#else
+        setSslCert(sslClientCertificate->first.utf8().data());
+        setSslCertType("P12");
+        setSslKeyPassword(sslClientCertificate->second.utf8().data());
+#endif
+    }
+
+    if (sslHandle.canIgnoreAnyHTTPSCertificatesForHost(host) || sslHandle.shouldIgnoreSSLErrors()) {
         setSslVerifyPeer(CurlHandle::VerifyPeer::Disable);
         setSslVerifyHost(CurlHandle::VerifyHost::LooseNameCheck);
     } else {
@@ -337,13 +485,22 @@ void CurlHandle::enableSSL()
     }
 
     setSslCipherList(sslHandle.cipherList().data());
+    setSslCipherListTLS1_3(sslHandle.cipherListTLS1_3().data());
 
     if (const auto& ecCurves = sslHandle.ecCurves(); !ecCurves.isNull())
         setSslECCurves(ecCurves.data());
 
     setSslCtxCallbackFunction(willSetupSslCtxCallback, this);
 
-#if OS(WINDOWS)
+#if OS(MORPHOS)
+	if (caCertOverride)
+		setSslVerifyHost(CurlHandle::VerifyHost::LooseNameCheck);
+	else
+	{
+		if (auto* path = std::get_if<String>(&sslHandle.getCACertInfo()))
+			setCACertPath(path->utf8().data());
+	}
+#elif OS(WINDOWS)
     curl_easy_setopt(m_handle, CURLOPT_SSL_OPTIONS, CURLSSLOPT_NATIVE_CA);
 #else
     if (auto* path = std::get_if<String>(&sslHandle.getCACertInfo()))
@@ -390,7 +547,7 @@ void CurlHandle::enableShareHandle()
     curl_easy_setopt(m_handle, CURLOPT_SHARE, CurlContext::singleton().shareHandle().handle());
 }
 
-void CurlHandle::setURL(const URL& url, LocalhostAlias localhostAlias)
+void CurlHandle::setUrl(const URL& url)
 {
     m_url = url.isolatedCopy();
 
@@ -410,23 +567,11 @@ void CurlHandle::setURL(const URL& url, LocalhostAlias localhostAlias)
     curl_easy_setopt(m_handle, CURLOPT_URL, curlUrl.string().latin1().data());
 
     if (url.protocolIs("https"_s))
-        enableSSL();
-
-    if (localhostAlias == LocalhostAlias::Enable) {
-        auto host = url.host();
-        auto port = url.port();
-        if (!port)
-            port = WTF::defaultPortForProtocol(url.protocol());
-
-        if (port) {
-            auto alias = makeString(host, ':', static_cast<unsigned>(*port), ":127.0.0.1"_s);
-
-            m_localhostAlias.clear();
-            m_localhostAlias.append(alias);
-
-            curl_easy_setopt(m_handle, CURLOPT_RESOLVE, m_localhostAlias.head());
-        }
-    }
+        enableSSLForHost(m_url.host().toString());
+#if OS(MORPHOS)
+    else
+        curl_easy_setopt(m_handle, CURLOPT_HTTP09_ALLOWED, 1L);  // HTTP only
+#endif
 }
 
 void CurlHandle::appendRequestHeaders(const HTTPHeaderMap& headers)
@@ -477,7 +622,7 @@ void CurlHandle::enableRequestHeaders()
     curl_easy_setopt(m_handle, CURLOPT_HTTPHEADER, headers);
 }
 
-void CurlHandle::enableHttp()
+void CurlHandle::enableHttp(bool post)
 {
     auto isHttp2Enabled = CurlContext::singleton().isHttp2Enabled();
     auto isHttp3Enabled = CurlContext::singleton().isHttp3Enabled();
@@ -490,8 +635,18 @@ void CurlHandle::enableHttp()
         curl_easy_setopt(m_handle, CURLOPT_SSL_ENABLE_ALPN, 1L);
         curl_easy_setopt(m_handle, CURLOPT_SSL_ENABLE_NPN, 0L);
 #endif
+    }
+    else if (m_url.protocolIs("https"_s) && CurlContext::singleton().isHttp2Enabled(post)) {
+        curl_easy_setopt(m_handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
+        curl_easy_setopt(m_handle, CURLOPT_PIPEWAIT, 1L);
+        curl_easy_setopt(m_handle, CURLOPT_SSL_ENABLE_ALPN, 1L);
     } else
         curl_easy_setopt(m_handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+}
+
+void CurlHandle::disableAcceptEncoding()
+{
+    curl_easy_setopt(m_handle, CURLOPT_ENCODING, NULL);
 }
 
 void CurlHandle::enableHttpGetRequest()
@@ -506,17 +661,39 @@ void CurlHandle::enableHttpHeadRequest()
     curl_easy_setopt(m_handle, CURLOPT_NOBODY, 1L);
 }
 
-void CurlHandle::enableHttpPostRequest(curl_off_t size)
+void CurlHandle::enableHttpPostRequest()
 {
-    enableHttp();
+    enableHttp(true);
     curl_easy_setopt(m_handle, CURLOPT_POST, 1L);
+    curl_easy_setopt(m_handle, CURLOPT_POSTFIELDSIZE, 0L);
+}
+
+void CurlHandle::setPostFields(std::span<const uint8_t> data)
+{
+    curl_easy_setopt(m_handle, CURLOPT_POSTFIELDS, data.data());
+    curl_easy_setopt(m_handle, CURLOPT_POSTFIELDSIZE, data.size());
+}
+
+void CurlHandle::setPostFieldLarge(curl_off_t size)
+{
+    if (expectedSizeOfCurlOffT() != sizeof(long long))
+        size = static_cast<int>(size);
+
     curl_easy_setopt(m_handle, CURLOPT_POSTFIELDSIZE_LARGE, size);
 }
 
-void CurlHandle::enableHttpPutRequest(curl_off_t size)
+void CurlHandle::enableHttpPutRequest()
 {
     enableHttp();
     curl_easy_setopt(m_handle, CURLOPT_UPLOAD, 1L);
+    curl_easy_setopt(m_handle, CURLOPT_INFILESIZE, 0L);
+}
+
+void CurlHandle::setInFileSizeLarge(curl_off_t size)
+{
+    if (expectedSizeOfCurlOffT() != sizeof(long long))
+        size = static_cast<int>(size);
+
     curl_easy_setopt(m_handle, CURLOPT_INFILESIZE_LARGE, size);
 }
 
@@ -524,6 +701,18 @@ void CurlHandle::setHttpCustomRequest(const String& method)
 {
     enableHttp();
     curl_easy_setopt(m_handle, CURLOPT_CUSTOMREQUEST, method.ascii().data());
+}
+
+void CurlHandle::setResumeOffset(long long offset)
+{
+	curl_easy_setopt(m_handle, CURLOPT_RESUME_FROM_LARGE, curl_off_t(offset));
+}
+
+void CurlHandle::setRange(long long start, long long end)
+{
+    StringPrintStream out;
+    out.printf("%llu-%llu", start, end);
+    curl_easy_setopt(m_handle, CURLOPT_RANGE, out.toCString().data());
 }
 
 void CurlHandle::enableAcceptEncoding()
@@ -534,29 +723,12 @@ void CurlHandle::enableAcceptEncoding()
 
 void CurlHandle::enableAllowedProtocols()
 {
+    static const char *allowedProtocols = "file,"
 #if ENABLE(FTPDIR)
-    auto allowedProtocols = "file,ftp,ftps,http,https";
-#else
-    auto allowedProtocols = "file,http,https";
+        "ftp,ftps,"
 #endif
-
+        "http,https";
     curl_easy_setopt(m_handle, CURLOPT_PROTOCOLS_STR, allowedProtocols);
-}
-
-void CurlHandle::enableAltSvc()
-{
-    if (!CurlContext::singleton().isAltSvcEnabled())
-        return;
-
-    if (CurlContext::singleton().alternativeServicesStorageFile().isEmpty())
-        return;
-
-    long altSvcCtrl = CURLALTSVC_H1;
-    altSvcCtrl |= CurlContext::singleton().isHttp2Enabled() ? CURLALTSVC_H2 : 0;
-    altSvcCtrl |= CurlContext::singleton().isHttp3Enabled() ? CURLALTSVC_H3 : 0;
-
-    curl_easy_setopt(m_handle, CURLOPT_ALTSVC, CurlContext::singleton().alternativeServicesStorageFile().utf8().data());
-    curl_easy_setopt(m_handle, CURLOPT_ALTSVC_CTRL, altSvcCtrl);
 }
 
 void CurlHandle::setHttpAuthUserPass(const String& user, const String& password, long authType)
@@ -595,9 +767,29 @@ void CurlHandle::setSslVerifyHost(VerifyHost verifyHost)
     curl_easy_setopt(m_handle, CURLOPT_SSL_VERIFYHOST, static_cast<long>(verifyHost));
 }
 
+void CurlHandle::setSslCert(const char* cert)
+{
+    curl_easy_setopt(m_handle, CURLOPT_SSLCERT, cert);
+}
+
+void CurlHandle::setSslCertType(const char* type)
+{
+    curl_easy_setopt(m_handle, CURLOPT_SSLCERTTYPE, type);
+}
+
+void CurlHandle::setSslKeyPassword(const char* password)
+{
+    curl_easy_setopt(m_handle, CURLOPT_KEYPASSWD, password);
+}
+
 void CurlHandle::setSslCipherList(const char* cipherList)
 {
     curl_easy_setopt(m_handle, CURLOPT_SSL_CIPHER_LIST, cipherList);
+}
+
+void CurlHandle::setSslCipherListTLS1_3(const char* cipherList)
+{
+    curl_easy_setopt(m_handle, CURLOPT_TLS13_CIPHERS, cipherList);
 }
 
 void CurlHandle::setSslECCurves(const char* ecCurves)
@@ -730,10 +922,21 @@ std::optional<long> CurlHandle::getHttpConnectCode()
     return httpConnectCode;
 }
 
+std::optional<long long> CurlHandle::getContentLength()
+{
+    if (!m_handle)
+        return std::nullopt;
+
+    curl_off_t contentLength;
+    CURLcode errorCode = curl_easy_getinfo(m_handle, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &contentLength);
+    if (errorCode != CURLE_OK)
+        return std::nullopt;
+
+    return contentLength;
+}
+
 std::optional<long> CurlHandle::getHttpAuthAvail()
 {
-    auto allowedAuthMethods = CURLAUTH_DIGEST | CURLAUTH_BASIC;
-
     if (!m_handle)
         return std::nullopt;
 
@@ -742,13 +945,11 @@ std::optional<long> CurlHandle::getHttpAuthAvail()
     if (errorCode != CURLE_OK)
         return std::nullopt;
 
-    return httpAuthAvailable & allowedAuthMethods;
+    return httpAuthAvailable;
 }
 
 std::optional<long> CurlHandle::getProxyAuthAvail()
 {
-    auto allowedAuthMethods = CURLAUTH_DIGEST | CURLAUTH_BASIC;
-
     if (!m_handle)
         return std::nullopt;
 
@@ -757,7 +958,7 @@ std::optional<long> CurlHandle::getProxyAuthAvail()
     if (errorCode != CURLE_OK)
         return std::nullopt;
 
-    return proxyAuthAvailable & allowedAuthMethods;
+    return proxyAuthAvailable;
 }
 
 std::optional<long> CurlHandle::getHttpVersion()
@@ -868,12 +1069,18 @@ std::optional<NetworkLoadMetrics> CurlHandle::getNetworkLoadMetrics(MonotonicTim
 
 void CurlHandle::addExtraNetworkLoadMetrics(NetworkLoadMetrics& networkLoadMetrics)
 {
+    long requestHeaderSize = 0;
     curl_off_t requestBodySize = 0;
     long responseHeaderSize = 0;
     char* ip = nullptr;
     long port = 0;
 
-    CURLcode errorCode = curl_easy_getinfo(m_handle, CURLINFO_SIZE_UPLOAD_T, &requestBodySize);
+    // FIXME: Gets total request size not just headers https://bugs.webkit.org/show_bug.cgi?id=188363
+    CURLcode errorCode = curl_easy_getinfo(m_handle, CURLINFO_REQUEST_SIZE, &requestHeaderSize);
+    if (errorCode != CURLE_OK)
+        return;
+
+    errorCode = curl_easy_getinfo(m_handle, CURLINFO_SIZE_UPLOAD_T, &requestBodySize);
     if (errorCode != CURLE_OK)
         return;
 
@@ -898,6 +1105,7 @@ void CurlHandle::addExtraNetworkLoadMetrics(NetworkLoadMetrics& networkLoadMetri
         }
     }
 
+    additionalMetrics->requestHeaderBytesSent = requestHeaderSize;
     additionalMetrics->requestBodyBytesSent = requestBodySize;
     additionalMetrics->responseHeaderBytesReceived = responseHeaderSize;
 
@@ -933,6 +1141,29 @@ std::optional<CertificateInfo> CurlHandle::certificateInfo() const
     }
 
     return std::nullopt;
+}
+
+long long CurlHandle::maxCurlOffT()
+{
+    static const long long maxCurlOffT = (1LL << (expectedSizeOfCurlOffT() * 8 - 1)) - 1;
+
+    return maxCurlOffT;
+}
+
+int CurlHandle::expectedSizeOfCurlOffT()
+{
+    // The size of a curl_off_t could be different in WebKit and in cURL depending on
+    // compilation flags of both.
+    static int expectedSizeOfCurlOffT = 0;
+    if (!expectedSizeOfCurlOffT) {
+        curl_version_info_data* infoData = curl_version_info(CURLVERSION_NOW);
+        if (infoData->features & CURL_VERSION_LARGEFILE)
+            expectedSizeOfCurlOffT = sizeof(long long);
+        else
+            expectedSizeOfCurlOffT = sizeof(int);
+    }
+
+    return expectedSizeOfCurlOffT;
 }
 
 #ifndef NDEBUG

@@ -352,6 +352,9 @@ void LocalFrameView::prepareForDetach()
     // When the view is no longer associated with a frame, it needs to be removed from the ax object cache
     // right now, otherwise it won't be able to reach the topDocument()'s axObject cache later.
     removeFromAXObjectCache();
+
+    if (RefPtr scrollingCoordinator = this->scrollingCoordinator())
+        scrollingCoordinator->willDestroyScrollableArea(*this);
 }
 
 void LocalFrameView::detachCustomScrollbars()
@@ -546,7 +549,7 @@ void LocalFrameView::setContentsSize(const IntSize& size)
     ScrollView::setContentsSize(size);
     contentsResized();
 
-    RefPtr page = m_frame->page();
+    Page* page = m_frame->page();
     if (!page)
         return;
 
@@ -2713,6 +2716,13 @@ bool LocalFrameView::shouldSetCursor() const
     Page* page = m_frame->page();
     return page && page->isVisible() && page->focusController().isActive();
 }
+
+#if OS(MORPHOS)
+void LocalFrameView::setCursor(const Cursor& cursor)
+{
+    frame().page()->chrome().setCursor(cursor);
+}
+#endif
 
 #if ENABLE(DARK_MODE_CSS)
 RenderElement* LocalFrameView::rendererForColorScheme() const

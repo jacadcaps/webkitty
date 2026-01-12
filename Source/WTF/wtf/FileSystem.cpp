@@ -49,6 +49,10 @@
 #include <wtf/StdFilesystem.h>
 #endif
 
+#if OS(MORPHOS)
+#include <unistd.h>
+#endif
+
 namespace WTF::FileSystemImpl {
 
 #if HAVE(STD_FILESYSTEM) || HAVE(STD_EXPERIMENTAL_FILESYSTEM)
@@ -242,13 +246,26 @@ String lastComponentOfPathIgnoringTrailingSlash(const String& path)
 #endif
 
     auto position = path.reverseFind(pathSeparator);
+#if OS(MORPHOS)
+    if (position == notFound)
+        position = path.reverseFind(':');
+#endif
     if (position == notFound)
         return path;
 
     size_t endOfSubstring = path.length() - 1;
+#if OS(MORPHOS)
+    // If ending to a ':' just return an empty string.
+    if (position == endOfSubstring && path[position] != ':') {
+#else
     if (position == endOfSubstring) {
+#endif
         --endOfSubstring;
         position = path.reverseFind(pathSeparator, endOfSubstring);
+#if OS(MORPHOS)
+        if (position == notFound)
+            position = path.reverseFind(':');
+#endif
     }
 
     return path.substring(position + 1, endOfSubstring - position);
@@ -350,6 +367,8 @@ MappedFileData createMappedFileData(const String& path, size_t bytesSize, FileHa
 
 void finalizeMappedFileData(MappedFileData& mappedFileData, size_t bytesSize)
 {
+#if OS(MORPHOS)
+#else
     auto* map = mappedFileData.mutableSpan().data();
 #if OS(WINDOWS)
     DWORD oldProtection;
@@ -362,10 +381,14 @@ void finalizeMappedFileData(MappedFileData& mappedFileData, size_t bytesSize)
     // Flush (asynchronously) to file, turning this into clean memory.
     msync(map, bytesSize, MS_ASYNC);
 #endif
+#endif
 }
 
 MappedFileData mapToFile(const String& path, size_t bytesSize, NOESCAPE const Function<void(const Function<bool(std::span<const uint8_t>)>&)>& apply, FileHandle* outputHandle)
 {
+#if OS(MORPHOS)
+    return { };
+#else
     auto mappedFile = createMappedFileData(path, bytesSize, outputHandle);
     if (!mappedFile)
         return { };
@@ -380,6 +403,7 @@ MappedFileData mapToFile(const String& path, size_t bytesSize, NOESCAPE const Fu
     finalizeMappedFileData(mappedFile, bytesSize);
 
     return mappedFile;
+#endif
 }
 
 static Salt makeSalt()
@@ -780,7 +804,7 @@ String pathByAppendingComponents(StringView path, std::span<const StringView> co
 
 #endif
 
-#if !OS(WINDOWS) && !PLATFORM(COCOA) && !PLATFORM(PLAYSTATION)
+#if !OS(WINDOWS) && !PLATFORM(COCOA) && !PLATFORM(PLAYSTATION) && !OS(MORPHOS)
 
 String createTemporaryDirectory()
 {

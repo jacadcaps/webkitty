@@ -104,12 +104,16 @@ ExceptionOr<Ref<WebKitMediaKeySession>> WebKitMediaKeys::createSession(Document&
 
     m_sessions.append(session.copyRef());
 
+#if OS(MORPHOS)
+    session->generateKeyRequest(type, WTFMove(initData), "unusedByClearKeyDRM"_s);
+#else
     // 5. Schedule a task to initialize the session, providing contentType, initData, and the new object.
     auto request = MediaKeySystemRequest::create(document, m_keySystem, { });
     request->setAllowCallback([session = session.copyRef(), type = type, initData = WTFMove(initData)](String&& mediaKeysHashSalt, RefPtr<DeferredPromise>&&) mutable {
         session->generateKeyRequest(type, WTFMove(initData), mediaKeysHashSalt);
     });
     request->start();
+#endif
 
     // 6. Return the new object to the caller.
     return session;

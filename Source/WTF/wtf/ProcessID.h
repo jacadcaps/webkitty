@@ -37,6 +37,9 @@ namespace WTF {
 
 #if OS(WINDOWS)
 using ProcessID = int;
+#elif OS(MORPHOS)
+using ProcessID = uint32_t;
+uint32_t morphosGetCurrentProcessID();
 #else
 using ProcessID = pid_t;
 #endif
@@ -45,6 +48,8 @@ inline ProcessID getCurrentProcessID()
 {
 #if OS(WINDOWS)
     return GetCurrentProcessId();
+#elif OS(MORPHOS)
+	return morphosGetCurrentProcessID();
 #else
     return getpid();
 #endif

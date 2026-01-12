@@ -110,6 +110,10 @@ void SVGRadialGradientElement::svgAttributeChanged(const QualifiedName& attrName
 
 RenderPtr<RenderElement> SVGRadialGradientElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
 {
+#if OS(MORPHOS)
+// disabled, extremely slow
+    return nullptr;
+#endif
     if (document().settings().layerBasedSVGEngineEnabled())
         return createRenderer<RenderSVGResourceRadialGradient>(*this, WTFMove(style));
     return createRenderer<LegacyRenderSVGResourceRadialGradient>(*this, WTFMove(style));

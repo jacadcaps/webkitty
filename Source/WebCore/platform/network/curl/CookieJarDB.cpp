@@ -28,7 +28,7 @@
 
 #include "CookieUtil.h"
 #include "Logging.h"
-#include "PublicSuffixStore.h"
+#include "PublicSuffix.h"
 #include "RegistrableDomain.h"
 #include "SQLiteFileSystem.h"
 #include <wtf/DateMath.h>
@@ -39,7 +39,7 @@
 #include <wtf/URL.h>
 #include <wtf/Vector.h>
 #include <wtf/WallTime.h>
-#include <wtf/text/MakeString.h>
+#include <wtf/text/StringConcatenateNumbers.h>
 
 namespace WebCore {
 
@@ -140,7 +140,7 @@ bool CookieJarDB::openDatabase()
     }
 
     if (!existsDatabaseFile) {
-        if (!isOnMemory() && !FileSystem::makeAllDirectories(FileSystem::parentPath(m_databasePath)))
+        if (!FileSystem::makeAllDirectories(FileSystem::parentPath(m_databasePath)))
             LOG_ERROR("Unable to create the Cookie Database path %s", m_databasePath.utf8().data());
 
         m_database.open(m_databasePath);
@@ -349,8 +349,10 @@ bool CookieJarDB::hasCookies(const URL& url)
     if (host.isEmpty())
         return false;
 
-    if (PublicSuffixStore::singleton().isPublicSuffix(host))
+#if ENABLE(PUBLIC_SUFFIX_LIST)
+    if (isPublicSuffix(host))
         return false;
+#endif
 
     RegistrableDomain registrableDomain { url };
     auto& statement = preparedStatement(CHECK_EXISTS_COOKIE_SQL);
@@ -500,8 +502,10 @@ static bool checkSecureCookie(const Cookie& cookie)
 
 bool CookieJarDB::canAcceptCookie(const Cookie& cookie, const URL& firstParty, const URL& url, CookieJarDB::Source source)
 {
-    if (PublicSuffixStore::singleton().isPublicSuffix(cookie.domain))
+#if ENABLE(PUBLIC_SUFFIX_LIST)
+    if (isPublicSuffix(cookie.domain))
         return false;
+#endif
 
     bool fromJavaScript = source == CookieJarDB::Source::Script;
     if (fromJavaScript && (cookie.httpOnly || hasHttpOnlyCookie(cookie.name, cookie.domain, cookie.path)))

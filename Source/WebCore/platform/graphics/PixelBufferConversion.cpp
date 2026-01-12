@@ -207,9 +207,18 @@ static bool convertImagePixelsSkia(const ConstPixelBufferConversionView& source,
 enum class PixelFormatConversion { None, Permute };
 
 template<PixelFormatConversion pixelFormatConversion>
+#if CPU(BIG_ENDIAN)
+static void convertSinglePixelPremultipliedToPremultiplied(PixelFormat sourcePixelFormat, PixelFormat destinationPixelFormat, std::span<const uint8_t, 4> sourcePixel, std::span<uint8_t, 4> destinationPixel)
+#else
 static void convertSinglePixelPremultipliedToPremultiplied(std::span<const uint8_t, 4> sourcePixel, std::span<uint8_t, 4> destinationPixel)
+#endif
 {
+#if CPU(BIG_ENDIAN)
+    uint8_t alpha = sourcePixel[sourcePixelFormat == PixelFormat::ARGB8 ? 0 : 3];
+#else
     uint8_t alpha = sourcePixel[3];
+#endif
+
     if (!alpha) {
         reinterpretCastSpanStartTo<uint32_t>(destinationPixel) = 0;
         return;
@@ -218,23 +227,81 @@ static void convertSinglePixelPremultipliedToPremultiplied(std::span<const uint8
     if constexpr (pixelFormatConversion == PixelFormatConversion::None)
         reinterpretCastSpanStartTo<uint32_t>(destinationPixel) = reinterpretCastSpanStartTo<const uint32_t>(sourcePixel);
     else {
+#if CPU(BIG_ENDIAN)
+        // Swap pixel channels ARGB <-> RGBA.
+        if (destinationPixelFormat == PixelFormat::ARGB8)
+        {
+            destinationPixel[0] = sourcePixel[3];
+            destinationPixel[1] = sourcePixel[0];
+            destinationPixel[2] = sourcePixel[1];
+            destinationPixel[3] = sourcePixel[2];
+        }
+        else
+        {
+            destinationPixel[0] = sourcePixel[1];
+            destinationPixel[1] = sourcePixel[2];
+            destinationPixel[2] = sourcePixel[3];
+            destinationPixel[3] = sourcePixel[0];
+        }
+#else
         // Swap pixel channels BGRA <-> RGBA.
         destinationPixel[0] = sourcePixel[2];
         destinationPixel[1] = sourcePixel[1];
         destinationPixel[2] = sourcePixel[0];
         destinationPixel[3] = sourcePixel[3];
+#endif
     }
 }
 
 template<PixelFormatConversion pixelFormatConversion>
+#if CPU(BIG_ENDIAN)
+static void convertSinglePixelPremultipliedToUnpremultiplied(PixelFormat sourcePixelFormat, PixelFormat destinationPixelFormat, std::span<const uint8_t, 4> sourcePixel, std::span<uint8_t, 4> destinationPixel)
+#else
 static void convertSinglePixelPremultipliedToUnpremultiplied(std::span<const uint8_t, 4> sourcePixel, std::span<uint8_t, 4> destinationPixel)
+#endif
 {
+#if CPU(BIG_ENDIAN)
+    uint8_t alpha = sourcePixel[sourcePixelFormat == PixelFormat::ARGB8 ? 0 : 3];
+#else
     uint8_t alpha = sourcePixel[3];
+#endif
     if (!alpha || alpha == 255) {
+#if CPU(BIG_ENDIAN)
+        convertSinglePixelPremultipliedToPremultiplied<pixelFormatConversion>(sourcePixelFormat, destinationPixelFormat, sourcePixel, destinationPixel);
+#else
         convertSinglePixelPremultipliedToPremultiplied<pixelFormatConversion>(sourcePixel, destinationPixel);
+#endif
         return;
     }
 
+#if CPU(BIG_ENDIAN)
+    UNUSED_PARAM(destinationPixelFormat);
+    if constexpr (pixelFormatConversion == PixelFormatConversion::None) {
+        if (sourcePixelFormat == PixelFormat::ARGB8) {
+            destinationPixel[0] = alpha;
+            destinationPixel[1] = (sourcePixel[1] * 255) / alpha;
+            destinationPixel[2] = (sourcePixel[2] * 255) / alpha;
+            destinationPixel[3] = (sourcePixel[3] * 255) / alpha;
+        } else {
+            destinationPixel[0] = (sourcePixel[0] * 255) / alpha;
+            destinationPixel[1] = (sourcePixel[1] * 255) / alpha;
+            destinationPixel[2] = (sourcePixel[2] * 255) / alpha;
+            destinationPixel[3] = alpha;
+        }
+    } else {
+        if (sourcePixelFormat == PixelFormat::ARGB8) {
+            destinationPixel[0] = (sourcePixel[1] * 255) / alpha;
+            destinationPixel[1] = (sourcePixel[2] * 255) / alpha;
+            destinationPixel[2] = (sourcePixel[3] * 255) / alpha;
+            destinationPixel[3] = alpha;
+        } else {
+            destinationPixel[0] = alpha;
+            destinationPixel[1] = (sourcePixel[0] * 255) / alpha;
+            destinationPixel[2] = (sourcePixel[1] * 255) / alpha;
+            destinationPixel[3] = (sourcePixel[2] * 255) / alpha;
+        }
+    }
+#else
     if constexpr (pixelFormatConversion == PixelFormatConversion::None) {
         destinationPixel[0] = (sourcePixel[0] * 255) / alpha;
         destinationPixel[1] = (sourcePixel[1] * 255) / alpha;
@@ -247,17 +314,58 @@ static void convertSinglePixelPremultipliedToUnpremultiplied(std::span<const uin
         destinationPixel[2] = (sourcePixel[0] * 255) / alpha;
         destinationPixel[3] = alpha;
     }
+#endif
 }
 
 template<PixelFormatConversion pixelFormatConversion>
+#if CPU(BIG_ENDIAN)
+static void convertSinglePixelUnpremultipliedToPremultiplied(PixelFormat sourcePixelFormat, PixelFormat destinationPixelFormat, std::span<const uint8_t, 4> sourcePixel, std::span<uint8_t, 4> destinationPixel)
+#else
 static void convertSinglePixelUnpremultipliedToPremultiplied(std::span<const uint8_t, 4> sourcePixel, std::span<uint8_t, 4> destinationPixel)
+#endif
 {
+#if CPU(BIG_ENDIAN)
+    uint8_t alpha = sourcePixel[sourcePixelFormat == PixelFormat::ARGB8 ? 0 : 3];
+#else
     uint8_t alpha = sourcePixel[3];
+#endif
     if (!alpha || alpha == 255) {
+#if CPU(BIG_ENDIAN)
+        convertSinglePixelPremultipliedToPremultiplied<pixelFormatConversion>(sourcePixelFormat, destinationPixelFormat, sourcePixel, destinationPixel);
+#else
         convertSinglePixelPremultipliedToPremultiplied<pixelFormatConversion>(sourcePixel, destinationPixel);
+#endif
         return;
     }
 
+#if CPU(BIG_ENDIAN)
+    UNUSED_PARAM(destinationPixelFormat);
+    if constexpr (pixelFormatConversion == PixelFormatConversion::None) {
+        if (sourcePixelFormat == PixelFormat::ARGB8) {
+            destinationPixel[0] = alpha;
+            destinationPixel[1] = (sourcePixel[1] * alpha + 254) / 255;
+            destinationPixel[2] = (sourcePixel[2] * alpha + 254) / 255;
+            destinationPixel[3] = (sourcePixel[3] * alpha + 254) / 255;
+        } else {
+            destinationPixel[0] = (sourcePixel[0] * alpha + 254) / 255;
+            destinationPixel[1] = (sourcePixel[1] * alpha + 254) / 255;
+            destinationPixel[2] = (sourcePixel[2] * alpha + 254) / 255;
+            destinationPixel[3] = alpha;
+        }
+    } else {
+        if (sourcePixelFormat == PixelFormat::ARGB8) {
+            destinationPixel[0] = (sourcePixel[1] * alpha + 254) / 255;
+            destinationPixel[1] = (sourcePixel[2] * alpha + 254) / 255;
+            destinationPixel[2] = (sourcePixel[3] * alpha + 254) / 255;
+            destinationPixel[3] = alpha;
+        } else {
+            destinationPixel[0] = alpha;
+            destinationPixel[1] = (sourcePixel[0] * alpha + 254) / 255;
+            destinationPixel[2] = (sourcePixel[1] * alpha + 254) / 255;
+            destinationPixel[3] = (sourcePixel[2] * alpha + 254) / 255;
+        }
+    }
+#else
     if constexpr (pixelFormatConversion == PixelFormatConversion::None) {
         destinationPixel[0] = (sourcePixel[0] * alpha + 254) / 255;
         destinationPixel[1] = (sourcePixel[1] * alpha + 254) / 255;
@@ -270,23 +378,49 @@ static void convertSinglePixelUnpremultipliedToPremultiplied(std::span<const uin
         destinationPixel[2] = (sourcePixel[0] * alpha + 254) / 255;
         destinationPixel[3] = alpha;
     }
+#endif
 }
 
 template<PixelFormatConversion pixelFormatConversion>
+#if CPU(BIG_ENDIAN)
+static void convertSinglePixelUnpremultipliedToUnpremultiplied(PixelFormat sourcePixelFormat, PixelFormat destinationPixelFormat, std::span<const uint8_t, 4> sourcePixel, std::span<uint8_t, 4> destinationPixel)
+#else
 static void convertSinglePixelUnpremultipliedToUnpremultiplied(std::span<const uint8_t, 4> sourcePixel, std::span<uint8_t, 4> destinationPixel)
+#endif
 {
     if constexpr (pixelFormatConversion == PixelFormatConversion::None)
         reinterpretCastSpanStartTo<uint32_t>(destinationPixel) = reinterpretCastSpanStartTo<const uint32_t>(sourcePixel);
     else {
+#if CPU(BIG_ENDIAN)
+        UNUSED_PARAM(sourcePixelFormat);
+        // Swap pixel channels ARGB <-> RGBA.
+        if (destinationPixelFormat == PixelFormat::ARGB8) {
+            destinationPixel[0] = sourcePixel[3];
+            destinationPixel[1] = sourcePixel[0];
+            destinationPixel[2] = sourcePixel[1];
+            destinationPixel[3] = sourcePixel[2];
+        }
+        else {
+            destinationPixel[0] = sourcePixel[1];
+            destinationPixel[1] = sourcePixel[2];
+            destinationPixel[2] = sourcePixel[3];
+            destinationPixel[3] = sourcePixel[0];
+        }
+#else
         // Swap pixel channels BGRA <-> RGBA.
         destinationPixel[0] = sourcePixel[2];
         destinationPixel[1] = sourcePixel[1];
         destinationPixel[2] = sourcePixel[0];
         destinationPixel[3] = sourcePixel[3];
+#endif
     }
 }
 
+#if CPU(BIG_ENDIAN)
+template<void (*convertFunctor)(PixelFormat, PixelFormat, std::span<const uint8_t, 4>, std::span<uint8_t, 4>)>
+#else
 template<void (*convertFunctor)(std::span<const uint8_t, 4>, std::span<uint8_t, 4>)>
+#endif
 static void convertImagePixelsUnaccelerated(const ConstPixelBufferConversionView& source, const PixelBufferConversionView& destination, const IntSize& destinationSize)
 {
     size_t bytesPerRow = destinationSize.width() * 4;
@@ -294,7 +428,11 @@ static void convertImagePixelsUnaccelerated(const ConstPixelBufferConversionView
         auto sourceRow = source.rows.subspan(source.bytesPerRow * y);
         auto destinationRow = destination.rows.subspan(destination.bytesPerRow * y);
         for (size_t x = 0; x < bytesPerRow; x += 4)
+#if CPU(BIG_ENDIAN)
+            convertFunctor(source.format.pixelFormat, destination.format.pixelFormat, sourceRow.subspan(x).subspan<0, 4>(), destinationRow.subspan(x).subspan<0, 4>());
+#else
             convertFunctor(sourceRow.subspan(x).subspan<0, 4>(), destinationRow.subspan(x).subspan<0, 4>());
+#endif
     }
 }
 

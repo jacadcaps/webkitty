@@ -37,6 +37,10 @@
 #include <wtf/win/Win32Handle.h>
 #endif
 
+#if OS(MORPHOS)
+#include <wtf/MallocSpan.h>
+#endif
+
 namespace WTF {
 
 namespace FileSystemImpl {
@@ -71,6 +75,12 @@ public:
     size_t size() const { return m_fileData.size(); }
     std::span<const uint8_t> span() const { return m_fileData; }
     std::span<uint8_t> mutableSpan() { return m_fileData; }
+#elif OS(MORPHOS)
+    MappedFileData(MallocSpan<uint8_t>&&);
+    explicit operator bool() const { return !!m_fileData; }
+    size_t size() const { return m_fileData.span().size(); }
+    std::span<const uint8_t> span() const { return m_fileData.span(); }
+    std::span<uint8_t> mutableSpan() { return m_fileData.mutableSpan(); }
 #endif
 
 private:
@@ -79,6 +89,8 @@ private:
 #elif OS(WINDOWS)
     std::span<uint8_t> m_fileData;
     Win32Handle m_fileMapping;
+#elif OS(MORPHOS)
+    MallocSpan<uint8_t> m_fileData;
 #endif
 };
 

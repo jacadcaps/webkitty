@@ -37,6 +37,7 @@
 #include <WebCore/PlatformStrategies.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/SubresourceLoader.h>
+#include <WebCore/LocalFrameInlines.h>
 #include <wtf/MainThread.h>
 #include <wtf/SetForScope.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -418,3 +419,63 @@ void WebResourceLoadScheduler::addOnlineStateChangeListener(WTF::Function<void(b
 void WebResourceLoadScheduler::preconnectTo(FrameLoader&, ResourceRequest&&, StoredCredentialsPolicy, ShouldPreconnectAsFirstParty, PreconnectCompletionHandler&&)
 {
 }
+
+#if OS(MORPHOS)
+WebCore::ResourceError WebResourceLoadScheduler::cancelledError(const WebCore::ResourceRequest&) const
+{
+    return ResourceError(WebCore::ResourceErrorBaseType::Cancellation);
+}
+
+WebCore::ResourceError WebResourceLoadScheduler::blockedError(const WebCore::ResourceRequest&) const
+{
+    return ResourceError(WebCore::ResourceErrorBaseType::Cancellation);
+}
+
+WebCore::ResourceError WebResourceLoadScheduler::blockedByContentBlockerError(const WebCore::ResourceRequest&) const
+{
+    return ResourceError(WebCore::ResourceErrorBaseType::Cancellation);
+}
+
+WebCore::ResourceError WebResourceLoadScheduler::cannotShowURLError(const WebCore::ResourceRequest&) const
+{
+    return ResourceError(WebCore::ResourceErrorBaseType::General);
+}
+
+WebCore::ResourceError WebResourceLoadScheduler::interruptedForPolicyChangeError(const WebCore::ResourceRequest&) const
+{
+    return ResourceError(WebCore::ResourceErrorBaseType::AccessControl);
+}
+
+#if ENABLE(CONTENT_FILTERING)
+WebCore::ResourceError WebResourceLoadScheduler::blockedByContentFilterError(const WebCore::ResourceRequest&) const
+{
+    return ResourceError(WebCore::ResourceErrorBaseType::AccessControl);
+}
+#endif
+
+WebCore::ResourceError WebResourceLoadScheduler::cannotShowMIMETypeError(const WebCore::ResourceResponse&) const
+{
+    return ResourceError(WebCore::ResourceErrorBaseType::General);
+}
+
+WebCore::ResourceError WebResourceLoadScheduler::fileDoesNotExistError(const WebCore::ResourceResponse&) const
+{
+    return ResourceError(WebCore::ResourceErrorBaseType::General);
+}
+
+WebCore::ResourceError WebResourceLoadScheduler::httpsUpgradeRedirectLoopError(const WebCore::ResourceRequest&) const
+{
+    return ResourceError(WebCore::ResourceErrorBaseType::General);
+}
+
+WebCore::ResourceError WebResourceLoadScheduler::httpNavigationWithHTTPSOnlyError(const WebCore::ResourceRequest&) const
+{
+    return ResourceError(WebCore::ResourceErrorBaseType::General);
+}
+
+WebCore::ResourceError WebResourceLoadScheduler::pluginWillHandleLoadError(const WebCore::ResourceResponse&) const
+{
+    return ResourceError(WebCore::ResourceErrorBaseType::General);
+}
+
+#endif

@@ -42,6 +42,8 @@
 
 namespace WebCore {
 
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
+
 WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(RenderSVGResourceMasker);
 
 RenderSVGResourceMasker::RenderSVGResourceMasker(SVGMaskElement& element, RenderStyle&& style)
@@ -209,5 +211,7 @@ bool RenderSVGResourceMasker::drawContentIntoContext(GraphicsContext& context, c
     context.translate(-sourceRect.location());
     return drawContentIntoContext(context, { { }, destinationRect.size() });
 }
+
+#endif
 
 }
