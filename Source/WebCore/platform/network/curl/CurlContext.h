@@ -48,6 +48,8 @@
 #include <winsock2.h>
 #endif
 
+#define CURL_LOGGING 0
+
 #include <curl/curl.h>
 
 namespace WebCore {
@@ -138,7 +140,7 @@ public:
     void stopThread();
 #endif
 
-#ifndef NDEBUG
+#if CURL_LOGGING
     FILE* getLogFile() const { return m_logFile; }
     bool isVerbose() const { return m_verbose; }
 #endif
@@ -161,7 +163,7 @@ private:
     bool m_http2POSTEnabled { true };
     bool m_isAltSvcEnabled { true };
 
-#ifndef NDEBUG
+#if CURL_LOGGING
     FILE* m_logFile { nullptr };
     bool m_verbose { false };
 #endif
@@ -335,7 +337,7 @@ public:
     CURLcode send(const uint8_t*, size_t, size_t&);
     CURLcode receive(uint8_t*, size_t, size_t&);
 
-#ifndef NDEBUG
+#if CURL_LOGGING
     void enableVerboseIfUsed();
     void enableStdErrIfUsed();
 #endif

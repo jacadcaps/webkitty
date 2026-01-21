@@ -151,7 +151,7 @@ CurlContext::CurlContext()
     m_isHttp3Enabled = (info->features & CURL_VERSION_HTTP3) && m_isAltSvcEnabled;
 #endif
 
-#ifndef NDEBUG
+#if CURL_LOGGING
     m_verbose = envVar.defined("DEBUG_CURL");
 
     auto logFile = envVar.read("CURL_LOG_FILE");
@@ -162,7 +162,7 @@ CurlContext::CurlContext()
 
 CurlContext::~CurlContext()
 {
-#ifndef NDEBUG
+#if CURL_LOGGING
     if (m_logFile)
         fclose(m_logFile);
 #endif
@@ -433,7 +433,7 @@ CurlHandle::CurlHandle()
 
     enableProxyIfExists();
 
-#ifndef NDEBUG
+#if CURL_LOGGING
     enableVerboseIfUsed();
     enableStdErrIfUsed();
 #endif
@@ -1166,7 +1166,7 @@ int CurlHandle::expectedSizeOfCurlOffT()
     return expectedSizeOfCurlOffT;
 }
 
-#ifndef NDEBUG
+#if CURL_LOGGING
 
 void CurlHandle::enableVerboseIfUsed()
 {
