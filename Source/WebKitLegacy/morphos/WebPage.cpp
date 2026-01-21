@@ -231,6 +231,7 @@ extern "C" {
 };
 
 #define D(x) 
+#define DFS(x) 
 
 using namespace std;
 using namespace WebCore;
@@ -1803,46 +1804,87 @@ void WebPage::setFocusedElement(WebCore::Element *element)
 		m_focusedElement = nullptr;
 }
 
-void WebPage::setFullscreenElement(WebCore::Element *element)
+void WebPage::setFullscreenElement(WebCore::Element *element, CompletionHandler<void(WebCore::ExceptionOr<void>)>&& willEnterFullscreen, CompletionHandler<bool(bool)>&& didEnterFullscreen)
 {
 #if ENABLE(FULLSCREEN_API)
-	if (element)
-	{
-		m_fullscreenElement = Ref{*element};
-        m_fullscreenElement->webkitRequestFullscreen();
-//        m_fullscreenElement->document().fullscreenManager().requestFullscreenForElement(*m_fullscreenElement, FullscreenManager::ExemptIFrameAllowFullscreenRequirement, [](ExceptionOr<void> result) {});
-
-		if (_fZoomChangedByWheel)
-			_fZoomChangedByWheel();
-			
-		if (_fEnterFullscreen)
-		{
-			_fEnterFullscreen();
-
-			if (m_drawContext)
-				m_drawContext->invalidate();
-		}
+    if (m_fullscreenElement)
+    {
+        DFS(dprintf("%s: already in fs\n", __func__));
+        willEnterFullscreen({ });
+        didEnterFullscreen(false);
+        return;
     }
-	else
+
+    if (!element)
+        return; // not supposed to happen!
+
+    m_fullscreenElement = Ref{*element};
+    if (m_fullscreenElement)
 	{
-		if (m_fullscreenElement)
-		{
-            DocumentFullscreen::webkitExitFullscreen(m_fullscreenElement->document());
+        DFS(dprintf("%s: calling willEnterFullscreen\n", __func__));
+        willEnterFullscreen(m_fullscreenElement->document().fullscreen().willEnterFullscreen(*m_fullscreenElement, WebCore::HTMLMediaElementEnums::VideoFullscreenModeStandard));
+        m_fullscreenElement->document().fullscreen().setAnimatingFullscreen(true);
 
-            if (_fZoomChangedByWheel)
-                _fZoomChangedByWheel();
-                
-			if (_fExitFullscreen)
-			{
-				_fExitFullscreen();
+        if (_fZoomChangedByWheel)
+            _fZoomChangedByWheel();
+            
+        if (_fEnterFullscreen)
+        {
+            m_didEnterFullscreen = WTFMove(didEnterFullscreen);
 
-				if (m_drawContext)
-					m_drawContext->invalidate();
-			}
-		}
-		
-		m_fullscreenElement = nullptr;
-	}
+            DFS(dprintf("%s: calling fEnterFullscreen\n", __func__));
+            _fEnterFullscreen();
+
+            if (m_drawContext)
+                m_drawContext->invalidate();
+        }
+        else
+        {
+            DFS(dprintf("%s: calling didEnterFullscreen(false)\n", __func__));
+            didEnterFullscreen(false);
+        }
+    }
+#endif
+}
+
+void WebPage::didEnterFullscreen(bool isFS)
+{
+#if ENABLE(FULLSCREEN_API)
+    if (m_didEnterFullscreen)
+    {
+        DFS(dprintf("%s: calling didEnterFullscreen(%s)\n", __func__, isFS? "true":"false"));
+        m_didEnterFullscreen(isFS);
+        m_didEnterFullscreen = nullptr;
+        DFS(dprintf("%s: done\n", __func__));
+    }
+#endif
+}
+
+void WebPage::clearFullscreenElement()
+{
+#if ENABLE(FULLSCREEN_API)
+    if (m_fullscreenElement)
+    {
+        if (m_didEnterFullscreen)
+        {
+            DFS(dprintf("%s: ignoring...\n", __func__));
+            return;
+        }
+        DFS(dprintf("%s: \n", __func__));
+
+        if (_fZoomChangedByWheel)
+            _fZoomChangedByWheel();
+            
+        if (_fExitFullscreen)
+        {
+            _fExitFullscreen();
+
+            if (m_drawContext)
+                m_drawContext->invalidate();
+        }
+    }
+    
+    m_fullscreenElement = nullptr;
 #endif
 }
 
@@ -1853,7 +1895,15 @@ bool WebPage::isFullscreen() const
 
 void WebPage::exitFullscreen()
 {
-	setFullscreenElement(nullptr);
+    auto* coreFrame = m_mainFrame->coreFrame();
+    if (!coreFrame || !m_drawContext)
+        return;
+    
+    auto* frameView = coreFrame->view();
+    if (!frameView)
+        return;
+
+    frameView->frame().document()->fullscreen().fullyExitFullscreen();
 }
 
 WebCore::IntRect WebPage::getElementBounds(WebCore::Element *e)

@@ -378,7 +378,7 @@ void WebFrameLoaderClient::dispatchDidStartProvisionalLoad()
 
 #if ENABLE(FULLSCREEN_API)
     if (webPage->isFullscreen())
-        webPage->setFullscreenElement(nullptr);
+        webPage->clearFullscreenElement();
 #endif
 }
 

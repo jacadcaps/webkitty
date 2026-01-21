@@ -1659,6 +1659,11 @@ namespace  {
 	return YES;
 }
 
+- (void)didEnterFullScreen
+{
+    if (_page) _page->didEnterFullscreen(_fsWindow != NULL);
+}
+
 - (void)enterFullScreen
 {
 	if (NULL == _fsWindow && _window)
@@ -1718,6 +1723,8 @@ namespace  {
 			}
 		}
 	}
+
+    [OBScheduledTimer scheduledTimerWithInterval:0.5 perform:[OBPerform performSelector:@selector(didEnterFullScreen) target:self] repeats:NO];
 }
 
 - (void)exitFullScreen

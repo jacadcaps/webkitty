@@ -67,6 +67,7 @@
 #include <WebCore/DateTimeChooser.h>
 //#include <WebCore/FullscreenManager.h>
 #include "PopupMenu.h"
+#include <proto/exec.h>
 
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #pragma GCC diagnostic ignored "-Wmisleading-indentation"
@@ -464,15 +465,17 @@ bool WebChromeClient::supportsFullScreenForElement(const Element& element, bool 
 
 void WebChromeClient::enterFullScreenForElement(Element& element, WebCore::HTMLMediaElementEnums::VideoFullscreenMode, CompletionHandler<void(WebCore::ExceptionOr<void>)>&& willEnterFullscreen, CompletionHandler<bool(bool)>&& didEnterFullscreen)
 {
-    willEnterFullscreen(element.document().fullscreen().willEnterFullscreen(element, WebCore::HTMLMediaElementEnums::VideoFullscreenModeStandard));
-    m_webPage.setFullscreenElement(&element);
-    didEnterFullscreen(true);
+    // D(dprintf("%s: element %p\n", __PRETTY_FUNCTION__, &element));
+    m_webPage.setFullscreenElement(&element, WTFMove(willEnterFullscreen), WTFMove(didEnterFullscreen));
 }
 
 void WebChromeClient::exitFullScreenForElement(Element* element, CompletionHandler<void()>&& didExitFullscreen)
 {
-    m_webPage.setFullscreenElement(nullptr);
+    // D(dprintf("%s: element %p\n", __PRETTY_FUNCTION__, element));
+    if (element) element->document().fullscreen().setAnimatingFullscreen(true);
+    m_webPage.clearFullscreenElement();
     didExitFullscreen();
+    if (element) element->document().fullscreen().setAnimatingFullscreen(false);
 }
 
 #endif
