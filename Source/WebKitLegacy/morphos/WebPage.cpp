@@ -1895,6 +1895,7 @@ bool WebPage::isFullscreen() const
 
 void WebPage::exitFullscreen()
 {
+#if ENABLE(FULLSCREEN_API)
     auto* coreFrame = m_mainFrame->coreFrame();
     if (!coreFrame || !m_drawContext)
         return;
@@ -1902,8 +1903,9 @@ void WebPage::exitFullscreen()
     auto* frameView = coreFrame->view();
     if (!frameView)
         return;
-
+    
     frameView->frame().document()->fullscreen().fullyExitFullscreen();
+#endif
 }
 
 WebCore::IntRect WebPage::getElementBounds(WebCore::Element *e)
