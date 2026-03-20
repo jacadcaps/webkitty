@@ -1713,8 +1713,12 @@ void WebPage::goActive()
 {
     corePage()->focusController().setActive(true);
     corePage()->focusController().setFocused(true);
-	m_justWentActive = true;
-	m_isActive = true;
+    m_justWentActive = true;
+    m_isActive = true;
+
+    // make sure things really update after state change, like text caret blinking
+    m_page->updateRendering();
+    m_page->finalizeRenderingUpdate({ });
 }
 
 void WebPage::goInactive()
@@ -1726,9 +1730,12 @@ void WebPage::goInactive()
 
 void WebPage::goVisible()
 {
-	m_isVisible = true;
-	corePage()->setIsVisible(true);
+    m_isVisible = true;
+    corePage()->setIsVisible(true);
     corePage()->focusController().setActive(true);
+    
+    m_page->updateRendering();
+    m_page->finalizeRenderingUpdate({ });
 }
 
 void WebPage::goHidden()
