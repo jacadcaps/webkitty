@@ -3093,9 +3093,9 @@ bool WebPage::handleEditingKeyboardEvent(WebCore::KeyboardEvent& event)
     if (editable() && interpretedEvent && !strcmp(interpretedEvent, "InsertNewline"))
     {
         if (event.shiftKey())
-            interpretedEvent = "InsertLineBreak";
+            return frame->editor().insertLineBreak();
         else
-            interpretedEvent = "InsertParagraph";
+            return frame->editor().insertParagraphSeparator();
     }
 
     auto command = frame->editor().command(String::fromUTF8(interpretedEvent));
