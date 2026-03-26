@@ -28,10 +28,12 @@
 
 #if PLATFORM(IOS_FAMILY)
 
+#import "RemoteLayerTreeDrawingAreaProxyIOS.h"
 #import "RemoteLayerTreeViews.h"
 #import "RemoteScrollingCoordinatorProxy.h"
 #import "SystemPreviewController.h"
 #import "UIKitSPI.h"
+#import "WKColorExtensionView.h"
 #import "WKContentViewInteraction.h"
 #import "WKFullScreenWindowController.h"
 #import "WKWebViewIOS.h"
@@ -194,7 +196,7 @@ static void dumpSeparatedLayerProperties(TextStream&, CALayer *) { }
 
 static String allowListedClassToString(UIView *view)
 {
-    static constexpr ComparableASCIILiteral allowedClassesArray[] = {
+    static constexpr SortedArraySet allowedClasses { std::to_array<ComparableASCIILiteral>({
         "UIView"_s,
         "WKBackdropView"_s,
         "WKCompositingView"_s,
@@ -209,8 +211,7 @@ static String allowListedClassToString(UIView *view)
         "WKUIRemoteView"_s,
         "WKWebView"_s,
         "_UILayerHostView"_s,
-    };
-    static constexpr SortedArraySet allowedClasses { allowedClassesArray };
+    }) };
 
     String classString { NSStringFromClass(view.class) };
     if (allowedClasses.contains(classString))
@@ -222,11 +223,10 @@ static String allowListedClassToString(UIView *view)
 #if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
 static bool shouldDumpSeparatedDetails(UIView *view)
 {
-    static constexpr ComparableASCIILiteral deniedClassesArray[] = {
+    static constexpr SortedArraySet deniedClasses { std::to_array<ComparableASCIILiteral>({
         "WKCompositingView"_s,
         "WKSeparatedImageView"_s,
-    };
-    static constexpr SortedArraySet deniedClasses { deniedClassesArray };
+    }) };
 
     String classString { NSStringFromClass(view.class) };
     if (deniedClasses.contains(classString))
@@ -236,7 +236,7 @@ static bool shouldDumpSeparatedDetails(UIView *view)
 }
 #endif
 
-static void dumpUIView(TextStream& ts, UIView *view)
+static void dumpUIView(TextStream& ts, UIView *view, bool traverse)
 {
     auto rectToString = [] (auto rect) {
         return makeString("[x: "_s, rect.origin.x, " y: "_s, rect.origin.y, " width: "_s, rect.size.width, " height: "_s, rect.size.height, ']');
@@ -292,27 +292,45 @@ static void dumpUIView(TextStream& ts, UIView *view)
         ts << "separated"_s;
         if (shouldDumpSeparatedDetails(view))
             dumpSeparatedLayerProperties(ts, view.layer);
+        else
+            traverse = false;
     }
 #endif
 
-    if (view.subviews.count > 0) {
+    if (traverse && view.subviews.count > 0) {
         TextStream::GroupScope scope(ts);
         ts << "subviews"_s;
         for (UIView *subview in view.subviews) {
             TextStream::GroupScope scope(ts);
-            dumpUIView(ts, subview);
+            dumpUIView(ts, subview, traverse);
         }
     }
 }
 
 - (NSString *)_uiViewTreeAsText
 {
+    return [self _uiViewTreeAsTextForView:self];
+}
+
+- (NSString *)_uiViewTreeAsTextForViewWithLayerID:(unsigned long long)layerID
+{
+    if (!layerID)
+        return nil;
+    RetainPtr view = downcast<WebKit::RemoteLayerTreeDrawingAreaProxyIOS>(_page->protectedDrawingArea())->viewWithLayerIDForTesting({ ObjectIdentifier<WebCore::PlatformLayerIdentifierType>(layerID), _page->legacyMainFrameProcess().coreProcessIdentifier() });
+    if (!view)
+        return nil;
+
+    return [self _uiViewTreeAsTextForView:view.get()];
+}
+
+- (NSString *)_uiViewTreeAsTextForView:(UIView *)view
+{
     TextStream ts(TextStream::LineMode::MultipleLine);
 
     {
         TextStream::GroupScope scope(ts);
         ts << "UIView tree root "_s;
-        dumpUIView(ts, self);
+        dumpUIView(ts, view, true);
     }
 
     return ts.release().createNSString().autorelease();
@@ -329,6 +347,12 @@ static void dumpUIView(TextStream& ts, UIView *view)
         {
             TextStream::GroupScope scope(ts);
             ts << ([_scrollView showsHorizontalScrollIndicator] ? ""_s : "none"_s);
+#if HAVE(UIKIT_SCROLLBAR_COLOR_SPI)
+            if (isVertical)
+                ts << ([_scrollView _verticalScrollIndicatorColor] ? WebCore::colorFromCocoaColor([_scrollView _verticalScrollIndicatorColor]).debugDescription() :  ""_s);
+            else
+                ts << ([_scrollView _horizontalScrollIndicatorColor] ? WebCore::colorFromCocoaColor([_scrollView _horizontalScrollIndicatorColor]).debugDescription() :  ""_s);
+#endif
         }
         return ts.release().createNSString().autorelease();
     }
@@ -433,7 +457,7 @@ static void dumpUIView(TextStream& ts, UIView *view)
     Function<bool()> handlerWrapper;
     if (handler)
         handlerWrapper = [handler = makeBlockPtr(handler)] { return handler(); };
-    _page->setDeviceOrientationUserPermissionHandlerForTesting(WTFMove(handlerWrapper));
+    _page->setDeviceOrientationUserPermissionHandlerForTesting(WTF::move(handlerWrapper));
 }
 
 - (void)_resetObscuredInsetsForTesting

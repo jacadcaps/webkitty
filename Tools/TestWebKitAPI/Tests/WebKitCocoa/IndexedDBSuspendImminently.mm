@@ -47,8 +47,7 @@ static void keepNetworkProcessActive()
     }];
 }
 
-// FIXME: Re-enable this test once webkit.org/b/290203 is resolved.
-TEST(IndexedDB, DISABLED_IndexedDBSuspendImminently)
+TEST(IndexedDB, IndexedDBSuspendImminently)
 {
     readyToContinue = false;
     [[WKWebsiteDataStore defaultDataStore] removeDataOfTypes:[WKWebsiteDataStore allWebsiteDataTypes] modifiedSince:[NSDate distantPast] completionHandler:^() {
@@ -64,11 +63,24 @@ TEST(IndexedDB, DISABLED_IndexedDBSuspendImminently)
     [webView loadRequest:request];
     EXPECT_WK_STREQ([handler waitForMessage].body, @"Continue");
 
+    readyToContinue = false;
+    __block bool suspended = false;
     [configuration.get().websiteDataStore _sendNetworkProcessWillSuspendImminently];
-    EXPECT_WK_STREQ([handler waitForMessage].body, @"Expected Abort For Suspension");
 
-    keepNetworkProcessActive();
+    // Ensure transaction is aborted before sending resume message.
+    while (!suspended) {
+        [configuration.get().websiteDataStore _isStorageSuspendedForTesting:^(BOOL isSuspended) {
+            suspended = isSuspended;
+            readyToContinue = true;
+        }];
+        TestWebKitAPI::Util::run(&readyToContinue);
+        readyToContinue = false;
+    }
+
     [configuration.get().websiteDataStore _sendNetworkProcessDidResume];
+    keepNetworkProcessActive();
+
+    EXPECT_WK_STREQ([handler waitForMessage].body, @"Expected Abort For Suspension");
     EXPECT_WK_STREQ([handler waitForMessage].body, @"Expected Success After Resume");
 }
 

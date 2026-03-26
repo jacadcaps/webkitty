@@ -532,3 +532,69 @@ TEST(WebKit, DefaultQuota)
     }
     EXPECT_FALSE(receivedQuotaDelegateCalled);
 }
+
+TEST(StorageQuota, OriginQuotaSharedByCacheStorageAndIndexedDB)
+{
+    RetainPtr uuid = adoptNS([[NSUUID alloc] initWithUUIDString:@"68753a44-4d6f-1226-9c60-0050e4c00067"]);
+    RetainPtr websiteDataStoreConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] initWithIdentifier:uuid.get()]);
+    [websiteDataStoreConfiguration.get() setVolumeCapacityOverride:[NSNumber numberWithInteger:2 * MB]];
+    auto ratioNumber = [NSNumber numberWithDouble:0.5];
+    // Origin quota is 1 MB.
+    [websiteDataStoreConfiguration.get() setOriginQuotaRatio:ratioNumber];
+    EXPECT_TRUE([[websiteDataStoreConfiguration.get() originQuotaRatio] isEqualToNumber:ratioNumber]);
+    RetainPtr websiteDataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:websiteDataStoreConfiguration.get()]);
+    done = false;
+    [websiteDataStore removeDataOfTypes:[WKWebsiteDataStore allWebsiteDataTypes] modifiedSince:[NSDate distantPast] completionHandler:^{
+        done = true;
+    }];
+    TestWebKitAPI::Util::run(&done);
+
+    RetainPtr messageHandler = adoptNS([[QuotaMessageHandler alloc] init]);
+    RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    [[configuration userContentController] addScriptMessageHandler:messageHandler.get() name:@"testHandler"];
+    [configuration setWebsiteDataStore:websiteDataStore.get()];
+    RetainPtr webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    NSString *cacheScriptString = @"<script> \
+        window.caches.open('test').then(cache => { \
+            return cache.put(new Request('/test'), new Response(new Uint8Array(512 * 1024))); \
+        }).then(async() => { \
+            window.webkit.messageHandlers.testHandler.postMessage('Continue'); \
+        }).catch(error => { \
+            window.webkit.messageHandlers.testHandler.postMessage(error.name); \
+        }); \
+    </script>";
+    NSString *indexedDBString = @"<script> \
+        var messageSent = false; \
+        function sendMessage(message) { \
+            if (messageSent) return; \
+            messageSent = true; \
+            window.webkit.messageHandlers.testHandler.postMessage(message); \
+        }; \
+        var request = indexedDB.open('testRatio'); \
+        request.onupgradeneeded = function(event) { \
+            db = event.target.result; \
+            os = db.createObjectStore('os'); \
+            const item = new Array(512 * 1024).join('x'); \
+            os.put(item, 'key').onerror = function(event) { sendMessage(event.target.error.name); }; \
+        }; \
+        request.onsuccess = function() { sendMessage('Unexpected success'); }; \
+        request.onerror = function(event) { sendMessage(event.target.error.name); }; \
+    </script>";
+    receivedMessage = false;
+    [messageHandler setExpectedMessage: @"Continue"];
+    [webView loadHTMLString:cacheScriptString baseURL:[NSURL URLWithString:@"https://webkit.org/"]];
+    Util::run(&receivedMessage);
+
+    receivedMessage = false;
+    [messageHandler setExpectedMessage: @"QuotaExceededError"];
+    [webView loadHTMLString:indexedDBString baseURL:[NSURL URLWithString:@"https://webkit.org/"]];
+    Util::run(&receivedMessage);
+
+    // Terminate network process to ensure storage usage is read from disk.
+    [websiteDataStore _terminateNetworkProcess];
+
+    receivedMessage = false;
+    [messageHandler setExpectedMessage: @"QuotaExceededError"];
+    [webView loadHTMLString:indexedDBString baseURL:[NSURL URLWithString:@"https://webkit.org/"]];
+    Util::run(&receivedMessage);
+}

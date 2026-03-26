@@ -77,7 +77,7 @@ Ref<NetworkDataTask> NetworkDataTask::create(NetworkSession& session, NetworkDat
     return dataTask;
 }
 
-NetworkDataTask::NetworkDataTask(NetworkSession& session, NetworkDataTaskClient& client, const ResourceRequest& requestWithCredentials, StoredCredentialsPolicy storedCredentialsPolicy, bool shouldClearReferrerOnHTTPSToHTTPRedirect, bool dataTaskIsForMainFrameNavigation)
+NetworkDataTask::NetworkDataTask(NetworkSession& session, NetworkDataTaskClient& client, const ResourceRequest& requestWithCredentials, StoredCredentialsPolicy storedCredentialsPolicy, bool shouldClearReferrerOnHTTPSToHTTPRedirect, bool dataTaskIsForMainFrameNavigation, bool isInitiatedByDedicatedWorker)
     : m_session(session)
     , m_client(client)
     , m_partition(requestWithCredentials.cachePartition())
@@ -86,6 +86,7 @@ NetworkDataTask::NetworkDataTask(NetworkSession& session, NetworkDataTaskClient&
     , m_firstRequest(requestWithCredentials)
     , m_shouldClearReferrerOnHTTPSToHTTPRedirect(shouldClearReferrerOnHTTPSToHTTPRedirect)
     , m_dataTaskIsForMainFrameNavigation(dataTaskIsForMainFrameNavigation)
+    , m_isInitiatedByDedicatedWorker(isInitiatedByDedicatedWorker)
 {
     ASSERT(RunLoop::isMain());
 
@@ -148,7 +149,7 @@ void NetworkDataTask::scheduleFailure(FailureType type)
 void NetworkDataTask::didReceiveInformationalResponse(ResourceResponse&& headers)
 {
     if (RefPtr client = m_client.get())
-        client->didReceiveInformationalResponse(WTFMove(headers));
+        client->didReceiveInformationalResponse(WTF::move(headers));
 }
 
 void NetworkDataTask::didReceiveResponse(ResourceResponse&& response, NegotiatedLegacyTLS negotiatedLegacyTLS, PrivateRelayed privateRelayed, std::optional<IPAddress> resolvedIPAddress, ResponseCompletionHandler&& completionHandler)
@@ -186,7 +187,7 @@ void NetworkDataTask::didReceiveResponse(ResourceResponse&& response, Negotiated
         response.setWasPrivateRelayed(WasPrivateRelayed::Yes);
 
     if (RefPtr client = m_client.get())
-        client->didReceiveResponse(WTFMove(response), negotiatedLegacyTLS, privateRelayed, WTFMove(completionHandler));
+        client->didReceiveResponse(WTF::move(response), negotiatedLegacyTLS, privateRelayed, WTF::move(completionHandler));
     else
         completionHandler(PolicyAction::Ignore);
 }

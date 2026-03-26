@@ -56,6 +56,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteLayerTreeContext);
 RemoteLayerTreeContext::RemoteLayerTreeContext(WebPage& webPage)
     : m_webPage(webPage)
     , m_backingStoreCollection(makeUniqueRefWithoutRefCountedCheck<RemoteLayerBackingStoreCollection>(*this))
+    , m_layerPool(makeUniqueRef<LayerPool>())
 {
 }
 
@@ -80,7 +81,7 @@ void RemoteLayerTreeContext::adoptLayersFromContext(RemoteLayerTreeContext& oldC
 
 float RemoteLayerTreeContext::deviceScaleFactor() const
 {
-    return m_webPage->deviceScaleFactor();
+    return protectedWebPage()->deviceScaleFactor();
 }
 
 std::optional<DrawingAreaIdentifier> RemoteLayerTreeContext::drawingAreaIdentifier() const
@@ -100,7 +101,7 @@ std::optional<WebCore::DestinationColorSpace> RemoteLayerTreeContext::displayCol
 
 UseLosslessCompression RemoteLayerTreeContext::useIOSurfaceLosslessCompression() const
 {
-    return m_webPage->isIOSurfaceLosslessCompressionEnabled() ? UseLosslessCompression::Yes : UseLosslessCompression::No;
+    return protectedWebPage()->isIOSurfaceLosslessCompressionEnabled() ? UseLosslessCompression::Yes : UseLosslessCompression::No;
 }
 
 #if PLATFORM(IOS_FAMILY)
@@ -117,7 +118,7 @@ void RemoteLayerTreeContext::layerDidEnterContext(PlatformCALayerRemote& layer, 
     RemoteLayerTreeTransaction::LayerCreationProperties creationProperties;
     layer.populateCreationProperties(creationProperties, *this, type);
 
-    m_createdLayers.add(layerID, WTFMove(creationProperties));
+    m_createdLayers.add(layerID, WTF::move(creationProperties));
     m_livePlatformLayers.add(layerID, &layer);
 }
 
@@ -142,7 +143,7 @@ void RemoteLayerTreeContext::layerDidEnterContext(PlatformCALayerRemote& layer, 
     protectedWebPage()->protectedVideoPresentationManager()->setupRemoteLayerHosting(videoElement);
     m_videoLayers.add(layerID, videoElement.identifier());
 
-    m_createdLayers.add(layerID, WTFMove(creationProperties));
+    m_createdLayers.add(layerID, WTF::move(creationProperties));
     m_livePlatformLayers.add(layerID, &layer);
 }
 #endif
@@ -153,6 +154,11 @@ WebPage& RemoteLayerTreeContext::webPage()
 }
 
 Ref<WebPage> RemoteLayerTreeContext::protectedWebPage()
+{
+    return m_webPage.get();
+}
+
+Ref<const WebPage> RemoteLayerTreeContext::protectedWebPage() const
 {
     return m_webPage.get();
 }
@@ -205,21 +211,18 @@ void RemoteLayerTreeContext::buildTransaction(RemoteLayerTreeTransaction& transa
     m_currentTransaction = &transaction;
     rootLayerRemote.recursiveBuildTransaction(*this, transaction);
     m_backingStoreCollection->prepareBackingStoresForDisplay(transaction);
-
-    bool paintedAnyBackingStore = m_backingStoreCollection->paintReachableBackingStoreContents();
-    if (paintedAnyBackingStore)
-        m_nextRenderingUpdateRequiresSynchronousImageDecoding = false;
+    m_backingStoreCollection->paintReachableBackingStoreContents();
 
     m_currentTransaction = nullptr;
 
     transaction.setCreatedLayers(moveToVector(std::exchange(m_createdLayers, { }).values()));
-    transaction.setDestroyedLayerIDs(WTFMove(m_destroyedLayers));
+    transaction.setDestroyedLayerIDs(WTF::move(m_destroyedLayers));
 }
 
 void RemoteLayerTreeContext::layerPropertyChangedWhileBuildingTransaction(PlatformCALayerRemote& layer)
 {
-    if (m_currentTransaction)
-        m_currentTransaction->layerPropertiesChanged(layer);
+    if (CheckedPtr currentTransaction = m_currentTransaction.get())
+        currentTransaction->layerPropertiesChanged(layer);
 }
 
 void RemoteLayerTreeContext::willStartAnimationOnLayer(PlatformCALayerRemote& layer)

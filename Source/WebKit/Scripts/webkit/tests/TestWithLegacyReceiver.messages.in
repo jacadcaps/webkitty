@@ -23,7 +23,11 @@
 #if ENABLE(WEBKIT2)
 #if NESTED_MASTER_CONDITION || MASTER_OR && MASTER_AND
 
-[ExceptionForEnabledBy]
+[
+    ExceptionForDispatchedFrom,
+    ExceptionForDispatchedTo,
+    ExceptionForEnabledBy
+]
 messages -> TestWithLegacyReceiver {
     LoadURL(String url)
 #if ENABLE(TOUCH_EVENTS)
@@ -55,6 +59,8 @@ messages -> TestWithLegacyReceiver {
     TemplateTest(HashMap<String, std::pair<String, uint64_t>> a)
 
     SetVideoLayerID(WebCore::PlatformLayerIdentifier videoLayerID)
+
+    OpaqueTypeSecurityAssertion(NotDispatchableFromWebContent ping) -> (NotDispatchableFromWebContent pong)
 
 #if PLATFORM(MAC)
     DidCreateWebProcessConnection(MachSendRight connectionIdentifier, OptionSet<WebKit::SelectionFlags> flags)

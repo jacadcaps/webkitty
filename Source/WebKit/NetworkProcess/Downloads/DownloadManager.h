@@ -33,6 +33,7 @@
 #include "UseDownloadPlaceholder.h"
 #include <WebCore/LocalFrameLoaderClient.h>
 #include <WebCore/NotImplemented.h>
+#include <wtf/AbstractCanMakeCheckedPtr.h>
 #include <wtf/AbstractRefCounted.h>
 #include <wtf/CheckedRef.h>
 #include <wtf/Forward.h>
@@ -71,15 +72,9 @@ class DownloadManager : public CanMakeCheckedPtr<DownloadManager> {
     WTF_DEPRECATED_MAKE_FAST_ALLOCATED(DownloadManager);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(DownloadManager);
 public:
-    class Client : public AbstractRefCounted {
+    class Client : public AbstractRefCounted, public AbstractCanMakeCheckedPtr {
     public:
         virtual ~Client() { }
-
-        // CheckedPtr interface
-        virtual uint32_t checkedPtrCount() const = 0;
-        virtual uint32_t checkedPtrCountWithoutThreadCheck() const = 0;
-        virtual void incrementCheckedPtrCount() const = 0;
-        virtual void decrementCheckedPtrCount() const = 0;
 
         virtual void didCreateDownload() = 0;
         virtual void didDestroyDownload() = 0;
@@ -96,7 +91,7 @@ public:
 
     void startDownload(PAL::SessionID, DownloadID, const WebCore::ResourceRequest&, const std::optional<WebCore::SecurityOriginData>& topOrigin, std::optional<NavigatingToAppBoundDomain>, const String& suggestedName = { }, WebCore::FromDownloadAttribute = WebCore::FromDownloadAttribute::No, std::optional<WebCore::FrameIdentifier> frameID = std::nullopt, std::optional<WebCore::PageIdentifier> = std::nullopt, std::optional<WebCore::ProcessIdentifier> = std::nullopt);
     void dataTaskBecameDownloadTask(DownloadID, Ref<Download>&&);
-    void convertNetworkLoadToDownload(DownloadID, Ref<NetworkLoad>&&, ResponseCompletionHandler&&,  Vector<RefPtr<WebCore::BlobDataFileReference>>&&, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&);
+    void convertNetworkLoadToDownload(DownloadID, Ref<NetworkLoad>&&, ResponseCompletionHandler&&,  Vector<Ref<WebCore::BlobDataFileReference>>&&, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&);
     void downloadDestinationDecided(DownloadID, Ref<NetworkDataTask>&&);
 
     void resumeDownload(PAL::SessionID, DownloadID, std::span<const uint8_t> resumeData, const String& path, SandboxExtension::Handle&&, CallDownloadDidStart, std::span<const uint8_t> activityAccessToken);

@@ -25,14 +25,15 @@
 
 #pragma once
 
-#if USE(COORDINATED_GRAPHICS) && USE(SKIA)
+#if USE(SKIA)
 #include "IntSize.h"
 #include "SkiaRecordingResult.h"
+#include <wtf/Assertions.h>
+#include <wtf/Function.h>
+
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 #include <skia/utils/SkNWayCanvas.h>
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
-#include <wtf/Assertions.h>
-#include <wtf/Function.h>
 
 class SkImage;
 
@@ -82,4 +83,4 @@ private:
 
 } // namespace WebCore
 
-#endif // USE(COORDINATED_GRAPHICS) && USE(SKIA)
+#endif // USE(SKIA)

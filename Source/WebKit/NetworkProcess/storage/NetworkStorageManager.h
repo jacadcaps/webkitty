@@ -30,6 +30,7 @@
 #include "FileSystemSyncAccessHandleInfo.h"
 #include "OriginStorageManager.h"
 #include "SharedPreferencesForWebProcess.h"
+#include "StorageAreaBase.h"
 #include "StorageAreaIdentifier.h"
 #include "StorageAreaImplIdentifier.h"
 #include "StorageAreaMapIdentifier.h"
@@ -62,6 +63,10 @@ class SharedFileHandle;
 namespace WebCore {
 namespace IDBServer {
 class UniqueIDBDatabaseTransaction;
+}
+
+namespace DOMCacheEngine {
+struct Record;
 }
 
 class IDBCursorInfo;
@@ -125,6 +130,7 @@ public:
     void moveData(OptionSet<WebsiteDataType>, WebCore::SecurityOriginData&& source, WebCore::SecurityOriginData&& target, CompletionHandler<void()>&&);
     void getOriginDirectory(WebCore::ClientOrigin&&, WebsiteDataType, CompletionHandler<void(const String&)>&&);
     void suspend(CompletionHandler<void()>&&);
+    bool isSuspended() const;
     void resume();
     void handleLowMemoryWarning();
     void syncLocalStorage(CompletionHandler<void()>&&);
@@ -150,12 +156,16 @@ public:
     const String& path() const { return m_pathNormalizedMainThread; }
     const String& customIDBStoragePath() const { return m_customIDBStoragePathNormalizedMainThread; }
 
+    void queryCacheStorage(WebCore::ClientOrigin&&, WebCore::RetrieveRecordsOptions&&, String&&, CompletionHandler<void(std::optional<WebCore::DOMCacheEngine::Record>&&)>&&);
+
 private:
     NetworkStorageManager(NetworkProcess&, PAL::SessionID, Markable<WTF::UUID>, std::optional<IPC::Connection::UniqueID>, const String& path, const String& customLocalStoragePath, const String& customIDBStoragePath, const String& customCacheStoragePath, const String& customServiceWorkerStoragePath, uint64_t defaultOriginQuota, std::optional<double> originQuotaRatio, std::optional<double> totalQuotaRatio, std::optional<uint64_t> standardVolumeCapacity, std::optional<uint64_t> volumeCapacityOverride, UnifiedOriginStorageLevel, bool storageSiteValidationEnabled);
     ~NetworkStorageManager();
 
     RefPtr<NetworkProcess> protectedProcess() const;
     std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess(IPC::Connection&) const;
+    bool isStorageTypeEnabled(IPC::Connection&, WebCore::StorageType) const;
+    bool isStorageAreaTypeEnabled(IPC::Connection&, StorageAreaBase::StorageType) const;
 
     void writeOriginToFileIfNecessary(const WebCore::ClientOrigin&, StorageAreaBase* = nullptr);
     enum class ShouldWriteOriginFile : bool { No, Yes };
@@ -173,7 +183,7 @@ private:
 
     // IPC::MessageReceiver (implemented by generated code)
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&);
-    bool didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>& replyEncoder);
+    void didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>& replyEncoder);
 
     // Message handlers for FileSystem.
     void persisted(const WebCore::ClientOrigin&, CompletionHandler<void(bool)>&&);
@@ -276,7 +286,7 @@ private:
     const SuspendableWorkQueue& workQueue() const WTF_RETURNS_CAPABILITY(m_queue.get()) { return m_queue; }
     SuspendableWorkQueue& workQueue() WTF_RETURNS_CAPABILITY(m_queue.get()) { return m_queue; }
     OriginQuotaManager::Parameters originQuotaManagerParameters(const WebCore::ClientOrigin&);
-    WebCore::IDBServer::UniqueIDBDatabaseTransaction* idbTransaction(const WebCore::IDBRequestData&);
+    RefPtr<WebCore::IDBServer::UniqueIDBDatabaseTransaction> idbTransaction(const WebCore::IDBRequestData&);
     void setStorageSiteValidationEnabledInternal(bool);
     void addAllowedSitesForConnectionInternal(IPC::Connection::UniqueID, const Vector<WebCore::RegistrableDomain>&);
     bool isSiteAllowedForConnection(IPC::Connection::UniqueID, const WebCore::RegistrableDomain&) const;

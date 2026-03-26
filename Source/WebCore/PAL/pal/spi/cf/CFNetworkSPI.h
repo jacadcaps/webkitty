@@ -25,6 +25,12 @@
 
 #pragma once
 
+#include <wtf/Compiler.h>
+#include <wtf/Platform.h>
+
+// FIXME: Remove when support for macOS 14 is no longer required.
+#if !__has_feature(modules) || !PLATFORM(MAC) || __MAC_OS_X_VERSION_MIN_REQUIRED >= 150000
+
 DECLARE_SYSTEM_HEADER
 
 #include <CFNetwork/CFNetwork.h>
@@ -66,6 +72,8 @@ DECLARE_SYSTEM_HEADER
 
 #if defined(__OBJC__)
 
+#include <Foundation/Foundation.h>
+
 @interface _NSHTTPConnectionInfo : NSObject
 - (void)sendPingWithReceiveHandler:(void (^)(NSError * _Nullable error, NSTimeInterval interval))pongHandler;
 @property (readonly) BOOL isValid;
@@ -77,18 +85,12 @@ DECLARE_SYSTEM_HEADER
 
 #endif // defined(__OBJC__)
 
-#if HAVE(LOGGING_PRIVACY_LEVEL)
 typedef enum {
     nw_context_privacy_level_public = 1,
     nw_context_privacy_level_private = 2,
     nw_context_privacy_level_sensitive = 3,
     nw_context_privacy_level_silent = 4,
 } nw_context_privacy_level_t;
-
-#ifndef NW_CONTEXT_HAS_PRIVACY_LEVEL_SILENT
-#define NW_CONTEXT_HAS_PRIVACY_LEVEL_SILENT    1
-#endif
-#endif // HAVE(LOGGING_PRIVACY_LEVEL)
 
 #if OS_OBJECT_USE_OBJC
 OS_OBJECT_DECL(nw_array);
@@ -276,7 +278,7 @@ typedef CF_ENUM(int, CFURLCredentialPersistence)
 @property (setter=_setBlockTrackers:) BOOL _blockTrackers;
 #endif
 @property (setter=_setAllowPrivateAccessTokensForThirdParty:) BOOL _allowPrivateAccessTokensForThirdParty;
-#if HAVE(ALLOW_ONLY_PARTITIONED_COOKIES)
+#if ENABLE(OPT_IN_PARTITIONED_COOKIES) && defined(CFN_COOKIE_ACCEPTS_POLICY_PARTITION) && CFN_COOKIE_ACCEPTS_POLICY_PARTITION
 @property (setter=_setAllowOnlyPartitionedCookies:) BOOL _allowOnlyPartitionedCookies;
 #endif
 @end
@@ -350,12 +352,7 @@ typedef NS_ENUM(NSInteger, NSURLSessionCompanionProxyPreference) {
 #if HAVE(APP_SSO)
 @property BOOL _preventsAppSSO;
 #endif
-#if HAVE(ALLOWS_SENSITIVE_LOGGING)
-@property BOOL _allowsSensitiveLogging;
-#endif
-#if HAVE(LOGGING_PRIVACY_LEVEL)
 @property nw_context_privacy_level_t _loggingPrivacyLevel;
-#endif
 #if HAVE(ALTERNATIVE_SERVICE)
 @property (nullable, retain) _NSHTTPAlternativeServicesStorage *_alternativeServicesStorage;
 @property (readwrite, assign) BOOL _allowsHTTP3;
@@ -364,11 +361,9 @@ typedef NS_ENUM(NSInteger, NSURLSessionCompanionProxyPreference) {
 #if HAVE(NETWORK_LOADER)
 @property BOOL _usesNWLoader;
 #endif
-#if HAVE(CFNETWORK_NSURLSESSION_CONNECTION_CACHE_LIMITS)
 @property (readwrite, assign) NSInteger _connectionCacheNumPriorityLevels;
 @property (readwrite, assign) NSInteger _connectionCacheNumFastLanes;
 @property (readwrite, assign) NSInteger _connectionCacheMinimumFastLanePriority;
-#endif
 @property (nullable, copy) NSString *_attributedBundleIdentifier;
 @end
 
@@ -623,3 +618,5 @@ WTF_EXTERN_C_END
 @end
 
 #endif // defined(__OBJC__)
+
+#endif // !__has_feature(modules) || !PLATFORM(MAC) || __MAC_OS_X_VERSION_MIN_REQUIRED >= 150000

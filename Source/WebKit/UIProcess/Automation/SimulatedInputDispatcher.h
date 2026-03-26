@@ -31,6 +31,7 @@
 #include <WebCore/IntPoint.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/ListHashSet.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/RunLoop.h>
 #include <wtf/Seconds.h>
 #include <wtf/Vector.h>
@@ -128,7 +129,7 @@ public:
     Vector<StateEntry> states;
 };
 
-class SimulatedInputDispatcher : public RefCounted<SimulatedInputDispatcher> {
+class SimulatedInputDispatcher : public RefCountedAndCanMakeWeakPtr<SimulatedInputDispatcher> {
     WTF_MAKE_NONCOPYABLE(SimulatedInputDispatcher);
 public:
     class Client {
@@ -136,6 +137,7 @@ public:
         virtual ~Client() { }
 #if ENABLE(WEBDRIVER_MOUSE_INTERACTIONS)
         virtual void simulateMouseInteraction(WebPageProxy&, MouseInteraction, MouseButton, const WebCore::IntPoint& locationInView, const String& pointerType, AutomationCompletionHandler&&) = 0;
+        virtual void clearDoubleClicks() = 0;
 #endif
 #if ENABLE(WEBDRIVER_TOUCH_INTERACTIONS)
         virtual void simulateTouchInteraction(WebPageProxy&, TouchInteraction, const WebCore::IntPoint& locationInView, std::optional<Seconds> duration, AutomationCompletionHandler&&) = 0;

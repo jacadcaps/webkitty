@@ -10,6 +10,10 @@
 #ifndef LIBANGLE_RENDERER_VULKAN_ALLOCATORHELPERPOOL_H_
 #define LIBANGLE_RENDERER_VULKAN_ALLOCATORHELPERPOOL_H_
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include "common/PoolAlloc.h"
 #include "common/vulkan/vk_headers.h"
 #include "libANGLE/renderer/vulkan/vk_command_buffer_utils.h"
@@ -38,7 +42,7 @@ class DedicatedCommandBlockAllocator
   private:
     // Using a pool allocator per CBH to avoid threading issues that occur w/ shared allocator
     // between multiple CBHs.
-    DedicatedCommandMemoryAllocator mAllocator{1};
+    DedicatedCommandMemoryAllocator mAllocator;
 };
 
 // Used in SecondaryCommandBuffer
@@ -56,8 +60,8 @@ class DedicatedCommandBlockPool final
     using CommandHeaderIDType                  = uint16_t;
     // Make sure the size of command header ID type is less than total command header size.
     static_assert(sizeof(CommandHeaderIDType) < kCommandHeaderSize, "Check size of CommandHeader");
-    // Pool Alloc uses 16kB pages w/ 16byte header = 16368bytes. To minimize waste
-    //  using a 16368/12 = 1364. Also better perf than 1024 due to fewer block allocations
+    // PoolAllocator uses 32768 byte pools. To minimize waste using a 32768/24 = 1365.
+    // Also better perf than 1024 due to fewer block allocations.
     static constexpr size_t kBlockSize = 1360;
     // Make sure block size is 8-byte aligned to avoid ASAN errors.
     static_assert((kBlockSize % 8) == 0, "Check kBlockSize alignment");

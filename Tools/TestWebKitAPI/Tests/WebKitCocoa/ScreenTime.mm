@@ -27,6 +27,7 @@
 
 #if ENABLE(SCREEN_TIME)
 
+#import "AppKitSPI.h"
 #import "HTTPServer.h"
 #import "InstanceMethodSwizzler.h"
 #import "PlatformUtilities.h"
@@ -34,6 +35,7 @@
 #import "TestNavigationDelegate.h"
 #import "TestWKWebView.h"
 #import "Utilities.h"
+#import <ScreenTime/STScreenTimeConfiguration.h>
 #import <ScreenTime/STWebHistory.h>
 #import <ScreenTime/STWebpageController.h>
 #import <WebKit/WKPreferencesPrivate.h>
@@ -66,13 +68,22 @@ static RetainPtr<TestWKWebView> webViewForScreenTimeTests(WKWebViewConfiguration
     return adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 400, 300) configuration:configuration addToWindow:addToWindow]);
 }
 
+static std::unique_ptr<InstanceMethodSwizzler> swizzleEnforcesChildRestrictions(bool& done, bool enforces = YES)
+{
+    return WTF::makeUnique<InstanceMethodSwizzler>(PAL::getSTScreenTimeConfigurationClassSingleton(), @selector(enforcesChildRestrictions), imp_implementationWithBlock(^BOOL {
+        done = true;
+        return enforces;
+    }));
+}
+
 static void testSuppressUsageRecordingWithDataStore(RetainPtr<WKWebsiteDataStore>&& websiteDataStore, bool suppressUsageRecordingExpectation)
 {
     __block bool done = false;
     __block bool suppressUsageRecording = false;
+    __block bool childRestrictionsDone = false;
 
     InstanceMethodSwizzler swizzler {
-        PAL::getSTWebpageControllerClass(),
+        PAL::getSTWebpageControllerClassSingleton(),
         @selector(setSuppressUsageRecording:),
         imp_implementationWithBlock(^(id object, bool value) {
             suppressUsageRecording = value;
@@ -84,8 +95,11 @@ static void testSuppressUsageRecordingWithDataStore(RetainPtr<WKWebsiteDataStore
     [configuration setWebsiteDataStore:websiteDataStore.get()];
 
     RetainPtr webView = webViewForScreenTimeTests(configuration.get());
+
     RetainPtr request = [NSURLRequest requestWithURL:[NSURL URLWithString:@"http://webkit.org"]];
+    auto swizzle = swizzleEnforcesChildRestrictions(childRestrictionsDone);
     [webView synchronouslyLoadSimulatedRequest:request.get() responseHTMLString:@""];
+    TestWebKitAPI::Util::run(&childRestrictionsDone);
 
     TestWebKitAPI::Util::run(&done);
 
@@ -94,6 +108,10 @@ static void testSuppressUsageRecordingWithDataStore(RetainPtr<WKWebsiteDataStore
 
 @interface STWebpageController ()
 @property (setter=setURLIsBlocked:) BOOL URLIsBlocked;
+@end
+
+@interface STWebHistory ()
+@property (readonly, copy) STWebHistoryProfileIdentifier profileIdentifier;
 @end
 
 @interface WKWebView (Internal)
@@ -169,13 +187,17 @@ static BOOL systemScreenTimeBlockingViewIsPresent(TestWKWebView *webView)
 
 static RetainPtr<TestWKWebView> testShowsSystemScreenTimeBlockingView(bool showsSystemScreenTimeBlockingView)
 {
+    __block bool childRestrictionsDone = false;
+
     RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     [configuration setShowsSystemScreenTimeBlockingView:showsSystemScreenTimeBlockingView];
 
     RetainPtr webView = webViewForScreenTimeTests(configuration.get());
 
     RetainPtr request = [NSURLRequest requestWithURL:[NSURL URLWithString:@"http://webkit.org"]];
+    auto swizzle = swizzleEnforcesChildRestrictions(childRestrictionsDone);
     [webView synchronouslyLoadSimulatedRequest:request.get() responseHTMLString:@""];
+    TestWebKitAPI::Util::run(&childRestrictionsDone);
 
     [webView waitForNextPresentationUpdate];
 
@@ -196,12 +218,15 @@ static RetainPtr<TestWKWebView> testShowsSystemScreenTimeBlockingView(bool shows
 #if PLATFORM(MAC)
 static void testWebContentIsNotClickableShowingSystemScreenTimeBlockingView(bool showsSystemScreenTimeBlockingView)
 {
+    __block bool childRestrictionsDone = false;
+
     RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     [configuration setShowsSystemScreenTimeBlockingView:showsSystemScreenTimeBlockingView];
 
     RetainPtr webView = webViewForScreenTimeTests(configuration.get());
     RetainPtr observer = adoptNS([[BlockedStateObserver alloc] initWithWebView:webView.get()]);
 
+    auto swizzle = swizzleEnforcesChildRestrictions(childRestrictionsDone);
     [webView synchronouslyLoadHTMLString:
     @"<!DOCTYPE html>"
     "<html>"
@@ -218,6 +243,7 @@ static void testWebContentIsNotClickableShowingSystemScreenTimeBlockingView(bool
     "</body>"
     "</html>"
     ")" baseURL:[NSURL URLWithString:@"http://webkit.org"]];
+    TestWebKitAPI::Util::run(&childRestrictionsDone);
 
     [webView waitForNextPresentationUpdate];
 
@@ -242,9 +268,14 @@ static void testWebContentIsNotClickableShowingSystemScreenTimeBlockingView(bool
 
 TEST(ScreenTime, IsBlockedByScreenTimeTrue)
 {
+    __block bool childRestrictionsDone = false;
+
     RetainPtr webView = webViewForScreenTimeTests();
+
+    auto swizzle = swizzleEnforcesChildRestrictions(childRestrictionsDone);
     RetainPtr request = [NSURLRequest requestWithURL:[NSURL URLWithString:@"http://webkit.org"]];
     [webView synchronouslyLoadSimulatedRequest:request.get() responseHTMLString:@""];
+    TestWebKitAPI::Util::run(&childRestrictionsDone);
 
     [webView waitForNextPresentationUpdate];
 
@@ -256,9 +287,14 @@ TEST(ScreenTime, IsBlockedByScreenTimeTrue)
 
 TEST(ScreenTime, IsBlockedByScreenTimeFalse)
 {
+    __block bool childRestrictionsDone = false;
+
     RetainPtr webView = webViewForScreenTimeTests();
+
     RetainPtr request = [NSURLRequest requestWithURL:[NSURL URLWithString:@"http://webkit.org"]];
+    auto swizzle = swizzleEnforcesChildRestrictions(childRestrictionsDone);
     [webView synchronouslyLoadSimulatedRequest:request.get() responseHTMLString:@""];
+    TestWebKitAPI::Util::run(&childRestrictionsDone);
 
     [webView waitForNextPresentationUpdate];
 
@@ -270,9 +306,14 @@ TEST(ScreenTime, IsBlockedByScreenTimeFalse)
 
 TEST(ScreenTime, IsBlockedByScreenTimeMultiple)
 {
+    __block bool childRestrictionsDone = false;
+
     RetainPtr webView = webViewForScreenTimeTests();
+
     RetainPtr request = [NSURLRequest requestWithURL:[NSURL URLWithString:@"http://webkit.org"]];
+    auto swizzle = swizzleEnforcesChildRestrictions(childRestrictionsDone);
     [webView synchronouslyLoadSimulatedRequest:request.get() responseHTMLString:@""];
+    TestWebKitAPI::Util::run(&childRestrictionsDone);
 
     RetainPtr controller = [webView _screenTimeWebpageController];
     [controller setURLIsBlocked:YES];
@@ -285,11 +326,15 @@ TEST(ScreenTime, IsBlockedByScreenTimeMultiple)
 
 TEST(ScreenTime, IsBlockedByScreenTimeKVO)
 {
+    __block bool childRestrictionsDone = false;
+
     RetainPtr webView = webViewForScreenTimeTests();
     auto observer = adoptNS([[BlockedStateObserver alloc] initWithWebView:webView.get()]);
 
     RetainPtr request = [NSURLRequest requestWithURL:[NSURL URLWithString:@"http://webkit.org"]];
+    auto swizzle = swizzleEnforcesChildRestrictions(childRestrictionsDone);
     [webView synchronouslyLoadSimulatedRequest:request.get() responseHTMLString:@""];
+    TestWebKitAPI::Util::run(&childRestrictionsDone);
 
     [webView waitForNextPresentationUpdate];
 
@@ -321,9 +366,10 @@ TEST(ScreenTime, IdentifierNil)
 {
     __block bool done = false;
     __block NSString *identifier = @"testing123";
+    __block bool childRestrictionsDone = false;
 
     InstanceMethodSwizzler swizzler {
-        PAL::getSTWebpageControllerClass(),
+        PAL::getSTWebpageControllerClassSingleton(),
         @selector(setProfileIdentifier:),
         imp_implementationWithBlock(^(id object, NSString *profileIdentifier) {
             identifier = profileIdentifier;
@@ -332,8 +378,11 @@ TEST(ScreenTime, IdentifierNil)
     };
 
     RetainPtr webView = webViewForScreenTimeTests();
+
     RetainPtr request = [NSURLRequest requestWithURL:[NSURL URLWithString:@"http://webkit.org"]];
+    auto swizzle = swizzleEnforcesChildRestrictions(childRestrictionsDone);
     [webView synchronouslyLoadSimulatedRequest:request.get() responseHTMLString:@""];
+    TestWebKitAPI::Util::run(&childRestrictionsDone);
 
     TestWebKitAPI::Util::run(&done);
 
@@ -344,9 +393,10 @@ TEST(ScreenTime, IdentifierString)
 {
     __block bool done = false;
     __block RetainPtr identifier = @"";
+    __block bool childRestrictionsDone = false;
 
     InstanceMethodSwizzler swizzler {
-        PAL::getSTWebpageControllerClass(),
+        PAL::getSTWebpageControllerClassSingleton(),
         @selector(setProfileIdentifier:),
         imp_implementationWithBlock(^(id object, NSString *profileIdentifier) {
             identifier = profileIdentifier;
@@ -361,14 +411,51 @@ TEST(ScreenTime, IdentifierString)
     [configuration setWebsiteDataStore:websiteDataStore.get()];
 
     RetainPtr webView = webViewForScreenTimeTests(configuration.get());
+
     RetainPtr request = [NSURLRequest requestWithURL:[NSURL URLWithString:@"http://webkit.org"]];
+    auto swizzle = swizzleEnforcesChildRestrictions(childRestrictionsDone);
     [webView synchronouslyLoadSimulatedRequest:request.get() responseHTMLString:@""];
+    TestWebKitAPI::Util::run(&childRestrictionsDone);
 
     TestWebKitAPI::Util::run(&done);
 
-    RetainPtr uuidString = [uuid UUIDString];
+    EXPECT_WK_STREQ(identifier.get(), [uuid UUIDString]);
+}
 
-    EXPECT_WK_STREQ(identifier.get(), uuidString.get());
+TEST(ScreenTime, IdentifierStringWithRemoveData)
+{
+    __block bool done = false;
+    __block RetainPtr identifier = @"";
+    __block bool childRestrictionsDone = false;
+
+    RetainPtr dataTypeScreenTime = adoptNS([[NSSet alloc] initWithArray:@[ WKWebsiteDataTypeScreenTime ]]);
+
+    InstanceMethodSwizzler swizzler {
+        PAL::getSTWebHistoryClassSingleton(),
+        @selector(deleteHistoryDuringInterval:),
+        imp_implementationWithBlock(^(STWebHistory *object, NSDateInterval *) {
+            identifier = object.profileIdentifier;
+        })
+    };
+
+    RetainPtr uuid = [NSUUID UUID];
+    RetainPtr websiteDataStore = [WKWebsiteDataStore dataStoreForIdentifier:uuid.get()];
+    RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    [configuration setWebsiteDataStore:websiteDataStore.get()];
+    RetainPtr webView = webViewForScreenTimeTests(configuration.get());
+
+    RetainPtr request = [NSURLRequest requestWithURL:[NSURL URLWithString:@"http://icloud.com"]];
+    auto swizzle = swizzleEnforcesChildRestrictions(childRestrictionsDone);
+    [webView synchronouslyLoadSimulatedRequest:request.get() responseHTMLString:@""];
+    TestWebKitAPI::Util::run(&childRestrictionsDone);
+
+    [websiteDataStore removeDataOfTypes:dataTypeScreenTime.get() modifiedSince:[NSDate distantPast] completionHandler:^() {
+        done = true;
+    }];
+
+    TestWebKitAPI::Util::run(&done);
+
+    EXPECT_WK_STREQ(identifier.get(), [uuid UUIDString]);
 }
 
 TEST(ScreenTime, PersistentSession)
@@ -405,7 +492,7 @@ TEST(ScreenTime, WKWebViewFillsStackView)
 {
     CGRect windowRect = CGRectMake(0, 0, 800, 600);
 
-    RetainPtr webView = webViewForScreenTimeTests(nil, NO);
+    RetainPtr webView = webViewForScreenTimeTests(nil);
     [webView setTranslatesAutoresizingMaskIntoConstraints:NO];
 
     RetainPtr request = [NSURLRequest requestWithURL:[NSURL URLWithString:@"http://webkit.org"]];
@@ -445,6 +532,8 @@ TEST(ScreenTime, WKWebViewFillsStackView)
 
 TEST(ScreenTime, URLIsPlayingVideo)
 {
+    __block bool childRestrictionsDone = false;
+
     RetainPtr webView = webViewForScreenTimeTests();
 
     RetainPtr contentHTML = @"<!DOCTYPE html><html><head></head><body><video src=\"video-with-audio.mp4\" webkit-playsinline></video></body></html>";
@@ -454,7 +543,9 @@ TEST(ScreenTime, URLIsPlayingVideo)
         { "/video-with-audio.mp4"_s, [NSData dataWithContentsOfURL:[NSBundle.test_resourcesBundle URLForResource:@"video-with-audio" withExtension:@"mp4"]] },
     }, TestWebKitAPI::HTTPServer::Protocol::Http);
 
+    auto swizzle = swizzleEnforcesChildRestrictions(childRestrictionsDone);
     [webView synchronouslyLoadRequest:server.requestWithLocalhost()];
+    TestWebKitAPI::Util::run(&childRestrictionsDone);
 
     [webView objectByEvaluatingJavaScript:@"function eventToMessage(event){window.webkit.messageHandlers.testHandler.postMessage(event.type);} var video = document.querySelector('video'); video.addEventListener('playing', eventToMessage); video.addEventListener('pause', eventToMessage);"];
 
@@ -496,6 +587,8 @@ TEST(ScreenTime, URLIsPlayingVideo)
 
 TEST(ScreenTime, URLIsPictureInPicture)
 {
+    __block bool childRestrictionsDone = false;
+
     RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     [configuration preferences]._allowsPictureInPictureMediaPlayback = YES;
 
@@ -516,13 +609,16 @@ TEST(ScreenTime, URLIsPictureInPicture)
     RetainPtr contentHTML = [NSString stringWithContentsOfFile:[NSBundle.test_resourcesBundle pathForResource:@"PictureInPictureDelegate" ofType:@"html"] encoding:NSUTF8StringEncoding error:NULL];
     TestWebKitAPI::HTTPServer server({
         { "/"_s, { contentHTML.get() } },
+        { "/favicon.ico"_s, { "Actual response is immaterial."_s } },
         { "/test.mp4"_s, [NSData dataWithContentsOfURL:[NSBundle.test_resourcesBundle URLForResource:@"test" withExtension:@"mp4"]] },
     }, TestWebKitAPI::HTTPServer::Protocol::Http);
 
     receivedLoadMessage = false;
 
+    auto swizzle = swizzleEnforcesChildRestrictions(childRestrictionsDone);
     [webView loadRequest:server.requestWithLocalhost()];
     TestWebKitAPI::Util::run(&receivedLoadMessage);
+    TestWebKitAPI::Util::run(&childRestrictionsDone);
 
     hasVideoInPictureInPictureValue = false;
     hasVideoInPictureInPictureCalled = false;
@@ -566,9 +662,11 @@ TEST(ScreenTime, WebContentIsNotClickableBehindBlurredBlockingView)
 
 TEST(ScreenTime, FetchData)
 {
+    __block bool childRestrictionsDone = false;
+
     __block RetainPtr<NSSet<NSURL *>> urls;
     InstanceMethodSwizzler swizzler {
-        PAL::getSTWebHistoryClass(),
+        PAL::getSTWebHistoryClassSingleton(),
         @selector(fetchAllHistoryWithCompletionHandler:),
         imp_implementationWithBlock(^(id object, void (^completionHandler)(NSSet<NSURL *> *urls, NSError *error)) {
             urls = [NSSet setWithArray:@[ adoptNS([[NSURL alloc] initWithString:@"https://www.webkit.org/"]).get() ]];
@@ -584,8 +682,11 @@ TEST(ScreenTime, FetchData)
     [configuration setWebsiteDataStore:websiteDataStore.get()];
 
     RetainPtr webView = webViewForScreenTimeTests(configuration.get());
+
     RetainPtr request = [NSURLRequest requestWithURL:[NSURL URLWithString:@"http://webkit.org"]];
+    auto swizzle = swizzleEnforcesChildRestrictions(childRestrictionsDone);
     [webView synchronouslyLoadSimulatedRequest:request.get() responseHTMLString:@""];
+    TestWebKitAPI::Util::run(&childRestrictionsDone);
 
     __block bool done = false;
     [websiteDataStore fetchDataRecordsOfTypes:dataTypeScreenTime.get() completionHandler:^(NSArray<WKWebsiteDataRecord *> *dataRecords) {
@@ -598,9 +699,11 @@ TEST(ScreenTime, FetchData)
 
 TEST(ScreenTime, RemoveDataWithTimeInterval)
 {
+    __block bool childRestrictionsDone = false;
+
     __block bool removedHistory = false;
     InstanceMethodSwizzler swizzler {
-        PAL::getSTWebHistoryClass(),
+        PAL::getSTWebHistoryClassSingleton(),
         @selector(deleteHistoryDuringInterval:),
         imp_implementationWithBlock(^(id object, NSDateInterval *interval) {
             removedHistory = true;
@@ -616,8 +719,11 @@ TEST(ScreenTime, RemoveDataWithTimeInterval)
     [configuration setWebsiteDataStore:websiteDataStore.get()];
 
     RetainPtr webView = webViewForScreenTimeTests(configuration.get());
+
     RetainPtr request = [NSURLRequest requestWithURL:[NSURL URLWithString:@"http://webkit.org"]];
+    auto swizzle = swizzleEnforcesChildRestrictions(childRestrictionsDone);
     [webView synchronouslyLoadSimulatedRequest:request.get() responseHTMLString:@""];
+    TestWebKitAPI::Util::run(&childRestrictionsDone);
 
     __block bool done = false;
     [websiteDataStore removeDataOfTypes:dataTypeScreenTime.get() modifiedSince:[NSDate distantPast] completionHandler:^() {
@@ -631,6 +737,8 @@ TEST(ScreenTime, RemoveDataWithTimeInterval)
 
 TEST(ScreenTime, RemoveData)
 {
+    __block bool childRestrictionsDone = false;
+
     __block RetainPtr<NSSet<NSURL *>> fetchedURLs = adoptNS([[NSSet alloc] initWithArray:@[
         adoptNS([[NSURL alloc] initWithString:@"https://www.github.com/WebKit/WebKit"]).get(),
         adoptNS([[NSURL alloc] initWithString:@"https://www.github.com/APPLE"]).get(),
@@ -639,7 +747,7 @@ TEST(ScreenTime, RemoveData)
     ]]);
 
     InstanceMethodSwizzler fetchHistorySwizzler {
-        PAL::getSTWebHistoryClass(),
+        PAL::getSTWebHistoryClassSingleton(),
         @selector(fetchAllHistoryWithCompletionHandler:),
         imp_implementationWithBlock(^(id object, void (^completionHandler)(NSSet<NSURL *> *urls, NSError *error)) {
             completionHandler(fetchedURLs.get(), nil);
@@ -648,7 +756,7 @@ TEST(ScreenTime, RemoveData)
 
     __block RetainPtr<NSMutableSet<NSURL *>> deletedURLs = adoptNS([[NSMutableSet alloc] init]);
     InstanceMethodSwizzler deleteHistorySwizzler {
-        PAL::getSTWebHistoryClass(),
+        PAL::getSTWebHistoryClassSingleton(),
         @selector(deleteHistoryForURL:),
         imp_implementationWithBlock(^(id object, NSURL *url) {
             [deletedURLs addObject:url];
@@ -663,8 +771,11 @@ TEST(ScreenTime, RemoveData)
     [configuration setWebsiteDataStore:websiteDataStore.get()];
 
     RetainPtr webView = webViewForScreenTimeTests(configuration.get());
+
     RetainPtr request = [NSURLRequest requestWithURL:[NSURL URLWithString:@"https://www.github.com/WebKit/WebKit"]];
+    auto swizzle = swizzleEnforcesChildRestrictions(childRestrictionsDone);
     [webView synchronouslyLoadSimulatedRequest:request.get() responseHTMLString:@""];
+    TestWebKitAPI::Util::run(&childRestrictionsDone);
 
     __block bool done = false;
     [websiteDataStore fetchDataRecordsOfTypes:dataTypeScreenTime.get() completionHandler:^(NSArray<WKWebsiteDataRecord *> *dataRecords) {
@@ -683,9 +794,14 @@ TEST(ScreenTime, RemoveData)
 
 TEST(ScreenTime, OffscreenSystemScreenTimeBlockingView)
 {
+    __block bool childRestrictionsDone = false;
+
     RetainPtr webView = webViewForScreenTimeTests();
     RetainPtr request = [NSURLRequest requestWithURL:[NSURL URLWithString:@"http://webkit.org"]];
+
+    auto swizzle = swizzleEnforcesChildRestrictions(childRestrictionsDone);
     [webView synchronouslyLoadSimulatedRequest:request.get() responseHTMLString:@""];
+    TestWebKitAPI::Util::run(&childRestrictionsDone);
 
     [webView waitForNextPresentationUpdate];
 
@@ -704,12 +820,16 @@ TEST(ScreenTime, OffscreenSystemScreenTimeBlockingView)
 
 TEST(ScreenTime, OffscreenBlurredScreenTimeBlockingView)
 {
+    __block bool childRestrictionsDone = false;
+
     RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     [configuration setShowsSystemScreenTimeBlockingView:NO];
 
     RetainPtr webView = webViewForScreenTimeTests(configuration.get());
     RetainPtr request = [NSURLRequest requestWithURL:[NSURL URLWithString:@"http://webkit.org"]];
+    auto swizzle = swizzleEnforcesChildRestrictions(childRestrictionsDone);
     [webView synchronouslyLoadSimulatedRequest:request.get() responseHTMLString:@""];
+    TestWebKitAPI::Util::run(&childRestrictionsDone);
 
     [webView waitForNextPresentationUpdate];
 
@@ -736,13 +856,16 @@ TEST(ScreenTime, OffscreenBlurredScreenTimeBlockingView)
 }
 
 #if PLATFORM(MAC)
+
 TEST(ScreenTime, DoNotDonateURLsInOccludedWebView)
 {
+    // FIXME: This test will fail if running on a full screen terminal window. It passes otherwise.
     __block bool suppressUsageRecording = false;
     __block bool done = false;
+    __block bool childRestrictionsDone = false;
 
     InstanceMethodSwizzler swizzler {
-        PAL::getSTWebpageControllerClass(),
+        PAL::getSTWebpageControllerClassSingleton(),
         @selector(setSuppressUsageRecording:),
         imp_implementationWithBlock(^(id object, bool value) {
             suppressUsageRecording = value;
@@ -752,7 +875,9 @@ TEST(ScreenTime, DoNotDonateURLsInOccludedWebView)
 
     RetainPtr webView = webViewForScreenTimeTests();
     RetainPtr request = [NSURLRequest requestWithURL:[NSURL URLWithString:@"http://webkit.org"]];
+    auto swizzle = swizzleEnforcesChildRestrictions(childRestrictionsDone);
     [webView synchronouslyLoadSimulatedRequest:request.get() responseHTMLString:@""];
+    TestWebKitAPI::Util::run(&childRestrictionsDone);
 
     [webView waitForNextPresentationUpdate];
 
@@ -783,14 +908,78 @@ TEST(ScreenTime, DoNotDonateURLsInOccludedWebView)
 
     EXPECT_FALSE(suppressUsageRecording);
 }
+
+TEST(ScreenTime, FullscreenWithSystemBlockingViewInHierarchy)
+{
+    RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    [configuration preferences].elementFullscreenEnabled = YES;
+
+    RetainPtr webView = webViewForScreenTimeTests(configuration.get());
+
+    __block bool childRestrictionsDone = false;
+    auto swizzle = swizzleEnforcesChildRestrictions(childRestrictionsDone);
+    RetainPtr request = [NSURLRequest requestWithURL:[NSURL URLWithString:@"http://webkit.org"]];
+    [webView synchronouslyLoadSimulatedRequest:request.get() responseHTMLString:@"<div id=\"target\" style=\"width:150px;height:150px;background-color:red\"></div>"];
+    TestWebKitAPI::Util::run(&childRestrictionsDone);
+
+    [webView waitForNextPresentationUpdate];
+
+    EXPECT_TRUE(systemScreenTimeBlockingViewIsPresent(webView.get()));
+
+    RetainPtr controller = [webView _screenTimeWebpageController];
+    Class remoteViewClass = NSClassFromString(@"NSRemoteView");
+
+    TestWebKitAPI::Util::waitFor([&] {
+        return [[[controller view] subviews] indexOfObjectPassingTest:^BOOL(NSView *subview, NSUInteger, BOOL *) {
+            return [subview isKindOfClass:remoteViewClass];
+        }] != NSNotFound;
+    });
+
+    if ([webView _wantsConstraintBasedLayout]) {
+        [webView setTranslatesAutoresizingMaskIntoConstraints:NO];
+
+        RetainPtr superview = [webView superview];
+        [NSLayoutConstraint activateConstraints:@[
+            [[webView topAnchor] constraintEqualToAnchor:[superview topAnchor]],
+            [[webView leadingAnchor] constraintEqualToAnchor:[superview leadingAnchor]],
+            [[webView bottomAnchor] constraintEqualToAnchor:[superview bottomAnchor]],
+            [[webView trailingAnchor] constraintEqualToAnchor:[superview trailingAnchor]]
+        ]];
+    }
+
+    [webView objectByEvaluatingJavaScript:@"document.querySelector('#target').addEventListener('fullscreenchange', event => { window.webkit.messageHandlers.testHandler.postMessage('fullscreenchange'); });"];
+
+    bool receivedFullscreenChangeMessage = false;
+    [webView performAfterReceivingMessage:@"fullscreenchange" action:[&] {
+        receivedFullscreenChangeMessage = true;
+    }];
+
+    RetainPtr originalWindow = [webView window];
+
+    [webView objectByEvaluatingJavaScriptWithUserGesture:@"document.querySelector('#target').webkitRequestFullscreen()"];
+
+    TestWebKitAPI::Util::run(&receivedFullscreenChangeMessage);
+    receivedFullscreenChangeMessage = false;
+
+    TestWebKitAPI::Util::waitFor([&] {
+        RetainPtr window = [webView window];
+        return [window isVisible] && (window != originalWindow);
+    });
+
+    NSSize fullscreenWindowSize = [[webView window] frame].size;
+    EXPECT_EQ([webView frame], NSMakeRect(0, 0, fullscreenWindowSize.width, fullscreenWindowSize.height));
+}
+
 #endif
 
 TEST(ScreenTime, CreateControllerAfterOffscreenWebViewBecomesInWindow)
 {
+    __block bool childRestrictionsDone = false;
     RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
 
     RetainPtr webView = webViewForScreenTimeTests(configuration.get(), NO);
 
+    auto swizzle = swizzleEnforcesChildRestrictions(childRestrictionsDone);
     [webView synchronouslyLoadHTMLString: @"" baseURL:[NSURL URLWithString:@"http://webkit.org"]];
 
     [webView waitForNextPresentationUpdate];
@@ -798,12 +987,17 @@ TEST(ScreenTime, CreateControllerAfterOffscreenWebViewBecomesInWindow)
     EXPECT_FALSE(!![webView _screenTimeWebpageController]);
 
     [webView addToTestWindow];
+    TestWebKitAPI::Util::run(&childRestrictionsDone);
+    TestWebKitAPI::Util::waitFor([&] {
+        return !![webView _screenTimeWebpageController];
+    });
 
     EXPECT_TRUE(!![webView _screenTimeWebpageController]);
 }
 
 TEST(ScreenTime, ScreenTimeControllerSetsURLWhenOffscreenWebViewBecomesInWindow)
 {
+    __block bool childRestrictionsDone = false;
     RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
 
     RetainPtr webView = webViewForScreenTimeTests(configuration.get(), NO);
@@ -815,17 +1009,33 @@ TEST(ScreenTime, ScreenTimeControllerSetsURLWhenOffscreenWebViewBecomesInWindow)
 
     EXPECT_FALSE(!![webView _screenTimeWebpageController]);
 
+    auto swizzle = swizzleEnforcesChildRestrictions(childRestrictionsDone);
     [webView addToTestWindow];
+    TestWebKitAPI::Util::run(&childRestrictionsDone);
+
+    TestWebKitAPI::Util::waitFor([&] {
+        return !![webView _screenTimeWebpageController];
+    });
+
+    EXPECT_TRUE(!![webView _screenTimeWebpageController]);
+
+    TestWebKitAPI::Util::waitFor([&] {
+        return !![[webView _screenTimeWebpageController] URL];
+    });
 
     EXPECT_NOT_NULL([[webView _screenTimeWebpageController] URL]);
 }
 
 TEST(ScreenTime, ScreenTimeControllerInstalledAfterRestoreFromSessionState)
 {
+    __block bool childRestrictionsDone = false;
+
     RetainPtr webView1 = webViewForScreenTimeTests();
 
     RetainPtr request = [NSURLRequest requestWithURL:[NSURL URLWithString:@"http://webkit.org"]];
+    auto swizzle = swizzleEnforcesChildRestrictions(childRestrictionsDone);
     [webView1 synchronouslyLoadSimulatedRequest:request.get() responseHTMLString:@""];
+    TestWebKitAPI::Util::run(&childRestrictionsDone);
 
     RetainPtr sessionState = [webView1 _sessionState];
     [webView1 _close];
@@ -845,12 +1055,15 @@ TEST(ScreenTime, ScreenTimeControllerInstalledAfterRestoreFromSessionState)
 
 TEST(ScreenTime, ScreenTimeControllerViewOnlyInstalledForHTTPFamily)
 {
+    __block bool childRestrictionsDone = false;
     RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     [configuration setShowsSystemScreenTimeBlockingView:YES];
 
     RetainPtr webView = webViewForScreenTimeTests(configuration.get());
 
     RetainPtr request = [NSURLRequest requestWithURL:[NSURL URLWithString:@""]];
+
+    auto swizzle = swizzleEnforcesChildRestrictions(childRestrictionsDone);
     [webView synchronouslyLoadSimulatedRequest:request.get() responseHTMLString:@""];
 
     [webView waitForNextPresentationUpdate];
@@ -865,10 +1078,25 @@ TEST(ScreenTime, ScreenTimeControllerViewOnlyInstalledForHTTPFamily)
 
     request = [NSURLRequest requestWithURL:[NSURL URLWithString:@"http://webkit.org"]];
     [webView synchronouslyLoadSimulatedRequest:request.get() responseHTMLString:@""];
+    TestWebKitAPI::Util::run(&childRestrictionsDone);
 
     [webView waitForNextPresentationUpdate];
 
     EXPECT_TRUE(systemScreenTimeBlockingViewIsPresent(webView.get()));
+}
+
+TEST(ScreenTime, ScreenTimeControllerNotInstalledForNoChildRestrictions)
+{
+    __block bool childRestrictionsDone = false;
+
+    RetainPtr webView = webViewForScreenTimeTests();
+    auto swizzle = swizzleEnforcesChildRestrictions(childRestrictionsDone, NO);
+    RetainPtr request = [NSURLRequest requestWithURL:[NSURL URLWithString:@"http://webkit.org"]];
+    [webView synchronouslyLoadSimulatedRequest:request.get() responseHTMLString:@""];
+
+    [webView waitForNextPresentationUpdate];
+
+    EXPECT_FALSE(!![webView _screenTimeWebpageController]);
 }
 
 #endif

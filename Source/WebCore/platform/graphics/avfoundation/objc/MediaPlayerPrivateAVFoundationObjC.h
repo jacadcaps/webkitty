@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -80,13 +80,13 @@ class WebCoreAVFResourceLoader;
 
 class MediaPlayerPrivateAVFoundationObjC final : public MediaPlayerPrivateAVFoundation {
 public:
-    explicit MediaPlayerPrivateAVFoundationObjC(MediaPlayer*);
+    explicit MediaPlayerPrivateAVFoundationObjC(MediaPlayer&);
     virtual ~MediaPlayerPrivateAVFoundationObjC();
 
     static void registerMediaEngine(MediaEngineRegistrar);
 
     void setAsset(RetainPtr<id>&&);
-    void didEnd() final;
+    void didEnd(double) final;
     void metadataLoaded() final;
 
     void processCue(NSArray *, NSArray *, const MediaTime&);
@@ -159,9 +159,6 @@ private:
 
     void cancelLoad() final;
 
-    void beginSimulatedHDCPError() final { outputObscuredDueToInsufficientExternalProtectionChanged(true); }
-    void endSimulatedHDCPError() final { outputObscuredDueToInsufficientExternalProtectionChanged(false); }
-
     void notifyTrackModeChanged() final;
     void synchronizeTextTrackState() final;
 
@@ -180,7 +177,7 @@ private:
     RetainPtr<PlatformLayer> createVideoFullscreenLayer() final;
     void setVideoFullscreenLayer(PlatformLayer*, Function<void()>&& completionHandler) final;
     void updateVideoFullscreenInlineImage() final;
-    void setVideoFullscreenFrame(FloatRect) final;
+    void setVideoFullscreenFrame(const FloatRect&) final;
     void setVideoFullscreenGravity(MediaPlayer::VideoGravity) final;
     void setVideoFullscreenMode(MediaPlayer::VideoFullscreenMode) final;
     void videoFullscreenStandbyChanged() final;
@@ -199,7 +196,7 @@ private:
 
     void createAVPlayer() final;
     void createAVPlayerItem() final;
-    virtual void createAVPlayerLayer();
+    void createAVPlayerLayer();
     void createAVAssetForURL(const URL&) final;
     void createAVAssetForURL(const URL&, RetainPtr<NSMutableDictionary>);
     MediaPlayerPrivateAVFoundation::ItemStatus playerItemStatus() const final;
@@ -313,7 +310,7 @@ private:
     MediaPlayer::WirelessPlaybackTargetType wirelessPlaybackTargetType() const final;
     bool wirelessVideoPlaybackDisabled() const final;
     void setWirelessVideoPlaybackDisabled(bool) final;
-    bool canPlayToWirelessPlaybackTarget() const final { return true; }
+    OptionSet<MediaPlaybackTargetType> supportedPlaybackTargetTypes() const final;
     void updateDisableExternalPlayback();
 #endif
 
@@ -339,7 +336,7 @@ private:
 
     AVPlayer *objCAVFoundationAVPlayer() const final { return m_avPlayer.get(); }
 
-    bool performTaskAtTime(Function<void()>&&, const MediaTime&) final;
+    bool performTaskAtTime(Function<void(const MediaTime&)>&&, const MediaTime&) final;
     void setShouldObserveTimeControlStatus(bool);
 
     void setPreferredDynamicRangeMode(DynamicRangeMode) final;
@@ -376,10 +373,10 @@ private:
     void setVideoTarget(const PlatformVideoTarget&) final;
 
 #if HAVE(SPATIAL_TRACKING_LABEL)
-    const String& defaultSpatialTrackingLabel() const;
+    String defaultSpatialTrackingLabel() const;
     void setDefaultSpatialTrackingLabel(const String&) final;
 
-    const String& spatialTrackingLabel() const;
+    String spatialTrackingLabel() const;
     void setSpatialTrackingLabel(const String&) final;
 
     void updateSpatialTrackingLabel();
@@ -427,15 +424,15 @@ private:
     std::unique_ptr<PixelBufferConformerCV> m_pixelBufferConformer;
 
     friend class WebCoreAVFResourceLoader;
-    HashMap<RetainPtr<CFTypeRef>, RefPtr<WebCoreAVFResourceLoader>> m_resourceLoaderMap;
+    HashMap<RetainPtr<CFTypeRef>, Ref<WebCoreAVFResourceLoader>> m_resourceLoaderMap;
     const RetainPtr<WebCoreAVFLoaderDelegate> m_loaderDelegate;
     MemoryCompactRobinHoodHashMap<String, RetainPtr<AVAssetResourceLoadingRequest>> m_keyURIToRequestMap;
     MemoryCompactRobinHoodHashMap<String, RetainPtr<AVAssetResourceLoadingRequest>> m_sessionIDToRequestMap;
 
     RetainPtr<AVPlayerItemLegibleOutput> m_legibleOutput;
 
-    Vector<RefPtr<AudioTrackPrivateAVFObjC>> m_audioTracks;
-    Vector<RefPtr<VideoTrackPrivateAVFObjC>> m_videoTracks;
+    Vector<Ref<AudioTrackPrivateAVFObjC>> m_audioTracks;
+    Vector<Ref<VideoTrackPrivateAVFObjC>> m_videoTracks;
     RefPtr<MediaSelectionGroupAVFObjC> m_audibleGroup;
     RefPtr<MediaSelectionGroupAVFObjC> m_visualGroup;
 
@@ -445,7 +442,7 @@ private:
     RefPtr<InbandMetadataTextTrackPrivateAVF> m_metadataTrack;
 #endif
 
-    MemoryCompactRobinHoodHashMap<String, RefPtr<InbandChapterTrackPrivateAVFObjC>> m_chapterTracks;
+    MemoryCompactRobinHoodHashMap<String, Ref<InbandChapterTrackPrivateAVFObjC>> m_chapterTracks;
 
 #if ENABLE(WIRELESS_PLAYBACK_TARGET) && PLATFORM(MAC)
     RetainPtr<AVOutputContext> m_outputContext;
@@ -521,8 +518,8 @@ private:
     std::optional<VideoFrameMetadata> m_videoFrameMetadata;
     mutable std::optional<NSTimeInterval> m_cachedSeekableTimeRangesLastModifiedTime;
     mutable std::optional<NSTimeInterval> m_cachedLiveUpdateInterval;
-    std::unique_ptr<Observer<void()>> m_currentImageChangedObserver;
-    std::unique_ptr<Observer<void()>> m_waitForVideoOutputMediaDataWillChangeObserver;
+    RefPtr<Observer<void()>> m_currentImageChangedObserver;
+    RefPtr<Observer<void()>> m_waitForVideoOutputMediaDataWillChangeObserver;
     ProcessIdentity m_resourceOwner;
     PlatformTimeRanges m_buffered;
     TrackID m_currentTextTrackID { 0 };

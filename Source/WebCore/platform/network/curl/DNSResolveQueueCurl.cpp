@@ -29,8 +29,11 @@
 #if USE(CURL)
 
 #include "NotImplemented.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(DNSResolveQueueCurl);
 
 void DNSResolveQueueCurl::updateIsUsingProxy()
 {

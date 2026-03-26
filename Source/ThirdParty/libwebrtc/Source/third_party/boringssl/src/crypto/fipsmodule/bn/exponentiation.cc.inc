@@ -154,7 +154,7 @@ int BN_mod_exp_mont(BIGNUM *rr, const BIGNUM *a, const BIGNUM *p,
   bssl::BN_CTXScope scope(ctx);
   BIGNUM *r = BN_CTX_get(ctx);
   val[0] = BN_CTX_get(ctx);
-  if (r == NULL || val[0] == NULL) {
+  if (r == nullptr || val[0] == nullptr) {
     return 0;
   }
 
@@ -178,12 +178,12 @@ int BN_mod_exp_mont(BIGNUM *rr, const BIGNUM *a, const BIGNUM *p,
   }
   if (window > 1) {
     BIGNUM *d = BN_CTX_get(ctx);
-    if (d == NULL || !BN_mod_mul_montgomery(d, val[0], val[0], mont, ctx)) {
+    if (d == nullptr || !BN_mod_mul_montgomery(d, val[0], val[0], mont, ctx)) {
       return 0;
     }
     for (int i = 1; i < 1 << (window - 1); i++) {
       val[i] = BN_CTX_get(ctx);
-      if (val[i] == NULL ||
+      if (val[i] == nullptr ||
           !BN_mod_mul_montgomery(val[i], val[i - 1], d, mont, ctx)) {
         return 0;
       }
@@ -343,7 +343,7 @@ void bn_mod_exp_mont_small(BN_ULONG *r, const BN_ULONG *a, size_t num,
 
 void bn_mod_inverse0_prime_mont_small(BN_ULONG *r, const BN_ULONG *a,
                                       size_t num, const BN_MONT_CTX *mont) {
-  if (num != (size_t)mont->N.width || num > BN_SMALL_MAX_WORDS) {
+  if (num != (size_t)mont->N.width || num > BN_SMALL_MAX_WORDS || num == 0) {
     abort();
   }
 
@@ -414,9 +414,9 @@ int BN_mod_exp_mont_consttime(BIGNUM *rr, const BIGNUM *a, const BIGNUM *p,
                               const BN_MONT_CTX *mont) {
   int i, ret = 0, wvalue;
 
-  void *powerbuf_free = NULL;
+  void *powerbuf_free = nullptr;
   size_t powerbuf_len = 0;
-  BN_ULONG *powerbuf = NULL;
+  BN_ULONG *powerbuf = nullptr;
 
   if (!BN_is_odd(m)) {
     OPENSSL_PUT_ERROR(BN, BN_R_CALLED_WITH_EVEN_MODULUS);
@@ -516,11 +516,11 @@ int BN_mod_exp_mont_consttime(BIGNUM *rr, const BIGNUM *a, const BIGNUM *p,
     powerbuf = storage;
   }
   // |storage| is more than large enough to handle 1024-bit inputs.
-  assert(powerbuf != NULL || top * BN_BITS2 > 1024);
+  assert(powerbuf != nullptr || top * BN_BITS2 > 1024);
 #endif
-  if (powerbuf == NULL) {
+  if (powerbuf == nullptr) {
     powerbuf_free = OPENSSL_malloc(powerbuf_len + MOD_EXP_CTIME_ALIGN);
-    if (powerbuf_free == NULL) {
+    if (powerbuf_free == nullptr) {
       goto err;
     }
     powerbuf = reinterpret_cast<BN_ULONG *>(
@@ -560,9 +560,9 @@ int BN_mod_exp_mont_consttime(BIGNUM *rr, const BIGNUM *a, const BIGNUM *p,
   // |bn_mul_mont_gather5| and |bn_power5| implement the "almost" reduction
   // variant, so the values here may not be fully reduced. They are bounded by R
   // (i.e. they fit in |top| words), not |m|. Additionally, we pass these
-  // "almost" reduced inputs into |bn_mul_mont|, which implements the normal
-  // reduction variant. Given those inputs, |bn_mul_mont| may not give reduced
-  // output, but it will still produce "almost" reduced output.
+  // "almost" reduced inputs into |bn_mul_mont_words|, which implements the
+  // normal reduction variant. Given those inputs, |bn_mul_mont_words| may not
+  // give reduced output, but it will still produce "almost" reduced output.
   //
   // TODO(davidben): Using "almost" reduction complicates analysis of this code,
   // and its interaction with other parts of the project. Determine whether this
@@ -578,12 +578,12 @@ int BN_mod_exp_mont_consttime(BIGNUM *rr, const BIGNUM *a, const BIGNUM *p,
     const BN_ULONG *n0 = mont->n0;
     bn_scatter5(tmp.d, top, powerbuf, 0);
     bn_scatter5(am.d, am.width, powerbuf, 1);
-    bn_mul_mont(tmp.d, am.d, am.d, np, n0, top);
+    bn_mul_mont_words(tmp.d, am.d, am.d, np, n0, top);
     bn_scatter5(tmp.d, top, powerbuf, 2);
 
     // Square to compute powers of two.
     for (i = 4; i < 32; i *= 2) {
-      bn_mul_mont(tmp.d, tmp.d, tmp.d, np, n0, top);
+      bn_mul_mont_words(tmp.d, tmp.d, tmp.d, np, n0, top);
       bn_scatter5(tmp.d, top, powerbuf, i);
     }
     // Compute odd powers |i| based on |i - 1|, then all powers |i * 2^j|.
@@ -591,7 +591,7 @@ int BN_mod_exp_mont_consttime(BIGNUM *rr, const BIGNUM *a, const BIGNUM *p,
       bn_mul_mont_gather5(tmp.d, am.d, powerbuf, np, n0, top, i - 1);
       bn_scatter5(tmp.d, top, powerbuf, i);
       for (int j = 2 * i; j < 32; j *= 2) {
-        bn_mul_mont(tmp.d, tmp.d, tmp.d, np, n0, top);
+        bn_mul_mont_words(tmp.d, tmp.d, tmp.d, np, n0, top);
         bn_scatter5(tmp.d, top, powerbuf, j);
       }
     }
@@ -614,11 +614,11 @@ int BN_mod_exp_mont_consttime(BIGNUM *rr, const BIGNUM *a, const BIGNUM *p,
           wvalue = (wvalue << 1) + BN_is_bit_set(p, bits);
         }
 
-        bn_mul_mont(tmp.d, tmp.d, tmp.d, np, n0, top);
-        bn_mul_mont(tmp.d, tmp.d, tmp.d, np, n0, top);
-        bn_mul_mont(tmp.d, tmp.d, tmp.d, np, n0, top);
-        bn_mul_mont(tmp.d, tmp.d, tmp.d, np, n0, top);
-        bn_mul_mont(tmp.d, tmp.d, tmp.d, np, n0, top);
+        bn_mul_mont_words(tmp.d, tmp.d, tmp.d, np, n0, top);
+        bn_mul_mont_words(tmp.d, tmp.d, tmp.d, np, n0, top);
+        bn_mul_mont_words(tmp.d, tmp.d, tmp.d, np, n0, top);
+        bn_mul_mont_words(tmp.d, tmp.d, tmp.d, np, n0, top);
+        bn_mul_mont_words(tmp.d, tmp.d, tmp.d, np, n0, top);
         bn_mul_mont_gather5(tmp.d, tmp.d, powerbuf, np, n0, top, wvalue);
       }
     } else {
@@ -731,7 +731,7 @@ int BN_mod_exp_mont_consttime(BIGNUM *rr, const BIGNUM *a, const BIGNUM *p,
   ret = 1;
 
 err:
-  if (powerbuf != NULL && powerbuf_free == NULL) {
+  if (powerbuf != nullptr && powerbuf_free == nullptr) {
     OPENSSL_cleanse(powerbuf, powerbuf_len);
   }
   OPENSSL_free(powerbuf_free);

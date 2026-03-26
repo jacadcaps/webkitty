@@ -33,11 +33,13 @@
 #import "WebPage.h"
 #import "WebPageProxyMessages.h"
 #import <WebCore/CachedImage.h>
-#import <WebCore/Document.h>
+#import <WebCore/ContainerNodeInlines.h>
+#import <WebCore/DocumentPage.h>
 #import <WebCore/DragController.h>
 #import <WebCore/Editor.h>
 #import <WebCore/ElementInlines.h>
-#import <WebCore/FrameDestructionObserver.h>
+#import <WebCore/FrameDestructionObserverInlines.h>
+#import <WebCore/FrameIdentifier.h>
 #import <WebCore/FrameView.h>
 #import <WebCore/GraphicsContextCG.h>
 #import <WebCore/LegacyWebArchive.h>
@@ -68,7 +70,7 @@ using DragImage = CGImageRef;
 
 static RefPtr<ShareableBitmap> convertDragImageToBitmap(DragImage image, const IntSize& size, Frame& frame)
 {
-    auto bitmap = ShareableBitmap::create({ size, screenColorSpace(frame.protectedMainFrame()->virtualView()) });
+    auto bitmap = ShareableBitmap::create({ size, screenColorSpace(frame.protectedMainFrame()->protectedVirtualView().get()) });
     if (!bitmap)
         return nullptr;
 
@@ -103,7 +105,7 @@ void WebDragClient::startDrag(DragItem dragItem, DataTransfer&, Frame& frame, co
         return;
 
     m_page->willStartDrag();
-    m_page->send(Messages::WebPageProxy::StartDrag(dragItem, WTFMove(*handle), nodeID));
+    m_page->send(Messages::WebPageProxy::StartDrag(dragItem, WTF::move(*handle), nodeID));
 }
 
 void WebDragClient::didConcludeEditDrag()
@@ -180,7 +182,7 @@ void WebDragClient::declareAndWriteDragImage(const String& pasteboardName, Eleme
             filename = downloadFilename;
     }
 
-    m_page->send(Messages::WebPageProxy::SetPromisedDataForImage(pasteboardName, WTFMove(*imageHandle), filename, extension, title, String([[response URL] absoluteString]), WTF::userVisibleString(url.createNSURL().get()), WTFMove(*archiveHandle), element.protectedDocument()->originIdentifierForPasteboard()));
+    m_page->send(Messages::WebPageProxy::SetPromisedDataForImage(pasteboardName, WTF::move(*imageHandle), filename, extension, title, String([[response URL] absoluteString]), WTF::userVisibleString(url.createNSURL().get()), WTF::move(*archiveHandle), element.protectedDocument()->originIdentifierForPasteboard()));
 }
 
 #else

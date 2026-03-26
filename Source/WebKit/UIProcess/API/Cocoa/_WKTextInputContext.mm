@@ -28,6 +28,7 @@
 
 #import "_WKTextInputContextInternal.h"
 #import <WebCore/ElementContext.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
 
 @implementation _WKTextInputContext {
     WebCore::ElementContext _textInputContext;

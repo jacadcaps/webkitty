@@ -211,7 +211,7 @@ struct KeyedCodingTestObject {
         return true;
     }
 
-    KeyedCodingTestObject() { };
+    KeyedCodingTestObject() = default;
     KeyedCodingTestObject(String name, int age)
         : m_name(name)
         , m_age(age)

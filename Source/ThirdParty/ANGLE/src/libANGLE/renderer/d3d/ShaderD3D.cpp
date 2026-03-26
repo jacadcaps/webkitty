@@ -70,7 +70,7 @@ class ShaderTranslateTaskD3D final : public ShaderTranslateTask
 
     void postTranslate(ShHandle compiler, const gl::CompiledShaderState &compiledState) override
     {
-        const std::string &translatedSource = compiledState.translatedSource;
+        const std::string &translatedSource = *compiledState.translatedSource;
         CompiledShaderStateD3D *state       = mShader.get();
 
         // Note: We shouldn't need to cache this.
@@ -303,7 +303,7 @@ std::shared_ptr<ShaderTranslateTask> ShaderD3D::compile(const gl::Context *conte
     if (gl::DebugAnnotationsActive(context))
     {
         sourcePath = angle::CreateTemporaryFile().value();
-        writeFile(sourcePath.c_str(), source.c_str(), source.length());
+        writeFile(sourcePath.c_str(), source);
         options->lineDirectives = true;
         options->sourcePath     = true;
     }

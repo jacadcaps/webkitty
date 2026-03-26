@@ -71,7 +71,7 @@ void InjectedBundlePageLoaderClient::willLoadDataRequest(WebPage& page, const Re
     if (sharedBuffer) {
         Ref contiguousBuffer = sharedBuffer->makeContiguous();
         auto contiguousBufferSpan = contiguousBuffer->span();
-        data = API::Data::createWithoutCopying(contiguousBufferSpan, [contiguousBuffer = WTFMove(contiguousBuffer)] { });
+        data = API::Data::createWithoutCopying(contiguousBufferSpan, [contiguousBuffer = WTF::move(contiguousBuffer)] { });
     }
 
     m_client.willLoadDataRequest(toAPI(&page), toAPI(request), toAPI(data.get()), toAPI(MIMEType.impl()), toAPI(encodingName.impl()), toURLRef(unreachableURL.string().impl()), toAPI(userData), m_client.base.clientInfo);
@@ -182,26 +182,6 @@ void InjectedBundlePageLoaderClient::didRemoveFrameFromHierarchy(WebPage& page ,
 
     WKTypeRef userDataToPass = nullptr;
     m_client.didRemoveFrameFromHierarchy(toAPI(&page), toAPI(&frame), &userDataToPass, m_client.base.clientInfo);
-    userData = adoptRef(toImpl(userDataToPass));
-}
-
-void InjectedBundlePageLoaderClient::didDisplayInsecureContentForFrame(WebPage& page, WebFrame& frame, RefPtr<API::Object>& userData)
-{
-    if (!m_client.didDisplayInsecureContentForFrame)
-        return;
-
-    WKTypeRef userDataToPass = nullptr;
-    m_client.didDisplayInsecureContentForFrame(toAPI(&page), toAPI(&frame), &userDataToPass, m_client.base.clientInfo);
-    userData = adoptRef(toImpl(userDataToPass));
-}
-
-void InjectedBundlePageLoaderClient::didRunInsecureContentForFrame(WebPage& page, WebFrame& frame, RefPtr<API::Object>& userData)
-{
-    if (!m_client.didRunInsecureContentForFrame)
-        return;
-
-    WKTypeRef userDataToPass = nullptr;
-    m_client.didRunInsecureContentForFrame(toAPI(&page), toAPI(&frame), &userDataToPass, m_client.base.clientInfo);
     userData = adoptRef(toImpl(userDataToPass));
 }
 

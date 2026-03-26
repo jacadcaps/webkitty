@@ -33,8 +33,8 @@ use FindBin;
 use Test::More;
 use lib File::Spec->catdir($FindBin::Bin, "..");
 
-if ($^O eq 'MSWin32') {
-    plan skip_all => 'filter-build-webkit fails to load on Windows.';
+unless ($^O eq 'darwin') {
+    plan skip_all => 'filter-build-webkit is only for macOS';
     exit 0;    
 }
 

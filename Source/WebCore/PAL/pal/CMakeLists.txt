@@ -1,13 +1,13 @@
 set(PAL_PUBLIC_HEADERS
     ExportMacros.h
     FileSizeFormatter.h
-    Gunzip.h
     HysteresisActivity.h
     Logging.h
     SessionID.h
     ThreadGlobalData.h
 
     crypto/CryptoDigest.h
+    crypto/CryptoDigestHashFunction.h
 
     system/Clock.h
     system/ClockGeneric.h

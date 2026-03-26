@@ -23,12 +23,12 @@
 
 #if ENABLE(XSLT)
 
-#include "CachedResourceLoader.h"
-#include "DocumentInlines.h"
+#include "DocumentResourceLoader.h"
+#include "FrameConsoleClient.h"
 #include "FrameDestructionObserverInlines.h"
 #include "LocalFrame.h"
+#include "NodeDocument.h"
 #include "Page.h"
-#include "PageConsoleClient.h"
 #include "TransformSource.h"
 #include "XMLDocumentParser.h"
 #include "XMLDocumentParserScope.h"
@@ -87,8 +87,8 @@ void XSLStyleSheet::checkLoaded()
         return;
     if (RefPtr styleSheet = parentStyleSheet())
         styleSheet->checkLoaded();
-    if (ownerNode())
-        ownerNode()->sheetLoaded();
+    if (RefPtr ownerNode = this->ownerNode())
+        ownerNode->sheetLoaded();
 }
 
 xmlDocPtr XSLStyleSheet::document()
@@ -103,8 +103,8 @@ void XSLStyleSheet::clearDocuments()
     clearXSLStylesheetDocument();
 
     for (auto& import : m_children) {
-        if (import->styleSheet())
-            import->styleSheet()->clearDocuments();
+        if (RefPtr styleSheet = import->styleSheet())
+            styleSheet->clearDocuments();
     }
 }
 
@@ -132,10 +132,9 @@ bool XSLStyleSheet::parseString(const String& string)
     const unsigned char BOMHighByte = *reinterpret_cast<const unsigned char*>(&byteOrderMark);
     clearXSLStylesheetDocument();
 
-    PageConsoleClient* console = nullptr;
-    RefPtr frame = ownerDocument()->frame();
-    if (frame && frame->page())
-        console = &frame->page()->console();
+    FrameConsoleClient* console = nullptr;
+    if (RefPtr frame = ownerDocument()->frame())
+        console = &frame->console();
 
     XMLDocumentParserScope scope(cachedResourceLoader(), XSLTProcessor::genericErrorFunc, XSLTProcessor::parseErrorFunc, console);
 
@@ -158,9 +157,9 @@ bool XSLStyleSheet::parseString(const String& string)
         // if a document uses more than one symbol dictionary, so we
         // ensure that all child stylesheets use the same dictionaries as their
         // parents.
-        xmlDictFree(ctxt->dict);
+        SUPPRESS_FORWARD_DECL_ARG xmlDictFree(ctxt->dict);
         ctxt->dict = m_parentStyleSheet->m_stylesheetDoc->dict;
-        xmlDictReference(ctxt->dict);
+        SUPPRESS_FORWARD_DECL_ARG xmlDictReference(ctxt->dict);
     }
 
     m_stylesheetDoc = xmlCtxtReadMemory(ctxt, buffer, size,
@@ -229,9 +228,9 @@ void XSLStyleSheet::loadChildSheets()
 
 void XSLStyleSheet::loadChildSheet(const String& href)
 {
-    auto childRule = makeUnique<XSLImportRule>(*this, href);
-    m_children.append(childRule.release());
-    m_children.last()->loadSheet();
+    Ref rule = XSLImportRule::create(*this, href);
+    m_children.append(rule.copyRef());
+    rule->loadSheet();
 }
 
 xsltStylesheetPtr XSLStyleSheet::compileStyleSheet()

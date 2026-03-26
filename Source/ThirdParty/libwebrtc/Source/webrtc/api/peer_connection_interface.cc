@@ -10,7 +10,11 @@
 
 #include "api/peer_connection_interface.h"
 
+#include <vector>
+
+#include "api/candidate.h"
 #include "pc/media_factory.h"
+#include "rtc_base/checks.h"
 
 namespace webrtc {
 
@@ -53,13 +57,8 @@ PeerConnectionDependencies::~PeerConnectionDependencies() = default;
 PeerConnectionFactoryDependencies::PeerConnectionFactoryDependencies() =
     default;
 
-// Allow move constructor to move deprecated members. Pragma can be removed
-// when there are no deprecated depedencies at the moment.
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 PeerConnectionFactoryDependencies::PeerConnectionFactoryDependencies(
     PeerConnectionFactoryDependencies&&) = default;
-#pragma clang diagnostic pop
 
 PeerConnectionFactoryDependencies::~PeerConnectionFactoryDependencies() =
     default;

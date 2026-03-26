@@ -17,6 +17,7 @@
 #include <utility>
 #include <vector>
 
+#include "api/environment/environment_factory.h"
 #include "api/test/create_frame_generator.h"
 #include "api/test/frame_generator_interface.h"
 #include "api/units/time_delta.h"
@@ -47,7 +48,7 @@ static const int kMaxFramerate = 30;  // Arbitrary value.
 namespace webrtc {
 namespace {
 const VideoEncoder::Capabilities kCapabilities(false);
-}
+}  // namespace
 
 EncodedImageCallback::Result
 VideoCodecUnitTest::FakeEncodeCompleteCallback::OnEncodedImage(
@@ -81,6 +82,9 @@ void VideoCodecUnitTest::FakeDecodeCompleteCallback::Decoded(
 }
 
 void VideoCodecUnitTest::SetUp() {
+  EnvironmentFactory factory(env_);
+  factory.Set(field_trials_.CreateCopy());
+  env_ = factory.Create();
   test::CodecSettings(kVideoCodecVP8, &codec_settings_);
   codec_settings_.startBitrate = kStartBitrate;
   codec_settings_.maxBitrate = kMaxBitrate;

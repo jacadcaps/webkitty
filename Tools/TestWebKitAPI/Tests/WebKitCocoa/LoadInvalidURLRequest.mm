@@ -169,5 +169,21 @@ TEST(WebKit, NavigateToInvalidURL)
     Util::run(&finished);
 }
 
+TEST(WebKit, LoadInvalidURLWithSpaceCharacter)
+{
+    __block bool done = false;
+    auto delegate = adoptNS([TestNavigationDelegate new]);
+    delegate.get().didFailProvisionalNavigation = ^(WKWebView *, WKNavigation *, NSError *error) {
+        EXPECT_WK_STREQ(error.domain, @"WebKitErrorDomain");
+        EXPECT_EQ(error.code, WebKitErrorCannotShowURL);
+        EXPECT_WK_STREQ([error.userInfo[NSURLErrorFailingURLErrorKey] absoluteString], "");
+        done = true;
+    };
+    auto webView = adoptNS([WKWebView new]);
+    [webView setNavigationDelegate:delegate.get()];
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://%20.example.com/"]]];
+    Util::run(&done);
+}
+
 } // namespace TestWebKitAPI
 

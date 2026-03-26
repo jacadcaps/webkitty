@@ -1785,6 +1785,11 @@ static JSValueRef setObscuredContentInsetsCallback(JSContextRef context, JSObjec
     return TestRunner::alwaysResolvePromise(context);
 }
 
+static JSValueRef setHasMouseDeviceForTestingCallback(JSContextRef context, JSObjectRef, JSObjectRef, size_t, const JSValueRef[], JSValueRef*)
+{
+    return JSValueMakeUndefined(context);
+}
+
 static JSValueRef failNextNewCodeBlock(JSContextRef context, JSObjectRef function, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception)
 {
     if (argumentCount < 1)
@@ -2105,6 +2110,7 @@ const JSStaticFunction* TestRunner::staticFunctions()
         { "stopLoading", stopLoadingCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
         { "forceImmediateCompletion", forceImmediateCompletionCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
         { "setObscuredContentInsets", setObscuredContentInsetsCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
+        { "setHasMouseDeviceForTesting", setHasMouseDeviceForTestingCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
         { "setPageScaleFactor", setPageScaleFactorCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
 #if PLATFORM(IOS_FAMILY)
         { "setPagePaused", setPagePausedCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },

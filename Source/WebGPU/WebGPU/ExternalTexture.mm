@@ -41,7 +41,7 @@ Ref<ExternalTexture> Device::createExternalTexture(const WGPUExternalTextureDesc
     if (!isValid())
         return ExternalTexture::createInvalid(*this);
 
-    return ExternalTexture::create(descriptor.pixelBuffer, descriptor.colorSpace, *this);
+    return ExternalTexture::create(RetainPtr { descriptor.pixelBuffer }.get(), descriptor.colorSpace, *this);
 }
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(ExternalTexture);
@@ -70,12 +70,7 @@ void ExternalTexture::destroy()
 {
     m_pixelBuffer = nil;
     m_destroyed = true;
-    for (auto commandEncoder : m_commandEncoders) {
-        if (RefPtr ptr = m_device->commandEncoderFromIdentifier(commandEncoder))
-            ptr->makeSubmitInvalid();
-    }
-
-    m_commandEncoders.clear();
+    m_device->makeSubmitInvalidClearingEncoders(m_commandEncoders);
 }
 
 void ExternalTexture::undestroy()
@@ -107,10 +102,10 @@ bool ExternalTexture::isDestroyed() const
 void ExternalTexture::update(CVPixelBufferRef pixelBuffer)
 {
 #if HAVE(IOSURFACE_SET_OWNERSHIP_IDENTITY) && HAVE(TASK_IDENTITY_TOKEN)
-    if (IOSurfaceRef ioSurface = CVPixelBufferGetIOSurface(pixelBuffer)) {
+    if (RetainPtr ioSurface = CVPixelBufferGetIOSurface(pixelBuffer)) {
         if (auto optionalWebProcessID = protectedDevice()->webProcessID()) {
             if (auto webProcessID = optionalWebProcessID->sendRight())
-                IOSurfaceSetOwnershipIdentity(ioSurface, webProcessID, kIOSurfaceMemoryLedgerTagGraphics, 0);
+                IOSurfaceSetOwnershipIdentity(ioSurface.get(), webProcessID, kIOSurfaceMemoryLedgerTagGraphics, 0);
         }
     }
 #endif

@@ -113,17 +113,17 @@ String LocaleCocoa::formatDateTime(const DateComponents& dateComponents, FormatT
     NSDate *date = [NSDate dateWithTimeIntervalSince1970:secondsSince1970];
 
     // Return a formatted string.
-    NSDateFormatter *dateFormatter = localizedDateCache().formatterForDateType(type);
-    return [dateFormatter stringFromDate:date];
+    RetainPtr dateFormatter = localizedDateCache().formatterForDateType(type);
+    return [dateFormatter.get() stringFromDate:date];
 }
 
 const Vector<String>& LocaleCocoa::monthLabels()
 {
     if (!m_monthLabels.isEmpty())
         return m_monthLabels;
-    NSArray *array = [shortDateFormatter().get() monthSymbols];
-    if ([array count] == 12) {
-        m_monthLabels = makeVector<String>(array);
+    RetainPtr array = [shortDateFormatter().get() monthSymbols];
+    if ([array.get() count] == 12) {
+        m_monthLabels = makeVector<String>(array.get());
         return m_monthLabels;
     }
     m_monthLabels = std::span { WTF::monthFullName };
@@ -224,9 +224,9 @@ const Vector<String>& LocaleCocoa::shortMonthLabels()
 {
     if (!m_shortMonthLabels.isEmpty())
         return m_shortMonthLabels;
-    NSArray *array = [shortDateFormatter().get() shortMonthSymbols];
-    if ([array count] == 12) {
-        m_shortMonthLabels = makeVector<String>(array);
+    RetainPtr array = [shortDateFormatter().get() shortMonthSymbols];
+    if ([array.get() count] == 12) {
+        m_shortMonthLabels = makeVector<String>(array.get());
         return m_shortMonthLabels;
     }
     m_shortMonthLabels = std::span { WTF::monthName };
@@ -237,9 +237,9 @@ const Vector<String>& LocaleCocoa::standAloneMonthLabels()
 {
     if (!m_standAloneMonthLabels.isEmpty())
         return m_standAloneMonthLabels;
-    NSArray *array = [shortDateFormatter().get() standaloneMonthSymbols];
-    if ([array count] == 12) {
-        m_standAloneMonthLabels = makeVector<String>(array);
+    RetainPtr array = [shortDateFormatter().get() standaloneMonthSymbols];
+    if ([array.get() count] == 12) {
+        m_standAloneMonthLabels = makeVector<String>(array.get());
         return m_standAloneMonthLabels;
     }
     m_standAloneMonthLabels = shortMonthLabels();
@@ -251,9 +251,9 @@ const Vector<String>& LocaleCocoa::shortStandAloneMonthLabels()
     if (!m_shortStandAloneMonthLabels.isEmpty())
         return m_shortStandAloneMonthLabels;
 
-    NSArray *array = [shortDateFormatter().get() shortStandaloneMonthSymbols];
-    if ([array count] == 12) {
-        m_shortStandAloneMonthLabels = makeVector<String>(array);
+    RetainPtr array = [shortDateFormatter().get() shortStandaloneMonthSymbols];
+    if ([array.get() count] == 12) {
+        m_shortStandAloneMonthLabels = makeVector<String>(array.get());
         return m_shortStandAloneMonthLabels;
     }
     m_shortStandAloneMonthLabels = shortMonthLabels();

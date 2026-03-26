@@ -6,11 +6,10 @@
 *.pyc
 *.swp
 *.swo
+/out/
 /doc/*.html
 /doc/doc.css
-/rust/Cargo.lock
-/rust/bssl-crypto/Cargo.lock
-/rust/target
+/rust/**/target
 /user.bazelrc
 
 /util/bazel-example/bazel-*
@@ -29,6 +28,7 @@
 /util/bot/ninja
 /util/bot/perl-win32
 /util/bot/qemu-static
+/util/bot/rust-toolchain
 /util/bot/sde-linux64
 /util/bot/sde-linux64.tar.xz
 /util/bot/sde-win32
@@ -36,5 +36,7 @@
 /util/bot/tools
 /util/bot/windows_sdk
 
-# Ignore target under any directory.
-target/
+# Local data for developer tooling
+/.vscode/
+/.cache/
+/dist/

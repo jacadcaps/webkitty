@@ -26,7 +26,9 @@
 #include "config.h"
 #include "AutofillElements.h"
 
+#include "DocumentPage.h"
 #include "FocusController.h"
+#include "FocusControllerTypes.h"
 #include "Logging.h"
 #include "Page.h"
 #include <wtf/TZoneMallocInlines.h>
@@ -80,9 +82,9 @@ static inline RefPtr<HTMLInputElement> previousAutofillableElement(Node* startNo
 }
 
 AutofillElements::AutofillElements(RefPtr<HTMLInputElement>&& username, RefPtr<HTMLInputElement>&& password, RefPtr<HTMLInputElement>&& secondPassword)
-    : m_username(WTFMove(username))
-    , m_password(WTFMove(password))
-    , m_secondPassword(WTFMove(secondPassword))
+    : m_username(WTF::move(username))
+    , m_password(WTF::move(password))
+    , m_secondPassword(WTF::move(secondPassword))
 {
 }
 
@@ -99,7 +101,7 @@ std::optional<AutofillElements> AutofillElements::computeAutofillElements(Ref<HT
         bool hasSecondPasswordFieldToFill = nextElement && nextElement->isPasswordField() && nextElement->value()->isEmpty();
 
         // Always allow AutoFill in a password field, even if we fill information only into it.
-        return {{ previousFieldIsTextField ? WTFMove(previousElement) : nullptr, WTFMove(start), hasSecondPasswordFieldToFill ? WTFMove(nextElement) : nullptr }};
+        return {{ previousFieldIsTextField ? WTF::move(previousElement) : nullptr, WTF::move(start), hasSecondPasswordFieldToFill ? WTF::move(nextElement) : nullptr }};
     } else {
         RefPtr<HTMLInputElement> nextElement = nextAutofillableElement(start.ptr(), focusController);
         if (nextElement && is<HTMLInputElement>(*nextElement)) {
@@ -107,7 +109,7 @@ std::optional<AutofillElements> AutofillElements::computeAutofillElements(Ref<HT
                 auto elementAfterNextElement = nextAutofillableElement(nextElement.get(), focusController);
                 bool hasSecondPasswordFieldToFill = elementAfterNextElement && elementAfterNextElement->isPasswordField() && elementAfterNextElement->value()->isEmpty();
 
-                return {{ WTFMove(start), WTFMove(nextElement), hasSecondPasswordFieldToFill ? WTFMove(elementAfterNextElement) : nullptr }};
+                return {{ WTF::move(start), WTF::move(nextElement), hasSecondPasswordFieldToFill ? WTF::move(elementAfterNextElement) : nullptr }};
             }
         }
     }
@@ -115,7 +117,7 @@ std::optional<AutofillElements> AutofillElements::computeAutofillElements(Ref<HT
     // Handle the case where a username field appears separately from a password field.
     auto autofillData = start->autofillData();
     if (toAutofillFieldName(autofillData.fieldName) == AutofillFieldName::Username || toAutofillFieldName(autofillData.fieldName) == AutofillFieldName::WebAuthn)
-        return {{ WTFMove(start), nullptr, nullptr }};
+        return {{ WTF::move(start), nullptr, nullptr }};
 
     return std::nullopt;
 }

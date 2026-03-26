@@ -10,6 +10,10 @@
 #ifndef ANGLE_TEST_INSTANTIATE_H_
 #define ANGLE_TEST_INSTANTIATE_H_
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include <gtest/gtest.h>
 
 #include "common/platform_helpers.h"
@@ -125,7 +129,7 @@ struct CombinedPrintToStringParamName
 
 #define ANGLE_ALL_TEST_PLATFORMS_ES2                                                               \
     ES2_D3D9(), ES2_D3D11(), ES2_OPENGL(), ES2_OPENGLES(), ES2_VULKAN(), ES2_VULKAN_SWIFTSHADER(), \
-        ES2_METAL(),                                                                               \
+        ES2_METAL(), ES2_WEBGPU(),                                                                 \
         ES2_VULKAN()                                                                               \
             .enable(Feature::EnableParallelCompileAndLink)                                         \
             .enable(Feature::VaryingsRequireMatchingPrecisionInSpirv),                             \
@@ -268,6 +272,13 @@ struct CombinedPrintToStringParamName
 #define ANGLE_INSTANTIATE_TEST_ES3_AND_ES31_AND(testName, ...)                                  \
     const PlatformParameters testName##params[] = {ANGLE_ALL_TEST_PLATFORMS_ES3,                \
                                                    ANGLE_ALL_TEST_PLATFORMS_ES31, __VA_ARGS__}; \
+    INSTANTIATE_TEST_SUITE_P(, testName, ANGLE_INSTANTIATE_TEST_PLATFORMS(testName),            \
+                             testing::PrintToStringParamName())
+
+#define ANGLE_INSTANTIATE_TEST_ES3_AND_ES31_AND_ES32(testName, ...)                             \
+    const PlatformParameters testName##params[] = {ANGLE_ALL_TEST_PLATFORMS_ES3,                \
+                                                   ANGLE_ALL_TEST_PLATFORMS_ES31,               \
+                                                   ANGLE_ALL_TEST_PLATFORMS_ES32, __VA_ARGS__}; \
     INSTANTIATE_TEST_SUITE_P(, testName, ANGLE_INSTANTIATE_TEST_PLATFORMS(testName),            \
                              testing::PrintToStringParamName())
 

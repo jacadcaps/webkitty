@@ -4,7 +4,11 @@
 // found in the LICENSE file.
 //
 
-// validationES.h: Validation functions for generic OpenGL ES entry point parameters
+// validationES.cpp: Validation functions for generic OpenGL ES entry point parameters
+
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
 
 #include "libANGLE/validationES.h"
 
@@ -578,6 +582,28 @@ bool IsValidGLES1TextureParameter(GLenum pname)
     }
 }
 
+bool IsBlitSameResource(const FramebufferAttachment *read, const FramebufferAttachment *draw)
+{
+    if (read->getResource() == draw->getResource())
+    {
+        if (read->type() == GL_TEXTURE)
+        {
+            bool sameMipLevel = read->mipLevel() == draw->mipLevel();
+            bool sameLayer    = read->layer() == draw->layer();
+            bool sameFace     = read->cubeMapFace() == draw->cubeMapFace();
+            if (sameMipLevel && sameLayer && sameFace)
+            {
+                return true;
+            }
+        }
+        else
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 unsigned int GetSamplerParameterCount(GLenum pname)
 {
     return pname == GL_TEXTURE_BORDER_COLOR ? 4 : 1;
@@ -892,9 +918,8 @@ bool ValidateTransformFeedbackPrimitiveMode(const Context *context,
 {
     ASSERT(context);
 
-    if ((!context->getExtensions().geometryShaderAny() ||
-         !context->getExtensions().tessellationShaderAny()) &&
-        context->getClientVersion() < ES_3_2)
+    if (!context->getExtensions().geometryShaderAny() &&
+        !context->getExtensions().tessellationShaderAny() && context->getClientVersion() < ES_3_2)
     {
         // It is an invalid operation to call DrawArrays or DrawArraysInstanced with a draw mode
         // that does not match the current transform feedback object's draw mode (if transform
@@ -1836,6 +1861,12 @@ bool ValidateBlitFramebufferParameters(const Context *context,
                         ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION, kBlitSameImageColor);
                         return false;
                     }
+
+                    if (IsBlitSameResource(readColorBuffer, attachment))
+                    {
+                        ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION, kBlitSameResource);
+                        return false;
+                    }
                 }
             }
 
@@ -1882,6 +1913,12 @@ bool ValidateBlitFramebufferParameters(const Context *context,
                 if (context->isWebGL() && *readBuffer == *drawBuffer)
                 {
                     ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION, kBlitSameImageDepthOrStencil);
+                    return false;
+                }
+
+                if (IsBlitSameResource(readBuffer, drawBuffer))
+                {
+                    ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION, kBlitSameResource);
                     return false;
                 }
             }
@@ -2389,7 +2426,7 @@ bool ValidateGenQueriesEXT(const Context *context,
                            GLsizei n,
                            const QueryID *ids)
 {
-    return ValidateGenOrDelete(context, entryPoint, n, ids);
+    return ValidateGenOrDelete(context->getMutableErrorSetForValidation(), entryPoint, n, ids);
 }
 
 bool ValidateDeleteQueriesEXT(const Context *context,
@@ -2397,7 +2434,7 @@ bool ValidateDeleteQueriesEXT(const Context *context,
                               GLsizei n,
                               const QueryID *ids)
 {
-    return ValidateGenOrDelete(context, entryPoint, n, ids);
+    return ValidateGenOrDelete(context->getMutableErrorSetForValidation(), entryPoint, n, ids);
 }
 
 bool ValidateIsQueryEXT(const Context *context, angle::EntryPoint entryPoint, QueryID id)
@@ -4294,7 +4331,7 @@ const char *ValidateDrawStates(const Context *context, GLenum *outErrorCode)
         }
     }
 
-    if (ANGLE_UNLIKELY(context->getStateCache().hasAnyEnabledClientAttrib()))
+    if (ANGLE_UNLIKELY(context->hasAnyEnabledClientAttrib()))
     {
         if (extensions.webglCompatibilityANGLE || !state.areClientArraysEnabled())
         {
@@ -5513,20 +5550,17 @@ bool ValidateFlushMappedBufferRangeBase(const Context *context,
     return true;
 }
 
-bool ValidateGenOrDelete(const Context *context,
-                         angle::EntryPoint entryPoint,
-                         GLint n,
-                         const void *ids)
+bool ValidateGenOrDelete(ErrorSet *errors, angle::EntryPoint entryPoint, GLint n, const void *ids)
 {
     if (n < 0)
     {
-        ANGLE_VALIDATION_ERROR(GL_INVALID_VALUE, kNegativeCount);
+        errors->validationError(entryPoint, GL_INVALID_VALUE, kNegativeCount);
         return false;
     }
 
     if (n > 0 && ids == nullptr)
     {
-        ANGLE_VALIDATION_ERROR(GL_INVALID_VALUE, kPLSParamsNULL);
+        errors->validationError(entryPoint, GL_INVALID_VALUE, kPLSParamsNULL);
         return false;
     }
 
@@ -7520,16 +7554,14 @@ bool ValidateReadPixelsBase(const Context *context,
                             GLsizei *rows,
                             const void *pixels)
 {
-    if (length != nullptr)
+    ASSERT((length == nullptr && columns == nullptr && rows == nullptr) ||
+           (length != nullptr && columns != nullptr && rows != nullptr));
+    const bool isRobust = (length != nullptr);
+
+    if (isRobust)
     {
-        *length = 0;
-    }
-    if (rows != nullptr)
-    {
-        *rows = 0;
-    }
-    if (columns != nullptr)
-    {
+        *length  = 0;
+        *rows    = 0;
         *columns = 0;
     }
 
@@ -7649,12 +7681,8 @@ bool ValidateReadPixelsBase(const Context *context,
     }
 
     auto getClippedExtent = [](GLint start, GLsizei length, int bufferSize, GLsizei *outExtent) {
-        angle::CheckedNumeric<int> clippedExtent(length);
-        if (start < 0)
-        {
-            // "subtract" the area that is less than 0
-            clippedExtent += start;
-        }
+        ASSERT(length >= 0);
+        ASSERT(bufferSize >= 0);
 
         angle::CheckedNumeric<int> readExtent = start;
         readExtent += length;
@@ -7663,43 +7691,60 @@ bool ValidateReadPixelsBase(const Context *context,
             return false;
         }
 
-        if (readExtent.ValueOrDie() > bufferSize)
+        if (outExtent == nullptr)
         {
+            // Only perform integer overflow validation when robust read is not used.
+            return true;
+        }
+
+        int clippedExtent = length;
+        if (start < 0)
+        {
+            // "subtract" the area that is less than 0
+            // Can't cause the overflow since |length| can't be negative.
+            clippedExtent += start;
+        }
+
+        const int readExtentValue = readExtent.ValueOrDie();
+        if (readExtentValue > bufferSize)
+        {
+            ASSERT(readExtentValue > 0);
+            ASSERT((start <= 0 && clippedExtent == readExtentValue) ||
+                   (start > 0 && clippedExtent == length && readExtentValue == start + length));
             // Subtract the region to the right of the read buffer
-            clippedExtent -= (readExtent - bufferSize);
+            clippedExtent -= (readExtentValue - bufferSize);
+            // Integer overflow is not possible.
+            ASSERT((start <= 0 && clippedExtent == bufferSize) ||
+                   (start > 0 && clippedExtent >= -start));
         }
 
-        if (!clippedExtent.IsValid())
-        {
-            return false;
-        }
-
-        *outExtent = std::max<int>(clippedExtent.ValueOrDie(), 0);
+        *outExtent = std::max<int>(clippedExtent, 0);
         return true;
     };
 
-    GLsizei writtenColumns = 0;
-    if (!getClippedExtent(x, width, readBuffer->getSize().width, &writtenColumns))
+    Extents readBufferSize;
+    if (isRobust)
+    {
+        // Only get size when robust read is used, since buffer size does not affect the integer
+        // overflow validation part of getClippedExtent() lambda.
+        if (readBuffer->ensureSizeResolved(context) == angle::Result::Stop)
+        {
+            // Context error must be generated by the failed call itself.
+            return false;
+        }
+        readBufferSize = readBuffer->getSize();
+    }
+
+    if (!getClippedExtent(x, width, readBufferSize.width, columns))
     {
         ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION, kIntegerOverflow);
         return false;
     }
 
-    GLsizei writtenRows = 0;
-    if (!getClippedExtent(y, height, readBuffer->getSize().height, &writtenRows))
+    if (!getClippedExtent(y, height, readBufferSize.height, rows))
     {
         ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION, kIntegerOverflow);
         return false;
-    }
-
-    if (columns != nullptr)
-    {
-        *columns = writtenColumns;
-    }
-
-    if (rows != nullptr)
-    {
-        *rows = writtenRows;
     }
 
     return true;
@@ -8837,10 +8882,8 @@ bool ValidateSampleMaskiBase(const PrivateState &state,
 void RecordDrawAttribsError(const Context *context, angle::EntryPoint entryPoint)
 {
     // An overflow can happen when adding the offset. Check against a special constant.
-    if (context->getStateCache().getNonInstancedVertexElementLimit() ==
-            VertexAttribute::kIntegerOverflow ||
-        context->getStateCache().getInstancedVertexElementLimit() ==
-            VertexAttribute::kIntegerOverflow)
+    if (context->getNonInstancedVertexElementLimit() == VertexAttribute::kIntegerOverflow ||
+        context->getInstancedVertexElementLimit() == VertexAttribute::kIntegerOverflow)
     {
         ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION, kIntegerOverflow);
     }

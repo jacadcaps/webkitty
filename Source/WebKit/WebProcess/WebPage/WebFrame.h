@@ -35,6 +35,7 @@
 #include "WKBase.h"
 #include "WebLocalFrameLoaderClient.h"
 #include <JavaScriptCore/ConsoleTypes.h>
+#include <JavaScriptCore/InspectorFrontendChannel.h>
 #include <JavaScriptCore/JSBase.h>
 #include <WebCore/AdvancedPrivacyProtections.h>
 #include <WebCore/FrameLoaderTypes.h>
@@ -65,12 +66,26 @@ class IntRect;
 class LocalFrame;
 class PlatformMouseEvent;
 class RemoteFrame;
+class TextIndicator;
+class WebKitJSHandle;
+
+namespace TextExtraction {
+struct ExtractedText;
+struct InteractionDescription;
+struct Interaction;
+struct Item;
+struct Request;
+}
 
 enum class FocusDirection : uint8_t;
 enum class FoundElementInRemoteFrame : bool;
 
 struct FocusEventData;
 struct GlobalWindowIdentifier;
+
+struct JSHandleIdentifierType;
+using WebProcessJSHandleIdentifier = ObjectIdentifier<JSHandleIdentifierType>;
+using JSHandleIdentifier = ProcessQualified<WebProcessJSHandleIdentifier>;
 }
 
 namespace WebKit {
@@ -80,6 +95,7 @@ class InjectedBundleHitTestResult;
 class InjectedBundleNodeHandle;
 class InjectedBundleRangeHandle;
 class InjectedBundleScriptWorld;
+class WebFrameInspectorTarget;
 class WebKeyboardEvent;
 class WebImage;
 class WebMouseEvent;
@@ -88,6 +104,7 @@ class WebRemoteFrameClient;
 
 struct FrameInfoData;
 struct FrameTreeNodeData;
+struct JSHandleInfo;
 struct ProvisionalFrameCreationParameters;
 struct WebsitePoliciesData;
 
@@ -212,8 +229,7 @@ public:
     String mimeTypeForResourceWithURL(const URL&) const;
 
     void setTextDirection(const String&);
-    void updateRemoteFrameSize(WebCore::IntSize);
-    void updateFrameSize(WebCore::IntSize);
+    void updateFrameRectFromRemote(WebCore::IntRect);
 
 #if PLATFORM(COCOA)
     typedef bool (*FrameFilterFunction)(WKBundleFrameRef, WKBundleFrameRef subframe, void* context);
@@ -256,6 +272,8 @@ public:
 
     String frameTextForTesting(bool);
 
+    std::pair<Ref<WebCore::WebKitJSHandle>, JSHandleInfo> createAndPrepareToSendJSHandle(WebCore::Node&) const;
+
     void markAsRemovedInAnotherProcess() { m_wasRemovedInAnotherProcess = true; }
     bool wasRemovedInAnotherProcess() const { return m_wasRemovedInAnotherProcess; }
 
@@ -266,6 +284,21 @@ public:
 
     std::optional<WebCore::ResourceResponse> resourceResponseForURL(const URL&) const;
 
+    void takeSnapshotOfNode(WebCore::JSHandleIdentifier, CompletionHandler<void(std::optional<WebCore::ShareableBitmapHandle>&&)>&&);
+
+    void connectInspector(Inspector::FrontendChannel::ConnectionType);
+    void disconnectInspector();
+    void sendMessageToInspectorTarget(const String& message);
+
+    void requestTextExtraction(WebCore::TextExtraction::Request&&, CompletionHandler<void(WebCore::TextExtraction::Item&&)>&&);
+    void handleTextExtractionInteraction(WebCore::TextExtraction::Interaction&&, CompletionHandler<void(bool, String&&)>&&);
+    void describeTextExtractionInteraction(WebCore::TextExtraction::Interaction&&, CompletionHandler<void(WebCore::TextExtraction::InteractionDescription&&)>&&);
+    void takeSnapshotOfExtractedText(WebCore::TextExtraction::ExtractedText&&, CompletionHandler<void(RefPtr<WebCore::TextIndicator>&&)>&&);
+    void requestJSHandleForExtractedText(WebCore::TextExtraction::ExtractedText&&, CompletionHandler<void(std::optional<JSHandleInfo>&&)>&&);
+
+    void getSelectorPathsForNode(JSHandleInfo&&, CompletionHandler<void(Vector<HashSet<String>>&&)>&&);
+    void getNodeForSelectorPaths(Vector<HashSet<String>>&&, CompletionHandler<void(std::optional<JSHandleInfo>&&)>&&);
+
 private:
     WebFrame(WebPage&, WebCore::FrameIdentifier);
 
@@ -273,13 +306,15 @@ private:
     uint64_t messageSenderDestinationID() const final;
 
     void setLayerHostingContextIdentifier(WebCore::LayerHostingContextIdentifier identifier) { m_layerHostingContextIdentifier = identifier; }
-    void updateLocalFrameSize(WebCore::LocalFrame&, WebCore::IntSize);
+    void updateLocalFrameRect(WebCore::LocalFrame&, WebCore::IntRect);
 
     inline WebCore::DocumentLoader* policySourceDocumentLoader() const;
 
     RefPtr<WebCore::LocalFrame> localFrame();
 
     void findFocusableElementDescendingIntoRemoteFrame(WebCore::FocusDirection, const WebCore::FocusEventData&, CompletionHandler<void(WebCore::FoundElementInRemoteFrame)>&&);
+
+    CheckedRef<WebFrameInspectorTarget> ensureInspectorTarget();
 
     WeakPtr<WebCore::Frame> m_coreFrame;
     WeakPtr<WebPage> m_page;
@@ -303,6 +338,8 @@ private:
     SafeBrowsingCheckOngoing m_isSafeBrowsingCheckOngoing { SafeBrowsingCheckOngoing::No };
     Markable<WebCore::LayerHostingContextIdentifier> m_layerHostingContextIdentifier;
     Markable<WebCore::FrameIdentifier> m_frameIDBeforeProvisionalNavigation;
+
+    std::unique_ptr<WebFrameInspectorTarget> m_inspectorTarget;
 };
 
 } // namespace WebKit

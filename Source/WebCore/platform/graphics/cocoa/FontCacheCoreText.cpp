@@ -49,6 +49,8 @@
 #include <wtf/MemoryPressureHandler.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RobinHoodHashMap.h>
+#include <wtf/URLHash.h>
+#include <wtf/cf/NotificationCenterCF.h>
 #include <wtf/cf/TypeCastsCF.h>
 #include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 
@@ -81,21 +83,21 @@ VariationDefaultsMap defaultVariationValues(CTFontRef font, ShouldLocalizeAxisNa
         return result;
     auto size = CFArrayGetCount(axes.get());
     for (CFIndex i = 0; i < size; ++i) {
-        CFDictionaryRef axis = static_cast<CFDictionaryRef>(CFArrayGetValueAtIndex(axes.get(), i));
-        CFNumberRef axisIdentifier = static_cast<CFNumberRef>(CFDictionaryGetValue(axis, kCTFontVariationAxisIdentifierKey));
-        String axisName = static_cast<CFStringRef>(CFDictionaryGetValue(axis, kCTFontVariationAxisNameKey));
-        CFNumberRef defaultValue = static_cast<CFNumberRef>(CFDictionaryGetValue(axis, kCTFontVariationAxisDefaultValueKey));
-        CFNumberRef minimumValue = static_cast<CFNumberRef>(CFDictionaryGetValue(axis, kCTFontVariationAxisMinimumValueKey));
-        CFNumberRef maximumValue = static_cast<CFNumberRef>(CFDictionaryGetValue(axis, kCTFontVariationAxisMaximumValueKey));
+        RetainPtr axis = static_cast<CFDictionaryRef>(CFArrayGetValueAtIndex(axes.get(), i));
+        RetainPtr axisIdentifier = static_cast<CFNumberRef>(CFDictionaryGetValue(axis.get(), kCTFontVariationAxisIdentifierKey));
+        String axisName = static_cast<CFStringRef>(CFDictionaryGetValue(axis.get(), kCTFontVariationAxisNameKey));
+        RetainPtr defaultValue = static_cast<CFNumberRef>(CFDictionaryGetValue(axis.get(), kCTFontVariationAxisDefaultValueKey));
+        RetainPtr minimumValue = static_cast<CFNumberRef>(CFDictionaryGetValue(axis.get(), kCTFontVariationAxisMinimumValueKey));
+        RetainPtr maximumValue = static_cast<CFNumberRef>(CFDictionaryGetValue(axis.get(), kCTFontVariationAxisMaximumValueKey));
         uint32_t rawAxisIdentifier = 0;
-        Boolean success = CFNumberGetValue(axisIdentifier, kCFNumberSInt32Type, &rawAxisIdentifier);
+        Boolean success = CFNumberGetValue(axisIdentifier.get(), kCFNumberSInt32Type, &rawAxisIdentifier);
         ASSERT_UNUSED(success, success);
         float rawDefaultValue = 0;
         float rawMinimumValue = 0;
         float rawMaximumValue = 0;
-        CFNumberGetValue(defaultValue, kCFNumberFloatType, &rawDefaultValue);
-        CFNumberGetValue(minimumValue, kCFNumberFloatType, &rawMinimumValue);
-        CFNumberGetValue(maximumValue, kCFNumberFloatType, &rawMaximumValue);
+        CFNumberGetValue(defaultValue.get(), kCFNumberFloatType, &rawDefaultValue);
+        CFNumberGetValue(minimumValue.get(), kCFNumberFloatType, &rawMinimumValue);
+        CFNumberGetValue(maximumValue.get(), kCFNumberFloatType, &rawMaximumValue);
 
         if (rawMinimumValue > rawMaximumValue)
             std::swap(rawMinimumValue, rawMaximumValue);
@@ -176,19 +178,19 @@ static void fontCacheRegisteredFontsChangedNotificationCallback(CFNotificationCe
 
 void FontCache::platformInit()
 {
-    CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenter(), this, &fontCacheRegisteredFontsChangedNotificationCallback, kCTFontManagerRegisteredFontsChangedNotification, nullptr, CFNotificationSuspensionBehaviorDeliverImmediately);
+    CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenterSingleton(), this, &fontCacheRegisteredFontsChangedNotificationCallback, kCTFontManagerRegisteredFontsChangedNotification, nullptr, CFNotificationSuspensionBehaviorDeliverImmediately);
 
 #if PLATFORM(IOS_FAMILY)
-    CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenter(), this, &fontCacheRegisteredFontsChangedNotificationCallback, getUIContentSizeCategoryDidChangeNotificationName(), nullptr, CFNotificationSuspensionBehaviorDeliverImmediately);
+    CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenterSingleton(), this, &fontCacheRegisteredFontsChangedNotificationCallback, getUIContentSizeCategoryDidChangeNotificationName(), nullptr, CFNotificationSuspensionBehaviorDeliverImmediately);
 #endif
 
-    CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenter(), this, &fontCacheRegisteredFontsChangedNotificationCallback, kAXSEnhanceTextLegibilityChangedNotification, nullptr, CFNotificationSuspensionBehaviorDeliverImmediately);
+    CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenterSingleton(), this, &fontCacheRegisteredFontsChangedNotificationCallback, kAXSEnhanceTextLegibilityChangedNotification, nullptr, CFNotificationSuspensionBehaviorDeliverImmediately);
 
 #if PLATFORM(MAC)
-    CFNotificationCenterRef center = CFNotificationCenterGetLocalCenter();
+    CFNotificationCenterRef center = CFNotificationCenterGetLocalCenterSingleton();
     const CFStringRef notificationName = kCFLocaleCurrentLocaleDidChangeNotification;
 #else
-    CFNotificationCenterRef center = CFNotificationCenterGetDarwinNotifyCenter();
+    CFNotificationCenterRef center = CFNotificationCenterGetDarwinNotifyCenterSingleton();
     const CFStringRef notificationName = CFSTR("com.apple.language.changed");
 #endif
     CFNotificationCenterAddObserver(center, this, &fontCacheRegisteredFontsChangedNotificationCallback, notificationName, nullptr, CFNotificationSuspensionBehaviorDeliverImmediately);
@@ -201,16 +203,16 @@ Vector<String> FontCache::systemFontFamilies()
     auto availableFontFamilies = adoptCF(CTFontManagerCopyAvailableFontFamilyNames());
     CFIndex count = CFArrayGetCount(availableFontFamilies.get());
     for (CFIndex i = 0; i < count; ++i) {
-        auto fontName = dynamic_cf_cast<CFStringRef>(CFArrayGetValueAtIndex(availableFontFamilies.get(), i));
+        RetainPtr fontName = dynamic_cf_cast<CFStringRef>(CFArrayGetValueAtIndex(availableFontFamilies.get(), i));
         if (!fontName) {
             ASSERT_NOT_REACHED();
             continue;
         }
 
-        if (fontNameIsSystemFont(fontName))
+        if (fontNameIsSystemFont(fontName.get()))
             continue;
 
-        fontFamilies.append(fontName);
+        fontFamilies.append(fontName.get());
     }
 
     return fontFamilies;
@@ -230,7 +232,7 @@ bool FontCache::isSystemFontForbiddenForEditing(const String& fontFamily)
 static CTFontSymbolicTraits computeTraits(const FontDescription& fontDescription)
 {
     CTFontSymbolicTraits traits = 0;
-    if (fontDescription.italic())
+    if (fontDescription.fontStyleSlope())
         traits |= kCTFontTraitItalic;
     if (isFontWeightBold(fontDescription.weight()))
         traits |= kCTFontTraitBold;
@@ -255,7 +257,7 @@ SynthesisPair computeNecessarySynthesis(CTFontRef font, const FontDescription& f
 
     CTFontSymbolicTraits desiredTraits = computeTraits(fontDescription);
     CTFontSymbolicTraits actualTraits = 0;
-    if (isFontWeightBold(fontDescription.weight()) || isItalic(fontDescription.italic())) {
+    if (isFontWeightBold(fontDescription.weight()) || isItalic(fontDescription.fontStyleSlope())) {
         if (shouldComputePhysicalTraits == ShouldComputePhysicalTraits::Yes)
             actualTraits = CTFontGetPhysicalSymbolicTraits(font);
         else
@@ -317,12 +319,12 @@ struct VariationCapabilities {
 
 static std::optional<MinMax> extractVariationBounds(CFDictionaryRef axis)
 {
-    CFNumberRef minimumValue = static_cast<CFNumberRef>(CFDictionaryGetValue(axis, kCTFontVariationAxisMinimumValueKey));
-    CFNumberRef maximumValue = static_cast<CFNumberRef>(CFDictionaryGetValue(axis, kCTFontVariationAxisMaximumValueKey));
+    RetainPtr minimumValue = static_cast<CFNumberRef>(CFDictionaryGetValue(axis, kCTFontVariationAxisMinimumValueKey));
+    RetainPtr maximumValue = static_cast<CFNumberRef>(CFDictionaryGetValue(axis, kCTFontVariationAxisMaximumValueKey));
     float rawMinimumValue = 0;
     float rawMaximumValue = 0;
-    CFNumberGetValue(minimumValue, kCFNumberFloatType, &rawMinimumValue);
-    CFNumberGetValue(maximumValue, kCFNumberFloatType, &rawMaximumValue);
+    CFNumberGetValue(minimumValue.get(), kCFNumberFloatType, &rawMinimumValue);
+    CFNumberGetValue(maximumValue.get(), kCFNumberFloatType, &rawMaximumValue);
     if (rawMinimumValue < rawMaximumValue)
         return {{ rawMinimumValue, rawMaximumValue }};
     return std::nullopt;
@@ -344,17 +346,17 @@ static VariationCapabilities variationCapabilitiesForFontDescriptor(CTFontDescri
         return result;
 
     for (CFIndex i = 0; i < axisCount; ++i) {
-        CFDictionaryRef axis = static_cast<CFDictionaryRef>(CFArrayGetValueAtIndex(variations.get(), i));
-        CFNumberRef axisIdentifier = static_cast<CFNumberRef>(CFDictionaryGetValue(axis, kCTFontVariationAxisIdentifierKey));
+        RetainPtr axis = static_cast<CFDictionaryRef>(CFArrayGetValueAtIndex(variations.get(), i));
+        RetainPtr axisIdentifier = static_cast<CFNumberRef>(CFDictionaryGetValue(axis.get(), kCTFontVariationAxisIdentifierKey));
         uint32_t rawAxisIdentifier = 0;
-        Boolean success = CFNumberGetValue(axisIdentifier, kCFNumberSInt32Type, &rawAxisIdentifier);
+        Boolean success = CFNumberGetValue(axisIdentifier.get(), kCFNumberSInt32Type, &rawAxisIdentifier);
         ASSERT_UNUSED(success, success);
         if (rawAxisIdentifier == 0x77676874) // 'wght'
-            result.weight = extractVariationBounds(axis);
+            result.weight = extractVariationBounds(axis.get());
         else if (rawAxisIdentifier == 0x77647468) // 'wdth'
-            result.width = extractVariationBounds(axis);
+            result.width = extractVariationBounds(axis.get());
         else if (rawAxisIdentifier == 0x736C6E74) // 'slnt'
-            result.slope = extractVariationBounds(axis);
+            result.slope = extractVariationBounds(axis.get());
     }
 
     bool optOutFromGXNormalization = CTFontDescriptorIsSystemUIFont(fontDescriptor);
@@ -407,10 +409,10 @@ FontSelectionCapabilities capabilitiesForFontDescriptor(CTFontDescriptorRef font
         auto traits = adoptCF(static_cast<CFDictionaryRef>(CTFontDescriptorCopyAttribute(fontDescriptor, kCTFontTraitsAttribute)));
         if (traits) {
             if (!variationCapabilities.slope) {
-                auto symbolicTraitsNumber = static_cast<CFNumberRef>(CFDictionaryGetValue(traits.get(), kCTFontSymbolicTrait));
+                RetainPtr symbolicTraitsNumber = static_cast<CFNumberRef>(CFDictionaryGetValue(traits.get(), kCTFontSymbolicTrait));
                 if (symbolicTraitsNumber) {
                     int32_t symbolicTraits;
-                    auto success = CFNumberGetValue(symbolicTraitsNumber, kCFNumberSInt32Type, &symbolicTraits);
+                    auto success = CFNumberGetValue(symbolicTraitsNumber.get(), kCFNumberSInt32Type, &symbolicTraits);
                     ASSERT_UNUSED(success, success);
                     auto slopeValue = static_cast<float>(symbolicTraits & kCTFontTraitItalic ? italicValue() : normalItalicValue());
                     variationCapabilities.slope = {{ slopeValue, slopeValue }};
@@ -444,7 +446,7 @@ static const FontDatabase::InstalledFont* findClosestFont(const FontDatabase::In
     auto capabilities = familyFonts.installedFonts.map([](auto& font) {
         return font.capabilities;
     });
-    FontSelectionAlgorithm fontSelectionAlgorithm(fontSelectionRequest, WTFMove(capabilities), familyFonts.capabilities);
+    FontSelectionAlgorithm fontSelectionAlgorithm(fontSelectionRequest, WTF::move(capabilities), familyFonts.capabilities);
     auto index = fontSelectionAlgorithm.indexOfBestCapabilities();
     if (index == notFound)
         return nullptr;
@@ -585,7 +587,7 @@ static std::optional<SpecialCaseFontLookupResult> fontDescriptorWithFamilySpecia
             // because there doesn't seem to be a place to specify the bitmask. That's the reason we're creating the derived CTFontDescriptor here, rather than in UnrealizedCoreTextFont::realize().
             return { { adoptCF(CTFontDescriptorCreateCopyWithSymbolicTraits(descriptor.get(), traits, traits)), FontTypeForPreparation::SystemFont } };
         }
-        return { { WTFMove(descriptor), FontTypeForPreparation::SystemFont } };
+        return { { WTF::move(descriptor), FontTypeForPreparation::SystemFont } };
     }
 
     if (equalLettersIgnoringASCIICase(family, "-apple-menu"_s))
@@ -630,13 +632,13 @@ static RetainPtr<CTFontRef> fontWithFamily(FontDatabase& fontDatabase, const Ato
         lookupResult->unrealizedCoreTextFont.modify([&](CFMutableDictionaryRef attributes) {
             addAttributesForInstalledFonts(attributes, fontDescription.shouldAllowUserInstalledFonts());
         });
-        return preparePlatformFont(WTFMove(lookupResult->unrealizedCoreTextFont), fontDescription, fontCreationContext, lookupResult->fontTypeForPreparation);
+        return preparePlatformFont(WTF::move(lookupResult->unrealizedCoreTextFont), fontDescription, fontCreationContext, lookupResult->fontTypeForPreparation);
     }
     auto fontLookup = platformFontLookupWithFamily(fontDatabase, family, fontDescription.fontSelectionRequest(), options);
-    UnrealizedCoreTextFont unrealizedFont = { WTFMove(fontLookup.result) };
+    UnrealizedCoreTextFont unrealizedFont = { WTF::move(fontLookup.result) };
     unrealizedFont.setSize(size);
     ApplyTraitsVariations applyTraitsVariations = fontLookup.createdFromPostScriptName ? ApplyTraitsVariations::No : ApplyTraitsVariations::Yes;
-    return preparePlatformFont(WTFMove(unrealizedFont), fontDescription, fontCreationContext, FontTypeForPreparation::NonSystemFont, applyTraitsVariations);
+    return preparePlatformFont(WTF::move(unrealizedFont), fontDescription, fontCreationContext, FontTypeForPreparation::NonSystemFont, applyTraitsVariations);
 }
 
 #if PLATFORM(MAC)
@@ -668,14 +670,14 @@ static void autoActivateFont(const String& name, CGFloat size)
 static void registerFontIfNeeded(const String& family) WTF_REQUIRES_LOCK(userInstalledFontMapLock())
 {
     if (auto fontURL = userInstalledFontMap().getOptional(family)) {
-        RELEASE_LOG_FORWARDABLE(Fonts, FONTCACHECORETEXT_REGISTER_FONT, family.utf8().data(), fontURL->string().utf8().data());
+        RELEASE_LOG_FORWARDABLE(Fonts, FONTCACHECORETEXT_REGISTER_FONT, family.utf8(), fontURL->string().utf8());
         RetainPtr cfURL = fontURL->createCFURL();
 
         CFErrorRef error = nullptr;
         if (!CTFontManagerRegisterFontsForURL(cfURL.get(), kCTFontManagerScopeProcess, &error)) {
             RetainPtr descriptionCF = adoptCF(CFErrorCopyDescription(error));
             String error(descriptionCF.get());
-            RELEASE_LOG_FORWARDABLE(Fonts, FONTCACHECORETEXT_REGISTER_ERROR, family.utf8().data(), error.utf8().data());
+            RELEASE_LOG_FORWARDABLE(Fonts, FONTCACHECORETEXT_REGISTER_ERROR, family.utf8(), error.utf8());
         }
 
         userInstalledFontMap().removeIf([&](auto& keyAndValue) {
@@ -806,7 +808,7 @@ RefPtr<Font> FontCache::systemFallbackForCharacterCluster(const FontDescription&
         m_fontNamesRequiringSystemFallbackForPrewarming.add(fullName);
 
     auto result = lookupFallbackFont(platformData.ctFont(), description.weight(), description.computedLocale(), description.shouldAllowUserInstalledFonts(), characterCluster);
-    result = preparePlatformFont(UnrealizedCoreTextFont { WTFMove(result) }, description, { });
+    result = preparePlatformFont(UnrealizedCoreTextFont { WTF::move(result) }, description, { });
 
     if (!result)
         return lastResortFallbackFont(description);
@@ -814,14 +816,14 @@ RefPtr<Font> FontCache::systemFallbackForCharacterCluster(const FontDescription&
     // FontCascade::drawGlyphBuffer() requires that there are no duplicate Font objects which refer to the same thing. This is enforced in
     // FontCache::fontForPlatformData(), where our equality check is based on hashing the FontPlatformData, whose hash includes the raw CoreText
     // font pointer.
-    CTFontRef substituteFont = m_fallbackFonts.add(result).iterator->get();
+    RetainPtr substituteFont = m_fallbackFonts.add(result).iterator->get();
 
-    auto [syntheticBold, syntheticOblique] = computeNecessarySynthesis(substituteFont, description, { }, ShouldComputePhysicalTraits::No, isForPlatformFont == IsForPlatformFont::Yes).boldObliquePair();
+    auto [syntheticBold, syntheticOblique] = computeNecessarySynthesis(substituteFont.get(), description, { }, ShouldComputePhysicalTraits::No, isForPlatformFont == IsForPlatformFont::Yes).boldObliquePair();
 
     RefPtr<const FontCustomPlatformData> customPlatformData = nullptr;
-    if (safeCFEqual(platformData.ctFont(), substituteFont))
+    if (safeCFEqual(platformData.ctFont(), substituteFont.get()))
         customPlatformData = platformData.customPlatformData();
-    FontPlatformData alternateFont(substituteFont, platformData.size(), syntheticBold, syntheticOblique, platformData.orientation(), platformData.widthVariant(), platformData.textRenderingMode(), customPlatformData.get());
+    FontPlatformData alternateFont(substituteFont.get(), platformData.size(), syntheticBold, syntheticOblique, platformData.orientation(), platformData.widthVariant(), platformData.textRenderingMode(), customPlatformData.get());
 
     return fontForPlatformData(alternateFont);
 }
@@ -969,7 +971,7 @@ void FontCache::prewarm(PrewarmInformation&& prewarmInformation)
     if (!m_prewarmQueue)
         lazyInitialize(m_prewarmQueue, WorkQueue::create("WebKit font prewarm queue"_s));
 
-    m_prewarmQueue->dispatch([&database = m_databaseDisallowingUserInstalledFonts, prewarmInformation = WTFMove(prewarmInformation).isolatedCopy()] {
+    m_prewarmQueue->dispatch([&database = m_databaseDisallowingUserInstalledFonts, prewarmInformation = WTF::move(prewarmInformation).isolatedCopy()] {
         for (auto& family : prewarmInformation.seenFamilies)
             database.collectionForFamily(family);
 
@@ -1006,8 +1008,8 @@ void FontCache::prewarmGlobally()
     };
 
     FontCache::PrewarmInformation prewarmInfo;
-    prewarmInfo.seenFamilies = WTFMove(families);
-    FontCache::forCurrentThread()->prewarm(WTFMove(prewarmInfo));
+    prewarmInfo.seenFamilies = WTF::move(families);
+    FontCache::forCurrentThread()->prewarm(WTF::move(prewarmInfo));
 #endif
 }
 

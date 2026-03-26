@@ -27,7 +27,7 @@
 
 #if HAVE(CORE_MATERIAL)
 
-#include "FloatRoundedRect.h"
+#include <WebCore/FloatRoundedRect.h>
 
 namespace WTF {
 class TextStream;

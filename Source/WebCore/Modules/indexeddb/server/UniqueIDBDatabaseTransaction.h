@@ -25,14 +25,15 @@
 
 #pragma once
 
-#include "IDBError.h"
-#include "IDBIndexIdentifier.h"
-#include "IDBObjectStoreIdentifier.h"
-#include "IDBTransactionInfo.h"
-#include "IndexKey.h"
+#include <WebCore/IDBError.h>
+#include <WebCore/IDBIndexIdentifier.h>
+#include <WebCore/IDBObjectStoreIdentifier.h>
+#include <WebCore/IDBTransactionInfo.h>
+#include <WebCore/IndexKey.h>
 #include <wtf/Deque.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
@@ -63,6 +64,7 @@ public:
 
     UniqueIDBDatabaseConnection* databaseConnection() const;
     UniqueIDBDatabase* database() const;
+    CheckedPtr<UniqueIDBDatabase> checkedDatabase() const;
     const IDBTransactionInfo& info() const { return m_transactionInfo; }
     WEBCORE_EXPORT bool isVersionChange() const;
     bool isReadOnly() const;
@@ -88,6 +90,7 @@ public:
     WEBCORE_EXPORT void deleteRecord(const IDBRequestData&, const IDBKeyRangeData&);
     WEBCORE_EXPORT void openCursor(const IDBRequestData&, const IDBCursorInfo&);
     WEBCORE_EXPORT void iterateCursor(const IDBRequestData&, const IDBIterateCursorData&);
+    void addOpenRequestResult(const IDBError&);
 
     void didActivateInBackingStore(const IDBError&);
 

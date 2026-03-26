@@ -113,12 +113,23 @@ class LinuxBrowserDriver(BrowserDriver):
             self.browser_args = []
         exec_args = [self.process_name] + self.browser_args + self._default_browser_arguments
         _log.info('Executing: {browser_cmdline}'.format(browser_cmdline=' '.join(exec_args)))
+
+        pass_fds = ()
+        if os.environ.get("SYSPROF_CONTROL_FD"):
+            try:
+                control_fd = int(os.environ.get("SYSPROF_CONTROL_FD"))
+                copy_fd = os.dup(control_fd)
+                pass_fds += (copy_fd, )
+                self._test_environ["SYSPROF_CONTROL_FD"] = str(copy_fd)
+            except (ValueError):
+                pass
+
         # The browser process is not expected to exit on its own, it gets killed when the benchmark ends
         # and at that time is already too late to read the stdour/stderr pipes when there is lot of text
         # because if the pipe gets full then the browser process gets frozen.
         # So do not capture stdout/stderr, let the subprocess flush it to the default stdout/stderr.
         self._browser_process = subprocess.Popen(
-            exec_args, env=self._test_environ,
+            exec_args, env=self._test_environ, pass_fds=pass_fds,
             encoding='utf-8',
         )
 

@@ -25,12 +25,14 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
 #if HAVE(IOSURFACE)
 
-#include "IOSurface.h"
-#include "IntSize.h"
-#include "IntSizeHash.h"
-#include "Timer.h"
+#include <WebCore/IOSurface.h>
+#include <WebCore/IOSurfacePoolIdentifier.h>
+#include <WebCore/IntSize.h>
+#include <WebCore/IntSizeHash.h>
+#include <WebCore/Timer.h>
 #include <wtf/Deque.h>
 #include <wtf/HashMap.h>
 #include <wtf/Lock.h>
@@ -44,7 +46,7 @@ namespace WebCore {
 
 class DestinatationColorSpace;
 
-class IOSurfacePool : public ThreadSafeRefCounted<IOSurfacePool> {
+class IOSurfacePool : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<IOSurfacePool> {
     WTF_MAKE_TZONE_ALLOCATED_EXPORT(IOSurfacePool, WEBCORE_EXPORT);
     WTF_MAKE_NONCOPYABLE(IOSurfacePool);
     friend class LazyNeverDestroyed<IOSurfacePool>;
@@ -74,6 +76,7 @@ private:
 
         MonotonicTime lastUseTime;
         bool hasMarkedPurgeable;
+        bool inCurrentlyUsedSurfaceCache;
     };
 
     using CachedSurfaceQueue = Deque<std::unique_ptr<IOSurface>>;
@@ -123,6 +126,7 @@ private:
     size_t m_bytesCached WTF_GUARDED_BY_LOCK(m_lock) { 0 };
     size_t m_inUseBytesCached WTF_GUARDED_BY_LOCK(m_lock) { 0 };
     size_t m_maximumBytesCached WTF_GUARDED_BY_LOCK(m_lock) { defaultMaximumBytesCached };
+    const IOSurfacePoolIdentifier m_poolIdentifier { IOSurfacePoolIdentifier::generate() };
 };
 
 }

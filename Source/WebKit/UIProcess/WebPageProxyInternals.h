@@ -27,12 +27,14 @@
 
 #include "ContextMenuContextData.h"
 #include "EditorState.h"
+#include "EnhancedSecurityTracking.h"
 #include "GeolocationPermissionRequestManagerProxy.h"
 #include "HiddenPageThrottlingAutoIncreasesCounter.h"
 #include "LayerTreeContext.h"
 #include "PageLoadState.h"
 #include "ProcessThrottler.h"
 #include "ScrollingAccelerationCurve.h"
+#include "TextManipulationParameters.h"
 #include "VisibleWebPageCounter.h"
 #include "WebColorPicker.h"
 #include "WebDataListSuggestionsDropdown.h"
@@ -47,6 +49,7 @@
 #include <WebCore/PrivateClickMeasurement.h>
 #include <WebCore/RegistrableDomain.h>
 #include <WebCore/ResourceRequest.h>
+#include <WebCore/SecurityOriginData.h>
 #include <WebCore/SpatialBackdropSource.h>
 #include <pal/HysteresisActivity.h>
 #include <wtf/UUID.h>
@@ -97,6 +100,10 @@
 #include "ModelPresentationManagerProxy.h"
 #endif
 
+#if ENABLE(IMAGE_ANALYSIS)
+#include <WebCore/ImageAnalysisQueue.h>
+#endif
+
 namespace WebKit {
 
 #if ENABLE(WINDOW_PROXY_PROPERTY_ACCESS_NOTIFICATION)
@@ -141,7 +148,7 @@ private:
         if (domain.isEmpty())
             return;
 
-        m_visitedDomains.prependOrMoveToFirst(WTFMove(domain));
+        m_visitedDomains.prependOrMoveToFirst(WTF::move(domain));
 
         if (m_visitedDomains.size() > maxVisitedDomainsSize)
             m_visitedDomains.removeLast();
@@ -151,55 +158,6 @@ private:
     ListHashSet<WebCore::RegistrableDomain> m_visitedDomains;
 };
 #endif
-
-class PageLoadTimingFrameLoadStateObserver final : public FrameLoadStateObserver {
-public:
-    explicit PageLoadTimingFrameLoadStateObserver(const WebPageProxy&page)
-        : m_page(page)
-    {
-    }
-
-    void ref() const final;
-    void deref() const final;
-
-    bool hasLoadingFrame() const { return !!m_loadingFrameCount; }
-
-private:
-    void didCommitProvisionalLoad(IsMainFrame isMainFrame)
-    {
-        if (isMainFrame == IsMainFrame::Yes) {
-            // Teardown doesn't reliably inform the UI process of each iframe's provisional load failure.
-            m_loadingFrameCount = 1;
-        }
-    }
-
-    void didStartProvisionalLoad(const URL&) final
-    {
-        m_loadingFrameCount++;
-    }
-
-    void didFailProvisionalLoad(const URL&) final
-    {
-        ASSERT(m_loadingFrameCount);
-        m_loadingFrameCount--;
-    }
-
-    void didFailLoad(const URL&) final
-    {
-        ASSERT(m_loadingFrameCount);
-        m_loadingFrameCount--;
-    }
-
-    void didFinishLoad(IsMainFrame, const URL& url) final
-    {
-        ASSERT(m_loadingFrameCount);
-        m_loadingFrameCount--;
-        // FIXME: Assert that m_loadingFrameCount is zero if this is a main frame.
-    }
-
-    WeakRef<WebPageProxy> m_page;
-    size_t m_loadingFrameCount { 0 };
-};
 
 struct PrivateClickMeasurementAndMetadata {
     WebCore::PrivateClickMeasurement pcm;
@@ -265,7 +223,6 @@ struct WebPageProxy::Internals final : WebPopupMenuProxy::Client
     , EndowmentStateTrackerClient
 #endif
 #if ENABLE(SPEECH_SYNTHESIS)
-    , WebCore::PlatformSpeechSynthesisUtteranceClient
     , WebCore::PlatformSpeechSynthesizerClient
 #endif
 #if ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(IOS_FAMILY)
@@ -282,6 +239,14 @@ public:
     uint32_t checkedPtrCountWithoutThreadCheck() const { return WebPopupMenuProxy::Client::checkedPtrCountWithoutThreadCheck(); }
     void incrementCheckedPtrCount() const { WebPopupMenuProxy::Client::incrementCheckedPtrCount(); }
     void decrementCheckedPtrCount() const { WebPopupMenuProxy::Client::decrementCheckedPtrCount(); }
+    void setDidBeginCheckedPtrDeletion()
+    {
+        WebPopupMenuProxy::Client::setDidBeginCheckedPtrDeletion();
+#if ENABLE(APPLE_PAY)
+        WebPaymentCoordinatorProxy::Client::setDidBeginCheckedPtrDeletion();
+#endif
+        WebColorPickerClient::setDidBeginCheckedPtrDeletion();
+    }
 
 #if PLATFORM(MACCATALYST)
     // EndowmentStateTrackerClient
@@ -393,6 +358,7 @@ public:
 
 #if ENABLE(MAC_GESTURE_EVENTS)
     Deque<NativeWebGestureEvent> gestureEventQueue;
+    unsigned droppedGestureEventCount { 0 };
 #endif
 
 #if ENABLE(META_VIEWPORT)
@@ -424,7 +390,7 @@ public:
 #endif
 
 #if ENABLE(WRITING_TOOLS)
-    HashMap<WTF::UUID, RefPtr<WebCore::TextIndicator>> textIndicatorDataForAnimationID;
+    HashMap<WTF::UUID, RefPtr<WebCore::TextIndicator>> textIndicatorForAnimationID;
     HashMap<WTF::UUID, CompletionHandler<void(WebCore::TextAnimationRunMode)>> completionHandlerForAnimationID;
     HashMap<WTF::UUID, CompletionHandler<void(std::optional<WebCore::TextIndicatorData>)>> completionHandlerForDestinationTextIndicatorForSourceID;
     HashMap<WTF::UUID, WTF::UUID> sourceAnimationIDtoDestinationAnimationID;
@@ -441,7 +407,6 @@ public:
     bool needsFixedContainerEdgesUpdateAfterNextCommit { false };
 
 #if ENABLE(VIDEO_PRESENTATION_MODE)
-    RunLoop::Timer fullscreenVideoTextRecognitionTimer;
     std::optional<PlaybackSessionContextIdentifier> currentFullscreenVideoSessionIdentifier;
 #endif
 
@@ -457,7 +422,6 @@ public:
     RefPtr<WebPageProxyFrameLoadStateObserver> frameLoadStateObserver;
     HashMap<WebCore::RegistrableDomain, OptionSet<WebCore::WindowProxyProperty>> windowOpenerAccessedProperties;
 #endif
-    PageLoadTimingFrameLoadStateObserver pageLoadTimingFrameLoadStateObserver;
 
 #if PLATFORM(GTK) || PLATFORM(WPE)
     RunLoop::Timer activityStateChangeTimer;
@@ -473,7 +437,15 @@ public:
 
     bool allowsLayoutViewportHeightExpansion { true };
 
-    explicit Internals(WebPageProxy&);
+#if ENABLE(IMAGE_ANALYSIS)
+    std::optional<WebCore::ImageTranslationLanguageIdentifiers> imageTranslationLanguageIdentifiers;
+#endif
+
+    std::optional<TextManipulationParameters> textManipulationParameters;
+
+    EnhancedSecurityTracking enhancedSecurityTracker;
+
+    explicit Internals(WebPageProxy&, std::optional<WebCore::SecurityOriginData>);
 
     Ref<WebPageProxy> protectedPage() const;
 
@@ -507,6 +479,7 @@ public:
 #endif
 #if ENABLE(APPLE_PAY) && PLATFORM(IOS_FAMILY) && ENABLE(APPLE_PAY_REMOTE_UI_USES_SCENE)
     void getWindowSceneAndBundleIdentifierForPaymentPresentation(WebPageProxyIdentifier, CompletionHandler<void(const String&, const String&)>&&) final;
+    void notifyWillPresentPaymentUI(WebPageProxyIdentifier) final;
 #endif
 #if ENABLE(APPLE_PAY)
     CocoaWindow *paymentCoordinatorPresentingWindow(const WebPaymentCoordinatorProxy&) const final;
@@ -546,11 +519,12 @@ public:
 
     Ref<PageLoadState> protectedPageLoadState() { return pageLoadState; }
     Ref<WebNotificationManagerMessageHandler> protectedNotificationManagerMessageHandler() { return notificationManagerMessageHandler; }
-    Ref<PageLoadTimingFrameLoadStateObserver> protectedPageLoadTimingFrameLoadStateObserver() { return pageLoadTimingFrameLoadStateObserver; }
 #if ENABLE(WINDOW_PROXY_PROPERTY_ACCESS_NOTIFICATION)
     RefPtr<WebPageProxyFrameLoadStateObserver> protectedFrameLoadStateObserver() { return frameLoadStateObserver; }
 #endif
     Ref<GeolocationPermissionRequestManagerProxy> protectedGeolocationPermissionRequestManager() { return geolocationPermissionRequestManager; }
+
+    std::optional<WebCore::SecurityOriginData> openerOrigin;
 };
 
 } // namespace WebKit

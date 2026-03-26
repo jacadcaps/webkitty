@@ -37,10 +37,7 @@
 #import "Logging.h"
 #import "MessageNames.h"
 #import "WebPreferencesKeys.h"
-#import <CoreText/CTFont.h>
-#import <CoreText/CTFontDescriptor.h>
 #import <WebCore/ColorCocoa.h>
-#import <WebCore/FontCocoa.h>
 #import <pal/spi/cocoa/NSKeyedUnarchiverSPI.h>
 #import <wtf/BlockObjCExceptions.h>
 #import <wtf/HashSet.h>
@@ -52,8 +49,6 @@
 
 #if PLATFORM(IOS_FAMILY)
 #import <UIKit/UIColor.h>
-#import <UIKit/UIFont.h>
-#import <UIKit/UIFontDescriptor.h>
 #import <UIKit/UIKit.h>
 #import <pal/ios/UIKitSoftLink.h>
 #endif
@@ -78,6 +73,9 @@
 #endif
 #if USE(PASSKIT)
 #import <pal/cocoa/ContactsSoftLink.h>
+#endif
+#if HAVE(PARENTAL_CONTROLS_WITH_UNBLOCK_HANDLER)
+#import <pal/cocoa/WebContentAnalysisSoftLink.h>
 #endif
 
 #if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
@@ -200,7 +198,7 @@
     if (auto bytes = (UInt8 *)[coder decodeBytesWithReturnedLength:&length]) {
         m_wrappedURL = bridge_cast(adoptCF(CFURLCreateAbsoluteURLWithBytes(nullptr, bytes, length, kCFStringEncodingUTF8, nullptr, true)));
         if (!m_wrappedURL)
-            LOG_ERROR("Failed to decode NSURL due to invalid encoding of length %d. Substituting a blank URL", length);
+            LOG_ERROR("Failed to decode NSURL due to invalid encoding of length %zu. Substituting a blank URL", length);
     }
 
     if (!m_wrappedURL)
@@ -273,70 +271,77 @@ using namespace WebCore;
 #if ENABLE(DATA_DETECTION)
 template<> Class getClass<DDScannerResult>()
 {
-    return PAL::getDDScannerResultClass();
+    return PAL::getDDScannerResultClassSingleton();
 }
 
 #if PLATFORM(MAC)
 template<> Class getClass<WKDDActionContext>()
 {
-    return PAL::getWKDDActionContextClass();
+    return PAL::getWKDDActionContextClassSingleton();
 }
 #endif
 #endif
 #if USE(AVFOUNDATION)
 template<> Class getClass<AVOutputContext>()
 {
-    return PAL::getAVOutputContextClass();
+    return PAL::getAVOutputContextClassSingleton();
 }
 #endif
 #if USE(PASSKIT)
 template<> Class getClass<CNContact>()
 {
-    return PAL::getCNContactClass();
+    return PAL::getCNContactClassSingleton();
 }
 template<> Class getClass<CNPhoneNumber>()
 {
-    return PAL::getCNPhoneNumberClass();
+    return PAL::getCNPhoneNumberClassSingleton();
 }
 template<> Class getClass<CNPostalAddress>()
 {
-    return PAL::getCNPostalAddressClass();
+    return PAL::getCNPostalAddressClassSingleton();
 }
 template<> Class getClass<PKContact>()
 {
-    return PAL::getPKContactClass();
+    return PAL::getPKContactClassSingleton();
 }
 template<> Class getClass<PKPaymentMerchantSession>()
 {
-    return PAL::getPKPaymentMerchantSessionClass();
+    return PAL::getPKPaymentMerchantSessionClassSingleton();
 }
 template<> Class getClass<PKPaymentSetupFeature>()
 {
-    return PAL::getPKPaymentSetupFeatureClass();
+    return PAL::getPKPaymentSetupFeatureClassSingleton();
 }
 template<> Class getClass<PKPayment>()
 {
-    return PAL::getPKPaymentClass();
+    return PAL::getPKPaymentClassSingleton();
 }
 template<> Class getClass<PKPaymentToken>()
 {
-    return PAL::getPKPaymentTokenClass();
+    return PAL::getPKPaymentTokenClassSingleton();
 }
 template<> Class getClass<PKShippingMethod>()
 {
-    return PAL::getPKShippingMethodClass();
+    return PAL::getPKShippingMethodClassSingleton();
 }
 template<> Class getClass<PKDateComponentsRange>()
 {
-    return PAL::getPKDateComponentsRangeClass();
+    return PAL::getPKDateComponentsRangeClassSingleton();
 }
 template<> Class getClass<PKPaymentMethod>()
 {
-    return PAL::getPKPaymentMethodClass();
+    return PAL::getPKPaymentMethodClassSingleton();
 }
 template<> Class getClass<PKSecureElementPass>()
 {
-    return PAL::getPKSecureElementPassClass();
+    return PAL::getPKSecureElementPassClassSingleton();
+}
+#endif
+
+#if !HAVE(WEBCONTENTRESTRICTIONS) && HAVE(PARENTAL_CONTROLS_WITH_UNBLOCK_HANDLER)
+template<> Class getClass<WebFilterEvaluator>()
+{
+    return PAL::getWebFilterEvaluatorClassSingleton();
 }
 #endif
 
@@ -365,8 +370,6 @@ NSType typeFromObject(id object)
         return NSType::Error;
     if ([object isKindOfClass:[NSDictionary class]])
         return NSType::Dictionary;
-    if ([object isKindOfClass:[CocoaFont class]])
-        return NSType::Font;
     if ([object isKindOfClass:[NSLocale class]])
         return NSType::Locale;
     if ([object isKindOfClass:[NSNumber class]])
@@ -380,38 +383,31 @@ NSType typeFromObject(id object)
     if ([object isKindOfClass:[NSURL class]])
         return NSType::URL;
 #if USE(PASSKIT)
-    if ([object isKindOfClass:getClass<PKPaymentMethod>()])
+    // No need to retain Class, it is immortal.
+    SUPPRESS_UNRETAINED_ARG if ([object isKindOfClass:getClass<PKPaymentMethod>()])
         return NSType::PKPaymentMethod;
-    if ([object isKindOfClass:getClass<PKPaymentMerchantSession>()])
+    SUPPRESS_UNRETAINED_ARG if ([object isKindOfClass:getClass<PKPaymentMerchantSession>()])
         return NSType::PKPaymentMerchantSession;
-    if ([object isKindOfClass:getClass<PKPaymentSetupFeature>()])
+    SUPPRESS_UNRETAINED_ARG if ([object isKindOfClass:getClass<PKPaymentSetupFeature>()])
         return NSType::PKPaymentSetupFeature;
-    if ([object isKindOfClass:getClass<PKContact>()])
+    SUPPRESS_UNRETAINED_ARG if ([object isKindOfClass:getClass<PKContact>()])
         return NSType::PKContact;
-    if ([object isKindOfClass:getClass<PKSecureElementPass>()])
+    SUPPRESS_UNRETAINED_ARG if ([object isKindOfClass:getClass<PKSecureElementPass>()])
         return NSType::PKSecureElementPass;
-    if ([object isKindOfClass:getClass<PKPayment>()])
+    SUPPRESS_UNRETAINED_ARG if ([object isKindOfClass:getClass<PKPayment>()])
         return NSType::PKPayment;
-    if ([object isKindOfClass:getClass<PKPaymentToken>()])
+    SUPPRESS_UNRETAINED_ARG if ([object isKindOfClass:getClass<PKPaymentToken>()])
         return NSType::PKPaymentToken;
-    if ([object isKindOfClass:getClass<PKShippingMethod>()])
+    SUPPRESS_UNRETAINED_ARG if ([object isKindOfClass:getClass<PKShippingMethod>()])
         return NSType::PKShippingMethod;
-    if ([object isKindOfClass:getClass<PKDateComponentsRange>()])
+    SUPPRESS_UNRETAINED_ARG if ([object isKindOfClass:getClass<PKDateComponentsRange>()])
         return NSType::PKDateComponentsRange;
-    if ([object isKindOfClass:getClass<CNContact>()])
+    SUPPRESS_UNRETAINED_ARG if ([object isKindOfClass:getClass<CNContact>()])
         return NSType::CNContact;
-    if ([object isKindOfClass:getClass<CNPhoneNumber>()])
+    SUPPRESS_UNRETAINED_ARG if ([object isKindOfClass:getClass<CNPhoneNumber>()])
         return NSType::CNPhoneNumber;
-    if ([object isKindOfClass:getClass<CNPostalAddress>()])
+    SUPPRESS_UNRETAINED_ARG if ([object isKindOfClass:getClass<CNPostalAddress>()])
         return NSType::CNPostalAddress;
-#endif
-#if ENABLE(DATA_DETECTION) && HAVE(WK_SECURE_CODING_DATA_DETECTORS)
-    if ([object isKindOfClass:getClass<DDScannerResult>()])
-        return NSType::DDScannerResult;
-#if PLATFORM(MAC)
-    if ([object isKindOfClass:getClass<WKDDActionContext>()])
-        return NSType::WKDDActionContext;
-#endif
 #endif
     if ([object isKindOfClass:[NSDateComponents class]])
         return NSType::NSDateComponents;
@@ -433,15 +429,8 @@ NSType typeFromObject(id object)
     return NSType::Unknown;
 }
 
-static inline bool isSerializableFont(CTFontRef font)
-{
-    return !!adoptCF(CTFontCopyAttribute(font, kCTFontURLAttribute));
-}
-
 bool isSerializableValue(id value)
 {
-    if ([value isKindOfClass:[CocoaFont class]])
-        return isSerializableFont((__bridge CTFontRef)value);
     return typeFromObject(value) != NSType::Unknown;
 }
 
@@ -456,15 +445,15 @@ template<> void encodeObjectDirectly<NSObject<NSSecureCoding>>(Encoder& encoder,
     auto delegate = adoptNS([[WKSecureCodingArchivingDelegate alloc] init]);
 
 #if ENABLE(DATA_DETECTION)
-    if (PAL::isDataDetectorsCoreFrameworkAvailable() && [object isKindOfClass:PAL::getDDScannerResultClass()])
+    if (PAL::isDataDetectorsCoreFrameworkAvailable() && [object isKindOfClass:PAL::getDDScannerResultClassSingleton()])
         [delegate setRewriteMutableString:YES];
 #if PLATFORM(MAC)
-    if (PAL::isDataDetectorsFrameworkAvailable() && [object isKindOfClass:PAL::getWKDDActionContextClass()])
+    if (PAL::isDataDetectorsFrameworkAvailable() && [object isKindOfClass:PAL::getWKDDActionContextClassSingleton()])
         [delegate setRewriteMutableString:YES];
 #endif // PLATFORM(MAC)
 #endif // ENABLE(DATA_DETECTION)
 #if ENABLE(REVEAL)
-    if (PAL::isRevealCoreFrameworkAvailable() && [object isKindOfClass:PAL::getRVItemClass()])
+    if (PAL::isRevealCoreFrameworkAvailable() && [object isKindOfClass:PAL::getRVItemClassSingleton()])
         [delegate setRewriteMutableString:YES];
 #endif // ENABLE(REVEAL)
 
@@ -475,20 +464,20 @@ template<> void encodeObjectDirectly<NSObject<NSSecureCoding>>(Encoder& encoder,
 
 #if ENABLE(REVEAL)
     // FIXME: This can be removed for RVItem on operating systems that have rdar://109237983.
-    if (PAL::isRevealCoreFrameworkAvailable() && [object isKindOfClass:PAL::getRVItemClass()])
+    if (PAL::isRevealCoreFrameworkAvailable() && [object isKindOfClass:PAL::getRVItemClassSingleton()])
         [delegate setTransformURLs:NO];
 #endif
 #if ENABLE(DATA_DETECTION)
-    if (PAL::isDataDetectorsCoreFrameworkAvailable() && [object isKindOfClass:PAL::getDDScannerResultClass()])
+    if (PAL::isDataDetectorsCoreFrameworkAvailable() && [object isKindOfClass:PAL::getDDScannerResultClassSingleton()])
         [delegate setTransformURLs:NO];
 #if PLATFORM(MAC)
-    if (PAL::isDataDetectorsFrameworkAvailable() && [object isKindOfClass:PAL::getWKDDActionContextClass()])
+    if (PAL::isDataDetectorsFrameworkAvailable() && [object isKindOfClass:PAL::getWKDDActionContextClassSingleton()])
         [delegate setTransformURLs:NO];
 #endif
 #endif // ENABLE(DATA_DETECTION)
 
 #if USE(PASSKIT)
-    if (PAL::isPassKitCoreFrameworkAvailable() && [object isKindOfClass:PAL::getPKSecureElementPassClass()]) {
+    if (PAL::isPassKitCoreFrameworkAvailable() && [object isKindOfClass:PAL::getPKSecureElementPassClassSingleton()]) {
         [delegate setTransformURLs:NO];
         [delegate setRewriteMutableArray:YES];
     }
@@ -500,7 +489,8 @@ template<> void encodeObjectDirectly<NSObject<NSSecureCoding>>(Encoder& encoder,
     [archiver finishEncoding];
     [archiver setDelegate:nil];
 
-    encoder << (__bridge CFDataRef)[archiver encodedData];
+    RetainPtr<CFDataRef> archivedData = bridge_cast([archiver encodedData]);
+    encoder << archivedData;
 }
 
 static bool shouldEnableStrictMode(Decoder& decoder, const AllowedClassHashSet& allowedClasses)
@@ -521,22 +511,22 @@ static constexpr bool haveSecureActionContext = false;
 #if ENABLE(DATA_DETECTION)
     // rdar://107553330 - don't re-introduce rdar://107676726
     if (PAL::isDataDetectorsCoreFrameworkAvailable()
-        && PAL::getDDScannerResultClass()
-        && allowedClasses.contains(PAL::getDDScannerResultClass()))
+        && PAL::getDDScannerResultClassSingleton()
+        && allowedClasses.contains(PAL::getDDScannerResultClassSingleton()))
         return haveSecureActionContext;
 #if PLATFORM(MAC)
     // rdar://107553348 - don't re-introduce rdar://107676726
     if (PAL::isDataDetectorsFrameworkAvailable()
-        && PAL::getWKDDActionContextClass()
-        && allowedClasses.contains(PAL::getWKDDActionContextClass()))
+        && PAL::getWKDDActionContextClassSingleton()
+        && allowedClasses.contains(PAL::getWKDDActionContextClassSingleton()))
         return haveSecureActionContext;
 #endif // PLATFORM(MAC)
 #endif // ENABLE(DATA_DETECTION)
 #if ENABLE(REVEAL)
     // rdar://107553310 - don't re-introduce rdar://107673064
     if (PAL::isRevealCoreFrameworkAvailable()
-        && PAL::getRVItemClass()
-        && allowedClasses.contains(PAL::getRVItemClass()))
+        && PAL::getRVItemClassSingleton()
+        && allowedClasses.contains(PAL::getRVItemClassSingleton()))
         return haveSecureActionContext;
 #endif // ENABLE(REVEAL)
 
@@ -560,11 +550,11 @@ static constexpr bool haveSecureActionContext = false;
     auto isDecodingPKPaymentRelatedType = [&] () {
         if (!PAL::isPassKitCoreFrameworkAvailable())
             return false;
-        if (PAL::getPKPaymentMethodClass() && allowedClasses.contains(PAL::getPKPaymentMethodClass()))
+        if (PAL::getPKPaymentMethodClassSingleton() && allowedClasses.contains(PAL::getPKPaymentMethodClassSingleton()))
             return true;
-        if (PAL::getPKSecureElementPassClass() && allowedClasses.contains(PAL::getPKSecureElementPassClass()))
+        if (PAL::getPKSecureElementPassClassSingleton() && allowedClasses.contains(PAL::getPKSecureElementPassClassSingleton()))
             return true;
-        if (PAL::isContactsFrameworkAvailable() && PAL::getCNContactClass() && allowedClasses.contains(PAL::getCNContactClass()))
+        if (PAL::isContactsFrameworkAvailable() && PAL::getCNContactClassSingleton() && allowedClasses.contains(PAL::getCNContactClassSingleton()))
             return true;
         return false;
     };
@@ -579,8 +569,8 @@ static constexpr bool haveSecureActionContext = false;
     static constexpr bool haveStrictDecodablePKContact = false;
 #endif
     if (PAL::isPassKitCoreFrameworkAvailable()
-        && PAL::getPKContactClass()
-        && allowedClasses.contains(PAL::getPKContactClass()))
+        && PAL::getPKContactClassSingleton()
+        && allowedClasses.contains(PAL::getPKContactClassSingleton()))
         return haveStrictDecodablePKContact;
 #endif // ENABLE(APPLE_PAY)
 
@@ -590,9 +580,9 @@ static constexpr bool haveSecureActionContext = false;
 
     if (allowedClasses.contains(NSTextAttachment.class) // rdar://107553273
 #if ENABLE(APPLE_PAY)
-        || (PAL::isPassKitCoreFrameworkAvailable() && PAL::getPKPaymentSetupFeatureClass() && allowedClasses.contains(PAL::getPKPaymentSetupFeatureClass())) // rdar://107553409
-        || (PAL::isPassKitCoreFrameworkAvailable() && PAL::getPKPaymentMerchantSessionClass() && allowedClasses.contains(PAL::getPKPaymentMerchantSessionClass())) // rdar://107553452
-        || (PAL::isPassKitCoreFrameworkAvailable() && PAL::getPKPaymentClass() && allowedClasses.contains(PAL::getPKPaymentClass()) && isInWebProcess())
+        || (PAL::isPassKitCoreFrameworkAvailable() && PAL::getPKPaymentSetupFeatureClassSingleton() && allowedClasses.contains(PAL::getPKPaymentSetupFeatureClassSingleton())) // rdar://107553409
+        || (PAL::isPassKitCoreFrameworkAvailable() && PAL::getPKPaymentMerchantSessionClassSingleton() && allowedClasses.contains(PAL::getPKPaymentMerchantSessionClassSingleton())) // rdar://107553452
+        || (PAL::isPassKitCoreFrameworkAvailable() && PAL::getPKPaymentClassSingleton() && allowedClasses.contains(PAL::getPKPaymentClassSingleton()) && isInWebProcess())
 #endif // ENABLE(APPLE_PAY)
         )
         return true;
@@ -638,14 +628,14 @@ template<> std::optional<RetainPtr<id>> decodeObjectDirectlyRequiringAllowedClas
     // FIXME: Remove these exceptions for PKSecureElementPass
     // once we directly serialize them ourselves.
     if (PAL::isContactsFrameworkAvailable()) {
-        if (allowedClasses.contains(PAL::getPKPaymentClass()) || allowedClasses.contains(PAL::getPKPaymentMethodClass()) || allowedClasses.contains(PAL::getPKPaymentTokenClass())) {
-            allowedClasses.add(PAL::getPKSecureElementPassClass());
+        if (allowedClasses.contains(PAL::getPKPaymentClassSingleton()) || allowedClasses.contains(PAL::getPKPaymentMethodClassSingleton()) || allowedClasses.contains(PAL::getPKPaymentTokenClassSingleton())) {
+            allowedClasses.add(PAL::getPKSecureElementPassClassSingleton());
         }
     }
 
     if (PAL::isPassKitCoreFrameworkAvailable()) {
-        if (PAL::getPKSecureElementPassClass() && allowedClasses.contains(PAL::getPKSecureElementPassClass()))
-            allowedClasses.add(PAL::getPKPaymentPassClass());
+        if (PAL::getPKSecureElementPassClassSingleton() && allowedClasses.contains(PAL::getPKSecureElementPassClassSingleton()))
+            allowedClasses.add(PAL::getPKPaymentPassClassSingleton());
     }
 #endif
 

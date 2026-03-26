@@ -80,9 +80,9 @@
 
 // This is needed by ext_tile related unit tests.
 #define EXT_TILE_DEBUG 1
-#define MC_TEMP_BUF_PELS                       \
-  (((MAX_SB_SIZE)*2 + (AOM_INTERP_EXTEND)*2) * \
-   ((MAX_SB_SIZE)*2 + (AOM_INTERP_EXTEND)*2))
+#define MC_TEMP_BUF_PELS                           \
+  (((MAX_SB_SIZE) * 2 + (AOM_INTERP_EXTEND) * 2) * \
+   ((MAX_SB_SIZE) * 2 + (AOM_INTERP_EXTEND) * 2))
 
 // Checks that the remaining bits start with a 1 and ends with 0s.
 // It consumes an additional byte, if already byte aligned before the check.
@@ -1617,7 +1617,7 @@ static inline void read_wiener_filter(int wiener_win, WienerInfo *wiener_info,
   wiener_info->hfilter[WIENER_HALFWIN] =
       -2 * (wiener_info->hfilter[0] + wiener_info->hfilter[1] +
             wiener_info->hfilter[2]);
-  memcpy(ref_wiener_info, wiener_info, sizeof(*wiener_info));
+  *ref_wiener_info = *wiener_info;
 }
 
 static inline void read_sgrproj_filter(SgrprojInfo *sgrproj_info,
@@ -1654,7 +1654,7 @@ static inline void read_sgrproj_filter(SgrprojInfo *sgrproj_info,
         SGRPROJ_PRJ_MIN1;
   }
 
-  memcpy(ref_sgrproj_info, sgrproj_info, sizeof(*sgrproj_info));
+  *ref_sgrproj_info = *sgrproj_info;
 }
 
 static inline void loop_restoration_read_sb_coeffs(const AV1_COMMON *const cm,
@@ -4078,8 +4078,7 @@ static inline void read_film_grain(AV1_COMMON *cm,
     memset(&cm->film_grain_params, 0, sizeof(cm->film_grain_params));
   }
   cm->film_grain_params.bit_depth = cm->seq_params->bit_depth;
-  memcpy(&cm->cur_frame->film_grain_params, &cm->film_grain_params,
-         sizeof(aom_film_grain_t));
+  cm->cur_frame->film_grain_params = cm->film_grain_params;
 }
 
 void av1_read_color_config(struct aom_read_bit_buffer *rb,
@@ -4796,6 +4795,18 @@ static int read_uncompressed_header(AV1Decoder *pbi,
           }
           buf = &frame_bufs[buf_idx];
           lock_buffer_pool(pool);
+#if CONFIG_SIZE_LIMIT
+          if (seq_params->max_frame_width > DECODE_WIDTH_LIMIT ||
+              seq_params->max_frame_height > DECODE_HEIGHT_LIMIT) {
+            decrease_ref_count(buf, pool);
+            unlock_buffer_pool(pool);
+            aom_internal_error(
+                cm->error, AOM_CODEC_CORRUPT_FRAME,
+                "Dimensions of %dx%d beyond allowed size of %dx%d.",
+                seq_params->max_frame_width, seq_params->max_frame_height,
+                DECODE_WIDTH_LIMIT, DECODE_HEIGHT_LIMIT);
+          }
+#endif
           if (aom_realloc_frame_buffer(
                   &buf->buf, seq_params->max_frame_width,
                   seq_params->max_frame_height, seq_params->subsampling_x,
@@ -5265,6 +5276,9 @@ void av1_decode_tg_tiles_and_wrapup(AV1Decoder *pbi, const uint8_t *data,
                                     const uint8_t *data_end,
                                     const uint8_t **p_data_end, int start_tile,
                                     int end_tile, int initialize_flag) {
+#if CONFIG_COLLECT_COMPONENT_TIMING
+  start_timing(pbi, av1_decode_tg_tiles_and_wrapup_time);
+#endif
   AV1_COMMON *const cm = &pbi->common;
   CommonTileParams *const tiles = &cm->tiles;
   MACROBLOCKD *const xd = &pbi->dcb.xd;
@@ -5393,4 +5407,8 @@ void av1_decode_tg_tiles_and_wrapup(AV1Decoder *pbi, const uint8_t *data,
   if (cm->show_frame && !cm->seq_params->order_hint_info.enable_order_hint) {
     ++cm->current_frame.frame_number;
   }
+
+#if CONFIG_COLLECT_COMPONENT_TIMING
+  end_timing(pbi, av1_decode_tg_tiles_and_wrapup_time);
+#endif
 }

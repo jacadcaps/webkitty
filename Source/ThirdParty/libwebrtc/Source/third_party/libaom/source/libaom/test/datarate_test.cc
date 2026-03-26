@@ -21,8 +21,58 @@
 #include "test/y4m_video_source.h"
 #include "aom/aom_codec.h"
 
+#if CONFIG_LIBYUV
+#include "third_party/libyuv/include/libyuv/scale.h"
+#endif
+
 namespace datarate_test {
 namespace {
+
+#if CONFIG_LIBYUV
+class ResizingVideoSource : public ::libaom_test::DummyVideoSource {
+ public:
+  ResizingVideoSource(const int width, const int height, const int input_width,
+                      const int input_height, const std::string file_name,
+                      int limit)
+      : width_(width), height_(height), input_width_(input_width),
+        input_height_(input_height), limit_(limit) {
+    SetSize(width_, height_);
+    img_input_ = aom_img_alloc(nullptr, AOM_IMG_FMT_I420, input_width_,
+                               input_height_, 32);
+    raw_size_ = input_width_ * input_height_ * 3 / 2;
+    input_file_ = ::libaom_test::OpenTestDataFile(file_name);
+  }
+
+  ~ResizingVideoSource() override {
+    aom_img_free(img_input_);
+    fclose(input_file_);
+  }
+
+ protected:
+  void FillFrame() override {
+    // Read frame from input_file and scale up.
+    ASSERT_NE(input_file_, nullptr);
+    fread(img_input_->img_data, raw_size_, 1, input_file_);
+    libyuv::I420Scale(
+        img_input_->planes[AOM_PLANE_Y], img_input_->stride[AOM_PLANE_Y],
+        img_input_->planes[AOM_PLANE_U], img_input_->stride[AOM_PLANE_U],
+        img_input_->planes[AOM_PLANE_V], img_input_->stride[AOM_PLANE_V],
+        input_width_, input_height_, img_->planes[AOM_PLANE_Y],
+        img_->stride[AOM_PLANE_Y], img_->planes[AOM_PLANE_U],
+        img_->stride[AOM_PLANE_U], img_->planes[AOM_PLANE_V],
+        img_->stride[AOM_PLANE_V], width_, height_, libyuv::kFilterBox);
+  }
+
+  const int width_;
+  const int height_;
+  const int input_width_;
+  const int input_height_;
+  const int limit_;
+  aom_image_t *img_input_;
+  size_t raw_size_;
+  FILE *input_file_;
+};
+#endif  // CONFIG_LIBYUV
 
 // Params: test mode, speed, aq mode and index for bitrate array.
 class DatarateTestLarge
@@ -53,48 +103,47 @@ class DatarateTestLarge
     ::libaom_test::I420VideoSource video("hantro_collage_w352h288.yuv", 352,
                                          288, 30, 1, 0, 140);
     const int bitrate_array[2] = { 400, 800 };
-    cfg_.rc_target_bitrate = bitrate_array[GET_PARAM(4)];
-    ResetModel();
-    ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
-    ASSERT_GE(effective_datarate_, cfg_.rc_target_bitrate * 0.7)
-        << " The datarate for the file is lower than target by too much!";
-    // FIXME(jingning): Lower this test threshold after vbr mode can render
-    // sufficiently accurate bit rate.
-    ASSERT_LE(effective_datarate_, cfg_.rc_target_bitrate * 1.45)
-        << " The datarate for the file is greater than target by too much!";
+    RunBasicRateTargetingTest(&video, bitrate_array[GET_PARAM(4)], 0.7, 1.45);
   }
 
   virtual void BasicRateTargetingCBRTest() {
-    cfg_.rc_buf_initial_sz = 500;
-    cfg_.rc_buf_optimal_sz = 500;
-    cfg_.rc_buf_sz = 1000;
-    cfg_.rc_dropframe_thresh = 1;
-    cfg_.rc_min_quantizer = 0;
-    cfg_.rc_max_quantizer = 63;
-    cfg_.rc_end_usage = AOM_CBR;
-    cfg_.g_lag_in_frames = 0;
-
+    SetUpCBR();
     ::libaom_test::I420VideoSource video("hantro_collage_w352h288.yuv", 352,
                                          288, 30, 1, 0, 140);
     const int bitrate_array[2] = { 150, 550 };
-    cfg_.rc_target_bitrate = bitrate_array[GET_PARAM(4)];
-    ResetModel();
-    ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
-    ASSERT_GE(effective_datarate_, cfg_.rc_target_bitrate * 0.85)
-        << " The datarate for the file is lower than target by too much!";
-    ASSERT_LE(effective_datarate_, cfg_.rc_target_bitrate * 1.19)
-        << " The datarate for the file is greater than target by too much!";
+    RunBasicRateTargetingTest(&video, bitrate_array[GET_PARAM(4)], 0.85, 1.19);
   }
 
+#if CONFIG_LIBYUV
+  // Test for an encoding mode that triggers an assert in nonrd_pickmode
+  // (in av1_is_subpelmv_in_range), issue b:396169342.
+  // The assert is triggered on a 2456x2054 resolution with settings defined
+  // with the flag avif_mode_. This test upsamples a QVGA clip to the target
+  // resolution, using libyuv for the scaling.
+  virtual void BasicRateTargetingCBRAssertAvifModeTest() {
+    SetUpCBR();
+    cfg_.rc_dropframe_thresh = 0;
+    ResizingVideoSource video(2456, 2054, 320, 240,
+                              "pixel_capture_w320h240.yuv", 100);
+    const int bitrate_array[2] = { 1000, 2000 };
+    cfg_.rc_target_bitrate = bitrate_array[GET_PARAM(4)];
+#ifdef AOM_VALGRIND_BUILD
+    if (cfg_.rc_target_bitrate == 2000) {
+      GTEST_SKIP() << "No need to run this test for 2 bitrates, the issue for "
+                      "this test occurs at first bitrate = 1000.";
+    }
+#endif  // AOM_VALGRIND_BUILD
+    ResetModel();
+    avif_mode_ = 1;
+    ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
+  }
+#endif  // CONFIG_LIBYUV
+
   virtual void BasicRateTargetingCBRSpikeTest() {
-    cfg_.rc_buf_initial_sz = 500;
-    cfg_.rc_buf_optimal_sz = 500;
-    cfg_.rc_buf_sz = 1000;
+    SetUpCBR();
     cfg_.rc_dropframe_thresh = 0;
     cfg_.rc_min_quantizer = 2;
     cfg_.rc_max_quantizer = 56;
-    cfg_.rc_end_usage = AOM_CBR;
-    cfg_.g_lag_in_frames = 0;
     cfg_.kf_max_dist = 3000;
     cfg_.kf_min_dist = 3000;
 
@@ -115,14 +164,10 @@ class DatarateTestLarge
   }
 
   virtual void BasicRateTargetingCBRDynamicBitrateTest() {
-    cfg_.rc_buf_initial_sz = 500;
-    cfg_.rc_buf_optimal_sz = 500;
-    cfg_.rc_buf_sz = 1000;
+    SetUpCBR();
     cfg_.rc_dropframe_thresh = 0;
     cfg_.rc_min_quantizer = 2;
     cfg_.rc_max_quantizer = 56;
-    cfg_.rc_end_usage = AOM_CBR;
-    cfg_.g_lag_in_frames = 0;
     cfg_.kf_max_dist = 3000;
     cfg_.kf_min_dist = 3000;
 
@@ -149,112 +194,56 @@ class DatarateTestLarge
   virtual void BasicRateTargetingMultiThreadCBRTest() {
     ::libaom_test::I420VideoSource video("niklas_640_480_30.yuv", 640, 480, 30,
                                          1, 0, 400);
-    cfg_.rc_buf_initial_sz = 500;
-    cfg_.rc_buf_optimal_sz = 500;
-    cfg_.rc_buf_sz = 1000;
-    cfg_.rc_dropframe_thresh = 1;
-    cfg_.rc_min_quantizer = 0;
-    cfg_.rc_max_quantizer = 63;
-    cfg_.rc_end_usage = AOM_CBR;
-    cfg_.g_lag_in_frames = 0;
+    SetUpCBR();
     cfg_.g_threads = 4;
 
     const int bitrate_array[2] = { 250, 650 };
-    cfg_.rc_target_bitrate = bitrate_array[GET_PARAM(4)];
     ResetModel();
     tile_columns_ = 2;
-    ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
-    ASSERT_GE(static_cast<double>(cfg_.rc_target_bitrate),
-              effective_datarate_ * 0.85)
-        << " The datarate for the file exceeds the target by too much!";
-    ASSERT_LE(static_cast<double>(cfg_.rc_target_bitrate),
-              effective_datarate_ * 1.15)
-        << " The datarate for the file missed the target!"
-        << cfg_.rc_target_bitrate << " " << effective_datarate_;
+    RunBasicRateTargetingTestReversed(&video, bitrate_array[GET_PARAM(4)], 0.85,
+                                      1.15);
   }
 
   virtual void ErrorResilienceOnSceneCuts() {
     if (GET_PARAM(4) > 0) return;
-    cfg_.rc_buf_initial_sz = 500;
-    cfg_.rc_buf_optimal_sz = 500;
-    cfg_.rc_buf_sz = 1000;
+    SetUpCBR();
     cfg_.rc_dropframe_thresh = 0;
     cfg_.g_error_resilient = 1;
-    cfg_.rc_min_quantizer = 0;
-    cfg_.rc_max_quantizer = 63;
-    cfg_.rc_end_usage = AOM_CBR;
-    cfg_.g_lag_in_frames = 0;
 
     ::libaom_test::I420VideoSource video("hantro_collage_w352h288.yuv", 352,
                                          288, 30, 1, 0, 300);
-    cfg_.rc_target_bitrate = 500;
-    ResetModel();
-    ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
-    ASSERT_GE(effective_datarate_, cfg_.rc_target_bitrate * 0.85)
-        << " The datarate for the file is lower than target by too much!";
-    ASSERT_LE(effective_datarate_, cfg_.rc_target_bitrate * 1.15)
-        << " The datarate for the file is greater than target by too much!";
+    RunBasicRateTargetingTest(&video, 500, 0.85, 1.15);
   }
 
   virtual void BasicRateTargetingCBRPeriodicKeyFrameTest() {
-    cfg_.rc_buf_initial_sz = 500;
-    cfg_.rc_buf_optimal_sz = 500;
-    cfg_.rc_buf_sz = 1000;
-    cfg_.rc_dropframe_thresh = 1;
-    cfg_.rc_min_quantizer = 0;
-    cfg_.rc_max_quantizer = 63;
-    cfg_.rc_end_usage = AOM_CBR;
-    cfg_.g_lag_in_frames = 0;
+    SetUpCBR();
     // Periodic keyframe
     cfg_.kf_max_dist = 50;
 
     ::libaom_test::I420VideoSource video("pixel_capture_w320h240.yuv", 320, 240,
                                          30, 1, 0, 310);
     const int bitrate_array[2] = { 150, 550 };
-    cfg_.rc_target_bitrate = bitrate_array[GET_PARAM(4)];
-    ResetModel();
-    ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
-    ASSERT_GE(effective_datarate_, cfg_.rc_target_bitrate * 0.85)
-        << " The datarate for the file is lower than target by too much!";
-    ASSERT_LE(effective_datarate_, cfg_.rc_target_bitrate * 1.15)
-        << " The datarate for the file is greater than target by too much!";
+    RunBasicRateTargetingTest(&video, bitrate_array[GET_PARAM(4)], 0.85, 1.15);
   }
 
   virtual void CBRPeriodicKeyFrameOnSceneCuts() {
     if (GET_PARAM(4) > 0) return;
-    cfg_.rc_buf_initial_sz = 500;
-    cfg_.rc_buf_optimal_sz = 500;
-    cfg_.rc_buf_sz = 1000;
+    SetUpCBR();
     cfg_.rc_dropframe_thresh = 0;
-    cfg_.rc_min_quantizer = 0;
-    cfg_.rc_max_quantizer = 63;
-    cfg_.rc_end_usage = AOM_CBR;
-    cfg_.g_lag_in_frames = 0;
     // Periodic keyframe
     cfg_.kf_max_dist = 30;
     cfg_.kf_min_dist = 30;
 
     ::libaom_test::I420VideoSource video("hantro_collage_w352h288.yuv", 352,
                                          288, 30, 1, 0, 300);
-    cfg_.rc_target_bitrate = 500;
-    ResetModel();
-    ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
-    ASSERT_GE(effective_datarate_, cfg_.rc_target_bitrate * 0.85)
-        << " The datarate for the file is lower than target by too much!";
-    ASSERT_LE(effective_datarate_, cfg_.rc_target_bitrate * 1.3)
-        << " The datarate for the file is greater than target by too much!";
+    RunBasicRateTargetingTest(&video, 500, 0.85, 1.3);
   }
 
   virtual void BasicRateTargetingAQModeOnOffCBRTest() {
     if (GET_PARAM(4) > 0) return;
-    cfg_.rc_buf_initial_sz = 500;
-    cfg_.rc_buf_optimal_sz = 500;
-    cfg_.rc_buf_sz = 1000;
+    SetUpCBR();
     cfg_.rc_dropframe_thresh = 0;
     cfg_.rc_min_quantizer = 2;
-    cfg_.rc_max_quantizer = 63;
-    cfg_.rc_end_usage = AOM_CBR;
-    cfg_.g_lag_in_frames = 0;
     cfg_.g_error_resilient = 0;
     cfg_.g_pass = AOM_RC_ONE_PASS;
     cfg_.g_usage = AOM_USAGE_REALTIME;
@@ -262,13 +251,7 @@ class DatarateTestLarge
 
     ::libaom_test::I420VideoSource video("pixel_capture_w320h240.yuv", 320, 240,
                                          30, 1, 0, 310);
-    cfg_.rc_target_bitrate = 60;
-    ResetModel();
-    ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
-    ASSERT_GE(effective_datarate_, cfg_.rc_target_bitrate * 0.85)
-        << " The datarate for the file is lower than target by too much!";
-    ASSERT_LE(effective_datarate_, cfg_.rc_target_bitrate * 1.15)
-        << " The datarate for the file is greater than target by too much!";
+    RunBasicRateTargetingTest(&video, 60, 0.85, 1.15);
   }
 
   virtual void BasicRateTargeting444CBRScreenTest() {
@@ -277,26 +260,13 @@ class DatarateTestLarge
     cfg_.g_profile = 1;
     cfg_.g_timebase = video.timebase();
 
-    cfg_.rc_buf_initial_sz = 500;
-    cfg_.rc_buf_optimal_sz = 500;
-    cfg_.rc_buf_sz = 1000;
-    cfg_.rc_dropframe_thresh = 1;
-    cfg_.rc_min_quantizer = 0;
-    cfg_.rc_max_quantizer = 63;
-    cfg_.rc_end_usage = AOM_CBR;
+    SetUpCBR();
 
     const int bitrate_array[2] = { 250, 650 };
-    cfg_.rc_target_bitrate = bitrate_array[GET_PARAM(4)];
     ResetModel();
     screen_mode_ = true;
-    ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
-    ASSERT_GE(static_cast<double>(cfg_.rc_target_bitrate),
-              effective_datarate_ * 0.85)
-        << " The datarate for the file exceeds the target by too much!";
-    ASSERT_LE(static_cast<double>(cfg_.rc_target_bitrate),
-              effective_datarate_ * 1.15)
-        << " The datarate for the file missed the target!"
-        << cfg_.rc_target_bitrate << " " << effective_datarate_;
+    RunBasicRateTargetingTestReversed(&video, bitrate_array[GET_PARAM(4)], 0.85,
+                                      1.15);
   }
 
   virtual void BasicRateTargetingSuperresCBR() {
@@ -306,29 +276,15 @@ class DatarateTestLarge
     cfg_.g_profile = 0;
     cfg_.g_timebase = video.timebase();
 
-    cfg_.rc_buf_initial_sz = 500;
-    cfg_.rc_buf_optimal_sz = 500;
-    cfg_.rc_buf_sz = 1000;
-    cfg_.rc_dropframe_thresh = 1;
-    cfg_.rc_min_quantizer = 0;
-    cfg_.rc_max_quantizer = 63;
-    cfg_.rc_end_usage = AOM_CBR;
+    SetUpCBR();
 
     cfg_.rc_superres_mode = AOM_SUPERRES_FIXED;
     cfg_.rc_superres_denominator = 16;
     cfg_.rc_superres_kf_denominator = 16;
 
     const int bitrate_array[2] = { 250, 650 };
-    cfg_.rc_target_bitrate = bitrate_array[GET_PARAM(4)];
-    ResetModel();
-    ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
-    ASSERT_GE(static_cast<double>(cfg_.rc_target_bitrate),
-              effective_datarate_ * 0.85)
-        << " The datarate for the file exceeds the target by too much!";
-    ASSERT_LE(static_cast<double>(cfg_.rc_target_bitrate),
-              effective_datarate_ * 1.15)
-        << " The datarate for the file missed the target!"
-        << cfg_.rc_target_bitrate << " " << effective_datarate_;
+    RunBasicRateTargetingTestReversed(&video, bitrate_array[GET_PARAM(4)], 0.85,
+                                      1.15);
   }
 
   virtual void BasicRateTargetingSuperresCBRMultiThreads() {
@@ -338,13 +294,7 @@ class DatarateTestLarge
     cfg_.g_profile = 0;
     cfg_.g_timebase = video.timebase();
 
-    cfg_.rc_buf_initial_sz = 500;
-    cfg_.rc_buf_optimal_sz = 500;
-    cfg_.rc_buf_sz = 1000;
-    cfg_.rc_dropframe_thresh = 1;
-    cfg_.rc_min_quantizer = 0;
-    cfg_.rc_max_quantizer = 63;
-    cfg_.rc_end_usage = AOM_CBR;
+    SetUpCBR();
     cfg_.g_threads = 2;
 
     cfg_.rc_superres_mode = AOM_SUPERRES_FIXED;
@@ -352,17 +302,10 @@ class DatarateTestLarge
     cfg_.rc_superres_kf_denominator = 16;
 
     const int bitrate_array[2] = { 250, 650 };
-    cfg_.rc_target_bitrate = bitrate_array[GET_PARAM(4)];
     ResetModel();
     tile_columns_ = 1;
-    ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
-    ASSERT_GE(static_cast<double>(cfg_.rc_target_bitrate),
-              effective_datarate_ * 0.85)
-        << " The datarate for the file exceeds the target by too much!";
-    ASSERT_LE(static_cast<double>(cfg_.rc_target_bitrate),
-              effective_datarate_ * 1.15)
-        << " The datarate for the file missed the target!"
-        << cfg_.rc_target_bitrate << " " << effective_datarate_;
+    RunBasicRateTargetingTestReversed(&video, bitrate_array[GET_PARAM(4)], 0.85,
+                                      1.15);
   }
 };
 
@@ -386,17 +329,12 @@ class DatarateTestFrameDropLarge
   }
 
   virtual void ChangingDropFrameThreshTest() {
-    cfg_.rc_buf_initial_sz = 500;
-    cfg_.rc_buf_optimal_sz = 500;
-    cfg_.rc_buf_sz = 1000;
+    SetUpCBR();
     cfg_.rc_undershoot_pct = 20;
     cfg_.rc_undershoot_pct = 20;
     cfg_.rc_dropframe_thresh = 10;
-    cfg_.rc_min_quantizer = 0;
     cfg_.rc_max_quantizer = 50;
-    cfg_.rc_end_usage = AOM_CBR;
     cfg_.rc_target_bitrate = 200;
-    cfg_.g_lag_in_frames = 0;
     cfg_.g_error_resilient = 1;
     // TODO(marpan): Investigate datarate target failures with a smaller
     // keyframe interval (128).
@@ -517,17 +455,12 @@ class DatarateTestSpeedChangeRealtime
   }
 
   virtual void ChangingSpeedTest() {
-    cfg_.rc_buf_initial_sz = 500;
-    cfg_.rc_buf_optimal_sz = 500;
-    cfg_.rc_buf_sz = 1000;
+    SetUpCBR();
     cfg_.rc_undershoot_pct = 20;
     cfg_.rc_undershoot_pct = 20;
     cfg_.rc_dropframe_thresh = 10;
-    cfg_.rc_min_quantizer = 0;
     cfg_.rc_max_quantizer = 50;
-    cfg_.rc_end_usage = AOM_CBR;
     cfg_.rc_target_bitrate = 200;
-    cfg_.g_lag_in_frames = 0;
     cfg_.g_error_resilient = 1;
     // TODO(marpan): Investigate datarate target failures with a smaller
     // keyframe interval (128).
@@ -554,6 +487,13 @@ TEST_P(DatarateTestRealtime, BasicRateTargetingVBR) {
 TEST_P(DatarateTestRealtime, BasicRateTargetingCBR) {
   BasicRateTargetingCBRTest();
 }
+
+#if CONFIG_LIBYUV
+// Check basic rate targeting for CBR, special case.
+TEST_P(DatarateTestRealtime, BasicRateTargetingCBRAssertAvifMode) {
+  BasicRateTargetingCBRAssertAvifModeTest();
+}
+#endif
 
 // Check basic rate targeting for CBR. Use a longer clip,
 // and verify #encode size spikes above threshold.
@@ -659,21 +599,69 @@ class DatarateTestSetFrameQpRealtime
 };
 
 TEST_P(DatarateTestSetFrameQpRealtime, SetFrameQpOnePass) {
-  cfg_.rc_buf_initial_sz = 500;
-  cfg_.rc_buf_optimal_sz = 500;
-  cfg_.rc_buf_sz = 1000;
+  SetUpCBR();
   cfg_.rc_undershoot_pct = 20;
   cfg_.rc_undershoot_pct = 20;
-  cfg_.rc_min_quantizer = 0;
   cfg_.rc_max_quantizer = 50;
-  cfg_.rc_end_usage = AOM_CBR;
   cfg_.rc_target_bitrate = 200;
-  cfg_.g_lag_in_frames = 0;
   cfg_.g_error_resilient = 1;
   cfg_.kf_max_dist = 9999;
   cfg_.rc_dropframe_thresh = 0;
 
   total_frames_ = 100;
+  ::libaom_test::I420VideoSource video("hantro_collage_w352h288.yuv", 352, 288,
+                                       30, 1, 0, 100);
+
+  ResetModel();
+  ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
+}
+
+class DatarateTestPsnr
+    : public DatarateTest,
+      public ::testing::TestWithParam<const libaom_test::AV1CodecFactory *> {
+ public:
+  DatarateTestPsnr() : DatarateTest(GetParam()) {}
+
+ protected:
+  ~DatarateTestPsnr() override = default;
+
+  void SetUp() override {
+    InitializeConfig(libaom_test::kRealTime);
+    ResetModel();
+    set_cpu_used_ = 10;
+    frame_flags_ = AOM_EFLAG_CALCULATE_PSNR;
+    expect_psnr_ = true;
+  }
+  void PreEncodeFrameHook(::libaom_test::VideoSource *video,
+                          ::libaom_test::Encoder *encoder) override {
+    DatarateTest::PreEncodeFrameHook(video, encoder);
+    frame_flags_ ^= AOM_EFLAG_CALCULATE_PSNR;
+#if CONFIG_INTERNAL_STATS
+    // CONFIG_INTERNAL_STATS unconditionally generates PSNR.
+    expect_psnr_ = true;
+#else
+    expect_psnr_ = (frame_flags_ & AOM_EFLAG_CALCULATE_PSNR) != 0;
+#endif  // CONFIG_INTERNAL_STATS
+    if (video->img() == nullptr) {
+      expect_psnr_ = false;
+    }
+  }
+  void PostEncodeFrameHook(::libaom_test::Encoder *encoder) override {
+    libaom_test::CxDataIterator iter = encoder->GetCxData();
+
+    bool had_psnr = false;
+    while (const aom_codec_cx_pkt_t *pkt = iter.Next()) {
+      if (pkt->kind == AOM_CODEC_PSNR_PKT) had_psnr = true;
+    }
+
+    EXPECT_EQ(had_psnr, expect_psnr_);
+  }
+
+ private:
+  bool expect_psnr_;
+};
+
+TEST_P(DatarateTestPsnr, PerFramePsnr) {
   ::libaom_test::I420VideoSource video("hantro_collage_w352h288.yuv", 352, 288,
                                        30, 1, 0, 100);
 
@@ -705,6 +693,11 @@ AV1_INSTANTIATE_TEST_SUITE(DatarateTestSpeedChangeRealtime,
 
 INSTANTIATE_TEST_SUITE_P(
     AV1, DatarateTestSetFrameQpRealtime,
+    ::testing::Values(
+        static_cast<const libaom_test::CodecFactory *>(&libaom_test::kAV1)));
+
+INSTANTIATE_TEST_SUITE_P(
+    AV1, DatarateTestPsnr,
     ::testing::Values(
         static_cast<const libaom_test::CodecFactory *>(&libaom_test::kAV1)));
 

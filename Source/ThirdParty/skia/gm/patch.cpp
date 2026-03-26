@@ -12,26 +12,26 @@
 #include "include/core/SkImage.h"
 #include "include/core/SkPaint.h"
 #include "include/core/SkPath.h"
+#include "include/core/SkPathBuilder.h"
 #include "include/core/SkPoint.h"
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkScalar.h"
 #include "include/core/SkShader.h"
 #include "include/core/SkTileMode.h"
 #include "include/core/SkTypes.h"
-#include "include/effects/SkGradientShader.h"
+#include "include/effects/SkGradient.h"
 #include "src/utils/SkPatchUtils.h"
 #include "tools/DecodeUtils.h"
 #include "tools/Resources.h"
 
 static sk_sp<SkShader> make_shader() {
-    const SkColor colors[] = {
-        SK_ColorRED, SK_ColorCYAN, SK_ColorGREEN, SK_ColorWHITE, SK_ColorMAGENTA, SK_ColorBLUE,
-        SK_ColorYELLOW,
+    const SkColor4f colors[] = {
+        SkColors::kRed, SkColors::kCyan, SkColors::kGreen, SkColors::kWhite, SkColors::kMagenta,
+        SkColors::kBlue, SkColors::kYellow,
     };
     const SkPoint pts[] = { { 100.f / 4.f, 0.f }, { 3.f * 100.f / 4.f, 100.f } };
 
-    return SkGradientShader::MakeLinear(pts, colors, nullptr, std::size(colors),
-                                        SkTileMode::kMirror);
+    return SkShaders::LinearGradient(pts, {{colors, {}, SkTileMode::kMirror}, {}});
 }
 
 static void draw_control_points(SkCanvas* canvas, const SkPoint cubics[12]) {
@@ -195,12 +195,13 @@ DEF_SIMPLE_GM(patch_alpha_test, canvas, 550, 250) {
 
     canvas->translate(300, 0);
 
-    SkPath path;
-    path.moveTo(gCubics[0]);
-    path.cubicTo(gCubics[ 1], gCubics[ 2], gCubics[ 3]);
-    path.cubicTo(gCubics[ 4], gCubics[ 5], gCubics[ 6]);
-    path.cubicTo(gCubics[ 7], gCubics[ 8], gCubics[ 9]);
-    path.cubicTo(gCubics[10], gCubics[11], gCubics[ 0]);
+    SkPath path = SkPathBuilder()
+                  .moveTo(gCubics[0])
+                  .cubicTo(gCubics[ 1], gCubics[ 2], gCubics[ 3])
+                  .cubicTo(gCubics[ 4], gCubics[ 5], gCubics[ 6])
+                  .cubicTo(gCubics[ 7], gCubics[ 8], gCubics[ 9])
+                  .cubicTo(gCubics[10], gCubics[11], gCubics[ 0])
+                  .detach();
     paint.setColor(colors[0]);
     canvas->drawPath(path, paint);
 }

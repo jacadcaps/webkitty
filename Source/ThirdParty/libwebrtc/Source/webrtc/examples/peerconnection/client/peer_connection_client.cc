@@ -10,12 +10,23 @@
 
 #include "examples/peerconnection/client/peer_connection_client.h"
 
+#include <cerrno>
+#include <cstddef>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <memory>
+#include <string>
+
+#include "api/async_dns_resolver.h"
+#include "api/task_queue/pending_task_safety_flag.h"
 #include "api/units/time_delta.h"
 #include "examples/peerconnection/client/defaults.h"
 #include "rtc_base/async_dns_resolver.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/net_helpers.h"
+#include "rtc_base/socket.h"
 #include "rtc_base/thread.h"
 
 namespace {
@@ -44,13 +55,14 @@ PeerConnectionClient::~PeerConnectionClient() = default;
 void PeerConnectionClient::InitSocketSignals() {
   RTC_DCHECK(control_socket_.get() != nullptr);
   RTC_DCHECK(hanging_get_.get() != nullptr);
-  control_socket_->SignalCloseEvent.connect(this,
-                                            &PeerConnectionClient::OnClose);
-  hanging_get_->SignalCloseEvent.connect(this, &PeerConnectionClient::OnClose);
-  control_socket_->SignalConnectEvent.connect(this,
-                                              &PeerConnectionClient::OnConnect);
-  hanging_get_->SignalConnectEvent.connect(
-      this, &PeerConnectionClient::OnHangingGetConnect);
+  control_socket_->SubscribeCloseEvent(
+      [this](webrtc::Socket* socket, int error) { OnClose(socket, error); });
+  hanging_get_->SubscribeCloseEvent(
+      [this](webrtc::Socket* socket, int error) { OnClose(socket, error); });
+  control_socket_->SubscribeConnectEvent(
+      [this](webrtc::Socket* socket) { OnConnect(socket); });
+  hanging_get_->SubscribeConnectEvent(
+      [this](webrtc::Socket* socket) { OnHangingGetConnect(socket); });
   control_socket_->SignalReadEvent.connect(this, &PeerConnectionClient::OnRead);
   hanging_get_->SignalReadEvent.connect(
       this, &PeerConnectionClient::OnHangingGetRead);

@@ -35,12 +35,12 @@
 
 static NSString *JavaScriptSnippetToOpenURLExternally(NSURL *url)
 {
-    return [NSString stringWithFormat:@"InspectorFrontendHost.openURLExternally(\"%@\")", url.absoluteString];
+    return [NSString stringWithFormat:@"InspectorFrontendHost.openURLExternally(\"%@\")", retainPtr(url.absoluteString).get()];
 }
 
 static NSString *JavaScriptSnippetToFetchURL(NSURL *url)
 {
-    return [NSString stringWithFormat:@"fetch(\"%@\")", url.absoluteString];
+    return [NSString stringWithFormat:@"fetch(\"%@\")", retainPtr(url.absoluteString).get()];
 }
 
 @implementation _WKInspector (WKTesting)
@@ -53,17 +53,17 @@ static NSString *JavaScriptSnippetToFetchURL(NSURL *url)
 
 - (void)_fetchURLForTesting:(NSURL *)url
 {
-    _inspector->evaluateInFrontendForTesting(JavaScriptSnippetToFetchURL(url));
+    protectedInspector(self)->evaluateInFrontendForTesting(JavaScriptSnippetToFetchURL(url));
 }
 
 - (void)_openURLExternallyForTesting:(NSURL *)url useFrontendAPI:(BOOL)useFrontendAPI
 {
     if (useFrontendAPI)
-        _inspector->evaluateInFrontendForTesting(JavaScriptSnippetToOpenURLExternally(url));
+        protectedInspector(self)->evaluateInFrontendForTesting(JavaScriptSnippetToOpenURLExternally(url));
     else {
         // Force the navigation request to be handled naturally through the
         // internal NavigationDelegate of WKInspectorViewController.
-        [self.inspectorWebView loadRequest:[NSURLRequest requestWithURL:url]];
+        [retainPtr(self.inspectorWebView) loadRequest:[NSURLRequest requestWithURL:url]];
     }
 }
 

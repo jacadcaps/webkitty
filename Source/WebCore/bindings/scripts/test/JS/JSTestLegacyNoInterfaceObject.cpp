@@ -129,7 +129,7 @@ void JSTestLegacyNoInterfaceObjectPrototype::finishCreation(VM& vm)
 const ClassInfo JSTestLegacyNoInterfaceObject::s_info = { "TestLegacyNoInterfaceObject"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestLegacyNoInterfaceObject) };
 
 JSTestLegacyNoInterfaceObject::JSTestLegacyNoInterfaceObject(Structure* structure, JSDOMGlobalObject& globalObject, Ref<TestLegacyNoInterfaceObject>&& impl)
-    : JSDOMWrapper<TestLegacyNoInterfaceObject>(structure, globalObject, WTFMove(impl))
+    : JSDOMWrapper<TestLegacyNoInterfaceObject>(structure, globalObject, WTF::move(impl))
 {
 }
 
@@ -149,7 +149,7 @@ JSObject* JSTestLegacyNoInterfaceObject::prototype(VM& vm, JSDOMGlobalObject& gl
 
 void JSTestLegacyNoInterfaceObject::destroy(JSC::JSCell* cell)
 {
-    JSTestLegacyNoInterfaceObject* thisObject = static_cast<JSTestLegacyNoInterfaceObject*>(cell);
+    SUPPRESS_MEMORY_UNSAFE_CAST JSTestLegacyNoInterfaceObject* thisObject = static_cast<JSTestLegacyNoInterfaceObject*>(cell);
     thisObject->JSTestLegacyNoInterfaceObject::~JSTestLegacyNoInterfaceObject();
 }
 
@@ -246,7 +246,7 @@ static inline bool setJSTestLegacyNoInterfaceObject_nodeAttributeSetter(JSGlobal
     if (nativeValueConversionResult.hasException(throwScope)) [[unlikely]]
         return false;
     invokeFunctorPropagatingExceptionIfNecessary(lexicalGlobalObject, throwScope, [&] {
-        return impl.setNodeAttribute(*nativeValueConversionResult.releaseReturnValue());
+        return impl.setNodeAttribute(nativeValueConversionResult.releaseReturnValue());
     });
     return true;
 }
@@ -359,7 +359,7 @@ bool JSTestLegacyNoInterfaceObjectOwner::isReachableFromOpaqueRoots(JSC::Handle<
 
 void JSTestLegacyNoInterfaceObjectOwner::finalize(JSC::Handle<JSC::Unknown> handle, void* context)
 {
-    auto* jsTestLegacyNoInterfaceObject = static_cast<JSTestLegacyNoInterfaceObject*>(handle.slot()->asCell());
+    SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestLegacyNoInterfaceObject = static_cast<JSTestLegacyNoInterfaceObject*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
     uncacheWrapper(world, jsTestLegacyNoInterfaceObject->protectedWrapped().ptr(), jsTestLegacyNoInterfaceObject);
 }
@@ -373,7 +373,7 @@ extern "C" { extern void (*const __identifier("??_7TestLegacyNoInterfaceObject@W
 extern "C" { extern void* _ZTVN7WebCore27TestLegacyNoInterfaceObjectE[]; }
 #endif
 template<std::same_as<TestLegacyNoInterfaceObject> T>
-static inline void verifyVTable(TestLegacyNoInterfaceObject* ptr) 
+static inline void verifyVTable(TestLegacyNoInterfaceObject* ptr)
 {
     if constexpr (std::is_polymorphic_v<T>) {
         const void* actualVTablePointer = getVTablePointer<T>(ptr);
@@ -393,12 +393,13 @@ static inline void verifyVTable(TestLegacyNoInterfaceObject* ptr)
 #endif
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestLegacyNoInterfaceObject>&& impl)
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<TestLegacyNoInterfaceObject>&& impl)
 {
+    UNUSED_PARAM(lexicalGlobalObject);
 #if ENABLE(BINDING_INTEGRITY)
     verifyVTable<TestLegacyNoInterfaceObject>(impl.ptr());
 #endif
-    return createWrapper<TestLegacyNoInterfaceObject>(globalObject, WTFMove(impl));
+    return createWrapper<TestLegacyNoInterfaceObject>(globalObject, WTF::move(impl));
 }
 
 JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestLegacyNoInterfaceObject& impl)

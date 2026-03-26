@@ -88,6 +88,8 @@ static _WKWebAuthenticationPanelUpdate wkWebAuthenticationPanelUpdate(WebAuthent
         return _WKWebAuthenticationPanelUpdatePINTooShort;
     if (status == WebAuthenticationStatus::PINTooLong)
         return _WKWebAuthenticationPanelUpdatePINTooLong;
+    if (status == WebAuthenticationStatus::PINSuccessful)
+        return _WKWebAuthenticationPanelUpdatePINSuccessful;
     ASSERT_NOT_REACHED();
     return _WKWebAuthenticationPanelUpdateMultipleNFCTagsPresent;
 }
@@ -142,8 +144,8 @@ void WebAuthenticationPanelClient::requestPin(uint64_t retries, CompletionHandle
     }
 
     auto checker = CompletionHandlerCallChecker::create(delegate.get(), @selector(panel:requestPINWithRemainingRetries:completionHandler:));
-    [delegate panel:m_panel.get().get() requestPINWithRemainingRetries:retries completionHandler:makeBlockPtr([completionHandler = WTFMove(completionHandler), checker = WTFMove(checker)](NSString *pin) mutable {
-        ensureOnMainThread([completionHandler = WTFMove(completionHandler), checker = WTFMove(checker), pin = retainPtr(pin)] () mutable {
+    [delegate panel:m_panel.get().get() requestPINWithRemainingRetries:retries completionHandler:makeBlockPtr([completionHandler = WTF::move(completionHandler), checker = WTF::move(checker)](NSString *pin) mutable {
+        ensureOnMainThread([completionHandler = WTF::move(completionHandler), checker = WTF::move(checker), pin = retainPtr(pin)] () mutable {
             if (checker->completionHandlerHasBeenCalled())
                 return;
             checker->didCallCompletionHandler();
@@ -166,8 +168,8 @@ void WebAuthenticationPanelClient::requestNewPin(uint64_t minLength, CompletionH
     }
 
     auto checker = CompletionHandlerCallChecker::create(delegate.get(), @selector(panel:requestNewPINWithMinLength:completionHandler:));
-    [delegate panel:m_panel.get().get() requestNewPINWithMinLength:minLength completionHandler:makeBlockPtr([completionHandler = WTFMove(completionHandler), checker = WTFMove(checker)](NSString *pin) mutable {
-        ensureOnMainThread([completionHandler = WTFMove(completionHandler), checker = WTFMove(checker), pin = retainPtr(pin)] () mutable {
+    [delegate panel:m_panel.get().get() requestNewPINWithMinLength:minLength completionHandler:makeBlockPtr([completionHandler = WTF::move(completionHandler), checker = WTF::move(checker)](NSString *pin) mutable {
+        ensureOnMainThread([completionHandler = WTF::move(completionHandler), checker = WTF::move(checker), pin = retainPtr(pin)] () mutable {
             if (checker->completionHandlerHasBeenCalled())
                 return;
             checker->didCallCompletionHandler();
@@ -207,7 +209,7 @@ void WebAuthenticationPanelClient::selectAssertionResponse(Vector<Ref<WebCore::A
         return API::WebAuthenticationAssertionResponse::create(response.copyRef());
     });
     auto checker = CompletionHandlerCallChecker::create(delegate.get(), @selector(panel:selectAssertionResponse:source:completionHandler:));
-    [delegate panel:m_panel.get().get() selectAssertionResponse:wrapper(API::Array::create(WTFMove(apiResponses))).get() source:wkWebAuthenticationSource(source) completionHandler:makeBlockPtr([completionHandler = WTFMove(completionHandler), checker = WTFMove(checker)](_WKWebAuthenticationAssertionResponse *response) mutable {
+    [delegate panel:m_panel.get().get() selectAssertionResponse:wrapper(API::Array::create(WTF::move(apiResponses))).get() source:wkWebAuthenticationSource(source) completionHandler:makeBlockPtr([completionHandler = WTF::move(completionHandler), checker = WTF::move(checker)](_WKWebAuthenticationAssertionResponse *response) mutable {
         if (checker->completionHandlerHasBeenCalled())
             return;
         checker->didCallCompletionHandler();
@@ -246,7 +248,7 @@ void WebAuthenticationPanelClient::decidePolicyForLocalAuthenticator(CompletionH
     }
 
     auto checker = CompletionHandlerCallChecker::create(delegate.get(), @selector(panel:decidePolicyForLocalAuthenticatorWithCompletionHandler:));
-    [delegate panel:m_panel.get().get() decidePolicyForLocalAuthenticatorWithCompletionHandler:makeBlockPtr([completionHandler = WTFMove(completionHandler), checker = WTFMove(checker)](_WKLocalAuthenticatorPolicy policy) mutable {
+    [delegate panel:m_panel.get().get() decidePolicyForLocalAuthenticatorWithCompletionHandler:makeBlockPtr([completionHandler = WTF::move(completionHandler), checker = WTF::move(checker)](_WKLocalAuthenticatorPolicy policy) mutable {
         if (checker->completionHandlerHasBeenCalled())
             return;
         checker->didCallCompletionHandler();
@@ -268,7 +270,7 @@ void WebAuthenticationPanelClient::requestLAContextForUserVerification(Completio
     }
 
     auto checker = CompletionHandlerCallChecker::create(delegate.get(), @selector(panel:requestLAContextForUserVerificationWithCompletionHandler:));
-    [delegate panel:m_panel.get().get() requestLAContextForUserVerificationWithCompletionHandler:makeBlockPtr([completionHandler = WTFMove(completionHandler), checker = WTFMove(checker)](LAContext *context) mutable {
+    [delegate panel:m_panel.get().get() requestLAContextForUserVerificationWithCompletionHandler:makeBlockPtr([completionHandler = WTF::move(completionHandler), checker = WTF::move(checker)](LAContext *context) mutable {
         if (checker->completionHandlerHasBeenCalled())
             return;
         checker->didCallCompletionHandler();

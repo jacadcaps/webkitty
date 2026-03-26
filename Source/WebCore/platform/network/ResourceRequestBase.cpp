@@ -28,6 +28,7 @@
 
 #include "HTTPHeaderNames.h"
 #include "HTTPStatusCodes.h"
+#include "IPAddressSpace.h"
 #include "Logging.h"
 #include "PublicSuffixStore.h"
 #include "RegistrableDomain.h"
@@ -132,7 +133,7 @@ void ResourceRequestBase::setURL(URL&& url, bool didFilterLinkDecoration)
 {
     updateResourceRequest();
 
-    m_requestData.m_url = WTFMove(url);
+    m_requestData.m_url = WTF::move(url);
     m_requestData.m_didFilterLinkDecoration = didFilterLinkDecoration;
 
     m_platformRequestUpdated = false;
@@ -175,7 +176,7 @@ ResourceRequest ResourceRequestBase::redirectedRequest(const ResourceResponse& r
     if (shouldSetHash == ShouldSetHash::Yes && url.fragmentIdentifier().isEmpty() && !redirectResponse.url().fragmentIdentifier().isEmpty())
         url.setFragmentIdentifier(redirectResponse.url().fragmentIdentifier());
 
-    request.setURL(WTFMove(url));
+    request.setURL(WTF::move(url));
 
     request.redirectAsGETIfNeeded(*this, redirectResponse);
 
@@ -582,7 +583,7 @@ void ResourceRequestBase::setHTTPBody(RefPtr<FormData>&& httpBody)
 {
     updateResourceRequest();
 
-    m_httpBody = WTFMove(httpBody);
+    m_httpBody = WTF::move(httpBody);
 
     m_resourceRequestBodyUpdated = true;
 
@@ -664,7 +665,7 @@ void ResourceRequestBase::setHTTPHeaderFields(HTTPHeaderMap headerFields)
 {
     updateResourceRequest();
 
-    m_requestData.m_httpHeaderFields = WTFMove(headerFields);
+    m_requestData.m_httpHeaderFields = WTF::move(headerFields);
 
     m_platformRequestUpdated = false;
 }
@@ -786,7 +787,7 @@ bool ResourceRequestBase::equal(const ResourceRequest& a, const ResourceRequest&
     return ResourceRequest::platformCompare(a, b);
 }
 
-static const HTTPHeaderName conditionalHeaderNames[] = {
+static constexpr std::array conditionalHeaderNames {
     HTTPHeaderName::IfMatch,
     HTTPHeaderName::IfModifiedSince,
     HTTPHeaderName::IfNoneMatch,

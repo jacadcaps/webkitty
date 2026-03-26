@@ -32,13 +32,14 @@
 #import "Utilities.h"
 #import <pal/spi/cocoa/NetworkSPI.h>
 #import <wtf/BlockPtr.h>
+#import <wtf/darwin/DispatchExtras.h>
 
 namespace TestWebKitAPI {
 
 struct WebTransportServer::Data : public RefCounted<WebTransportServer::Data> {
-    static Ref<Data> create(Function<ConnectionTask(ConnectionGroup)>&& connectionGroupHandler) { return adoptRef(*new Data(WTFMove(connectionGroupHandler))); }
+    static Ref<Data> create(Function<ConnectionTask(ConnectionGroup)>&& connectionGroupHandler) { return adoptRef(*new Data(WTF::move(connectionGroupHandler))); }
     Data(Function<ConnectionTask(ConnectionGroup)>&& connectionGroupHandler)
-        : connectionGroupHandler(WTFMove(connectionGroupHandler)) { }
+        : connectionGroupHandler(WTF::move(connectionGroupHandler)) { }
 
     Function<ConnectionTask(ConnectionGroup)> connectionGroupHandler;
     RetainPtr<nw_listener_t> listener;
@@ -46,8 +47,8 @@ struct WebTransportServer::Data : public RefCounted<WebTransportServer::Data> {
     Vector<CoroutineHandle<ConnectionTask::promise_type>> coroutineHandles;
 };
 
-WebTransportServer::WebTransportServer(Function<ConnectionTask(ConnectionGroup)>&& connectionGroupHandler)
-    : m_data(Data::create(WTFMove(connectionGroupHandler)))
+WebTransportServer::WebTransportServer(Function<ConnectionTask(ConnectionGroup)>&& connectionGroupHandler, sec_identity_t identity)
+    : m_data(Data::create(WTF::move(connectionGroupHandler)))
 {
     auto configureWebTransport = [](nw_protocol_options_t options) {
         nw_webtransport_options_set_is_datagram(options, true);
@@ -55,9 +56,9 @@ WebTransportServer::WebTransportServer(Function<ConnectionTask(ConnectionGroup)>
         nw_webtransport_options_set_connection_max_sessions(options, 1);
     };
 
-    auto configureTLS = [](nw_protocol_options_t options) {
+    auto configureTLS = [identity = RetainPtr { identity }] (nw_protocol_options_t options) {
         RetainPtr securityOptions = adoptNS(nw_tls_copy_sec_protocol_options(options));
-        sec_protocol_options_set_local_identity(securityOptions.get(), adoptNS(sec_identity_create(testIdentity().get())).get());
+        sec_protocol_options_set_local_identity(securityOptions.get(), identity ? identity.get() : adoptNS(sec_identity_create(testIdentity().get())).get());
     };
 
     auto configureQUIC = [](nw_protocol_options_t options) {
@@ -76,20 +77,28 @@ WebTransportServer::WebTransportServer(Function<ConnectionTask(ConnectionGroup)>
     nw_listener_set_new_connection_group_handler(listener.get(), [data = m_data] (nw_connection_group_t incomingConnectionGroup) {
         ConnectionGroup connectionGroup = ConnectionGroup(incomingConnectionGroup);
         data->connectionGroups.append(connectionGroup);
+
         nw_connection_group_set_state_changed_handler(incomingConnectionGroup, [connectionGroup, data] (nw_connection_group_state_t state, nw_error_t error) mutable {
-            if (state != nw_connection_group_state_ready)
-                return;
-            data->coroutineHandles.append(data->connectionGroupHandler(connectionGroup).handle);
+            switch (state) {
+            case nw_connection_group_state_ready:
+                data->coroutineHandles.append(data->connectionGroupHandler(connectionGroup).handle);
+                break;
+            case nw_connection_group_state_failed:
+                connectionGroup.markAsFailed();
+                break;
+            default:
+                break;
+            }
         });
 
         nw_connection_group_set_new_connection_handler(incomingConnectionGroup, [connectionGroup] (nw_connection_t incomingConnection) mutable {
             connectionGroup.receiveIncomingConnection(incomingConnection);
         });
-        nw_connection_group_set_queue(incomingConnectionGroup, dispatch_get_main_queue());
+        nw_connection_group_set_queue(incomingConnectionGroup, mainDispatchQueueSingleton());
         nw_connection_group_start(incomingConnectionGroup);
     });
 
-    nw_listener_set_queue(listener.get(), dispatch_get_main_queue());
+    nw_listener_set_queue(listener.get(), mainDispatchQueueSingleton());
 
     __block bool ready = false;
     nw_listener_set_state_changed_handler(listener.get(), ^(nw_listener_state_t state, nw_error_t error) {
@@ -100,7 +109,7 @@ WebTransportServer::WebTransportServer(Function<ConnectionTask(ConnectionGroup)>
     nw_listener_start(listener.get());
     Util::run(&ready);
 
-    m_data->listener = WTFMove(listener);
+    m_data->listener = WTF::move(listener);
 }
 
 WebTransportServer::~WebTransportServer() = default;

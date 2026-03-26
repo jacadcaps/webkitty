@@ -71,7 +71,6 @@ public:
     void durationChanged(const MediaTime&) final;
     void markEndOfStream(EndOfStreamStatus) final;
     void unmarkEndOfStream() final;
-    WebCore::MediaPlayer::ReadyState mediaPlayerReadyState() const final;
     void setMediaPlayerReadyState(WebCore::MediaPlayer::ReadyState) final;
     void setPlayer(WebCore::MediaPlayerPrivateInterface*) final;
     void shutdown() final;
@@ -98,7 +97,6 @@ public:
         MessageReceiver(MediaSourcePrivateRemote&);
         void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
         void proxyWaitForTarget(const WebCore::SeekTarget&, CompletionHandler<void(WebCore::MediaTimePromise::Result&&)>&&);
-        void proxySeekToTime(const MediaTime&, CompletionHandler<void(WebCore::MediaPromise::Result&&)>&&);
 
         RefPtr<WebCore::MediaSourcePrivateClient> client() const;
         ThreadSafeWeakPtr<MediaSourcePrivateRemote> m_parent;
@@ -109,8 +107,6 @@ private:
 
     void bufferedChanged(const WebCore::PlatformTimeRanges&) final;
 
-    void ensureOnDispatcherSync(Function<void()>&&) const;
-
     bool isGPURunning() const { return !m_shutdown; }
 
     ThreadSafeWeakPtr<GPUProcessConnection> m_gpuProcessConnection;
@@ -119,7 +115,6 @@ private:
     const CheckedRef<RemoteMediaPlayerMIMETypeCache> m_mimeTypeCache;
     ThreadSafeWeakPtr<MediaPlayerPrivateRemote> m_mediaPlayerPrivate;
     std::atomic<bool> m_shutdown { false };
-    std::atomic<WebCore::MediaPlayer::ReadyState> m_mediaPlayerReadyState { WebCore::MediaPlayer::ReadyState::HaveNothing };
 
 #if !RELEASE_LOG_DISABLED
     ASCIILiteral logClassName() const override { return "MediaSourcePrivateRemote"_s; }

@@ -20,20 +20,17 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import inspect
 import operator
 import os
 import shutil
 import tempfile
 
-from buildbot.process.results import Results, SUCCESS, FAILURE, WARNINGS, SKIPPED, EXCEPTION, RETRY
+from buildbot.process.results import SUCCESS, FAILURE, WARNINGS, SKIPPED
 from buildbot.test.fake.fakebuild import FakeBuild
-from buildbot.test.fake.remotecommand import Expect, ExpectRemoteRef, ExpectShell
-from buildbot.test.util.misc import TestReactorMixin
-from buildbot.test.util.steps import BuildStepMixin
-from buildbot.util import identifiers as buildbot_identifiers
-from mock import call
-from twisted.internet import defer, error, reactor
+from buildbot.test.reactor import TestReactorMixin
+from buildbot.test.steps import ExpectShell
+from buildbot.test.steps import TestBuildStepMixin as BuildStepMixin
+from twisted.internet import error, reactor
 from twisted.python import failure, log
 from twisted.trial import unittest
 
@@ -45,6 +42,12 @@ LLVM_DIR = 'llvm-project'
 # Workaround for https://github.com/buildbot/buildbot/issues/4669
 FakeBuild.addStepsAfterLastStep = lambda FakeBuild, step_factories: None
 FakeBuild._builderid = 1
+
+
+def expectedFailure(f):
+    """A unittest.expectedFailure-like decorator for twisted.trial.unittest"""
+    f.todo = 'expectedFailure'
+    return f
 
 
 class ExpectMasterShellCommand(object):
@@ -78,31 +81,30 @@ class ExpectMasterShellCommand(object):
 
 
 class BuildStepMixinAdditions(BuildStepMixin, TestReactorMixin):
-    def setUpBuildStep(self):
+    def setup_test_build_step(self):
         self.patch(reactor, 'spawnProcess', lambda *args, **kwargs: self._checkSpawnProcess(*args, **kwargs))
         self._expected_local_commands = []
-        self.setUpTestReactor()
+        self.setup_test_reactor()
 
         self._temp_directory = tempfile.mkdtemp()
         os.chdir(self._temp_directory)
         self._expected_uploaded_files = []
 
-        super(BuildStepMixinAdditions, self).setUpBuildStep()
+        super(BuildStepMixinAdditions, self).setup_test_build_step()
 
-    def tearDownBuildStep(self):
+    def tear_down_test_build_step(self):
         shutil.rmtree(self._temp_directory)
-        super(BuildStepMixinAdditions, self).tearDownBuildStep()
 
     def fakeBuildFinished(self, text, results):
         self.build.text = text
         self.build.results = results
 
-    def setupStep(self, step, *args, **kwargs):
+    def setup_step(self, step, *args, **kwargs):
         self.previous_steps = kwargs.get('previous_steps') or []
         if self.previous_steps:
             del kwargs['previous_steps']
 
-        super(BuildStepMixinAdditions, self).setupStep(step, *args, **kwargs)
+        super(BuildStepMixinAdditions, self).setup_step(step, *args, **kwargs)
         self.build.terminate = False
         self.build.stopped = False
         self.build.executedSteps = self.executedSteps
@@ -115,10 +117,10 @@ class BuildStepMixinAdditions(BuildStepMixin, TestReactorMixin):
         return [step for step in self.previous_steps if not step.stopped]
 
     def setProperty(self, name, value, source='Unknown'):
-        self.properties.setProperty(name, value, source)
+        self.build.setProperty(name, value, source)
 
     def getProperty(self, name):
-        return self.properties.getProperty(name)
+        return self.build.getProperty(name)
 
     def expectAddedURLs(self, added_urls):
         self._expected_added_urls = added_urls
@@ -130,7 +132,7 @@ class BuildStepMixinAdditions(BuildStepMixin, TestReactorMixin):
         self._expected_local_commands.extend(expected_commands)
 
     def expectRemoteCommands(self, *expected_commands):
-        self.expectCommands(*expected_commands)
+        self.expect_commands(*expected_commands)
 
     def expectSources(self, expected_sources):
         self._expected_sources = expected_sources
@@ -166,7 +168,7 @@ class BuildStepMixinAdditions(BuildStepMixin, TestReactorMixin):
                 results.append(os.path.join(relative_root_path, name))
         return results
 
-    def runStep(self):
+    def run_step(self):
         def check(result):
             self.assertEqual(self._expected_local_commands, [], 'assert all expected local commands were run')
             self.expectAddedURLs(self._expected_added_urls)
@@ -176,7 +178,7 @@ class BuildStepMixinAdditions(BuildStepMixin, TestReactorMixin):
                 actual_sources = sorted([source.asDict() for source in self.build.sources], key=operator.itemgetter('codebase'))
                 expected_sources = sorted([source.asDict() for source in self._expected_sources], key=operator.itemgetter('codebase'))
                 self.assertEqual(actual_sources, expected_sources)
-        deferred_result = super(BuildStepMixinAdditions, self).runStep()
+        deferred_result = super(BuildStepMixinAdditions, self).run_step()
         deferred_result.addCallback(check)
         return deferred_result
 
@@ -184,120 +186,146 @@ class BuildStepMixinAdditions(BuildStepMixin, TestReactorMixin):
 class TestPrintClangVersion(BuildStepMixinAdditions, unittest.TestCase):
     def setUp(self):
         self.longMessage = True
-        return self.setUpBuildStep()
+        return self.setup_test_build_step()
 
     def tearDown(self):
-        return self.tearDownBuildStep()
+        return self.tear_down_test_build_step()
 
     def configureStep(self):
-        self.setupStep(PrintClangVersion())
+        self.setup_step(PrintClangVersion())
 
     def test_success(self):
         self.configureStep()
         self.expectRemoteCommands(
             ExpectShell(workdir=LLVM_DIR,
-                        logEnviron=False,
+                        log_environ=False,
                         timeout=60,
                         command=['./build/bin/clang', '--version'])
-            + ExpectShell.log('stdio', stdout='clang version 17.0.6 (https://github.com/rniwa/llvm-project.git 34715c1b2049d8aa738ade79f003ed4b82259a89) Target: arm64-apple-darwin23.5.0\nThread model: posix\nInstalledDir: /Volumes/Data/worker/macOS-Sonoma-Safer-CPP-Checks-EWS/llvm-project/./build/bin')
-            + 0,
+            .log('stdio', stdout='clang version 17.0.6 (https://github.com/rniwa/llvm-project.git 34715c1b2049d8aa738ade79f003ed4b82259a89) Target: arm64-apple-darwin23.5.0\nThread model: posix\nInstalledDir: /Volumes/Data/worker/macOS-Sonoma-Safer-CPP-Checks-EWS/llvm-project/./build/bin')
+            .exit(0),
         )
-        self.expectOutcome(result=SUCCESS, state_string='clang version 17.0.6 (https://github.com/rniwa/llvm-project.git 34715c1b2049d8aa738ade79f003ed4b82259a89)')
-        rc = self.runStep()
-        self.assertEqual(self.getProperty('llvm_revision'), '34715c1b2049d8aa738ade79f003ed4b82259a89')
+        self.expect_outcome(result=SUCCESS, state_string='clang version 17.0.6 (https://github.com/rniwa/llvm-project.git 34715c1b2049d8aa738ade79f003ed4b82259a89)')
+        rc = self.run_step()
+        self.expect_property('current_llvm_revision', '34715c1b2049d8aa738ade79f003ed4b82259a89')
         return rc
 
+    @expectedFailure
     def test_failure(self):
         self.configureStep()
         self.expectRemoteCommands(
             ExpectShell(workdir=LLVM_DIR,
-                        logEnviron=False,
+                        log_environ=False,
                         timeout=60,
                         command=['./build/bin/clang', '--version'])
-            + ExpectShell.log('stdio', stdout='No such file or directory\n')
-            + 0,
+            .log('stdio', stdout='No such file or directory\n')
+            .exit(0),
         )
-        self.expectOutcome(result=SUCCESS, state_string='Clang executable does not exist')
-        rc = self.runStep()
-        self.assertEqual(self.getProperty('llvm_revision'), None)
+        self.expect_outcome(result=SUCCESS, state_string='Clang executable does not exist')
+        rc = self.run_step()
+        self.expect_property('current_llvm_revision', None)
+        return rc
+
+
+class TestGetLLVMVersion(BuildStepMixinAdditions, unittest.TestCase):
+    def setUp(self):
+        self.longMessage = True
+        return self.setup_test_build_step()
+
+    def tearDown(self):
+        return self.tear_down_test_build_step()
+
+    def configureStep(self):
+        self.setup_step(GetLLVMVersion())
+
+    def test_success(self):
+        self.configureStep()
+        self.expectRemoteCommands(
+            ExpectShell(workdir='wkdir',
+                        log_environ=False,
+                        timeout=60,
+                        command=['/bin/bash', '--posix', '-o', 'pipefail', '-c', 'cat Tools/CISupport/safer-cpp-llvm-version'])
+            .log('stdio', stdout='34715c1b2049d8aa738ade79f003ed4b82259a89\n')
+            .exit(0),
+        )
+        self.expect_outcome(result=SUCCESS, state_string='Canonical LLVM version: 34715c1b2049d8aa738ade79f003ed4b82259a89')
+        rc = self.run_step()
+        self.expect_property('canonical_llvm_revision', '34715c1b2049d8aa738ade79f003ed4b82259a89')
         return rc
 
 
 class TestCheckoutLLVMProject(BuildStepMixinAdditions, unittest.TestCase):
-    LLVM_REVISION = '123456'
-
     def setUp(self):
         self.longMessage = True
-        return self.setUpBuildStep()
+        return self.setup_test_build_step()
 
     def tearDown(self):
-        return self.tearDownBuildStep()
+        return self.tear_down_test_build_step()
 
     def configureStep(self):
-        self.setupStep(CheckOutLLVMProject())
-
-        def doStepIf(self, step):
-            return self.build.getProperty('llvm_revision', '') != TestCheckoutLLVMProject.LLVM_REVISION
-        CheckOutLLVMProject.doStepIf = doStepIf
+        self.setup_step(CheckOutLLVMProject())
+        self.setProperty('canonical_llvm_revision', '123456')
 
     def test_skipped(self):
         self.configureStep()
-        self.setProperty('llvm_revision', '123456')
-        self.expectOutcome(result=SKIPPED, state_string='llvm-project is already up to date')
-        return self.runStep()
+        self.setProperty('current_llvm_revision', '123456')
+        self.expect_outcome(result=SKIPPED, state_string='llvm-project is already up to date')
+        return self.run_step()
 
 
 class TestUpdateClang(BuildStepMixinAdditions, unittest.TestCase):
     ENV = {'PATH': '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Applications/CMake.app/Contents/bin/:BuildDir'}
-    LLVM_REVISION = '123456'
 
     def setUp(self):
         self.longMessage = True
-        return self.setUpBuildStep()
+        return self.setup_test_build_step()
 
     def tearDown(self):
-        return self.tearDownBuildStep()
+        return self.tear_down_test_build_step()
 
     def configureStep(self):
-        self.setupStep(UpdateClang())
+        self.setup_step(UpdateClang())
         self.setProperty('builddir', 'BuildDir')
-
-        def doStepIf(self, step):
-            return self.build.getProperty('llvm_revision', '') != TestUpdateClang.LLVM_REVISION
-        UpdateClang.doStepIf = doStepIf
+        self.setProperty('canonical_llvm_revision', '123456')
 
     def test_success(self):
         self.configureStep()
         self.expectRemoteCommands(
             ExpectShell(workdir=LLVM_DIR,
-                        logEnviron=True,
+                        log_environ=True,
                         timeout=1200,
                         env=self.ENV,
-                        command=['/bin/bash', '--posix', '-o', 'pipefail', '-c', 'rm -r build-new; mkdir build-new']) + 0,
+                        command=['/bin/bash', '--posix', '-o', 'pipefail', '-c', 'rm -r build-new; mkdir build-new']).exit(0),
             ExpectShell(workdir=LLVM_DIR,
-                        logEnviron=True,
+                        log_environ=True,
                         timeout=1200,
                         env=self.ENV,
-                        command=['/bin/bash', '--posix', '-o', 'pipefail', '-c', 'cd build-new; xcrun cmake -DLLVM_ENABLE_PROJECTS=clang -DCMAKE_BUILD_TYPE=Release -G Ninja ../llvm -DCMAKE_MAKE_PROGRAM=$(xcrun --sdk macosx --find ninja)']) + 0,
+                        command=['/bin/bash', '--posix', '-o', 'pipefail', '-c', 'cd build-new; xcrun cmake -DLLVM_ENABLE_PROJECTS=clang -DCMAKE_BUILD_TYPE=Release -G Ninja ../llvm -DCMAKE_MAKE_PROGRAM=$(xcrun --sdk macosx --find ninja)']).exit(0),
             ExpectShell(workdir=LLVM_DIR,
-                        logEnviron=True,
+                        log_environ=True,
                         timeout=1200,
                         env=self.ENV,
-                        command=['/bin/bash', '--posix', '-o', 'pipefail', '-c', 'cd build-new; ninja clang']) + 0,
+                        command=['/bin/bash', '--posix', '-o', 'pipefail', '-c', 'cd build-new; ninja clang']).exit(0),
             ExpectShell(workdir=LLVM_DIR,
-                        logEnviron=True,
+                        log_environ=True,
                         timeout=1200,
                         env=self.ENV,
-                        command=['rm', '-r', '../build/WebKitBuild']) + 0,
+                        command=['rm', '-r', '../build/WebKitBuild']).exit(0),
         )
-        self.expectOutcome(result=SUCCESS, state_string='Successfully updated clang')
-        return self.runStep()
+        self.expect_outcome(result=SUCCESS, state_string='Successfully updated clang')
+        return self.run_step()
 
     def test_skipped(self):
         self.configureStep()
-        self.setProperty('llvm_revision', '123456')
-        self.expectOutcome(result=SKIPPED, state_string='Clang is already up to date')
-        self.runStep()
+        self.setProperty('current_llvm_revision', '123456')
+        self.expect_outcome(result=SKIPPED, state_string='Clang is already up to date')
+        self.run_step()
+
+    def test_use_previous_build(self):
+        self.configureStep()
+        self.setProperty('canonical_llvm_revision', '')
+        self.setProperty('current_llvm_revision', '123456')
+        self.expect_outcome(result=WARNINGS, state_string='Could not find canonical revision, using previous build')
+        self.run_step()
 
 
 class TestInstallCMake(BuildStepMixinAdditions, unittest.TestCase):
@@ -305,55 +333,55 @@ class TestInstallCMake(BuildStepMixinAdditions, unittest.TestCase):
 
     def setUp(self):
         self.longMessage = True
-        return self.setUpBuildStep()
+        return self.setup_test_build_step()
 
     def tearDown(self):
-        return self.tearDownBuildStep()
+        return self.tear_down_test_build_step()
 
     def configureStep(self):
-        self.setupStep(InstallCMake())
+        self.setup_step(InstallCMake())
 
     def test_success_update(self):
         self.configureStep()
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
-                        logEnviron=True,
+                        log_environ=True,
                         timeout=1200,
                         env=self.ENV,
                         command=['python3', 'Tools/CISupport/Shared/download-and-install-build-tools', 'cmake'])
-            + ExpectShell.log('stdio', stdout='cmake version 3.30.4\n')
-            + 0,
+            .log('stdio', stdout='cmake version 3.30.4\n')
+            .exit(0),
         )
-        self.expectOutcome(result=SUCCESS, state_string='Successfully installed CMake')
-        return self.runStep()
+        self.expect_outcome(result=SUCCESS, state_string='Successfully installed CMake')
+        return self.run_step()
 
     def test_success_update_skipped(self):
         self.configureStep()
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
-                        logEnviron=True,
+                        log_environ=True,
                         timeout=1200,
                         env=self.ENV,
                         command=['python3', 'Tools/CISupport/Shared/download-and-install-build-tools', 'cmake'])
-            + ExpectShell.log('stdio', stdout='cmake is already up to date... skipping download and installation.\n')
-            + 0,
+            .log('stdio', stdout='cmake is already up to date... skipping download and installation.\n')
+            .exit(0),
         )
-        self.expectOutcome(result=SUCCESS, state_string='CMake is already installed')
-        return self.runStep()
+        self.expect_outcome(result=SUCCESS, state_string='CMake is already installed')
+        return self.run_step()
 
     def test_failure(self):
         self.configureStep()
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
-                        logEnviron=True,
+                        log_environ=True,
                         timeout=1200,
                         env=self.ENV,
                         command=['python3', 'Tools/CISupport/Shared/download-and-install-build-tools', 'cmake'])
-            + ExpectShell.log('stdio', stdout='zsh: command not found: cmake\n')
-            + 1,
+            .log('stdio', stdout='zsh: command not found: cmake\n')
+            .exit(1),
         )
-        self.expectOutcome(result=FAILURE, state_string='Failed to install CMake')
-        return self.runStep()
+        self.expect_outcome(result=FAILURE, state_string='Failed to install CMake')
+        return self.run_step()
 
 
 class TestInstallNinja(BuildStepMixinAdditions, unittest.TestCase):
@@ -361,56 +389,56 @@ class TestInstallNinja(BuildStepMixinAdditions, unittest.TestCase):
 
     def setUp(self):
         self.longMessage = True
-        return self.setUpBuildStep()
+        return self.setup_test_build_step()
 
     def tearDown(self):
-        return self.tearDownBuildStep()
+        return self.tear_down_test_build_step()
 
     def configureStep(self):
-        self.setupStep(InstallNinja())
+        self.setup_step(InstallNinja())
         self.setProperty('builddir', 'BuildDir')
 
     def test_success_update(self):
         self.configureStep()
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
-                        logEnviron=True,
+                        log_environ=True,
                         timeout=1200,
                         env=self.ENV,
                         command=['/bin/bash', '--posix', '-o', 'pipefail', '-c', 'cd ../; python3 build/Tools/CISupport/Shared/download-and-install-build-tools ninja'])
-            + ExpectShell.log('stdio', stdout='1.12.1\n')
-            + 0,
+            .log('stdio', stdout='1.12.1\n')
+            .exit(0),
         )
-        self.expectOutcome(result=SUCCESS, state_string='Successfully installed Ninja')
-        return self.runStep()
+        self.expect_outcome(result=SUCCESS, state_string='Successfully installed Ninja')
+        return self.run_step()
 
     def test_success_update_skipped(self):
         self.configureStep()
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
-                        logEnviron=True,
+                        log_environ=True,
                         timeout=1200,
                         env=self.ENV,
                         command=['/bin/bash', '--posix', '-o', 'pipefail', '-c', 'cd ../; python3 build/Tools/CISupport/Shared/download-and-install-build-tools ninja'])
-            + ExpectShell.log('stdio', stdout='ninja is already up to date... skipping download and installation.\n')
-            + 0,
+            .log('stdio', stdout='ninja is already up to date... skipping download and installation.\n')
+            .exit(0),
         )
-        self.expectOutcome(result=SUCCESS, state_string='Ninja is already installed')
-        return self.runStep()
+        self.expect_outcome(result=SUCCESS, state_string='Ninja is already installed')
+        return self.run_step()
 
     def test_failure(self):
         self.configureStep()
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
-                        logEnviron=True,
+                        log_environ=True,
                         timeout=1200,
                         env=self.ENV,
                         command=['/bin/bash', '--posix', '-o', 'pipefail', '-c', 'cd ../; python3 build/Tools/CISupport/Shared/download-and-install-build-tools ninja'])
-            + ExpectShell.log('stdio', stdout='zsh: command not found: ninja')
-            + 1,
+            .log('stdio', stdout='zsh: command not found: ninja')
+            .exit(1),
         )
-        self.expectOutcome(result=FAILURE, state_string='Failed to install Ninja')
-        return self.runStep()
+        self.expect_outcome(result=FAILURE, state_string='Failed to install Ninja')
+        return self.run_step()
 
 
 if __name__ == '__main__':

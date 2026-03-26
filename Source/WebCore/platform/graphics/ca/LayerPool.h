@@ -26,10 +26,10 @@
 #ifndef LayerPool_h
 #define LayerPool_h
 
-#include "IntSize.h"
-#include "IntSizeHash.h"
-#include "PlatformCALayer.h"
-#include "Timer.h"
+#include <WebCore/IntSize.h>
+#include <WebCore/IntSizeHash.h>
+#include <WebCore/PlatformCALayer.h>
+#include <WebCore/Timer.h>
 #include <wtf/CheckedPtr.h>
 #include <wtf/Deque.h>
 #include <wtf/HashMap.h>
@@ -49,7 +49,7 @@ public:
 
     static HashSet<CheckedPtr<LayerPool>>& allLayerPools();
     
-    void addLayer(const RefPtr<PlatformCALayer>&);
+    void addLayer(PlatformCALayer&);
     RefPtr<PlatformCALayer> takeLayerWithSize(const IntSize&);
 
     void drain();
@@ -58,7 +58,7 @@ public:
     unsigned capacity() const { return m_maxBytesForPool; }
 
 private:
-    typedef Deque<RefPtr<PlatformCALayer>> LayerList;
+    typedef Deque<Ref<PlatformCALayer>> LayerList;
 
     unsigned decayedCapacity() const;
 

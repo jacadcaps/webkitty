@@ -45,6 +45,8 @@ private:
     void mouseScrollBy(int, int, double, double, double) override;
 
     void keyDown(WKStringRef, double, WKEventModifiers, unsigned) override;
+    void rawKeyDown(WKStringRef, WKEventModifiers, unsigned) override;
+    void rawKeyUp(WKStringRef, WKEventModifiers, unsigned) override;
 
 #if ENABLE(TOUCH_EVENTS)
     void addTouchPoint(int, int, double) override;
@@ -66,6 +68,10 @@ private:
         int x { 0 };
         int y { 0 };
     };
+
+    struct TouchPointContext;
+
+    std::function<bool(TouchPoint&)> pointProcessor(const TouchPointContext&);
 
     Vector<TouchPoint> m_touchPoints;
     unsigned m_touchModifiers { 0 };

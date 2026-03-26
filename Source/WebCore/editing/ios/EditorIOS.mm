@@ -38,6 +38,7 @@
 #import "DocumentMarkerController.h"
 #import "Editing.h"
 #import "EditorClient.h"
+#import "FrameDestructionObserverInlines.h"
 #import "HTMLNames.h"
 #import "LocalFrame.h"
 #import "MutableStyleProperties.h"
@@ -170,7 +171,7 @@ void Editor::insertDictationPhrases(Vector<Vector<String>>&& dictationPhrases, i
     if (dictationPhrases.isEmpty())
         return;
 
-    DictationCommandIOS::create(WTFMove(document), WTFMove(dictationPhrases), metadata)->apply();
+    DictationCommandIOS::create(WTF::move(document), WTF::move(dictationPhrases), metadata)->apply();
 }
 
 void Editor::setDictationPhrasesAsChildOfElement(const Vector<Vector<String>>& dictationPhrases, id metadata, Element& element)
@@ -219,7 +220,7 @@ void Editor::setDictationPhrasesAsChildOfElement(const Vector<Vector<String>>& d
         if (interpretations.size() > 1) {
             auto alternatives = interpretations;
             alternatives.removeAt(0);
-            addMarker(*textNode, previousDictationPhraseStart, dictationPhraseLength, DocumentMarkerType::DictationPhraseWithAlternatives, WTFMove(alternatives));
+            addMarker(*textNode, previousDictationPhraseStart, dictationPhraseLength, DocumentMarkerType::DictationPhraseWithAlternatives, WTF::move(alternatives));
         }
         previousDictationPhraseStart += dictationPhraseLength;
     }
@@ -262,7 +263,7 @@ void Editor::setTextAsChildOfElement(String&& text, Element& element)
     Ref document = this->document();
     document->selection().clear();
 
-    element.stringReplaceAll(WTFMove(text));
+    element.stringReplaceAll(WTF::move(text));
 
     VisiblePosition afterContents = makeContainerOffsetPosition(&element, element.countChildNodes());
     if (afterContents.isNull())

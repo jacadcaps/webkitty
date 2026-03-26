@@ -111,8 +111,8 @@ DOMHTMLOptionsCollection *kit(WebCore::HTMLOptionsCollection* value)
     WebCoreThreadViolationCheckRoundOne();
     if (!value)
         return nil;
-    if (DOMHTMLOptionsCollection *wrapper = getDOMWrapper(value))
-        return retainPtr(wrapper).autorelease();
+    if (RetainPtr wrapper = getDOMWrapper(value))
+        return wrapper.autorelease();
     auto wrapper = adoptNS([[DOMHTMLOptionsCollection alloc] _init]);
     wrapper->_internal = reinterpret_cast<DOMObjectInternal*>(value);
     value->ref();

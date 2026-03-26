@@ -45,6 +45,7 @@
 #import <wtf/RetainPtr.h>
 #import <wtf/URL.h>
 #import <wtf/cocoa/VectorCocoa.h>
+#import <wtf/darwin/DispatchExtras.h>
 #import <wtf/text/WTFString.h>
 
 static bool receivedNotification;
@@ -215,7 +216,7 @@ TEST(ContentRuleList, DisplayNoneInSrcDocIFrame)
     __block bool isDone = false;
 
     // Make sure the frame loads before checking the computed style.
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.05 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.05 * NSEC_PER_SEC), mainDispatchQueueSingleton(), ^{
         NSString *getHeaderDisplay = @"window.getComputedStyle(document.getElementById('subframe').contentDocument.querySelector('h1')).getPropertyValue('display')";
         EXPECT_WK_STREQ([webView objectByEvaluatingJavaScript:getHeaderDisplay], "none");
 

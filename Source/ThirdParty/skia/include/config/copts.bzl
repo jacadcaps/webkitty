@@ -83,6 +83,7 @@ WARNINGS = [
     "-Wno-return-std-move-in-c++11",
     "-Wno-shadow-field-in-constructor",
     "-Wno-shadow-uncaptured-local",
+    "-Wno-switch-default",  # Warns even when all values are covered
     "-Wno-undefined-func-template",
     "-Wno-unused-parameter",  # It is common to have unused parameters in src/
     "-Wno-zero-as-null-pointer-constant",  # VK_NULL_HANDLE is defined as 0
@@ -103,6 +104,7 @@ WARNINGS = [
     "-Wno-global-constructors",  # TODO: OK outside libskia
     "-Wno-missing-prototypes",
     "-Wno-missing-variable-declarations",
+    "-Wno-nrvo",
     "-Wno-pedantic",
     "-Wno-reserved-id-macro",
     "-Wno-reserved-identifier",

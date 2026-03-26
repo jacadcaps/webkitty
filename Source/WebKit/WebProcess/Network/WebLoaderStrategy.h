@@ -31,6 +31,7 @@
 #include <WebCore/ResourceError.h>
 #include <WebCore/ResourceLoader.h>
 #include <WebCore/ResourceResponse.h>
+#include <wtf/CanMakeWeakPtr.h>
 #include <wtf/CheckedPtr.h>
 #include <wtf/HashSet.h>
 #include <wtf/RunLoop.h>
@@ -49,9 +50,10 @@ class WebPage;
 class WebProcess;
 class WebURLSchemeTaskProxy;
 
-class WebLoaderStrategy final : public WebCore::LoaderStrategy {
+class WebLoaderStrategy final : public WebCore::LoaderStrategy, public CanMakeWeakPtr<WebLoaderStrategy> {
     WTF_MAKE_TZONE_ALLOCATED(WebLoaderStrategy);
     WTF_MAKE_NONCOPYABLE(WebLoaderStrategy);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WebLoaderStrategy);
 public:
     explicit WebLoaderStrategy(WebProcess&);
     ~WebLoaderStrategy() final;
@@ -144,7 +146,7 @@ private:
     void isResourceLoadFinished(WebCore::CachedResource&, CompletionHandler<void(bool)>&&) final;
 
     void setResourceLoadSchedulingMode(WebCore::Page&, WebCore::LoadSchedulingMode) final;
-    void prioritizeResourceLoads(const Vector<WebCore::SubresourceLoader*>&) final;
+    void prioritizeResourceLoads(const Vector<Ref<WebCore::SubresourceLoader>>&) final;
 
     Vector<WebCore::ResourceLoaderIdentifier> ongoingLoads() const final
     {
@@ -156,8 +158,8 @@ private:
     WeakRef<WebProcess> m_webProcess;
     HashSet<RefPtr<WebCore::ResourceLoader>> m_internallyFailedResourceLoaders;
     RunLoop::Timer m_internallyFailedLoadTimer;
-    
-    HashMap<WebCore::ResourceLoaderIdentifier, RefPtr<WebResourceLoader>> m_webResourceLoaders;
+
+    HashMap<WebCore::ResourceLoaderIdentifier, Ref<WebResourceLoader>> m_webResourceLoaders;
     HashMap<WebCore::ResourceLoaderIdentifier, WeakRef<WebURLSchemeTaskProxy>> m_urlSchemeTasks;
     HashMap<WebCore::ResourceLoaderIdentifier, PingLoadCompletionHandler> m_pingLoadCompletionHandlers;
     HashMap<WebCore::ResourceLoaderIdentifier, PreconnectCompletionHandler> m_preconnectCompletionHandlers;

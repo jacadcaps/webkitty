@@ -8,8 +8,7 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include <stddef.h>
-
+#include <cstddef>
 #include <cstdint>
 #include <iterator>
 #include <memory>
@@ -71,15 +70,15 @@
 
 namespace {
 
-static const char kStreamId1[] = "local_stream_1";
-static const char kVideoTrackId[] = "video_1";
-static const char kAudioTrackId[] = "audio_1";
-static const uint32_t kVideoSsrc = 98;
-static const uint32_t kVideoSsrc2 = 100;
-static const uint32_t kAudioSsrc = 99;
-static const uint32_t kAudioSsrc2 = 101;
-static const uint32_t kVideoSsrcSimulcast = 102;
-static const uint32_t kVideoSimulcastLayerCount = 2;
+constexpr char kStreamId1[] = "local_stream_1";
+constexpr char kVideoTrackId[] = "video_1";
+constexpr char kAudioTrackId[] = "audio_1";
+constexpr uint32_t kVideoSsrc = 98;
+constexpr uint32_t kVideoSsrc2 = 100;
+constexpr uint32_t kAudioSsrc = 99;
+constexpr uint32_t kAudioSsrc2 = 101;
+constexpr uint32_t kVideoSsrcSimulcast = 102;
+constexpr uint32_t kVideoSimulcastLayerCount = 2;
 
 class MockSetStreamsObserver
     : public webrtc::RtpSenderBase::SetStreamsObserver {
@@ -115,16 +114,16 @@ class RtpSenderReceiverTest
     // Create the channels, discard the result; we get them later.
     // Fake media channels are owned by the media engine.
     voice_media_send_channel_ = media_engine_->voice().CreateSendChannel(
-        &fake_call_, MediaConfig(), AudioOptions(), CryptoOptions(),
+        env_, &fake_call_, MediaConfig(), AudioOptions(), CryptoOptions(),
         AudioCodecPairId::Create());
     video_media_send_channel_ = media_engine_->video().CreateSendChannel(
-        &fake_call_, MediaConfig(), VideoOptions(), CryptoOptions(),
+        env_, &fake_call_, MediaConfig(), VideoOptions(), CryptoOptions(),
         video_bitrate_allocator_factory_.get());
     voice_media_receive_channel_ = media_engine_->voice().CreateReceiveChannel(
-        &fake_call_, MediaConfig(), AudioOptions(), CryptoOptions(),
+        env_, &fake_call_, MediaConfig(), AudioOptions(), CryptoOptions(),
         AudioCodecPairId::Create());
     video_media_receive_channel_ = media_engine_->video().CreateReceiveChannel(
-        &fake_call_, MediaConfig(), VideoOptions(), CryptoOptions());
+        env_, &fake_call_, MediaConfig(), VideoOptions(), CryptoOptions());
 
     // Create streams for predefined SSRCs. Streams need to exist in order
     // for the senders and receievers to apply parameters to them.
@@ -148,7 +147,7 @@ class RtpSenderReceiverTest
         StreamParams::CreateLegacy(kVideoSsrc2));
   }
 
-  ~RtpSenderReceiverTest() {
+  ~RtpSenderReceiverTest() override {
     audio_rtp_sender_ = nullptr;
     video_rtp_sender_ = nullptr;
     audio_rtp_receiver_ = nullptr;

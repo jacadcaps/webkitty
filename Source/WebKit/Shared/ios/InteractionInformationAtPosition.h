@@ -27,7 +27,6 @@
 
 #if PLATFORM(IOS_FAMILY)
 
-#include "ArgumentCoders.h"
 #include "CursorContext.h"
 #include "InteractionInformationRequest.h"
 #include <WebCore/ElementAnimationContext.h>
@@ -40,6 +39,8 @@
 #include <wtf/URL.h>
 #include <wtf/text/WTFString.h>
 
+OBJC_CLASS DDScannerResult;
+
 namespace WebKit {
 
 struct InteractionInformationAtPosition {
@@ -50,18 +51,43 @@ struct InteractionInformationAtPosition {
         return response;
     }
 
-    InteractionInformationRequest request;
-
-    bool canBeValid { true };
-    std::optional<bool> nodeAtPositionHasDoubleClickHandler;
-
     enum class Selectability : uint8_t {
         Selectable,
         UnselectableDueToFocusableElement,
-        UnselectableDueToLargeElementBounds,
         UnselectableDueToUserSelectNoneOrQuirk,
         UnselectableDueToMediaControls,
     };
+
+    InteractionInformationAtPosition() = default;
+    InteractionInformationAtPosition(InteractionInformationRequest&&, bool canBeValid, std::optional<bool> hitNodeOrWindowHasDoubleClickListener, Selectability&&, bool isSelected, bool prefersDraggingOverTextSelection, bool isNearMarkedText, bool touchCalloutEnabled, bool isLink, bool isImage,
+#if ENABLE(MODEL_PROCESS)
+        bool isInteractiveModel,
+#endif
+        bool isAttachment, bool isAnimatedImage, bool isAnimating, bool canShowAnimationControls, bool isPausedVideo, bool isElement, bool isContentEditable, Markable<WebCore::ScrollingNodeID>&& containerScrollingNodeID,
+#if ENABLE(DATA_DETECTION)
+        bool isDataDetectorLink,
+#endif
+        bool preventTextInteraction, bool elementContainsImageOverlay, bool isImageOverlayText,
+#if ENABLE(SPATIAL_IMAGE_DETECTION)
+        bool isSpatialImage,
+#endif
+        bool isInPlugin, bool needsPointerTouchCompatibilityQuirk, WebCore::FloatPoint&& adjustedPointForNodeRespondingToClickEvents, URL&&, URL&& imageURL, String&& imageMIMEType, String&& title, String&& idAttribute, WebCore::IntRect&& bounds,
+#if PLATFORM(MACCATALYST)
+        WebCore::IntRect&& caretRect,
+#endif
+        RefPtr<WebCore::ShareableBitmap>&&, String&& textBefore, String&& textAfter, CursorContext&&, RefPtr<WebCore::TextIndicator>&&,
+#if ENABLE(DATA_DETECTION)
+        String&& dataDetectorIdentifier, Vector<RetainPtr<DDScannerResult>>&&, WebCore::IntRect&& dataDetectorBounds,
+#endif
+#if ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
+        Vector<WebCore::ElementAnimationContext>&& animationsAtPoint,
+#endif
+        std::optional<WebCore::ElementContext>&&, std::optional<WebCore::ElementContext>&& hostImageOrVideoElementContext);
+
+    InteractionInformationRequest request;
+
+    bool canBeValid { true };
+    std::optional<bool> hitNodeOrWindowHasDoubleClickListener;
 
     Selectability selectability { Selectability::Selectable };
 
@@ -116,12 +142,12 @@ struct InteractionInformationAtPosition {
     WebCore::IntRect dataDetectorBounds;
 #endif
 
-    std::optional<WebCore::ElementContext> elementContext;
-    std::optional<WebCore::ElementContext> hostImageOrVideoElementContext;
-
 #if ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
     Vector<WebCore::ElementAnimationContext> animationsAtPoint;
 #endif
+
+    std::optional<WebCore::ElementContext> elementContext;
+    std::optional<WebCore::ElementContext> hostImageOrVideoElementContext;
 
     // Copy compatible optional bits forward (for example, if we have a InteractionInformationAtPosition
     // with snapshots in it, and perform another request for the same point without requesting the snapshots,
@@ -129,6 +155,9 @@ struct InteractionInformationAtPosition {
     void mergeCompatibleOptionalInformation(const InteractionInformationAtPosition& oldInformation);
 
     bool isSelectable() const { return selectability == Selectability::Selectable; }
+#if ENABLE(DATA_DETECTION)
+    Vector<RetainPtr<DDScannerResult>> serializableDataDetectorResults() const;
+#endif
 };
 
 } // namespace WebKit

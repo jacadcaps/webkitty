@@ -38,6 +38,7 @@
 #import <pal/spi/cocoa/VisionKitCoreSPI.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/RunLoop.h>
+#import <wtf/darwin/DispatchExtras.h>
 
 #import <pal/cocoa/VisionKitCoreSoftLink.h>
 
@@ -55,7 +56,7 @@ static void swizzledPresentViewController(UIViewController *, SEL, UIViewControl
 
 static int32_t swizzledProcessRequest(VKCImageAnalyzer *, SEL, id request, void (^)(double progress), void (^completion)(VKImageAnalysis *, NSError *))
 {
-    dispatch_async(dispatch_get_main_queue(), [completion = makeBlockPtr(completion)] {
+    dispatch_async(mainDispatchQueueSingleton(), [completion = makeBlockPtr(completion)] {
         completion(TestWebKitAPI::createImageAnalysisWithSimpleFixedResults().get(), nil);
     });
     return 100;
@@ -95,14 +96,14 @@ static void swizzledSetAnalysis(VKCImageAnalysisInteraction *, SEL, VKCImageAnal
         return nil;
 
     _imageAnalysisRequestSwizzler = WTF::makeUnique<InstanceMethodSwizzler>(
-        PAL::getVKImageAnalyzerClass(),
+        PAL::getVKImageAnalyzerClassSingleton(),
         @selector(processRequest:progressHandler:completionHandler:),
         reinterpret_cast<IMP>(swizzledProcessRequest)
     );
 
 #if PLATFORM(IOS_FAMILY)
     _imageAnalysisInteractionSwizzler = WTF::makeUnique<InstanceMethodSwizzler>(
-        PAL::getVKCImageAnalysisInteractionClass(),
+        PAL::getVKCImageAnalysisInteractionClassSingleton(),
         @selector(setAnalysis:),
         reinterpret_cast<IMP>(swizzledSetAnalysis)
     );
@@ -116,7 +117,7 @@ static void swizzledSetAnalysis(VKCImageAnalysisInteraction *, SEL, VKCImageAnal
     );
 #else
     _imageAnalysisOverlaySwizzler = WTF::makeUnique<InstanceMethodSwizzler>(
-        PAL::getVKCImageAnalysisOverlayViewClass(),
+        PAL::getVKCImageAnalysisOverlayViewClassSingleton(),
         @selector(setAnalysis:),
         reinterpret_cast<IMP>(swizzledSetAnalysis)
     );
@@ -206,12 +207,12 @@ static void swizzledSetAnalysis(VKCImageAnalysisInteraction *, SEL, VKCImageAnal
 {
 #if PLATFORM(IOS_FAMILY)
     for (id<UIInteraction> interaction in self.textInputContentView.interactions) {
-        if ([interaction isKindOfClass:PAL::getVKCImageAnalysisInteractionClass()])
+        if ([interaction isKindOfClass:PAL::getVKCImageAnalysisInteractionClassSingleton()])
             return YES;
     }
 #else
     for (NSView *subview in self.subviews) {
-        if ([subview isKindOfClass:PAL::getVKCImageAnalysisOverlayViewClass()])
+        if ([subview isKindOfClass:PAL::getVKCImageAnalysisOverlayViewClassSingleton()])
             return YES;
     }
 #endif

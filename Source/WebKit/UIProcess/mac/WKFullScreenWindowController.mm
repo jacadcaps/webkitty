@@ -59,6 +59,120 @@
 
 static const NSTimeInterval DefaultWatchdogTimerInterval = 1;
 
+@interface WKFullScreenPlaceholderView : WebCoreFullScreenPlaceholderView <NSScrollViewSeparatorTrackingAdapter>
+
+@end
+
+@implementation WKFullScreenPlaceholderView {
+#if HAVE(LIQUID_GLASS)
+    RetainPtr<NSScrollPocket> _scrollPocket;
+    RetainPtr<NSHashTable<NSView *>> _scrollPocketContainers;
+#endif
+    WebCore::FloatBoxExtent _obscuredContentInsets;
+}
+
+- (NSRect)scrollViewFrame
+{
+    WebCore::FloatRect boundsAdjustedByHorizontalInsets = self.bounds;
+    boundsAdjustedByHorizontalInsets.shiftXEdgeBy(_obscuredContentInsets.left());
+    boundsAdjustedByHorizontalInsets.shiftMaxXEdgeBy(-_obscuredContentInsets.right());
+    return [self convertRect:boundsAdjustedByHorizontalInsets toView:nil];
+}
+
+- (BOOL)hasScrolledContentsUnderTitlebar
+{
+    return NO;
+}
+
+#if HAVE(LIQUID_GLASS)
+
+- (void)setTopScrollPocket:(NSScrollPocket *)scrollPocket obscuredContentInsets:(const WebCore::FloatBoxExtent&)obscuredContentInsets
+{
+    _scrollPocket = scrollPocket;
+    if (!_scrollPocket)
+        return;
+
+    _scrollPocketContainers = [NSHashTable<NSView *> weakObjectsHashTable];
+    _obscuredContentInsets = obscuredContentInsets;
+    [self _recomputeScrollPocketFrame];
+    [self addSubview:_scrollPocket.get()];
+}
+
+- (void)setFrame:(NSRect)frame
+{
+    super.frame = frame;
+
+    [self _recomputeScrollPocketFrame];
+}
+
+- (void)setBounds:(NSRect)bounds
+{
+    super.bounds = bounds;
+
+    [self _recomputeScrollPocketFrame];
+}
+
+- (void)setFrameSize:(NSSize)newSize
+{
+    super.frameSize = newSize;
+
+    [self _recomputeScrollPocketFrame];
+}
+
+- (void)setBoundsSize:(NSSize)newSize
+{
+    super.boundsSize = newSize;
+
+    [self _recomputeScrollPocketFrame];
+}
+
+- (void)_recomputeScrollPocketFrame
+{
+    [_scrollPocket setFrame:NSMakeRect(0, NSHeight(self.bounds) - _obscuredContentInsets.top(), NSWidth(self.bounds), _obscuredContentInsets.top())];
+}
+
+- (BOOL)scrollViewDrawsMagicPocket
+{
+    return !!_scrollPocket;
+}
+
+- (void)registerPocketContainer:(NSView *)container onEdge:(NSScrollPocketEdge)edge
+{
+    if (edge != NSScrollPocketEdgeTop)
+        return;
+
+    if (!container)
+        return;
+
+    if ([_scrollPocketContainers containsObject:container])
+        return;
+
+    if (!_scrollPocketContainers)
+        _scrollPocketContainers = [NSHashTable<NSView *> weakObjectsHashTable];
+
+    [_scrollPocketContainers addObject:container];
+    [_scrollPocket addElementContainer:container];
+}
+
+- (void)unregisterPocketContainer:(NSView *)container onEdge:(NSScrollPocketEdge)edge
+{
+    if (edge != NSScrollPocketEdgeTop)
+        return;
+
+    if (!container)
+        return;
+
+    if (![_scrollPocketContainers containsObject:container])
+        return;
+
+    [_scrollPocketContainers removeObject:container];
+    [_scrollPocket removeElementContainer:container];
+}
+
+#endif // HAVE(LIQUID_GLASS)
+
+@end
+
 @interface WKFullScreenWindowController (VideoPresentationManagerProxyClient)
 - (void)didEnterPictureInPicture;
 - (void)didExitPictureInPicture;
@@ -101,7 +215,7 @@ static void makeResponderFirstResponderIfDescendantOfView(NSWindow *window, NSRe
 }
 
 @implementation WKFullScreenWindowController {
-    std::unique_ptr<WebKit::VideoPresentationManagerProxy::VideoInPictureInPictureDidChangeObserver> _pipObserver;
+    RefPtr<WebKit::VideoPresentationManagerProxy::VideoInPictureInPictureDidChangeObserver> _pipObserver;
 
 #if !RELEASE_LOG_DISABLED
     RefPtr<Logger> _logger;
@@ -111,7 +225,7 @@ static void makeResponderFirstResponderIfDescendantOfView(NSWindow *window, NSRe
 
 #pragma mark -
 #pragma mark Initialization
-- (id)initWithWindow:(NSWindow *)window webView:(NSView *)webView page:(std::reference_wrapper<WebKit::WebPageProxy>)pageWrapper
+- (instancetype)initWithWindow:(NSWindow *)window webView:(WKWebView *)webView page:(std::reference_wrapper<WebKit::WebPageProxy>)pageWrapper
 {
     self = [super initWithWindow:window];
     if (!self)
@@ -185,7 +299,7 @@ static void makeResponderFirstResponderIfDescendantOfView(NSWindow *window, NSRe
         || _fullScreenState == InFullScreen;
 }
 
-- (WebCoreFullScreenPlaceholderView*)webViewPlaceholder
+- (WebCoreFullScreenPlaceholderView *)webViewPlaceholder
 {
     return _webViewPlaceholder.get();
 }
@@ -245,7 +359,7 @@ static RetainPtr<CGImageRef> createImageWithCopiedData(CGImageRef sourceImage)
     size_t bytesPerRow = CGImageGetBytesPerRow(sourceImage);
     RetainPtr<CGColorSpaceRef> colorSpace = CGImageGetColorSpace(sourceImage);
     CGBitmapInfo bitmapInfo = CGImageGetBitmapInfo(sourceImage);
-    RetainPtr<CGDataProviderRef> provider = createImageProviderWithCopiedData(CGImageGetDataProvider(sourceImage));
+    RetainPtr<CGDataProviderRef> provider = createImageProviderWithCopiedData(retainPtr(CGImageGetDataProvider(sourceImage)).get());
     bool shouldInterpolate = CGImageGetShouldInterpolate(sourceImage);
     CGColorRenderingIntent intent = CGImageGetRenderingIntent(sourceImage);
 
@@ -261,12 +375,13 @@ static RetainPtr<CGImageRef> createImageWithCopiedData(CGImageRef sourceImage)
     RetainPtr screen = [NSScreen mainScreen];
 
     NSRect screenFrame = WebCore::safeScreenFrame(screen.get());
-    NSRect webViewFrame = convertRectToScreen([_webView window], [_webView convertRect:[_webView frame] toView:nil]);
+    RetainPtr webView = _webView.get();
+    NSRect webViewFrame = convertRectToScreen(retainPtr([webView window]).get(), [webView convertRect:[webView frame] toView:nil]);
 
     // Flip coordinate system:
     webViewFrame.origin.y = NSMaxY([[[NSScreen screens] objectAtIndex:0] frame]) - NSMaxY(webViewFrame);
 
-    CGWindowID windowID = [[_webView window] windowNumber];
+    CGWindowID windowID = [[webView window] windowNumber];
     RetainPtr webViewContents = WebCore::cgWindowListCreateImage(NSRectToCGRect(webViewFrame), kCGWindowListOptionIncludingWindow, windowID, kCGWindowImageShouldBeOpaque);
 
     // Using the returned CGImage directly would result in calls to the WindowServer every time
@@ -281,9 +396,12 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     RefPtr page = _page.get();
     page->startDeferringResizeEvents();
     page->startDeferringScrollEvents();
+#if HAVE(LIQUID_GLASS)
+    RetainPtr scrollPocketForPlaceholder = [webView _copyTopScrollPocket];
+#endif
     _savedObscuredContentInsets = page->obscuredContentInsets();
     page->setObscuredContentInsets({ });
-    [[self window] setFrame:screenFrame display:NO];
+    [retainPtr([self window]) setFrame:screenFrame display:NO];
 
     // Painting is normally suspended when the WKView is removed from the window, but this is
     // unnecessary in the full-screen animation case, and can cause bugs; see
@@ -293,17 +411,21 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     // Swap the webView placeholder into place.
     if (!_webViewPlaceholder)
-        _webViewPlaceholder = adoptNS([[WebCoreFullScreenPlaceholderView alloc] initWithFrame:[_webView frame]]);
+        _webViewPlaceholder = adoptNS([[WKFullScreenPlaceholderView alloc] initWithFrame:[webView frame]]);
     [_webViewPlaceholder setTarget:nil];
     [_webViewPlaceholder setContents:(__bridge id)webViewContents.get()];
-    [self _saveConstraintsOf:[_webView superview]];
-    [self _replaceView:_webView.get().get() with:_webViewPlaceholder.get()];
+    [self _saveConstraintsOf:retainPtr([webView superview]).get()];
+    [self _replaceView:webView.get() with:_webViewPlaceholder.get()];
+#if HAVE(LIQUID_GLASS)
+    [_webViewPlaceholder setTopScrollPocket:scrollPocketForPlaceholder.get() obscuredContentInsets:_savedObscuredContentInsets];
+    [[_webViewPlaceholder window] registerScrollViewSeparatorTrackingAdapter:_webViewPlaceholder.get()];
+#endif
     
     // Then insert the WebView into the full screen window
     RetainPtr contentView = [[self window] contentView];
-    [_clipView addSubview:_webView.get().get() positioned:NSWindowBelow relativeTo:nil];
+    [_clipView addSubview:webView.get() positioned:NSWindowBelow relativeTo:nil];
     auto obscuredContentInsets = page->obscuredContentInsets();
-    [_webView setFrame:NSInsetRect(contentView.get().bounds, -obscuredContentInsets.left(), -obscuredContentInsets.top())];
+    [webView setFrame:NSInsetRect(contentView.get().bounds, -obscuredContentInsets.left(), -obscuredContentInsets.top())];
 
     _savedScale = page->pageScaleFactor();
     page->scalePageRelativeToScrollPosition(1, { });
@@ -321,13 +443,13 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     OBJC_ALWAYS_LOG(OBJC_LOGIDENTIFIER);
 
-    gpuProcess->postWillTakeSnapshotNotification([self, protectedSelf = RetainPtr { self }, completionHandler = WTFMove(completionHandler), logIdentifier = OBJC_LOGIDENTIFIER] () mutable {
+    gpuProcess->postWillTakeSnapshotNotification([self, protectedSelf = RetainPtr { self }, completionHandler = WTF::move(completionHandler), logIdentifier = OBJC_LOGIDENTIFIER] () mutable {
         OBJC_ALWAYS_LOG(logIdentifier, " - finished posting snapshot notification");
 
-        [protectedSelf _continueEnteringFullscreenAfterPostingNotification:WTFMove(completionHandler)];
+        [protectedSelf _continueEnteringFullscreenAfterPostingNotification:WTF::move(completionHandler)];
     });
 #else
-    [self _continueEnteringFullscreenAfterPostingNotification:WTFMove(completionHandler)];
+    [self _continueEnteringFullscreenAfterPostingNotification:WTF::move(completionHandler)];
 #endif
 }
 
@@ -338,7 +460,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         return completionHandler(false);
     }
     OBJC_ALWAYS_LOG(OBJC_LOGIDENTIFIER);
-    _enterFullScreenCompletionHandler = WTFMove(completionHandler);
+    _enterFullScreenCompletionHandler = WTF::move(completionHandler);
     _fullScreenState = EnteringFullScreen;
 
     _initialFrame = initialFrame;
@@ -355,8 +477,9 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     // animation duration. These animations will be replaced with the final animations in
     // -_startEnterFullScreenAnimationWithDuration:
     [clipLayer addAnimation:zoomAnimation(_initialFrame, _finalFrame, self.window.screen.frame, 1, 0, AnimateIn).get() forKey:@"fullscreen"];
-    clipLayer.get().mask = createMask(contentView.get().bounds).get();
-    [clipLayer.get().mask addAnimation:maskAnimation(_initialFrame, _finalFrame, self.window.screen.frame, 1, 0, AnimateIn).get() forKey:@"fullscreen"];
+    RetainPtr mask = createMask(contentView.get().bounds).get();
+    clipLayer.get().mask = mask.get();
+    [mask addAnimation:maskAnimation(_initialFrame, _finalFrame, self.window.screen.frame, 1, 0, AnimateIn).get() forKey:@"fullscreen"];
     contentView.get().hidden = NO;
 
     RetainPtr<NSWindow> window = self.window;
@@ -367,13 +490,13 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     [window setCollectionBehavior:behavior];
 
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    [[self window] setAutodisplay:YES];
+    [window setAutodisplay:YES];
 ALLOW_DEPRECATED_DECLARATIONS_END
-    [[self window] displayIfNeeded];
+    [window displayIfNeeded];
 
     [CATransaction commit];
 
-    [self.window enterFullScreenMode:self];
+    [window enterFullScreenMode:self];
 }
 
 static const float minVideoWidth = 468; // Keep in sync with `--controls-bar-width`.
@@ -393,9 +516,10 @@ static const float minVideoWidth = 468; // Keep in sync with `--controls-bar-wid
         manager->setAnimatingFullScreen(false);
         page->setSuppressVisibilityUpdates(false);
 
-        [_backgroundView.get().layer removeAllAnimations];
-        [[_clipView layer] removeAllAnimations];
-        [[_clipView layer] setMask:nil];
+        [retainPtr(_backgroundView.get().layer) removeAllAnimations];
+        RetainPtr layer = [_clipView layer];
+        [layer removeAllAnimations];
+        [layer setMask:nil];
 
         [_webViewPlaceholder setExitWarningVisible:YES];
         [_webViewPlaceholder setTarget:self];
@@ -416,13 +540,15 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         page->setSuppressVisibilityUpdates(false);
 
         RetainPtr firstResponder = [[self window] firstResponder];
-        [self _replaceView:_webViewPlaceholder.get() with:_webView.get().get()];
+        RetainPtr webView = _webView.get();
+        [self _replaceView:_webViewPlaceholder.get() with:webView.get()];
         BEGIN_BLOCK_OBJC_EXCEPTIONS
-        [NSLayoutConstraint activateConstraints:self.savedConstraints];
+        [NSLayoutConstraint activateConstraints:retainPtr(self.savedConstraints).get()];
         END_BLOCK_OBJC_EXCEPTIONS
         self.savedConstraints = nil;
-        makeResponderFirstResponderIfDescendantOfView([_webView window], firstResponder.get(), _webView.get().get());
-        [[_webView window] makeKeyAndOrderFront:self];
+        RetainPtr window = [webView window];
+        makeResponderFirstResponderIfDescendantOfView(window.get(), firstResponder.get(), webView.get());
+        [window makeKeyAndOrderFront:self];
 
         page->scalePageRelativeToScrollPosition(_savedScale, { });
         page->setObscuredContentInsets(_savedObscuredContentInsets);
@@ -434,19 +560,19 @@ ALLOW_DEPRECATED_DECLARATIONS_END
             location:[NSEvent mouseLocation]
             modifierFlags:[[NSApp currentEvent] modifierFlags]
             timestamp:[NSDate timeIntervalSinceReferenceDate]
-            windowNumber:[[_webView window] windowNumber]
+            windowNumber:[[webView window] windowNumber]
             context:nullptr
             eventNumber:0
             clickCount:0
             pressure:0];
-        WebKit::NativeWebMouseEvent webEvent(fakeEvent.get(), nil, _webView.get().get());
+        WebKit::NativeWebMouseEvent webEvent(fakeEvent.get(), nil, webView.get());
         page->handleMouseEvent(webEvent);
     }
     page->flushDeferredResizeEvents();
     page->flushDeferredScrollEvents();
 
     if (_exitFullScreenCompletionHandler)
-        [self exitFullScreen:WTFMove(_exitFullScreenCompletionHandler)];
+        [self exitFullScreen:WTF::move(_exitFullScreenCompletionHandler)];
 }
 
 - (void)exitFullScreen:(CompletionHandler<void()>&&)completionHandler
@@ -456,7 +582,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         // Do not try to exit fullscreen during the enter animation; remember
         // that exit was requested and perform the exit upon enter fullscreen
         // animation complete.
-        _exitFullScreenCompletionHandler = WTFMove(completionHandler);
+        _exitFullScreenCompletionHandler = WTF::move(completionHandler);
         return;
     }
 
@@ -516,15 +642,16 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (_fullScreenState != WaitingToExitFullScreen)
         return completionHandler();
     _fullScreenState = ExitingFullScreen;
-    _beganExitFullScreenCompletionHandler = WTFMove(completionHandler);
+    _beganExitFullScreenCompletionHandler = WTF::move(completionHandler);
 
-    if (![[self window] isOnActiveSpace]) {
+    RetainPtr window = [self window];
+    if (![window isOnActiveSpace]) {
         // If the full screen window is not in the active space, the NSWindow full screen animation delegate methods
         // will never be called. So call finishedExitFullScreenAnimationAndExitImmediately explicitly.
         [self finishedExitFullScreenAnimationAndExitImmediately:NO];
     }
 
-    [[self window] exitFullScreenMode:self];
+    [window exitFullScreenMode:self];
 }
 
 WTF_DECLARE_CF_TYPE_TRAIT(CGImage);
@@ -573,19 +700,20 @@ static RetainPtr<CGImageRef> takeWindowSnapshot(CGSWindowID windowID, bool captu
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
     NSRect exitPlaceholderScreenRect = _initialFrame;
-    exitPlaceholderScreenRect.origin.y = NSMaxY(WebCore::safeScreenFrame([[NSScreen screens] objectAtIndex:0])) - NSMaxY(exitPlaceholderScreenRect);
+    exitPlaceholderScreenRect.origin.y = NSMaxY(WebCore::safeScreenFrame(retainPtr([[NSScreen screens] objectAtIndex:0]).get())) - NSMaxY(exitPlaceholderScreenRect);
 
-    RetainPtr<CGImageRef> webViewContents = takeWindowSnapshot([[_webView window] windowNumber], true);
+    RetainPtr webView = _webView.get();
+    RetainPtr<CGImageRef> webViewContents = takeWindowSnapshot([[webView window] windowNumber], true);
     webViewContents = adoptCF(CGImageCreateWithImageInRect(webViewContents.get(), NSRectToCGRect(exitPlaceholderScreenRect)));
     
-    _exitPlaceholder = adoptNS([[NSView alloc] initWithFrame:[_webView frame]]);
+    _exitPlaceholder = adoptNS([[NSView alloc] initWithFrame:[webView frame]]);
     [_exitPlaceholder setWantsLayer: YES];
     [_exitPlaceholder setAutoresizesSubviews: YES];
     [_exitPlaceholder setLayerContentsPlacement: NSViewLayerContentsPlacementScaleProportionallyToFit];
     [_exitPlaceholder setLayerContentsRedrawPolicy: NSViewLayerContentsRedrawNever];
-    [_exitPlaceholder setFrame:[_webView frame]];
+    [_exitPlaceholder setFrame:[webView frame]];
     [[_exitPlaceholder layer] setContents:(__bridge id)webViewContents.get()];
-    [[_webView superview] addSubview:_exitPlaceholder.get() positioned:NSWindowAbove relativeTo:_webView.get().get()];
+    [retainPtr([webView superview]) addSubview:_exitPlaceholder.get() positioned:NSWindowAbove relativeTo:webView.get()];
 
     [CATransaction commit];
     [CATransaction flush];
@@ -593,19 +721,19 @@ static RetainPtr<CGImageRef> takeWindowSnapshot(CGSWindowID windowID, bool captu
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
     
-    [_backgroundView.get().layer removeAllAnimations];
+    [retainPtr(_backgroundView.get().layer) removeAllAnimations];
     RefPtr page = _page.get();
     page->setSuppressVisibilityUpdates(true);
-    [_webView removeFromSuperview];
-    [_webView setFrame:[_webViewPlaceholder frame]];
-    [_webView setAutoresizingMask:[_webViewPlaceholder autoresizingMask]];
-    [[_webViewPlaceholder superview] addSubview:_webView.get().get() positioned:NSWindowBelow relativeTo:_webViewPlaceholder.get()];
+    [webView removeFromSuperview];
+    [webView setFrame:[_webViewPlaceholder frame]];
+    [webView setAutoresizingMask:[_webViewPlaceholder autoresizingMask]];
+    [retainPtr([_webViewPlaceholder superview]) addSubview:webView.get() positioned:NSWindowBelow relativeTo:_webViewPlaceholder.get()];
 
     BEGIN_BLOCK_OBJC_EXCEPTIONS
-    [NSLayoutConstraint activateConstraints:self.savedConstraints];
+    [NSLayoutConstraint activateConstraints:retainPtr(self.savedConstraints).get()];
     END_BLOCK_OBJC_EXCEPTIONS
     self.savedConstraints = nil;
-    makeResponderFirstResponderIfDescendantOfView([_webView window], firstResponder.get(), _webView.get().get());
+    makeResponderFirstResponderIfDescendantOfView(retainPtr([webView window]).get(), firstResponder.get(), webView.get());
 
     // These messages must be sent after the swap or flashing will occur during forceRepaint:
     manager->setAnimatingFullScreen(false);
@@ -625,7 +753,8 @@ static RetainPtr<CGImageRef> takeWindowSnapshot(CGSWindowID windowID, bool captu
     }
 
     page->updateRenderingWithForcedRepaint([weakSelf = WeakObjCPtr<WKFullScreenWindowController>(self)] {
-        [weakSelf completeFinishExitFullScreenAnimation];
+        if (RetainPtr strongSelf = weakSelf.get())
+            [strongSelf completeFinishExitFullScreenAnimation];
     });
 }
 
@@ -653,17 +782,20 @@ static RetainPtr<CGImageRef> takeWindowSnapshot(CGSWindowID windowID, bool captu
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
 
+#if HAVE(LIQUID_GLASS)
+    [[_webViewPlaceholder window] unregisterScrollViewSeparatorTrackingAdapter:_webViewPlaceholder.get()];
+#endif
     [_webViewPlaceholder removeFromSuperview];
-    [[self window] orderOut:self];
+    [retainPtr([self window]) orderOut:self];
     RetainPtr contentView = [[self window] contentView];
     contentView.get().hidden = YES;
     [_exitPlaceholder removeFromSuperview];
-    [[_exitPlaceholder layer] setContents:nil];
+    [retainPtr([_exitPlaceholder layer]) setContents:nil];
     _exitPlaceholder = nil;
-    
-    [[_webView window] makeKeyAndOrderFront:self];
+
+    [retainPtr([_webView.get() window]) makeKeyAndOrderFront:self];
     _webViewPlaceholder = nil;
-    
+
     RefPtr page = _page.get();
     page->setSuppressVisibilityUpdates(false);
     page->setNeedsDOMWindowResizeEvent();
@@ -710,14 +842,14 @@ static RetainPtr<CGImageRef> takeWindowSnapshot(CGSWindowID windowID, bool captu
     if (_pipObserver)
         return;
 
-    _pipObserver = WTF::makeUnique<WebKit::VideoPresentationManagerProxy::VideoInPictureInPictureDidChangeObserver>([strongSelf = retainPtr(self)] (bool inPiP) {
+    _pipObserver = WebKit::VideoPresentationManagerProxy::VideoInPictureInPictureDidChangeObserver::create([strongSelf = retainPtr(self)] (bool inPiP) {
         if (inPiP)
             [strongSelf didEnterPictureInPicture];
         else
             [strongSelf didExitPictureInPicture];
     });
 
-    videoPresentationManager->addVideoInPictureInPictureDidChangeObserver(*_pipObserver);
+    videoPresentationManager->addVideoInPictureInPictureDidChangeObserver(Ref { *_pipObserver });
 }
 
 - (void)didEnterPictureInPicture
@@ -813,7 +945,7 @@ static RetainPtr<CGImageRef> takeWindowSnapshot(CGSWindowID windowID, bool captu
     [otherView setFrame:[view frame]];        
     [otherView setAutoresizingMask:[view autoresizingMask]];
     [otherView removeFromSuperview];
-    [[view superview] addSubview:otherView positioned:NSWindowAbove relativeTo:view];
+    [retainPtr([view superview]) addSubview:otherView positioned:NSWindowAbove relativeTo:view];
     [view removeFromSuperview];
     [CATransaction commit];
 }
@@ -822,12 +954,13 @@ static RetainPtr<CGImageRef> takeWindowSnapshot(CGSWindowID windowID, bool captu
 {
     RetainPtr<NSArray<NSLayoutConstraint *>> constraints = view.constraints;
     RetainPtr<NSIndexSet> validConstraints = [constraints indexesOfObjectsPassingTest:^BOOL(NSLayoutConstraint *constraint, NSUInteger, BOOL *) {
-        return ![constraint isKindOfClass:objc_getClass("NSAutoresizingMaskLayoutConstraint")];
+        // FIXME: isKindOfClass call can cause a static analysis false positive (https://github.com/llvm/llvm-project/issues/162979).
+        SUPPRESS_UNRETAINED_ARG return ![constraint isKindOfClass:objc_getClass("NSAutoresizingMaskLayoutConstraint")];
     }];
     self.savedConstraints = [constraints objectsAtIndexes:validConstraints.get()];
 }
 
-static CAMediaTimingFunction *timingFunctionForDuration(CFTimeInterval duration)
+static RetainPtr<CAMediaTimingFunction> timingFunctionForDuration(CFTimeInterval duration)
 {
     if (duration >= 0.8)
         return [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
@@ -854,7 +987,7 @@ static RetainPtr<CAAnimation> zoomAnimation(const WebCore::FloatRect& initialFra
     scaleAnimation.get().speed = speed;
     scaleAnimation.get().removedOnCompletion = NO;
     scaleAnimation.get().fillMode = kCAFillModeBoth;
-    scaleAnimation.get().timingFunction = timingFunctionForDuration(duration);
+    scaleAnimation.get().timingFunction = timingFunctionForDuration(duration).get();
     return scaleAnimation;
 }
 
@@ -863,7 +996,7 @@ static RetainPtr<CALayer> createMask(const WebCore::FloatRect& bounds)
     RetainPtr maskLayer = [CALayer layer];
     maskLayer.get().anchorPoint = CGPointZero;
     maskLayer.get().frame = bounds;
-    maskLayer.get().backgroundColor = CGColorGetConstantColor(kCGColorBlack);
+    maskLayer.get().backgroundColor = retainPtr(CGColorGetConstantColor(kCGColorBlack)).get();
     maskLayer.get().autoresizingMask = (NSViewWidthSizable | NSViewHeightSizable);
     return maskLayer;
 }
@@ -891,7 +1024,7 @@ static RetainPtr<CAAnimation> maskAnimation(const WebCore::FloatRect& initialFra
     animation.get().speed = speed;
     animation.get().removedOnCompletion = NO;
     animation.get().fillMode = kCAFillModeBoth;
-    animation.get().timingFunction = timingFunctionForDuration(duration);
+    animation.get().timingFunction = timingFunctionForDuration(duration).get();
     return animation;
 }
 
@@ -899,13 +1032,13 @@ static RetainPtr<CAAnimation> fadeAnimation(CFTimeInterval duration, AnimationDi
 {
     RetainPtr fadeAnimation = [CABasicAnimation animationWithKeyPath:@"backgroundColor"];
     if (direction == AnimateIn)
-        fadeAnimation.get().toValue = (id)CGColorGetConstantColor(kCGColorBlack);
+        fadeAnimation.get().toValue = static_cast<id>(RetainPtr<CGColorRef>(CGColorGetConstantColor(kCGColorBlack)).get());
     else
-        fadeAnimation.get().fromValue = (id)CGColorGetConstantColor(kCGColorBlack);
+        fadeAnimation.get().fromValue = static_cast<id>(RetainPtr<CGColorRef>(CGColorGetConstantColor(kCGColorBlack)).get());
     fadeAnimation.get().duration = duration;
     fadeAnimation.get().removedOnCompletion = NO;
     fadeAnimation.get().fillMode = kCAFillModeBoth;
-    fadeAnimation.get().timingFunction = timingFunctionForDuration(duration);
+    fadeAnimation.get().timingFunction = timingFunctionForDuration(duration).get();
     return fadeAnimation;
 }
 
@@ -916,8 +1049,8 @@ static RetainPtr<CAAnimation> fadeAnimation(CFTimeInterval duration, AnimationDi
 
     RetainPtr<CALayer> clipLayer = _clipView.get().layer;
     [clipLayer addAnimation:zoomAnimation(_initialFrame, _finalFrame, self.window.screen.frame, duration, 1, AnimateIn).get() forKey:@"fullscreen"];
-    [clipLayer.get().mask addAnimation:maskAnimation(_initialFrame, _finalFrame, self.window.screen.frame, duration, 1, AnimateIn).get() forKey:@"fullscreen"];
-    [_backgroundView.get().layer addAnimation:fadeAnimation(duration, AnimateIn).get() forKey:@"fullscreen"];
+    [retainPtr(clipLayer.get().mask) addAnimation:maskAnimation(_initialFrame, _finalFrame, self.window.screen.frame, duration, 1, AnimateIn).get() forKey:@"fullscreen"];
+    [retainPtr(_backgroundView.get().layer) addAnimation:fadeAnimation(duration, AnimateIn).get() forKey:@"fullscreen"];
 
     [CATransaction commit];
 }
@@ -933,20 +1066,22 @@ static RetainPtr<CAAnimation> fadeAnimation(CFTimeInterval duration, AnimationDi
         _fullScreenState = ExitingFullScreen;
     }
 
-    [[_clipView layer] addAnimation:zoomAnimation(_initialFrame, _finalFrame, self.window.screen.frame, duration, 1, AnimateOut).get() forKey:@"fullscreen"];
+    RetainPtr layer = [_clipView layer];
+    [layer addAnimation:zoomAnimation(_initialFrame, _finalFrame, self.window.screen.frame, duration, 1, AnimateOut).get() forKey:@"fullscreen"];
     RetainPtr contentView = [[self window] contentView];
     RetainPtr maskLayer = createMask(contentView.get().bounds);
     [maskLayer addAnimation:maskAnimation(_initialFrame, _finalFrame, self.window.screen.frame, duration, 1, AnimateOut).get() forKey:@"fullscreen"];
-    [_clipView layer].mask = maskLayer.get();
+    layer.get().mask = maskLayer.get();
 
     contentView.get().hidden = NO;
-    [_backgroundView.get().layer addAnimation:fadeAnimation(duration, AnimateOut).get() forKey:@"fullscreen"];
+    [retainPtr(_backgroundView.get().layer) addAnimation:fadeAnimation(duration, AnimateOut).get() forKey:@"fullscreen"];
 
     Ref { *_page }->setSuppressVisibilityUpdates(false);
+    RetainPtr window = [self window];
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    [[self window] setAutodisplay:YES];
+    [window setAutodisplay:YES];
 ALLOW_DEPRECATED_DECLARATIONS_END
-    [[self window] displayIfNeeded];
+    [window displayIfNeeded];
 }
 
 - (void)_watchdogTimerFired:(NSTimer *)timer

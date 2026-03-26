@@ -28,6 +28,7 @@
 
 #if ENABLE(WEB_AUTHN)
 
+#include "Logging.h"
 #include <WebCore/AuthenticatorGetInfoResponse.h>
 #include <WebCore/CBORReader.h>
 #include <WebCore/FidoConstants.h>
@@ -36,6 +37,7 @@
 #include <wtf/BlockPtr.h>
 #include <wtf/CryptographicallyRandomNumber.h>
 #include <wtf/RunLoop.h>
+#include <wtf/darwin/DispatchExtras.h>
 #include <wtf/text/Base64.h>
 
 namespace WebKit {
@@ -53,6 +55,7 @@ MockHidConnection::MockHidConnection(IOHIDDeviceRef device, const MockWebAuthent
     : HidConnection(device)
     , m_configuration(configuration)
 {
+    initializeExpectedCommands();
 }
 
 void MockHidConnection::initialize()
@@ -80,15 +83,15 @@ auto MockHidConnection::sendSync(const Vector<uint8_t>& data) -> DataSent
 void MockHidConnection::send(Vector<uint8_t>&& data, DataSentCallback&& callback)
 {
     ASSERT(isInitialized());
-    auto task = makeBlockPtr([weakThis = WeakPtr { *this }, data = WTFMove(data), callback = WTFMove(callback)]() mutable {
+    auto task = makeBlockPtr([weakThis = WeakPtr { *this }, data = WTF::move(data), callback = WTF::move(callback)]() mutable {
         ASSERT(!RunLoop::isMain());
-        RunLoop::mainSingleton().dispatch([weakThis, data = WTFMove(data), callback = WTFMove(callback)]() mutable {
+        RunLoop::mainSingleton().dispatch([weakThis, data = WTF::move(data), callback = WTF::move(callback)]() mutable {
             if (!weakThis) {
                 callback(DataSent::No);
                 return;
             }
 
-            weakThis->assembleRequest(WTFMove(data));
+            weakThis->assembleRequest(WTF::move(data));
 
             auto sent = DataSent::Yes;
             if (weakThis->stagesMatch() && weakThis->m_configuration.hid->error == Mock::HidError::DataNotSent)
@@ -96,7 +99,7 @@ void MockHidConnection::send(Vector<uint8_t>&& data, DataSentCallback&& callback
             callback(sent);
         });
     });
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), task.get());
+    dispatch_async(globalDispatchQueueSingleton(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), task.get());
 }
 
 void MockHidConnection::registerDataReceivedCallbackInternal()
@@ -138,6 +141,9 @@ void MockHidConnection::parseRequest()
         m_subStage = Mock::HidSubStage::Msg;
 
     if (m_stage == Mock::HidStage::Request && m_subStage == Mock::HidSubStage::Msg) {
+        if (m_configuration.hid && m_configuration.hid->validateExpectedCommands)
+            validateExpectedCommand(m_requestMessage->getMessagePayload());
+
         // Make sure we issue different msg cmd for CTAP and U2F.
         if (m_configuration.hid->canDowngrade && !m_configuration.hid->isU2f)
             m_configuration.hid->isU2f = m_requestMessage->cmd() == FidoHidDeviceCommand::kMsg;
@@ -208,7 +214,7 @@ void MockHidConnection::feedReports()
         auto channel = kHidBroadcastChannel;
         if (stagesMatch() && m_configuration.hid->error == Mock::HidError::WrongChannelId)
             channel--;
-        FidoHidInitPacket initPacket(channel, FidoHidDeviceCommand::kInit, WTFMove(payload), payload.size());
+        FidoHidInitPacket initPacket(channel, FidoHidDeviceCommand::kInit, WTF::move(payload), payload.size());
         receiveReport(initPacket.getSerializedData());
         shouldContinueFeedReports();
         return;
@@ -224,12 +230,23 @@ void MockHidConnection::feedReports()
             AuthenticatorGetInfoResponse infoResponse({ ProtocolVersion::kCtap2 }, Vector<uint8_t>(aaguidLength, 0u));
             AuthenticatorSupportedOptions options;
             if (m_configuration.hid->supportClientPin) {
-                infoResponse.setPinProtocols({ pin::kProtocolVersion });
+                StdSet<PINUVAuthProtocol> protocols;
+                if (!m_configuration.hid->pinProtocols.isEmpty()) {
+                    for (auto protocol : m_configuration.hid->pinProtocols) {
+                        if (protocol == static_cast<uint8_t>(PINUVAuthProtocol::kPinProtocol1))
+                            protocols.insert(PINUVAuthProtocol::kPinProtocol1);
+                        else if (protocol == static_cast<uint8_t>(PINUVAuthProtocol::kPinProtocol2))
+                            protocols.insert(PINUVAuthProtocol::kPinProtocol2);
+                    }
+                } else
+                    protocols.insert(PINUVAuthProtocol::kPinProtocol1);
+
+                infoResponse.setPinProtocols(WTF::move(protocols));
                 options.setClientPinAvailability(AuthenticatorSupportedOptions::ClientPinAvailability::kSupportedAndPinSet);
             }
             if (m_configuration.hid->supportInternalUV)
                 options.setUserVerificationAvailability(AuthenticatorSupportedOptions::UserVerificationAvailability::kSupportedAndConfigured);
-            infoResponse.setOptions(WTFMove(options));
+            infoResponse.setOptions(WTF::move(options));
             infoResponse.setMaxCredentialCountInList(m_configuration.hid->maxCredentialCountInList);
             infoResponse.setMaxCredentialIDLength(m_configuration.hid->maxCredentialIdLength);
             infoData = encodeAsCBOR(infoResponse);
@@ -262,9 +279,9 @@ void MockHidConnection::feedReports()
             auto payload = base64Decode(m_configuration.hid->payloadBase64[0]);
             m_configuration.hid->payloadBase64.removeAt(0);
             if (!m_configuration.hid->isU2f)
-                message = FidoHidMessage::create(m_currentChannel, FidoHidDeviceCommand::kCbor, WTFMove(*payload));
+                message = FidoHidMessage::create(m_currentChannel, FidoHidDeviceCommand::kCbor, WTF::move(*payload));
             else
-                message = FidoHidMessage::create(m_currentChannel, FidoHidDeviceCommand::kMsg, WTFMove(*payload));
+                message = FidoHidMessage::create(m_currentChannel, FidoHidDeviceCommand::kMsg, WTF::move(*payload));
         }
     }
 
@@ -275,10 +292,10 @@ void MockHidConnection::feedReports()
         if (!isFirst && stagesMatch() && m_configuration.hid->error == Mock::HidError::WrongChannelId)
             report = FidoHidContinuationPacket(m_currentChannel - 1, 0, { }).getSerializedData();
         // Packets are feed asynchronously to mimic actual data transmission.
-        RunLoop::mainSingleton().dispatch([report = WTFMove(report), weakThis = WeakPtr { *this }]() mutable {
+        RunLoop::mainSingleton().dispatch([report = WTF::move(report), weakThis = WeakPtr { *this }]() mutable {
             if (!weakThis)
                 return;
-            weakThis->receiveReport(WTFMove(report));
+            weakThis->receiveReport(WTF::move(report));
         });
         isFirst = false;
     }
@@ -306,6 +323,53 @@ void MockHidConnection::continueFeedReports()
             return;
         weakThis->feedReports();
     });
+}
+
+void MockHidConnection::initializeExpectedCommands()
+{
+    if (!m_configuration.hid || !m_configuration.hid->validateExpectedCommands)
+        return;
+
+    m_expectedCommands.clear();
+    m_currentExpectedCommandIndex = 0;
+
+    for (const auto& expectedCommandBase64 : m_configuration.hid->expectedCommandsBase64) {
+        auto decodedMessage = base64Decode(expectedCommandBase64);
+        if (decodedMessage)
+            m_expectedCommands.append(WTF::move(*decodedMessage));
+        else
+            RELEASE_LOG_ERROR(WebAuthn, "MockHidConnection: Failed to decode expected command: %s", expectedCommandBase64.utf8().data());
+    }
+
+    RELEASE_LOG(WebAuthn, "MockHidConnection: Initialized %zu expected commands for validation", m_expectedCommands.size());
+}
+
+void MockHidConnection::validateExpectedCommand(const Vector<uint8_t>& actualCommand)
+{
+    if (m_currentExpectedCommandIndex >= m_expectedCommands.size()) {
+        RELEASE_LOG_ERROR(WebAuthn, "MockHidConnection: VALIDATION FAILED - Received unexpected command beyond expected count. Expected %zu commands, but received command %zu. Content: %s", m_expectedCommands.size(), m_currentExpectedCommandIndex + 1, base64EncodeToString(actualCommand).utf8().data());
+        RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("MockHidConnection: Unexpected command.");
+    }
+
+    const auto& expectedCommand = m_expectedCommands[m_currentExpectedCommandIndex];
+    if (actualCommand != expectedCommand) {
+        RELEASE_LOG_ERROR(WebAuthn, "MockHidConnection: VALIDATION FAILED - Command mismatch at index %zu. Expected %s Actual %s", m_currentExpectedCommandIndex, base64EncodeToString(expectedCommand).utf8().data(), base64EncodeToString(actualCommand).utf8().data());
+        RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("MockHidConnection: Command did not match expected value.");
+    }
+
+    m_currentExpectedCommandIndex++;
+}
+
+void MockHidConnection::validateExpectedCommandsCompleted()
+{
+    if (!m_configuration.hid || !m_configuration.hid->validateExpectedCommands)
+        return;
+    if (m_currentExpectedCommandIndex >= m_expectedCommands.size())
+        return;
+
+    for (size_t i = m_currentExpectedCommandIndex; i < m_expectedCommands.size(); ++i)
+        RELEASE_LOG_ERROR(WebAuthn, "MockHidConnection: Missing expected command %zu: %s", i, base64EncodeToString(m_expectedCommands[i]).utf8().data());
+    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("MockHidConnection: validateAllExpectedCommandsConsumed called - %zu of %zu commands consumed", m_currentExpectedCommandIndex, m_expectedCommands.size());
 }
 
 } // namespace WebKit

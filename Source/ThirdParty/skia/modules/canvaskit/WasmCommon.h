@@ -79,7 +79,7 @@ template <typename T> TypedArray MakeTypedArray(int count, const T src[]) {
 
 SkColor4f ptrToSkColor4f(WASMPointerF32);
 
-std::unique_ptr<SkCodec> DecodeImageData(sk_sp<SkData>);
+std::unique_ptr<SkCodec> DecodeImageData(sk_sp<const SkData>);
 
 /**
  *  Gives read access to a JSArray
@@ -91,7 +91,7 @@ template <typename T> class JSSpan {
 public:
     // Note: Use of this constructor is 5-20x slower than manually copying the data on the JS side
     // and sending over a pointer, length, and boolean for the other constructor.
-    JSSpan(JSArray src) {
+    explicit JSSpan(JSArray src) {
         const size_t len = src["length"].as<size_t>();
         T* data;
 

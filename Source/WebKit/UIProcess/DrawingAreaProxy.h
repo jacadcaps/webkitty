@@ -116,10 +116,10 @@ public:
     virtual void waitForDidUpdateActivityState(ActivityStateChangeID) { }
 
     // Hide the content until the currently pending update arrives.
-    virtual void hideContentUntilPendingUpdate() { ASSERT_NOT_REACHED(); }
+    virtual void hideContentUntilPendingUpdate() { hideContentUntilAnyUpdate(); }
 
     // Hide the content until any update arrives.
-    virtual void hideContentUntilAnyUpdate() { ASSERT_NOT_REACHED(); }
+    virtual void hideContentUntilAnyUpdate() { }
 
     virtual bool hasVisibleContent() const { return true; }
 
@@ -150,11 +150,15 @@ public:
 
     virtual void remotePageProcessDidTerminate(WebCore::ProcessIdentifier) { }
 
+    void addOutstandingPresentationUpdateCallback(IPC::Connection&, AsyncReplyID);
+
 protected:
     DrawingAreaProxy(WebPageProxy&, WebProcessProxy&);
 
     RefPtr<WebPageProxy> protectedPage() const;
     WebProcessProxy& webProcessProxy() const { return m_webProcessProxy; }
+
+    void removeOutstandingPresentationUpdateCallback(IPC::Connection&, AsyncReplyID);
 
 private:
     virtual void sizeDidChange() = 0;
@@ -180,6 +184,8 @@ private:
     RunLoop::Timer m_viewExposedRectChangedTimer;
     std::optional<WebCore::FloatRect> m_lastSentViewExposedRect;
 #endif // PLATFORM(MAC)
+
+    HashSet<std::pair<IPC::Connection::UniqueID, AsyncReplyID>> m_outstandingPresentationUpdateCallbacks;
 };
 
 } // namespace WebKit

@@ -38,7 +38,7 @@ MediaSampleGStreamer::MediaSampleGStreamer(GRefPtr<GstSample>&& sample, const Fl
     , m_presentationSize(presentationSize)
 {
     ASSERT(sample);
-    m_sample = WTFMove(sample);
+    m_sample = WTF::move(sample);
     const GstClockTime minimumDuration = 1000; // 1 us
     auto* buffer = gst_sample_get_buffer(m_sample.get());
     RELEASE_ASSERT(buffer);
@@ -124,8 +124,7 @@ void MediaSampleGStreamer::offsetTimestampsBy(const MediaTime& timestampOffset)
 
 PlatformSample MediaSampleGStreamer::platformSample() const
 {
-    PlatformSample sample = { PlatformSample::GStreamerSampleType, { .gstSample = m_sample.get() } };
-    return sample;
+    return PlatformSample { m_sample.get() };
 }
 
 Ref<MediaSample> MediaSampleGStreamer::createNonDisplayingCopy() const
@@ -142,7 +141,7 @@ Ref<MediaSample> MediaSampleGStreamer::createNonDisplayingCopy() const
     GstStructure* info = originalInfo ? gst_structure_copy(originalInfo) : nullptr;
     GRefPtr<GstSample> sample = adoptGRef(gst_sample_new(buffer, caps, segment, info));
 
-    return adoptRef(*new MediaSampleGStreamer(WTFMove(sample), m_presentationSize, m_trackId));
+    return adoptRef(*new MediaSampleGStreamer(WTF::move(sample), m_presentationSize, m_trackId));
 }
 
 void MediaSampleGStreamer::dump(PrintStream& out) const
@@ -150,7 +149,7 @@ void MediaSampleGStreamer::dump(PrintStream& out) const
     out.print("{PTS(", presentationTime(), "), DTS(", decodeTime(), "), duration(", duration(), "), flags(");
 
     bool anyFlags = false;
-    auto appendFlag = [&out, &anyFlags](const char* flagName) {
+    auto appendFlag = [&out, &anyFlags](ASCIILiteral flagName) {
         if (anyFlags)
             out.print(",");
         out.print(flagName);
@@ -158,13 +157,13 @@ void MediaSampleGStreamer::dump(PrintStream& out) const
     };
 
     if (flags() & MediaSample::IsSync)
-        appendFlag("sync");
+        appendFlag("sync"_s);
     if (flags() & MediaSample::IsNonDisplaying)
-        appendFlag("non-displaying");
+        appendFlag("non-displaying"_s);
     if (flags() & MediaSample::HasAlpha)
-        appendFlag("has-alpha");
+        appendFlag("has-alpha"_s);
     if (flags() & ~(MediaSample::IsSync | MediaSample::IsNonDisplaying | MediaSample::HasAlpha))
-        appendFlag("unknown-flag");
+        appendFlag("unknown-flag"_s);
 
     out.print("), trackId(", trackID(), "), presentationSize(", presentationSize().width(), "x", presentationSize().height(), ")}");
 }

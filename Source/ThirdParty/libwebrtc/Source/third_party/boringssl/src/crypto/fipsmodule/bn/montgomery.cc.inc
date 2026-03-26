@@ -21,7 +21,6 @@
 
 #include <openssl/err.h>
 #include <openssl/mem.h>
-#include <openssl/thread.h>
 
 #include "../../internal.h"
 #include "internal.h"
@@ -41,8 +40,8 @@ void bn_mont_ctx_cleanup(BN_MONT_CTX *mont) {
 BN_MONT_CTX *BN_MONT_CTX_new(void) {
   BN_MONT_CTX *ret =
       reinterpret_cast<BN_MONT_CTX *>(OPENSSL_malloc(sizeof(BN_MONT_CTX)));
-  if (ret == NULL) {
-    return NULL;
+  if (ret == nullptr) {
+    return nullptr;
   }
 
   bn_mont_ctx_init(ret);
@@ -63,10 +62,11 @@ BN_MONT_CTX *BN_MONT_CTX_copy(BN_MONT_CTX *to, const BN_MONT_CTX *from) {
   }
 
   if (!BN_copy(&to->RR, &from->RR) || !BN_copy(&to->N, &from->N)) {
-    return NULL;
+    return nullptr;
   }
-  to->n0[0] = from->n0[0];
-  to->n0[1] = from->n0[1];
+  for (size_t i = 0; i < BN_MONT_CTX_N0_LIMBS; i++) {
+    to->n0[i] = from->n0[i];
+  }
   return to;
 }
 
@@ -112,8 +112,6 @@ static int bn_mont_ctx_set_N_and_n0(BN_MONT_CTX *mont, const BIGNUM *mod) {
   mont->n0[0] = (BN_ULONG)n0;
 #if BN_MONT_CTX_N0_LIMBS == 2
   mont->n0[1] = (BN_ULONG)(n0 >> BN_BITS2);
-#else
-  mont->n0[1] = 0;
 #endif
   return 1;
 }
@@ -123,10 +121,10 @@ int BN_MONT_CTX_set(BN_MONT_CTX *mont, const BIGNUM *mod, BN_CTX *ctx) {
     return 0;
   }
 
-  BN_CTX *new_ctx = NULL;
-  if (ctx == NULL) {
+  BN_CTX *new_ctx = nullptr;
+  if (ctx == nullptr) {
     new_ctx = BN_CTX_new();
-    if (new_ctx == NULL) {
+    if (new_ctx == nullptr) {
       return 0;
     }
     ctx = new_ctx;
@@ -148,19 +146,19 @@ int BN_MONT_CTX_set(BN_MONT_CTX *mont, const BIGNUM *mod, BN_CTX *ctx) {
 
 BN_MONT_CTX *BN_MONT_CTX_new_for_modulus(const BIGNUM *mod, BN_CTX *ctx) {
   BN_MONT_CTX *mont = BN_MONT_CTX_new();
-  if (mont == NULL || !BN_MONT_CTX_set(mont, mod, ctx)) {
+  if (mont == nullptr || !BN_MONT_CTX_set(mont, mod, ctx)) {
     BN_MONT_CTX_free(mont);
-    return NULL;
+    return nullptr;
   }
   return mont;
 }
 
 BN_MONT_CTX *BN_MONT_CTX_new_consttime(const BIGNUM *mod, BN_CTX *ctx) {
   BN_MONT_CTX *mont = BN_MONT_CTX_new();
-  if (mont == NULL || !bn_mont_ctx_set_N_and_n0(mont, mod) ||
+  if (mont == nullptr || !bn_mont_ctx_set_N_and_n0(mont, mod) ||
       !bn_mont_ctx_set_RR_consttime(mont, ctx)) {
     BN_MONT_CTX_free(mont);
-    return NULL;
+    return nullptr;
   }
   return mont;
 }
@@ -176,10 +174,10 @@ int BN_MONT_CTX_set_locked(BN_MONT_CTX **pmont, CRYPTO_MUTEX *lock,
   }
 
   CRYPTO_MUTEX_lock_write(lock);
-  if (*pmont == NULL) {
+  if (*pmont == nullptr) {
     *pmont = BN_MONT_CTX_new_for_modulus(mod, bn_ctx);
   }
-  const int ok = *pmont != NULL;
+  const int ok = *pmont != nullptr;
   CRYPTO_MUTEX_unlock_write(lock);
   return ok;
 }
@@ -205,10 +203,7 @@ static int bn_from_montgomery_in_place(BN_ULONG *r, size_t num_r, BN_ULONG *a,
   BN_ULONG carry = 0;
   for (size_t i = 0; i < num_n; i++) {
     BN_ULONG v = bn_mul_add_words(a + i, n, num_n, a[i] * n0);
-    v += carry + a[i + num_n];
-    carry |= (v != a[i + num_n]);
-    carry &= (v <= a[i + num_n]);
-    a[i + num_n] = v;
+    a[i + num_n] = CRYPTO_addc_w(a[i + num_n], v, carry, &carry);
   }
 
   // Shift |num_n| words to divide by R. We have |a| < 2 * |n|. Note that |a|
@@ -247,7 +242,7 @@ int BN_from_montgomery(BIGNUM *r, const BIGNUM *a, const BN_MONT_CTX *mont,
                        BN_CTX *ctx) {
   bssl::BN_CTXScope scope(ctx);
   BIGNUM *t = BN_CTX_get(ctx);
-  if (t == NULL || !BN_copy(t, a)) {
+  if (t == nullptr || !BN_copy(t, a)) {
     return 0;
   }
 
@@ -280,7 +275,7 @@ static int bn_mod_mul_montgomery_fallback(BIGNUM *r, const BIGNUM *a,
                                           BN_CTX *ctx) {
   bssl::BN_CTXScope scope(ctx);
   BIGNUM *tmp = BN_CTX_get(ctx);
-  if (tmp == NULL) {
+  if (tmp == nullptr) {
     return 0;
   }
 
@@ -310,16 +305,16 @@ int BN_mod_mul_montgomery(BIGNUM *r, const BIGNUM *a, const BIGNUM *b,
   }
 
 #if defined(OPENSSL_BN_ASM_MONT)
-  // |bn_mul_mont| requires at least 128 bits of limbs.
+  // |bn_mul_mont_words| requires at least 128 bits of limbs.
   int num = mont->N.width;
   if (num >= (128 / BN_BITS2) && a->width == num && b->width == num) {
     if (!bn_wexpand(r, num)) {
       return 0;
     }
-    // This bound is implied by |bn_mont_ctx_set_N_and_n0|. |bn_mul_mont|
+    // This bound is implied by |bn_mont_ctx_set_N_and_n0|. |bn_mul_mont_words|
     // allocates |num| words on the stack, so |num| cannot be too large.
     assert((size_t)num <= BN_MONTGOMERY_MAX_WORDS);
-    bn_mul_mont(r->d, a->d, b->d, mont->N.d, mont->n0, num);
+    bn_mul_mont_words(r->d, a->d, b->d, mont->N.d, mont->n0, num);
     r->neg = 0;
     r->width = num;
     return 1;
@@ -360,9 +355,9 @@ void bn_mod_mul_montgomery_small(BN_ULONG *r, const BN_ULONG *a,
   }
 
 #if defined(OPENSSL_BN_ASM_MONT)
-  // |bn_mul_mont| requires at least 128 bits of limbs.
+  // |bn_mul_mont_words| requires at least 128 bits of limbs.
   if (num >= (128 / BN_BITS2)) {
-    bn_mul_mont(r, a, b, mont->N.d, mont->n0, num);
+    bn_mul_mont_words(r, a, b, mont->N.d, mont->n0, num);
     return;
   }
 #endif
@@ -383,8 +378,8 @@ void bn_mod_mul_montgomery_small(BN_ULONG *r, const BN_ULONG *a,
 }
 
 #if defined(OPENSSL_BN_ASM_MONT) && defined(OPENSSL_X86_64)
-void bn_mul_mont(BN_ULONG *rp, const BN_ULONG *ap, const BN_ULONG *bp,
-                const BN_ULONG *np, const BN_ULONG *n0, size_t num) {
+void bn_mul_mont_words(BN_ULONG *rp, const BN_ULONG *ap, const BN_ULONG *bp,
+                       const BN_ULONG *np, const BN_ULONG *n0, size_t num) {
   if (ap == bp && bn_sqr8x_mont_capable(num)) {
     bn_sqr8x_mont(rp, ap, bn_mulx_adx_capable(), np, n0, num);
   } else if (bn_mulx4x_mont_capable(num)) {
@@ -398,8 +393,8 @@ void bn_mul_mont(BN_ULONG *rp, const BN_ULONG *ap, const BN_ULONG *bp,
 #endif
 
 #if defined(OPENSSL_BN_ASM_MONT) && defined(OPENSSL_ARM)
-void bn_mul_mont(BN_ULONG *rp, const BN_ULONG *ap, const BN_ULONG *bp,
-                 const BN_ULONG *np, const BN_ULONG *n0, size_t num) {
+void bn_mul_mont_words(BN_ULONG *rp, const BN_ULONG *ap, const BN_ULONG *bp,
+                       const BN_ULONG *np, const BN_ULONG *n0, size_t num) {
   if (bn_mul8x_mont_neon_capable(num)) {
     bn_mul8x_mont_neon(rp, ap, bp, np, n0, num);
   } else {

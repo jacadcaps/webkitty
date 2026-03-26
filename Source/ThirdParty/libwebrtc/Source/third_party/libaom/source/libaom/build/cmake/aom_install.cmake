@@ -20,7 +20,9 @@ endif()
 if(CONFIG_AV1_ENCODER)
   list(APPEND AOM_INSTALL_INCS "${AOM_ROOT}/aom/aomcx.h"
               "${AOM_ROOT}/aom/aom_encoder.h"
-              "${AOM_ROOT}/aom/aom_external_partition.h")
+              "${AOM_ROOT}/aom/aom_ext_ratectrl.h"
+              "${AOM_ROOT}/aom/aom_external_partition.h"
+              "${AOM_ROOT}/aom/aom_tpl.h")
 endif()
 
 # Generate aom.pc and setup dependencies to ensure it is created when necessary.
@@ -84,6 +86,32 @@ macro(setup_aom_install_targets)
       set(AOM_INSTALL_LIBS aom)
     endif()
 
+    set(AOM_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    set(AOM_VERSION_CONFIG
+        "${AOM_GENERATED_DIR}/${PROJECT_NAME}ConfigVersion.cmake")
+    set(AOM_PROJECT_CONFIG "${AOM_GENERATED_DIR}/${PROJECT_NAME}Config.cmake")
+    set(AOM_VERSION ${PROJECT_VERSION})
+
+    include(CMakePackageConfigHelpers)
+    write_basic_package_version_file("${AOM_VERSION_CONFIG}"
+                                     VERSION ${AOM_VERSION}
+                                     COMPATIBILITY SameMajorVersion)
+    # AOM_TARGETS_EXPORT_NAME is used by config.cmake.in.
+    set(AOM_TARGETS_EXPORT_NAME "${PROJECT_NAME}Targets")
+    set(AOM_CONFIG_INSTALL_DIR "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
+    configure_package_config_file(
+      "${CMAKE_CURRENT_SOURCE_DIR}/build/cmake/config.cmake.in"
+      "${AOM_PROJECT_CONFIG}" INSTALL_DESTINATION "${AOM_CONFIG_INSTALL_DIR}"
+      PATH_VARS CMAKE_INSTALL_INCLUDEDIR)
+
+    # Install cmake config files
+    install(FILES "${AOM_PROJECT_CONFIG}" "${AOM_VERSION_CONFIG}"
+            DESTINATION "${AOM_CONFIG_INSTALL_DIR}")
+
+    install(EXPORT "${AOM_TARGETS_EXPORT_NAME}"
+            NAMESPACE "${PROJECT_NAME}::"
+            DESTINATION "${AOM_CONFIG_INSTALL_DIR}")
+
     # Setup the install rules. install() will automatically prepend
     # CMAKE_INSTALL_PREFIX to relative paths
     install(FILES ${AOM_INSTALL_INCS}
@@ -91,6 +119,7 @@ macro(setup_aom_install_targets)
     install(FILES "${AOM_PKG_CONFIG_FILE}"
             DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
     install(TARGETS ${AOM_INSTALL_LIBS};${AOM_INSTALL_BINS}
+            EXPORT "${AOM_TARGETS_EXPORT_NAME}"
             RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
             LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
             ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}")

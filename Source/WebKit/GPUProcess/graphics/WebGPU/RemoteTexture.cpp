@@ -40,7 +40,7 @@
 #include <WebCore/WebGPUTextureViewDescriptor.h>
 #include <wtf/TZoneMallocInlines.h>
 
-#define MESSAGE_CHECK(assertion) MESSAGE_CHECK_OPTIONAL_CONNECTION_BASE(assertion, connection())
+#define MESSAGE_CHECK(assertion) MESSAGE_CHECK_BASE(assertion, m_streamConnection)
 
 namespace WebKit {
 
@@ -49,7 +49,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteTexture);
 RemoteTexture::RemoteTexture(GPUConnectionToWebProcess& gpuConnectionToWebProcess, RemoteGPU& gpu, WebCore::WebGPU::Texture& texture, WebGPU::ObjectHeap& objectHeap, Ref<IPC::StreamServerConnection>&& streamConnection, WebGPUIdentifier identifier)
     : m_backing(texture)
     , m_objectHeap(objectHeap)
-    , m_streamConnection(WTFMove(streamConnection))
+    , m_streamConnection(WTF::move(streamConnection))
     , m_identifier(identifier)
     , m_gpuConnectionToWebProcess(gpuConnectionToWebProcess)
     , m_gpu(gpu)
@@ -58,14 +58,6 @@ RemoteTexture::RemoteTexture(GPUConnectionToWebProcess& gpuConnectionToWebProces
 }
 
 RemoteTexture::~RemoteTexture() = default;
-
-RefPtr<IPC::Connection> RemoteTexture::connection() const
-{
-    RefPtr connection = m_gpuConnectionToWebProcess.get();
-    if (!connection)
-        return nullptr;
-    return &connection->connection();
-}
 
 void RemoteTexture::stopListeningForIPC()
 {
@@ -80,7 +72,7 @@ void RemoteTexture::createView(const std::optional<WebGPU::TextureViewDescriptor
     if (descriptor) {
         auto resultDescriptor = objectHeap->convertFromBacking(*descriptor);
         MESSAGE_CHECK(resultDescriptor);
-        convertedDescriptor = WTFMove(resultDescriptor);
+        convertedDescriptor = WTF::move(resultDescriptor);
     }
     auto textureView = protectedBacking()->createView(convertedDescriptor);
     MESSAGE_CHECK(textureView);
@@ -105,7 +97,7 @@ void RemoteTexture::destruct()
 
 void RemoteTexture::setLabel(String&& label)
 {
-    protectedBacking()->setLabel(WTFMove(label));
+    protectedBacking()->setLabel(WTF::move(label));
 }
 
 Ref<WebCore::WebGPU::Texture> RemoteTexture::protectedBacking()

@@ -74,7 +74,7 @@ static RetainPtr<NSMutableDictionary> localPasteboards WTF_GUARDED_BY_LOCK(local
         return pasteboard;
     auto pasteboard = adoptNS([[LocalPasteboard alloc] initWithName:name]);
     [localPasteboards setObject:pasteboard.get() forKey:name];
-    return pasteboard.get();
+    return pasteboard.unsafeGet();
 }
 
 + (void)releaseLocalPasteboards
@@ -213,19 +213,19 @@ static RetainPtr<CFStringRef> toUTI(NSString *type)
     if (!_types.contains(uti))
         return NO;
 
-    _data.set(WTFMove(uti), (__bridge CFDataRef)(data ?: [NSData data]));
+    _data.set(WTF::move(uti), (__bridge CFDataRef)(data ?: [NSData data]));
     return YES;
 }
 
 - (NSData *)dataForType:(NSString *)dataType
 {
-    if (NSData *data = (__bridge NSData *)_data.get(toUTI(dataType).get()).get())
+    if (NSData *data = (__bridge NSData *)_data.get(toUTI(dataType).get()))
         return data;
 
     if (_owner && [_owner respondsToSelector:@selector(pasteboard:provideDataForType:)])
         [_owner pasteboard:self provideDataForType:dataType];
 
-    return (__bridge NSData *)_data.get(toUTI(dataType).get()).get();
+    return (__bridge NSData *)_data.get(toUTI(dataType).get());
 }
 
 - (BOOL)setPropertyList:(id)propertyList forType:(NSString *)dataType

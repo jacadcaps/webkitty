@@ -72,7 +72,7 @@ static RetainPtr<NSString> selectedFilePath;
     EXPECT_FALSE(parameters.allowsDirectories);
     constexpr auto TestFileData = "This is test file"_s;
     auto [path, handle] = FileSystem::openTemporaryFile("IndexedDBPersistence"_s);
-    handle.write(TestFileData.span8());
+    handle.write(byteCast<uint8_t>(TestFileData.span()));
     handle = { };
     selectedFilePath = path.createNSString();
     completionHandler(@[ [NSURL fileURLWithPath:selectedFilePath.get()] ]);

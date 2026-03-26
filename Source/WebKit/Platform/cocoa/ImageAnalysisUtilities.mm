@@ -32,6 +32,7 @@
 #import "Logging.h"
 #import "TransactionID.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#import <WebCore/AttributedString.h>
 #import <WebCore/TextRecognitionResult.h>
 #import <pal/cocoa/VisionKitCoreSoftLink.h>
 #import <pal/cocoa/VisionSoftLink.h>
@@ -72,26 +73,26 @@ static FloatQuad floatQuad(VKQuad *quad)
 static Vector<FloatQuad> floatQuads(NSArray<VKQuad *> *vkQuads)
 {
     return Vector<FloatQuad>(vkQuads.count, [vkQuads](size_t i) {
-        return floatQuad(vkQuads[i]);
+        return floatQuad(retainPtr(vkQuads[i]).get());
     });
 }
 
 TextRecognitionResult makeTextRecognitionResult(CocoaImageAnalysis *analysis)
 {
-    NSArray<VKWKLineInfo *> *allLines = analysis.allLines;
+    RetainPtr<NSArray<VKWKLineInfo *>> allLines = analysis.allLines;
     TextRecognitionResult result;
-    result.lines.reserveInitialCapacity(allLines.count);
+    result.lines.reserveInitialCapacity(allLines.get().count);
 
     bool isFirstLine = true;
     size_t nextLineIndex = 1;
-    for (VKWKLineInfo *line in allLines) {
+    for (VKWKLineInfo *line in allLines.get()) {
         Vector<TextRecognitionWordData> children;
-        NSArray<VKWKTextInfo *> *vkChildren = line.children;
-        children.reserveInitialCapacity(vkChildren.count);
+        RetainPtr<NSArray<VKWKTextInfo *>> vkChildren = line.children;
+        children.reserveInitialCapacity(vkChildren.get().count);
 
         String lineText = line.string;
         unsigned searchLocation = 0;
-        for (VKWKTextInfo *child in vkChildren) {
+        for (VKWKTextInfo *child in vkChildren.get()) {
             if (searchLocation >= lineText.length()) {
                 ASSERT_NOT_REACHED();
                 continue;
@@ -113,13 +114,13 @@ TextRecognitionResult makeTextRecognitionResult(CocoaImageAnalysis *analysis)
             })();
 
             searchLocation = matchLocation + childText.length();
-            children.append({ WTFMove(childText), floatQuad(child.quad), hasLeadingWhitespace });
+            children.append({ WTF::move(childText), floatQuad(retainPtr(child.quad).get()), hasLeadingWhitespace });
         }
-        VKWKLineInfo *nextLine = nextLineIndex < allLines.count ? allLines[nextLineIndex] : nil;
+        RetainPtr<VKWKLineInfo> nextLine = nextLineIndex < allLines.get().count ? allLines.get()[nextLineIndex] : nil;
         // The `shouldWrap` property indicates whether or not a line should wrap, relative to the previous line.
         bool hasTrailingNewline = nextLine && (![nextLine respondsToSelector:@selector(shouldWrap)] || ![nextLine shouldWrap]);
         bool isVertical = [line respondsToSelector:@selector(layoutDirection)] && [line layoutDirection] == CRLayoutDirectionTopToBottom;
-        result.lines.append({ floatQuad(line.quad), WTFMove(children), hasTrailingNewline, isVertical });
+        result.lines.append({ floatQuad(retainPtr(line.quad).get()), WTF::move(children), hasTrailingNewline, isVertical });
         isFirstLine = false;
         nextLineIndex++;
     }
@@ -129,13 +130,13 @@ TextRecognitionResult makeTextRecognitionResult(CocoaImageAnalysis *analysis)
         auto dataDetectors = RetainPtr { analysis.textDataDetectors };
         result.dataDetectors.reserveInitialCapacity([dataDetectors count]);
         for (VKWKDataDetectorInfo *info in dataDetectors.get())
-            result.dataDetectors.append({ info.result, floatQuads(info.boundingQuads) });
+            result.dataDetectors.append({ info.result, floatQuads(retainPtr(info.boundingQuads).get()) });
     }
 #endif // ENABLE(DATA_DETECTION)
 
 #if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
-    if ([analysis isKindOfClass:PAL::getVKCImageAnalysisClass()])
-        result.imageAnalysisData = TextRecognitionResult::encodeVKCImageAnalysis(analysis);
+    if ([analysis isKindOfClass:PAL::getVKCImageAnalysisClassSingleton()])
+        result.imageAnalysisData = TextRecognitionResult::extractAttributedString(analysis);
 #endif
 
     return result;
@@ -159,9 +160,9 @@ bool languageIdentifierSupportsLiveText(NSString *languageIdentifier)
 
     static NeverDestroyed<MemoryCompactRobinHoodHashSet<String>> supportedLanguages = [] {
         MemoryCompactRobinHoodHashSet<String> set;
-        for (NSString *identifier in [PAL::getVKCImageAnalyzerClass() supportedRecognitionLanguages]) {
+        for (NSString *identifier in [PAL::getVKCImageAnalyzerClassSingleton() supportedRecognitionLanguages]) {
             if (auto code = languageCodeForLocale(identifier); !code.isEmpty())
-                set.add(WTFMove(code));
+                set.add(WTF::move(code));
         }
         return set;
     }();
@@ -178,10 +179,10 @@ static TextRecognitionResult makeTextRecognitionResult(VKCImageAnalysisTranslati
 {
     TextRecognitionResult result;
 
-    NSArray<VKCTranslatedParagraph *> *paragraphs = translation.paragraphs;
-    result.blocks.reserveInitialCapacity(paragraphs.count);
+    RetainPtr<NSArray<VKCTranslatedParagraph *>> paragraphs = translation.paragraphs;
+    result.blocks.reserveInitialCapacity(paragraphs.get().count);
 
-    for (VKCTranslatedParagraph *paragraph in paragraphs) {
+    for (VKCTranslatedParagraph *paragraph in paragraphs.get()) {
         if (!paragraph.text.length) {
             RELEASE_LOG(Translation, "[#%{public}s] Skipping empty translation paragraph", transactionID.loggingString().utf8().data());
             continue;
@@ -190,7 +191,7 @@ static TextRecognitionResult makeTextRecognitionResult(VKCImageAnalysisTranslati
         if (paragraph.isPassthrough)
             continue;
 
-        auto quad = floatQuad(paragraph.quad);
+        auto quad = floatQuad(retainPtr(paragraph.quad).get());
         if (quad.p2().x() > quad.p4().x() && quad.p2().y() > quad.p4().y()
             && quad.p1().x() < quad.p3().x() && quad.p1().y() > quad.p3().y()) {
             // The entire quad is flipped about the x-axis. Maintain valid positions for each of the quad points
@@ -200,7 +201,7 @@ static TextRecognitionResult makeTextRecognitionResult(VKCImageAnalysisTranslati
             quad.setP3({ quad.p3().x(), 1 - quad.p3().y() });
             quad.setP4({ quad.p4().x(), 1 - quad.p4().y() });
         }
-        result.blocks.append({ paragraph.text, WTFMove(quad) });
+        result.blocks.append({ paragraph.text, WTF::move(quad) });
     }
 
     return result;
@@ -208,11 +209,7 @@ static TextRecognitionResult makeTextRecognitionResult(VKCImageAnalysisTranslati
 
 static bool shouldLogFullImageTranslationResults()
 {
-    static std::once_flag onceFlag;
-    static bool shouldLog = false;
-    std::call_once(onceFlag, [&] {
-        shouldLog = [NSUserDefaults.standardUserDefaults boolForKey:@"WebKitLogFullImageTranslationResults"];
-    });
+    static bool shouldLog = [NSUserDefaults.standardUserDefaults boolForKey:@"WebKitLogFullImageTranslationResults"];
     return shouldLog;
 }
 
@@ -226,8 +223,8 @@ void requestVisualTranslation(CocoaImageAnalyzer *analyzer, NSURL *imageURL, con
     else
         RELEASE_LOG(Translation, "[#%{public}s] Image translation started", currentRequestID.loggingString().utf8().data());
     auto request = createImageAnalyzerRequest(image, VKAnalysisTypeText);
-    [analyzer processRequest:request.get() progressHandler:nil completionHandler:makeBlockPtr([completion = WTFMove(completion), sourceLocale, targetLocale, currentRequestID, startTime] (CocoaImageAnalysis *analysis, NSError *analysisError) mutable {
-        callOnMainRunLoop([completion = WTFMove(completion), analysis = RetainPtr { analysis }, analysisError = RetainPtr { analysisError }, sourceLocale, targetLocale, currentRequestID, startTime] () mutable {
+    [analyzer processRequest:request.get() progressHandler:nil completionHandler:makeBlockPtr([completion = WTF::move(completion), sourceLocale, targetLocale, currentRequestID, startTime] (CocoaImageAnalysis *analysis, NSError *analysisError) mutable {
+        callOnMainRunLoop([completion = WTF::move(completion), analysis = RetainPtr { analysis }, analysisError = RetainPtr { analysisError }, sourceLocale, targetLocale, currentRequestID, startTime] () mutable {
             auto imageAnalysisDelay = MonotonicTime::now() - startTime;
             if (!analysis) {
                 RELEASE_LOG(Translation, "[#%{public}s] Image translation failed in %.3f sec. (error: %{public}@)", currentRequestID.loggingString().utf8().data(), imageAnalysisDelay.seconds(), analysisError.get());
@@ -239,22 +236,22 @@ void requestVisualTranslation(CocoaImageAnalyzer *analyzer, NSURL *imageURL, con
                 return completion({ });
             }
 
-            auto allLines = [analysis allLines];
+            RetainPtr allLines = [analysis allLines];
             if (shouldLogFullImageTranslationResults()) {
                 StringBuilder stringToLog;
                 bool firstLine = true;
-                for (VKWKLineInfo *info in allLines) {
+                for (VKWKLineInfo *info in allLines.get()) {
                     if (!firstLine)
                         stringToLog.append("\\n"_s);
                     stringToLog.append(String { info.string });
                     firstLine = false;
                 }
-                RELEASE_LOG(Translation, "[#%{public}s] Image translation recognized text in %.3f sec. (line count: %zu): \"%{private}s\"", currentRequestID.loggingString().utf8().data(), imageAnalysisDelay.seconds(), allLines.count, stringToLog.toString().utf8().data());
+                RELEASE_LOG(Translation, "[#%{public}s] Image translation recognized text in %.3f sec. (line count: %zu): \"%{private}s\"", currentRequestID.loggingString().utf8().data(), imageAnalysisDelay.seconds(), allLines.get().count, stringToLog.toString().utf8().data());
             } else
-                RELEASE_LOG(Translation, "[#%{public}s] Image translation recognized text in %.3f sec. (line count: %zu)", currentRequestID.loggingString().utf8().data(), imageAnalysisDelay.seconds(), allLines.count);
+                RELEASE_LOG(Translation, "[#%{public}s] Image translation recognized text in %.3f sec. (line count: %zu)", currentRequestID.loggingString().utf8().data(), imageAnalysisDelay.seconds(), allLines.get().count);
 
             auto translationStartTime = MonotonicTime::now();
-            auto completionBlock = makeBlockPtr([completion = WTFMove(completion), currentRequestID, translationStartTime](VKCImageAnalysisTranslation *translation, NSError *error) mutable {
+            auto completionBlock = makeBlockPtr([completion = WTF::move(completion), currentRequestID, translationStartTime](VKCImageAnalysisTranslation *translation, NSError *error) mutable {
                 auto translationDelay = MonotonicTime::now() - translationStartTime;
                 if (error) {
                     RELEASE_LOG(Translation, "[#%{public}s] Image translation failed in %.3f sec. (error: %{public}@)", currentRequestID.loggingString().utf8().data(), translationDelay.seconds(), error);
@@ -313,11 +310,11 @@ void requestBackgroundRemoval(CGImageRef image, CompletionHandler<void(CGImageRe
     }
 
     auto startTime = MonotonicTime::now();
-    auto completionBlock = makeBlockPtr([completion = WTFMove(completion), startTime](CGImageRef result, NSError *error) mutable {
+    auto completionBlock = makeBlockPtr([completion = WTF::move(completion), startTime](CGImageRef result, NSError *error) mutable {
         if (error)
             RELEASE_LOG(ImageAnalysis, "Remove background failed with error: %@", error);
 
-        callOnMainRunLoop([protectedResult = RetainPtr { result }, completion = WTFMove(completion), startTime]() mutable {
+        callOnMainRunLoop([protectedResult = RetainPtr { result }, completion = WTF::move(completion), startTime]() mutable {
             RELEASE_LOG(ImageAnalysis, "Remove background finished in %.0f ms (found subject? %d)", (MonotonicTime::now() - startTime).milliseconds(), !!protectedResult);
             completion(protectedResult.get());
         });
@@ -328,7 +325,7 @@ void requestBackgroundRemoval(CGImageRef image, CompletionHandler<void(CGImageRe
         return;
     }
 
-    PAL::softLinkVisionKitCorevk_cgImageRemoveBackground(transcodedImage.get(), YES, [completionBlock = WTFMove(completionBlock)](CGImageRef image, CGRect, NSError *error) mutable {
+    PAL::softLinkVisionKitCorevk_cgImageRemoveBackground(transcodedImage.get(), YES, [completionBlock = WTF::move(completionBlock)](CGImageRef image, CGRect, NSError *error) mutable {
         completionBlock(image, error);
     });
 }
@@ -398,28 +395,28 @@ void requestPayloadForQRCode(CGImageRef image, CompletionHandler<void(NSString *
         return completion(nil);
 
     auto queue = WorkQueue::create("com.apple.WebKit.ImageAnalysisUtilities.QRCodePayloadRequest"_s);
-    queue->dispatch([image = retainPtr(image), completion = WTFMove(completion)]() mutable {
+    queue->dispatch([image = retainPtr(image), completion = WTF::move(completion)]() mutable {
         auto adjustedImage = imageFilledWithWhiteBackground(image.get());
 
-        auto callCompletionOnMainRunLoopWithResult = [completion = WTFMove(completion)](NSString *result) mutable {
-            callOnMainRunLoop([completion = WTFMove(completion), result = retainPtr(result)]() mutable {
+        auto callCompletionOnMainRunLoopWithResult = [completion = WTF::move(completion)](NSString *result) mutable {
+            callOnMainRunLoop([completion = WTF::move(completion), result = retainPtr(result)]() mutable {
                 if (!completion)
                     return;
                 completion(result.get());
             });
         };
 
-        auto completionHandler = makeBlockPtr([callCompletionOnMainRunLoopWithResult = WTFMove(callCompletionOnMainRunLoopWithResult)](VNRequest *request, NSError *error) mutable {
+        auto completionHandler = makeBlockPtr([callCompletionOnMainRunLoopWithResult = WTF::move(callCompletionOnMainRunLoopWithResult)](VNRequest *request, NSError *error) mutable {
             if (error) {
                 callCompletionOnMainRunLoopWithResult(nil);
                 return;
             }
 
             for (VNBarcodeObservation *result in request.results) {
-                if (![result.symbology isEqualToString:PAL::get_Vision_VNBarcodeSymbologyQR()])
+                if (![result.symbology isEqualToString:PAL::get_Vision_VNBarcodeSymbologyQRSingleton()])
                     continue;
 
-                callCompletionOnMainRunLoopWithResult(result.payloadStringValue);
+                callCompletionOnMainRunLoopWithResult(retainPtr(result.payloadStringValue).get());
                 return;
             }
 
@@ -427,7 +424,7 @@ void requestPayloadForQRCode(CGImageRef image, CompletionHandler<void(NSString *
         });
 
         auto request = adoptNS([PAL::allocVNDetectBarcodesRequestInstance() initWithCompletionHandler:completionHandler.get()]);
-        [request setSymbologies:@[ PAL::get_Vision_VNBarcodeSymbologyQR() ]];
+        [request setSymbologies:@[ PAL::get_Vision_VNBarcodeSymbologyQRSingleton() ]];
 
         NSError *error = nil;
         auto handler = adoptNS([PAL::allocVNImageRequestHandlerInstance() initWithCGImage:adjustedImage.get() options:@{ }]);
@@ -435,6 +432,69 @@ void requestPayloadForQRCode(CGImageRef image, CompletionHandler<void(NSString *
 
         if (error)
             completionHandler(nil, error);
+    });
+}
+
+static WorkQueue& textRecognitionQueueSingleton()
+{
+    static NeverDestroyed queue {
+        WorkQueue::create("com.apple.WebKit.ImageAnalysisUtilities.TextRecognition"_s)
+    };
+    return queue.get();
+}
+
+void recognizeText(CGImageRef image, CompletionHandler<void(NSString *, NSError *)>&& completion)
+{
+    textRecognitionQueueSingleton().dispatch([image = retainPtr(image), completion = WTF::move(completion)] mutable {
+        __block RetainPtr<NSString> resultText;
+        __block RetainPtr<NSError> error;
+        RetainPtr request = adoptNS([PAL::allocVNRecognizeTextRequestInstance() initWithCompletionHandler:^(VNRequest *request, NSError *requestError) {
+            if (requestError) {
+                error = requestError;
+                return;
+            }
+
+            RetainPtr observations = dynamic_objc_cast<NSArray>(request.results);
+            if (![observations count]) {
+                resultText = @"";
+                return;
+            }
+
+            RetainPtr resultBuffer = adoptNS([NSMutableString new]);
+            for (VNRecognizedTextObservation *observation in observations.get()) {
+                RetainPtr best = [[observation topCandidates:1] firstObject];
+                if (!best)
+                    continue;
+
+                if ([resultBuffer length])
+                    [resultBuffer appendString:@" "];
+
+                [resultBuffer appendString:retainPtr([best string]).get()];
+            }
+
+            resultText = resultBuffer;
+        }]);
+
+        [request setAutomaticallyDetectsLanguage:YES];
+
+        @try {
+            RetainPtr handler = adoptNS([PAL::allocVNImageRequestHandlerInstance() initWithCGImage:image.get() options:@{ }]);
+            NSError *performError = nil;
+            [handler performRequests:@[ request.get() ] error:&performError];
+            if (performError)
+                error = performError;
+        } @catch (NSException *exception) {
+            error = [NSError errorWithDomain:@"com.apple.WebKit.ImageAnalysis" code:1 userInfo:@{
+                NSLocalizedDescriptionKey: exception.reason ?: @""
+            }];
+        }
+
+        RunLoop::mainSingleton().dispatch([resultText = WTF::move(resultText), error = WTF::move(error), completion = WTF::move(completion)] mutable {
+            if (error)
+                completion(nil, error.get());
+            else
+                completion(resultText.get(), nil);
+        });
     });
 }
 

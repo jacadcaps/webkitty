@@ -29,6 +29,7 @@
 #include "AutomationBackendDispatchers.h"
 #include "AutomationFrontendDispatchers.h"
 #include "Connection.h"
+#include "FrameTreeNodeData.h"
 #include "MessageReceiver.h"
 #include "MessageSender.h"
 #include "SimulatedInputDispatcher.h"
@@ -37,12 +38,14 @@
 #include <JavaScriptCore/ConsoleTypes.h>
 #include <JavaScriptCore/InspectorFrontendChannel.h>
 #include <WebCore/FrameIdentifier.h>
+#include <WebCore/NavigationIdentifier.h>
 #include <WebCore/ShareableBitmap.h>
 #include <wtf/CheckedPtr.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/Forward.h>
 #include <wtf/RunLoop.h>
 #include <wtf/ThreadSafeRefCounted.h>
+#include <wtf/WallTime.h>
 #include <wtf/WeakPtr.h>
 
 #if ENABLE(REMOTE_INSPECTOR)
@@ -109,6 +112,8 @@ public:
 
 using AutomationCompletionHandler = WTF::CompletionHandler<void(std::optional<AutomationCommandError>)>;
 
+using PageAndFrameHandle = std::pair<Inspector::Protocol::Automation::BrowsingContextHandle, Inspector::Protocol::Automation::FrameHandle>;
+
 class WebAutomationSession final : public API::ObjectImpl<API::Object::Type::AutomationSession>
     , public IPC::MessageReceiver
     , public Inspector::AutomationBackendDispatcherHandler
@@ -158,13 +163,25 @@ public:
     void setProcessPool(WebProcessPool*);
 
     void navigationOccurredForFrame(const WebFrameProxy&);
-    void documentLoadedForFrame(const WebFrameProxy&);
+    void documentLoadedForFrame(const WebFrameProxy&, std::optional<WebCore::NavigationIdentifier>, WallTime timestamp);
+    void loadCompletedForFrame(const WebFrameProxy&, std::optional<WebCore::NavigationIdentifier>, WallTime timestamp);
     void inspectorFrontendLoaded(const WebPageProxy&);
     void keyboardEventsFlushedForPage(const WebPageProxy&);
     void mouseEventsFlushedForPage(const WebPageProxy&);
     void wheelEventsFlushedForPage(const WebPageProxy&);
 #if ENABLE(WEBDRIVER_BIDI)
     void didCreatePage(WebPageProxy&);
+    void navigationStartedForFrame(const WebFrameProxy&, std::optional<WebCore::NavigationIdentifier>);
+    void navigationCommittedForFrame(const WebFrameProxy&, std::optional<WebCore::NavigationIdentifier>);
+    void navigationFailedForFrame(const WebFrameProxy&, std::optional<WebCore::NavigationIdentifier>);
+    void navigationAbortedForFrame(const WebFrameProxy&, std::optional<WebCore::NavigationIdentifier>);
+    void fragmentNavigatedForFrame(const WebFrameProxy&, std::optional<WebCore::NavigationIdentifier>);
+    void emitContextCreatedEvent(const WebPageProxy&);
+    void didCreateFrame(const WebFrameProxy&);
+    void willDestroyFrame(const WebFrameProxy&);
+    void contextCreatedForFrame(const WebFrameProxy&);
+    void contextDestroyedForPage(const WebPageProxy&);
+    void contextDestroyedForFrame(const WebFrameProxy&);
 #endif
     void willClosePage(const WebPageProxy&);
     void handleRunOpenPanel(const WebPageProxy&, const WebFrameProxy&, const API::OpenPanelParameters&, WebOpenPanelResultListenerProxy&);
@@ -192,6 +209,7 @@ public:
     // SimulatedInputDispatcher::Client API
 #if ENABLE(WEBDRIVER_MOUSE_INTERACTIONS)
     void simulateMouseInteraction(WebPageProxy&, MouseInteraction, MouseButton, const WebCore::IntPoint& locationInView, const String& pointerType, AutomationCompletionHandler&&) override;
+    void clearDoubleClicks() override;
 #endif
 #if ENABLE(WEBDRIVER_TOUCH_INTERACTIONS)
     void simulateTouchInteraction(WebPageProxy&, TouchInteraction, const WebCore::IntPoint& locationInView, std::optional<Seconds> duration, AutomationCompletionHandler&&) override;
@@ -216,6 +234,7 @@ public:
     void createBrowsingContext(std::optional<Inspector::Protocol::Automation::BrowsingContextPresentation>&&, Inspector::CommandCallbackOf<String, Inspector::Protocol::Automation::BrowsingContextPresentation>&&) override;
     void closeBrowsingContext(const Inspector::Protocol::Automation::BrowsingContextHandle&, Inspector::CommandCallback<void>&&) override;
     Inspector::CommandResult<void> deleteSession() override;
+    void resolveBrowsingContext(const Inspector::Protocol::Automation::BrowsingContextHandle&, const Inspector::Protocol::Automation::FrameHandle&, Inspector::CommandCallback<void>&&) override;
     void switchToBrowsingContext(const Inspector::Protocol::Automation::BrowsingContextHandle&, const Inspector::Protocol::Automation::FrameHandle&, Inspector::CommandCallback<void>&&) override;
     void setWindowFrameOfBrowsingContext(const Inspector::Protocol::Automation::BrowsingContextHandle&, RefPtr<JSON::Object>&& origin, RefPtr<JSON::Object>&& size, Inspector::CommandCallback<void>&&) override;
     void maximizeWindowOfBrowsingContext(const Inspector::Protocol::Automation::BrowsingContextHandle&, Inspector::CommandCallback<void>&&) override;
@@ -223,6 +242,7 @@ public:
     void navigateBrowsingContext(const Inspector::Protocol::Automation::BrowsingContextHandle&, const String& url, std::optional<Inspector::Protocol::Automation::PageLoadStrategy>&&, std::optional<double>&& pageLoadTimeout, Inspector::CommandCallback<void>&&) override;
     void goBackInBrowsingContext(const String&, std::optional<Inspector::Protocol::Automation::PageLoadStrategy>&&, std::optional<double>&& pageLoadTimeout, Inspector::CommandCallback<void>&&) override;
     void goForwardInBrowsingContext(const String&, std::optional<Inspector::Protocol::Automation::PageLoadStrategy>&&, std::optional<double>&& pageLoadTimeout, Inspector::CommandCallback<void>&&) override;
+    void traverseHistoryInBrowsingContext(const Inspector::Protocol::Automation::BrowsingContextHandle&, int delta, Inspector::CommandCallback<void>&&);
     void reloadBrowsingContext(const String&, std::optional<Inspector::Protocol::Automation::PageLoadStrategy>&&, std::optional<double>&& pageLoadTimeout, Inspector::CommandCallback<void>&&) override;
     void waitForNavigationToComplete(const Inspector::Protocol::Automation::BrowsingContextHandle&, const Inspector::Protocol::Automation::FrameHandle&, std::optional<Inspector::Protocol::Automation::PageLoadStrategy>&&, std::optional<double>&& pageLoadTimeout, Inspector::CommandCallback<void>&&) override;
     void evaluateJavaScriptFunction(const Inspector::Protocol::Automation::BrowsingContextHandle&, const Inspector::Protocol::Automation::FrameHandle&, const String& function, Ref<JSON::Array>&& arguments, std::optional<bool>&& expectsImplicitCallbackArgument, std::optional<bool>&& forceUserGesture, std::optional<double>&& callbackTimeout, Inspector::CommandCallback<String>&&) override;
@@ -264,6 +284,8 @@ public:
     void loadWebExtension(const Inspector::Protocol::Automation::WebExtensionResourceOptions, const String& resource, Inspector::CommandCallback<String>&&) override;
     void unloadWebExtension(const String& identifier, Inspector::CommandCallback<void>&&) override;
 #endif
+    void setStorageAccessPermissionState(const Inspector::Protocol::Automation::BrowsingContextHandle&, const Inspector::Protocol::Automation::FrameHandle&, Inspector::Protocol::Automation::PermissionState, Inspector::CommandCallback<void>&&) override;
+    void setStorageAccessPolicy(const Inspector::Protocol::Automation::BrowsingContextHandle&, bool blocked, Inspector::CommandCallback<void>&&) override;
 
 #if ENABLE(WEBDRIVER_BIDI)
     Inspector::CommandResult<void> processBidiMessage(const String&) override;
@@ -288,15 +310,17 @@ public:
     void didDestroyFrame(WebCore::FrameIdentifier);
 
     RefPtr<WebPageProxy> webPageProxyForHandle(const String&);
+    String effectiveHandleForWebFrameProxy(const WebFrameProxy&);
     String handleForWebFrameID(std::optional<WebCore::FrameIdentifier>);
     String handleForWebPageProxy(const WebPageProxy&);
+
+    Expected<PageAndFrameHandle, AutomationCommandError> extractBrowsingContextHandles(const String&);
 
 private:
     Ref<Inspector::Protocol::Automation::BrowsingContext> buildBrowsingContextForPage(WebPageProxy&, WebCore::FloatRect windowFrame);
     void getNextContext(Vector<Ref<WebPageProxy>>&&, Ref<JSON::ArrayOf<Inspector::Protocol::Automation::BrowsingContext>>, Inspector::CommandCallback<Ref<JSON::ArrayOf<Inspector::Protocol::Automation::BrowsingContext>>>&&);
 
     std::optional<WebCore::FrameIdentifier> webFrameIDForHandle(const String&, bool& frameNotFound);
-    String handleForWebFrameProxy(const WebFrameProxy&);
 
     void waitForNavigationToCompleteOnPage(WebPageProxy&, Inspector::Protocol::Automation::PageLoadStrategy, Seconds, Inspector::CommandCallback<void>&&);
     void waitForNavigationToCompleteOnFrame(WebFrameProxy&, Inspector::Protocol::Automation::PageLoadStrategy, Seconds, Inspector::CommandCallback<void>&&);
@@ -309,6 +333,11 @@ private:
     void maximizeWindowForPage(WebPageProxy&, WTF::CompletionHandler<void()>&&);
     void hideWindowForPage(WebPageProxy&, WTF::CompletionHandler<void()>&&);
 
+#if ENABLE(WEBDRIVER_BIDI)
+    void recursivelyEmitContextCreatedEvent(const FrameTreeNodeData&, std::optional<String>&& parentContext);
+    WebPageProxy* getOpenerPage(const WebPageProxy&);
+#endif
+
     // IPC::MessageReceiver (Implemented by generated code in WebAutomationSessionMessageReceiver.cpp).
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
 
@@ -317,8 +346,9 @@ private:
 
     // Platform-dependent implementations.
 #if ENABLE(WEBDRIVER_MOUSE_INTERACTIONS)
-    void updateClickCount(MouseButton, const WebCore::IntPoint&, Seconds maxTime = 1_s, int maxDistance = 0);
-    void resetClickCount();
+    void resetMouseState();
+    void updateClickCount(MouseButton, const WebCore::IntPoint&, Seconds maxTime = 0.5_s, int maxDistance = 0);
+    void updateLastPosition(const WebCore::IntPoint&, int maxDistance = 0);
     void platformSimulateMouseInteraction(WebPageProxy&, MouseInteraction, MouseButton, const WebCore::IntPoint& locationInViewport, OptionSet<WebEventModifier>, const String& pointerType);
     static OptionSet<WebEventModifier> platformWebModifiersFromRaw(WebPageProxy&, unsigned modifiers);
 #endif
@@ -416,9 +446,9 @@ private:
 #endif
 #if ENABLE(WEBDRIVER_MOUSE_INTERACTIONS)
     MonotonicTime m_lastClickTime;
-    MouseButton m_lastClickButton { MouseButton::None };
     HashMap<MouseButton, bool, WTF::IntHash<MouseButton>, WTF::StrongEnumHashTraits<MouseButton>> m_mouseButtonsCurrentlyDown;
-    WebCore::IntPoint m_lastClickPosition;
+    std::optional<WebCore::IntPoint> m_lastPosition;
+    std::optional<WebCore::IntPoint> m_lastClickPosition;
     unsigned m_clickCount { 1 };
 #endif
 

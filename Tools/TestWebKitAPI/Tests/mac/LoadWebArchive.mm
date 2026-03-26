@@ -144,6 +144,39 @@ TEST(LoadWebArchive, ClientNavigationSucceed)
     EXPECT_WK_STREQ(finalURL, "helloworld.webarchive");
 }
 
+TEST(LoadWebArchive, ClientNavigationSucceedWithCookie)
+{
+    RetainPtr<NSURL> testURL = [NSBundle.test_resourcesBundle URLForResource:@"helloworld" withExtension:@"webarchive"];
+
+    RetainPtr<WKWebsiteDataStore> dataStore = WKWebsiteDataStore.nonPersistentDataStore;
+    auto configuration = adoptNS([WKWebViewConfiguration new]);
+    [configuration setWebsiteDataStore:dataStore.get()];
+    auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectZero configuration:configuration.get()]);
+    auto delegate = adoptNS([[TestLoadWebArchiveNavigationDelegate alloc] init]);
+    [webView setNavigationDelegate:delegate.get()];
+
+    __block bool doneSettingCookie { false };
+    RetainPtr<NSHTTPCookie> cookie1 = [NSHTTPCookie cookieWithProperties:@{
+        NSHTTPCookiePath: @"/",
+        NSHTTPCookieName: @"CookieName",
+        NSHTTPCookieValue: @"CookieValue",
+        NSHTTPCookieDomain: @".www.webkit.org",
+        NSHTTPCookieSecure: @"TRUE",
+        NSHTTPCookieDiscard: @"TRUE",
+        NSHTTPCookieMaximumAge: @"10000",
+    }];
+    [dataStore.get().httpCookieStore setCookie:cookie1.get() completionHandler:^() {
+        doneSettingCookie = true;
+    }];
+    TestWebKitAPI::Util::run(&doneSettingCookie);
+
+    navigationComplete = false;
+    [webView loadRequest:[NSURLRequest requestWithURL:testURL.get()]];
+    Util::run(&navigationComplete);
+
+    EXPECT_WK_STREQ(finalURL, "helloworld.webarchive");
+}
+
 TEST(LoadWebArchive, ClientNavigationReload)
 {
     RetainPtr<NSURL> testURL = [NSBundle.test_resourcesBundle URLForResource:@"helloworld" withExtension:@"webarchive"];

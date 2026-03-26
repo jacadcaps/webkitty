@@ -29,7 +29,6 @@
 #else
 #include <EGL/egl.h>
 #endif
-#include <openxr/openxr_platform.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/WTFString.h>
@@ -93,6 +92,21 @@ bool OpenXRExtensions::loadMethods(XrInstance instance)
         RELEASE_ASSERT(m_methods->xrCreateHandTrackerEXT);
         RELEASE_ASSERT(m_methods->xrDestroyHandTrackerEXT);
         RELEASE_ASSERT(m_methods->xrLocateHandJointsEXT);
+    }
+#endif
+#if defined(XR_ANDROID_trackables)
+    if (isExtensionSupported(XR_ANDROID_TRACKABLES_EXTENSION_NAME ""_span)) {
+        xrGetInstanceProcAddr(instance, "xrCreateTrackableTrackerANDROID", reinterpret_cast<PFN_xrVoidFunction*>(&m_methods->xrCreateTrackableTrackerANDROID));
+        xrGetInstanceProcAddr(instance, "xrDestroyTrackableTrackerANDROID", reinterpret_cast<PFN_xrVoidFunction*>(&m_methods->xrDestroyTrackableTrackerANDROID));
+        RELEASE_ASSERT(m_methods->xrCreateTrackableTrackerANDROID);
+        RELEASE_ASSERT(m_methods->xrDestroyTrackableTrackerANDROID);
+    }
+#endif
+#if defined(XR_ANDROID_raycast)
+    if (isExtensionSupported(XR_ANDROID_RAYCAST_EXTENSION_NAME ""_span)) {
+        xrGetInstanceProcAddr(instance, "xrRaycastANDROID", reinterpret_cast<PFN_xrVoidFunction*>(&m_methods->xrRaycastANDROID));
+        xrGetInstanceProcAddr(instance, "xrEnumerateRaycastSupportedTrackableTypesANDROID", reinterpret_cast<PFN_xrVoidFunction*>(&m_methods->xrEnumerateRaycastSupportedTrackableTypesANDROID));
+        RELEASE_ASSERT(m_methods->xrRaycastANDROID);
     }
 #endif
     return true;

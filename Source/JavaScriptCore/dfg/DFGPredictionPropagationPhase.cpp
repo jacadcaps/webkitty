@@ -899,7 +899,7 @@ private:
         case EnumeratorPutByVal:
         case PutByValDirect:
         case PutByVal:
-        case PutByValAlias:
+        case PutByValDirectResolved:
         case PutByValMegamorphic: {
             Edge child1 = m_graph.varArgChild(node, 0);
             Edge child2 = m_graph.varArgChild(node, 1);
@@ -1054,6 +1054,7 @@ private:
         case ConstructForwardVarargs:
         case TailCallForwardVarargsInlinedCaller:
         case CallWasm:
+        case TailCallInlinedCallerWasm:
         case CallCustomAccessorGetter:
         case GetGlobalVar:
         case GetGlobalLexicalVariable:
@@ -1139,6 +1140,9 @@ private:
             break;
 
         case MapStorage:
+            setPrediction(SpecCellOther | SpecEmpty);
+            break;
+
         case MapStorageOrSentinel:
         case MapIterationNext:
             setPrediction(SpecCellOther);
@@ -1330,7 +1334,6 @@ private:
         case NewArrayWithSpread:
         case NewArray:
         case NewArrayWithSize:
-        case NewArrayWithConstantSize:
         case NewArrayWithSizeAndStructure:
         case CreateRest:
         case NewArrayBuffer:
@@ -1572,7 +1575,9 @@ private:
             break;
         }
 
-        case PutByValAlias:
+        case NewArrayWithButterfly:
+        case NewButterflyWithSize:
+        case PutByValDirectResolved:
         case DoubleAsInt32:
         case CheckTypeInfoFlags:
         case Arrayify:
@@ -1592,7 +1597,8 @@ private:
         case Identity:
         case BooleanToNumber:
         case PhantomNewObject:
-        case PhantomNewArrayWithConstantSize:
+        case PhantomNewArrayWithButterfly:
+        case PhantomNewButterflyWithSize:
         case PhantomNewFunction:
         case PhantomNewGeneratorFunction:
         case PhantomNewAsyncGeneratorFunction:
@@ -1613,7 +1619,7 @@ private:
         case CheckStructureOrEmpty:
         case CheckArrayOrEmpty:
         case MaterializeNewObject:
-        case MaterializeNewArrayWithConstantSize:
+        case MaterializeNewArrayWithButterfly:
         case MaterializeCreateActivation:
         case MaterializeNewInternalFieldObject:
         case PutStack:
@@ -1732,6 +1738,12 @@ private:
         case DataViewSet:
         case InvalidationPoint:
         case ObjectAssign:
+        case ResolvePromiseFirstResolving:
+        case RejectPromiseFirstResolving:
+        case FulfillPromiseFirstResolving:
+        case PromiseResolve:
+        case PromiseReject:
+        case PromiseThen:
             break;
             
         // This gets ignored because it only pretends to produce a value.

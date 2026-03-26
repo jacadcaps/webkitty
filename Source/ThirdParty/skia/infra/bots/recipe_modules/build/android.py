@@ -47,7 +47,6 @@ def compile_fn(api, checkout_root, out_dir):
   if 'Dawn' in extra_tokens:
     util.set_dawn_args_and_env(args, env, api, extra_tokens, skia_dir)
     args['ndk_api'] = 26 #skia_use_gl=false, so use vulkan
-    args['skia_use_cpp20'] = 'true'
   if 'Vulkan' in extra_tokens and not 'Dawn' in extra_tokens:
     args['ndk_api'] = 26
     args['skia_enable_vulkan_debug_layers'] = 'false'
@@ -91,6 +90,15 @@ def compile_fn(api, checkout_root, out_dir):
   gn_args = ' '.join('%s=%s' % (k,v) for (k,v) in sorted(args.items()))
   gn      = skia_dir.joinpath('bin', 'gn')
 
+  ninja_root = skia_dir.joinpath('third_party', 'ninja')
+  ninja = skia_dir.joinpath(ninja_root, 'ninja')
+
+  # Putting ninja on the path makes it easier for subcommands to find it
+  # (e.g. when building Dawn via CMake+ninja)
+  # Importantly, this needs to go *after* depot_tools, so we append it
+  existing_path = env.get('PATH', '%(PATH)s')
+  env['PATH'] = api.path.pathsep.join([existing_path, str(ninja_root)])
+
   with api.context(cwd=skia_dir):
     api.run(api.step, 'fetch-gn',
             cmd=['python3', skia_dir.joinpath('bin', 'fetch-gn')],
@@ -103,7 +111,7 @@ def compile_fn(api, checkout_root, out_dir):
     with api.env(env):
       api.run(api.step, 'gn gen',
               cmd=[gn, 'gen', out_dir, '--args=' + gn_args])
-      api.run(api.step, 'ninja', cmd=['ninja', '-C', out_dir])
+      api.run(api.step, 'ninja', cmd=[ninja, '-C', out_dir])
 
 
 ANDROID_BUILD_PRODUCTS_LIST = [

@@ -41,7 +41,7 @@
 #include <WebCore/WebGPUCommandEncoder.h>
 #include <wtf/TZoneMallocInlines.h>
 
-#define MESSAGE_CHECK(assertion) MESSAGE_CHECK_OPTIONAL_CONNECTION_BASE(assertion, connection())
+#define MESSAGE_CHECK(assertion) MESSAGE_CHECK_BASE(assertion, m_streamConnection)
 
 namespace WebKit {
 
@@ -50,7 +50,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteCommandEncoder);
 RemoteCommandEncoder::RemoteCommandEncoder(GPUConnectionToWebProcess& gpuConnectionToWebProcess, RemoteGPU& gpu, WebCore::WebGPU::CommandEncoder& commandEncoder, WebGPU::ObjectHeap& objectHeap, Ref<IPC::StreamServerConnection>&& streamConnection, WebGPUIdentifier identifier)
     : m_backing(commandEncoder)
     , m_objectHeap(objectHeap)
-    , m_streamConnection(WTFMove(streamConnection))
+    , m_streamConnection(WTF::move(streamConnection))
     , m_identifier(identifier)
     , m_gpuConnectionToWebProcess(gpuConnectionToWebProcess)
     , m_gpu(gpu)
@@ -59,14 +59,6 @@ RemoteCommandEncoder::RemoteCommandEncoder(GPUConnectionToWebProcess& gpuConnect
 }
 
 RemoteCommandEncoder::~RemoteCommandEncoder() = default;
-
-RefPtr<IPC::Connection> RemoteCommandEncoder::connection() const
-{
-    RefPtr connection = m_gpuConnectionToWebProcess.get();
-    if (!connection)
-        return nullptr;
-    return &connection->connection();
-}
 
 void RemoteCommandEncoder::destruct()
 {
@@ -97,7 +89,7 @@ void RemoteCommandEncoder::beginComputePass(const std::optional<WebGPU::ComputeP
     if (descriptor) {
         auto resultDescriptor = objectHeap->convertFromBacking(*descriptor);
         MESSAGE_CHECK(resultDescriptor);
-        convertedDescriptor = WTFMove(resultDescriptor);
+        convertedDescriptor = WTF::move(resultDescriptor);
     }
 
     auto computePassEncoder = protectedBacking()->beginComputePass(convertedDescriptor);
@@ -190,7 +182,7 @@ void RemoteCommandEncoder::clearBuffer(
 
 void RemoteCommandEncoder::pushDebugGroup(String&& groupLabel)
 {
-    protectedBacking()->pushDebugGroup(WTFMove(groupLabel));
+    protectedBacking()->pushDebugGroup(WTF::move(groupLabel));
 }
 
 void RemoteCommandEncoder::popDebugGroup()
@@ -200,7 +192,7 @@ void RemoteCommandEncoder::popDebugGroup()
 
 void RemoteCommandEncoder::insertDebugMarker(String&& markerLabel)
 {
-    protectedBacking()->insertDebugMarker(WTFMove(markerLabel));
+    protectedBacking()->insertDebugMarker(WTF::move(markerLabel));
 }
 
 void RemoteCommandEncoder::writeTimestamp(WebGPUIdentifier querySet, WebCore::WebGPU::Size32 queryIndex)
@@ -245,7 +237,7 @@ void RemoteCommandEncoder::finish(const WebGPU::CommandBufferDescriptor& descrip
 
 void RemoteCommandEncoder::setLabel(String&& label)
 {
-    protectedBacking()->setLabel(WTFMove(label));
+    protectedBacking()->setLabel(WTF::move(label));
 }
 
 Ref<WebCore::WebGPU::CommandEncoder> RemoteCommandEncoder::protectedBacking()

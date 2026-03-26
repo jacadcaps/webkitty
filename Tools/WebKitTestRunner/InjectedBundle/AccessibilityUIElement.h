@@ -109,7 +109,7 @@ public:
     JSRetainPtr<JSStringRef> allAttributes();
     JSRetainPtr<JSStringRef> attributesOfLinkedUIElements();
     RefPtr<AccessibilityUIElement> linkedUIElementAtIndex(unsigned);
-    
+
     JSRetainPtr<JSStringRef> attributesOfDocumentLinks();
     JSRetainPtr<JSStringRef> attributesOfChildren();
     JSRetainPtr<JSStringRef> parameterizedAttributeNames();
@@ -244,7 +244,7 @@ public:
 
     // CSS3-speech properties.
     JSRetainPtr<JSStringRef> speakAs();
-    
+
     // Table-specific attributes
     JSRetainPtr<JSStringRef> attributesOfColumnHeaders();
     JSRetainPtr<JSStringRef> attributesOfRowHeaders();
@@ -296,7 +296,7 @@ public:
     bool isGrabbed() const;
     // A space concatentated string of all the drop effects.
     JSRetainPtr<JSStringRef> ariaDropEffects() const;
-    
+
     // Parameterized attributes
     int lineForIndex(int);
     JSRetainPtr<JSStringRef> rangeForLine(int);
@@ -324,7 +324,7 @@ public:
     JSRetainPtr<JSStringRef> wordAtOffset(int offset);
     JSRetainPtr<JSStringRef> lineAtOffset(int offset);
     JSRetainPtr<JSStringRef> sentenceAtOffset(int offset);
-    
+
     // Table-specific
     RefPtr<AccessibilityUIElement> cellForColumnAndRow(unsigned column, unsigned row);
 
@@ -400,13 +400,13 @@ public:
     JSValueRef mathRootRadicand(JSContextRef);
 
     JSRetainPtr<JSStringRef> pathDescription() const;
-    
+
     // Notifications
     // Function callback should take one argument, the name of the notification.
     bool addNotificationListener(JSContextRef, JSValueRef functionCallback);
     // Make sure you call remove, because you can't rely on objects being deallocated in a timely fashion.
     bool removeNotificationListener();
-    
+
     JSRetainPtr<JSStringRef> identifier();
     JSRetainPtr<JSStringRef> traits();
     int elementTextPosition();
@@ -425,7 +425,7 @@ public:
     bool scrollPageDown();
     bool scrollPageLeft();
     bool scrollPageRight();
-    
+
     bool isInDescriptionListDetail() const;
     bool isInDescriptionListTerm() const;
 
@@ -439,7 +439,7 @@ public:
     bool isFirstItemInSuggestion() const;
     bool isLastItemInSuggestion() const;
     bool isRemoteFrame() const;
-    
+
     bool isMarkAnnotation() const;
 private:
     AccessibilityUIElement(PlatformUIElement);

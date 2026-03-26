@@ -24,10 +24,13 @@
 
 #include "APIUIClient.h"
 #include "OpenXRExtensions.h"
+#include "OpenXRHitTestManager.h"
 #include "OpenXRInput.h"
+#include "OpenXRInputSource.h"
 #include "OpenXRLayer.h"
 #include "OpenXRUtils.h"
 #include "WebPageProxy.h"
+#include "WebProcessProxy.h"
 #if USE(LIBEPOXY)
 #define __GBM__ 1
 #include <epoxy/egl.h>
@@ -37,7 +40,6 @@
 #include <WebCore/GLContext.h>
 #include <WebCore/GLDisplay.h>
 #include <WebCore/GLFence.h>
-#include <openxr/openxr_platform.h>
 #include <wtf/RunLoop.h>
 #include <wtf/WorkQueue.h>
 
@@ -47,6 +49,13 @@
 #include <WebCore/GBMDevice.h>
 #endif
 
+#if OS(ANDROID)
+#include <dlfcn.h>
+using WPEAndroidRuntimeGetJavaVMFunction = JavaVM* (*)();
+using WPEAndroidRuntimeGetActivityFunction = jobject (*)();
+#undef jobject
+#endif
+
 namespace WebKit {
 
 struct OpenXRCoordinator::RenderState {
@@ -54,6 +63,14 @@ struct OpenXRCoordinator::RenderState {
     bool pendingFrame { false };
     PlatformXR::Device::RequestFrameCallback onFrameUpdate;
     XrFrameState frameState;
+    bool passthroughFullyObscured { false };
+#if ENABLE(WEBXR_HIT_TEST)
+    PlatformXR::HitTestSource nextHitTestSource { 1 };
+    PlatformXR::TransientInputHitTestSource nextTransientInputHitTestSource { 1 };
+    HashMap<PlatformXR::HitTestSource, UniqueRef<PlatformXR::HitTestOptions>> hitTestSources;
+    HashMap<PlatformXR::TransientInputHitTestSource, UniqueRef<PlatformXR::TransientInputHitTestOptions>> transientInputHitTestSources;
+    std::unique_ptr<OpenXRHitTestManager> hitTestManager;
+#endif
 };
 
 OpenXRCoordinator::OpenXRCoordinator()
@@ -63,17 +80,14 @@ OpenXRCoordinator::OpenXRCoordinator()
 
 OpenXRCoordinator::~OpenXRCoordinator()
 {
-    m_viewConfigurationViews.clear();
-
-    if (m_instance != XR_NULL_HANDLE)
-        xrDestroyInstance(m_instance);
+    cleanupInstanceAndAssociatedResources();
 }
 
-void OpenXRCoordinator::getPrimaryDeviceInfo(WebPageProxy&, DeviceInfoCallback&& callback)
+void OpenXRCoordinator::getPrimaryDeviceInfo(WebPageProxy& page, DeviceInfoCallback&& callback)
 {
     ASSERT(RunLoop::isMain());
 
-    initializeDevice();
+    initializeDevice(page.protectedPreferences()->openXRDMABufRelaxedForTesting());
     if (m_instance == XR_NULL_HANDLE || m_systemId == XR_NULL_SYSTEM_ID) {
         LOG(XR, "Failed to initialize OpenXR system");
         callback(std::nullopt);
@@ -111,13 +125,27 @@ void OpenXRCoordinator::getPrimaryDeviceInfo(WebPageProxy&, DeviceInfoCallback&&
     }
 #endif
 
+#if ENABLE(WEBXR_HIT_TEST)
+#if defined(XR_ANDROID_trackables) && defined(XR_ANDROID_raycast)
+    if (OpenXRExtensions::singleton().isExtensionSupported(XR_ANDROID_RAYCAST_EXTENSION_NAME ""_span)
+        && OpenXRExtensions::singleton().isExtensionSupported(XR_ANDROID_TRACKABLES_EXTENSION_NAME ""_span)) {
+        deviceInfo.arFeatures.append(PlatformXR::SessionFeature::HitTest);
+    }
+#endif
+#endif
+
+#if ENABLE(WEBXR_LAYERS)
+    deviceInfo.vrFeatures.append(PlatformXR::SessionFeature::Layers);
+    deviceInfo.arFeatures.append(PlatformXR::SessionFeature::Layers);
+#endif
+
     // In order to get the supported reference space types, we need the session to be created. However at this point we shouldn't do it.
     // Instead, we report ReferenceSpaceTypeLocalFloor as available, because we can supoport it via either the STAGE reference space, the
     // LOCAL_FLOOR reference space or even via an educated guess from the LOCAL reference space as a backup.
     deviceInfo.vrFeatures.append(PlatformXR::SessionFeature::ReferenceSpaceTypeLocalFloor);
     deviceInfo.arFeatures.append(PlatformXR::SessionFeature::ReferenceSpaceTypeLocalFloor);
 
-    callback(WTFMove(deviceInfo));
+    callback(WTF::move(deviceInfo));
 }
 
 void OpenXRCoordinator::requestPermissionOnSessionFeatures(WebPageProxy& page, const WebCore::SecurityOriginData& securityOriginData, PlatformXR::SessionMode mode, const PlatformXR::Device::FeatureList& granted, const PlatformXR::Device::FeatureList& consentRequired, const PlatformXR::Device::FeatureList& consentOptional, const PlatformXR::Device::FeatureList& requiredFeaturesRequested, const PlatformXR::Device::FeatureList& optionalFeaturesRequested, FeatureListCallback&& callback)
@@ -128,8 +156,8 @@ void OpenXRCoordinator::requestPermissionOnSessionFeatures(WebPageProxy& page, c
         return;
     }
 
-    page.uiClient().requestPermissionOnXRSessionFeatures(page, securityOriginData, mode, granted, consentRequired, consentOptional, requiredFeaturesRequested, optionalFeaturesRequested, [callback = WTFMove(callback)](std::optional<Vector<PlatformXR::SessionFeature>> userGranted) mutable {
-        callback(WTFMove(userGranted));
+    page.uiClient().requestPermissionOnXRSessionFeatures(page, securityOriginData, mode, granted, consentRequired, consentOptional, requiredFeaturesRequested, optionalFeaturesRequested, [callback = WTF::move(callback)](std::optional<Vector<PlatformXR::SessionFeature>> userGranted) mutable {
+        callback(WTF::move(userGranted));
     });
 }
 
@@ -158,7 +186,9 @@ bool OpenXRCoordinator::collectSwapchainFormatsIfNeeded()
 
 std::unique_ptr<OpenXRSwapchain> OpenXRCoordinator::createSwapchain(uint32_t width, uint32_t height, bool alpha) const
 {
-    auto preferredFormat = alpha ? GL_RGBA8 : GL_RGB8;
+    // Even if alpha is false we always ask for the RGBA8 format, as the DRM_FORMAT_RGB8 is not supported by ANGLE.
+    // In this case we ignore the alpha channel by using DRM_FORMAT_XRGB8888 when exporting the texture.
+    auto preferredFormat = GL_RGBA8;
     auto format = m_supportedSwapchainFormats.contains(preferredFormat) ? preferredFormat : m_supportedSwapchainFormats.first();
     auto sampleCount = m_viewConfigurationViews.isEmpty() ? 1 : m_viewConfigurationViews.first().recommendedSwapchainSampleCount;
 
@@ -172,42 +202,54 @@ std::unique_ptr<OpenXRSwapchain> OpenXRCoordinator::createSwapchain(uint32_t wid
     info.sampleCount = sampleCount;
     info.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
 
-    return OpenXRSwapchain::create(m_session, info);
+    return OpenXRSwapchain::create(m_session, info, alpha ? OpenXRSwapchain::HasAlpha::Yes : OpenXRSwapchain::HasAlpha::No);
 }
 
-void OpenXRCoordinator::createLayerProjection(uint32_t width, uint32_t height, bool alpha)
+void OpenXRCoordinator::createLayerProjection(uint32_t width, uint32_t height, bool alpha, CompletionHandler<void(std::optional<PlatformXR::LayerHandle>)>&& reply)
 {
     ASSERT(RunLoop::isMain());
     WTF::switchOn(m_state,
-        [&](Idle&) { },
+        [&](Idle&) { reply(std::nullopt); },
         [&](Active& active) {
-            active.renderQueue->dispatch([this, width, height, alpha] {
+            active.renderQueue->dispatch([this, width, height, alpha, completionHandler = WTF::move(reply)] mutable {
                 if (!collectSwapchainFormatsIfNeeded()) {
                     RELEASE_LOG(XR, "OpenXRCoordinator: no supported swapchain formats");
+                    callOnMainRunLoop([completion = WTF::move(completionHandler)] mutable {
+                        completion(std::nullopt);
+                    });
                     return;
                 }
 
                 auto swapchain = createSwapchain(width, height, alpha);
                 if (!swapchain) {
                     RELEASE_LOG(XR, "OpenXRCoordinator: failed to create swapchain");
+                    callOnMainRunLoop([completion = WTF::move(completionHandler)] mutable {
+                        completion(std::nullopt);
+                    });
                     return;
                 }
 
-                if (auto layer = OpenXRLayerProjection::create(WTFMove(swapchain))) {
+                if (auto layer = OpenXRLayerProjection::create(WTF::move(swapchain))) {
 #if USE(GBM)
                     if (m_gbmDevice)
                         layer->setGBMDevice(m_gbmDevice);
 #endif
-                    m_layers.add(defaultLayerHandle(), WTFMove(layer));
+                    auto layerHandle = m_nextLayerHandle++;
+                    m_layers.add(layerHandle, WTF::move(layer));
+                    callOnMainRunLoop([completion = WTF::move(completionHandler), handle = layerHandle] mutable {
+                        completion(handle);
+                    });
                 }
             });
         });
 }
 
-void OpenXRCoordinator::startSession(WebPageProxy& page, WeakPtr<PlatformXRCoordinatorSessionEventClient>&& sessionEventClient, const WebCore::SecurityOriginData&, PlatformXR::SessionMode sessionMode, const PlatformXR::Device::FeatureList&)
+void OpenXRCoordinator::startSession(WebPageProxy& page, WeakPtr<PlatformXRCoordinatorSessionEventClient>&& sessionEventClient, const WebCore::SecurityOriginData&, PlatformXR::SessionMode sessionMode, const PlatformXR::Device::FeatureList&, std::optional<WebCore::XRCanvasConfiguration>&&)
 {
     ASSERT(RunLoop::isMain());
     LOG(XR, "OpenXRCoordinator::startSession");
+
+    initializeDevice(page.protectedPreferences()->openXRDMABufRelaxedForTesting());
 
     WTF::switchOn(m_state,
         [&](Idle&) {
@@ -219,7 +261,7 @@ void OpenXRCoordinator::startSession(WebPageProxy& page, WeakPtr<PlatformXRCoord
 
             auto renderQueue = WorkQueue::create("OpenXR render queue"_s);
             m_state = Active {
-                .sessionEventClient = WTFMove(sessionEventClient),
+                .sessionEventClient = WTF::move(sessionEventClient),
                 .pageIdentifier = page.webPageIDInMainFrameProcess(),
                 .renderState = renderState,
                 .renderQueue = renderQueue.get()
@@ -231,6 +273,10 @@ void OpenXRCoordinator::startSession(WebPageProxy& page, WeakPtr<PlatformXRCoord
                     return;
                 }
                 m_input = OpenXRInput::create(m_instance, m_session, systemProperties(m_instance, m_systemId));
+                if (!m_input) {
+                    cleanupAllResources();
+                    return;
+                }
                 renderLoop(renderState);
             });
         },
@@ -259,6 +305,10 @@ void OpenXRCoordinator::endSessionIfExists(WebPageProxy& page)
 
             active.renderState->terminateRequested = true;
             active.renderQueue->dispatchSync([this, renderState = active.renderState] {
+                if (!m_isSessionRunning) {
+                    cleanupAllResources();
+                    return;
+                }
                 // OpenXR will transition the session to STOPPING state and then we will call xrEndSession().
                 CHECK_XRCMD(xrRequestExitSession(m_session));
                 while (m_session != XR_NULL_HANDLE)
@@ -275,11 +325,13 @@ void OpenXRCoordinator::endSessionIfExists(WebPageProxy& page)
                 sessionEventClient->sessionDidEnd(m_deviceIdentifier);
             }
 
+            if (active.didStart)
+                page.uiClient().didEndXRSession(page);
             m_state = Idle { };
         });
 }
 
-void OpenXRCoordinator::scheduleAnimationFrame(WebPageProxy& page, std::optional<PlatformXR::RequestData>&&, PlatformXR::Device::RequestFrameCallback&& onFrameUpdateCallback)
+void OpenXRCoordinator::scheduleAnimationFrame(WebPageProxy& page, std::optional<PlatformXR::RequestData>&& requestData, PlatformXR::Device::RequestFrameCallback&& onFrameUpdateCallback)
 {
     WTF::switchOn(m_state,
         [&](Idle&) {
@@ -297,8 +349,9 @@ void OpenXRCoordinator::scheduleAnimationFrame(WebPageProxy& page, std::optional
                 onFrameUpdateCallback({ });
             }
 
-            active.renderQueue->dispatch([this, renderState = active.renderState, onFrameUpdateCallback = WTFMove(onFrameUpdateCallback)]() mutable {
-                renderState->onFrameUpdate = WTFMove(onFrameUpdateCallback);
+            active.renderQueue->dispatch([this, renderState = active.renderState, requestData = WTF::move(requestData), onFrameUpdateCallback = WTF::move(onFrameUpdateCallback)]() mutable {
+                renderState->passthroughFullyObscured = requestData ? requestData->isPassthroughFullyObscured : false;
+                renderState->onFrameUpdate = WTF::move(onFrameUpdateCallback);
                 renderLoop(renderState);
             });
         });
@@ -322,19 +375,147 @@ void OpenXRCoordinator::submitFrame(WebPageProxy& page, Vector<XRDeviceLayer>&& 
                 return;
             }
 
-            active.renderQueue->dispatch([this, renderState = active.renderState, layers = WTFMove(layers)]() mutable {
-                endFrame(renderState, WTFMove(layers));
+            active.renderQueue->dispatch([this, renderState = active.renderState, layers = WTF::move(layers)]() mutable {
+                endFrame(renderState, WTF::move(layers));
                 renderLoop(renderState);
             });
         });
 }
+
+#if ENABLE(WEBXR_HIT_TEST)
+void OpenXRCoordinator::requestHitTestSource(WebPageProxy& page, const PlatformXR::HitTestOptions& options, CompletionHandler<void(WebCore::ExceptionOr<PlatformXR::HitTestSource>)>&& completionHandler)
+{
+    ASSERT(RunLoop::isMain());
+    WTF::switchOn(m_state,
+        [&](Idle&) {
+            RELEASE_LOG(XR, "OpenXRCoordinator: trying to request a hit test source for an inactive session");
+        },
+        [&](Active& active) {
+            if (active.pageIdentifier != page.webPageIDInMainFrameProcess()) {
+                RELEASE_LOG(XR, "OpenXRCoordinator: trying to request a hit test source for session owned by another page");
+                return;
+            }
+
+            if (active.renderState->terminateRequested.load()) {
+                RELEASE_LOG(XR, "OpenXRCoordinator: trying to request a hit test source for a terminating session");
+                return;
+            }
+
+            auto copiedOptions = makeUniqueRef<PlatformXR::HitTestOptions>(options);
+            active.renderQueue->dispatch([this, renderState = active.renderState, options = WTF::move(copiedOptions), completionHandler = WTF::move(completionHandler)]() mutable {
+                if (!renderState->hitTestManager)
+                    renderState->hitTestManager = OpenXRHitTestManager::create(m_instance, m_systemId, m_session);
+                if (!renderState->hitTestManager) {
+                    callOnMainRunLoop([completionHandler = WTF::move(completionHandler)] mutable {
+                        completionHandler(WebCore::Exception { WebCore::ExceptionCode::NotSupportedError });
+                    });
+                    return;
+                }
+                auto addResult = renderState->hitTestSources.add(renderState->nextHitTestSource, WTF::move(options));
+                ASSERT_UNUSED(addResult.isNewEntry, addResult);
+                callOnMainRunLoop([source = renderState->nextHitTestSource, completionHandler = WTF::move(completionHandler)] mutable {
+                    completionHandler(source);
+                });
+                renderState->nextHitTestSource++;
+            });
+        });
+}
+
+void OpenXRCoordinator::deleteHitTestSource(WebPageProxy& page, PlatformXR::HitTestSource source)
+{
+    ASSERT(RunLoop::isMain());
+    WTF::switchOn(m_state,
+        [&](Idle&) {
+            RELEASE_LOG(XR, "OpenXRCoordinator: trying to delete a hit test source for an inactive session");
+        },
+        [&](Active& active) {
+            if (active.pageIdentifier != page.webPageIDInMainFrameProcess()) {
+                RELEASE_LOG(XR, "OpenXRCoordinator: trying to delete a hit test source for session owned by another page");
+                return;
+            }
+
+            if (active.renderState->terminateRequested.load()) {
+                RELEASE_LOG(XR, "OpenXRCoordinator: trying to delete a hit test source for a terminating session");
+                return;
+            }
+
+            active.renderQueue->dispatch([renderState = active.renderState, source]() mutable {
+                bool removed = renderState->hitTestSources.remove(source);
+                ASSERT_UNUSED(removed, removed);
+            });
+        });
+}
+
+void OpenXRCoordinator::requestTransientInputHitTestSource(WebPageProxy& page, const PlatformXR::TransientInputHitTestOptions& options, CompletionHandler<void(WebCore::ExceptionOr<PlatformXR::TransientInputHitTestSource>)>&& completionHandler)
+{
+    ASSERT(RunLoop::isMain());
+    WTF::switchOn(m_state,
+        [&](Idle&) {
+            RELEASE_LOG(XR, "OpenXRCoordinator: trying to request a transient input hit test source for an inactive session");
+        },
+        [&](Active& active) {
+            if (active.pageIdentifier != page.webPageIDInMainFrameProcess()) {
+                RELEASE_LOG(XR, "OpenXRCoordinator: trying to request a transient input hit test source for session owned by another page");
+                return;
+            }
+
+            if (active.renderState->terminateRequested.load()) {
+                RELEASE_LOG(XR, "OpenXRCoordinator: trying to request a transient input hit test source for a terminating session");
+                return;
+            }
+
+            auto copiedOptions = makeUniqueRef<PlatformXR::TransientInputHitTestOptions>(options);
+            active.renderQueue->dispatch([this, renderState = active.renderState, options = WTF::move(copiedOptions), completionHandler = WTF::move(completionHandler)]() mutable {
+                if (!renderState->hitTestManager)
+                    renderState->hitTestManager = OpenXRHitTestManager::create(m_instance, m_systemId, m_session);
+                if (!renderState->hitTestManager) {
+                    callOnMainRunLoop([completionHandler = WTF::move(completionHandler)] mutable {
+                        completionHandler(WebCore::Exception { WebCore::ExceptionCode::NotSupportedError });
+                    });
+                    return;
+                }
+                auto addResult = renderState->transientInputHitTestSources.add(renderState->nextTransientInputHitTestSource, WTF::move(options));
+                ASSERT_UNUSED(addResult.isNewEntry, addResult);
+                callOnMainRunLoop([source = renderState->nextTransientInputHitTestSource, completionHandler = WTF::move(completionHandler)] mutable {
+                    completionHandler(source);
+                });
+                renderState->nextTransientInputHitTestSource++;
+            });
+        });
+}
+
+void OpenXRCoordinator::deleteTransientInputHitTestSource(WebPageProxy& page, PlatformXR::TransientInputHitTestSource source)
+{
+    ASSERT(RunLoop::isMain());
+    WTF::switchOn(m_state,
+        [&](Idle&) {
+            RELEASE_LOG(XR, "OpenXRCoordinator: trying to delete a transient input hit test source for an inactive session");
+        },
+        [&](Active& active) {
+            if (active.pageIdentifier != page.webPageIDInMainFrameProcess()) {
+                RELEASE_LOG(XR, "OpenXRCoordinator: trying to delete a transient input hit test source for session owned by another page");
+                return;
+            }
+
+            if (active.renderState->terminateRequested.load()) {
+                RELEASE_LOG(XR, "OpenXRCoordinator: trying to delete a transient input hit test source for a terminating session");
+                return;
+            }
+
+            active.renderQueue->dispatch([renderState = active.renderState, source]() mutable {
+                bool removed = renderState->transientInputHitTestSources.remove(source);
+                ASSERT_UNUSED(removed, removed);
+            });
+        });
+}
+#endif
 
 void OpenXRCoordinator::createInstance()
 {
     ASSERT(RunLoop::isMain());
     ASSERT(m_instance == XR_NULL_HANDLE);
 
-    Vector<char *, 2> extensions;
+    Vector<char *> extensions;
 #if defined(XR_USE_PLATFORM_EGL)
     if (OpenXRExtensions::singleton().isExtensionSupported(XR_MNDX_EGL_ENABLE_EXTENSION_NAME ""_span))
         extensions.append(const_cast<char*>(XR_MNDX_EGL_ENABLE_EXTENSION_NAME));
@@ -350,6 +531,19 @@ void OpenXRCoordinator::createInstance()
     if (OpenXRExtensions::singleton().isExtensionSupported(XR_EXT_HAND_TRACKING_EXTENSION_NAME ""_span))
         extensions.append(const_cast<char*>(XR_EXT_HAND_TRACKING_EXTENSION_NAME));
 #endif
+#if OS(ANDROID)
+    extensions.append(const_cast<char*>(XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME));
+#endif
+#if ENABLE(WEBXR_HIT_TEST)
+#if defined(XR_ANDROID_trackables)
+    if (OpenXRExtensions::singleton().isExtensionSupported(XR_ANDROID_TRACKABLES_EXTENSION_NAME ""_span))
+        extensions.append(const_cast<char*>(XR_ANDROID_TRACKABLES_EXTENSION_NAME));
+#if defined(XR_ANDROID_raycast)
+    if (OpenXRExtensions::singleton().isExtensionSupported(XR_ANDROID_RAYCAST_EXTENSION_NAME ""_span))
+        extensions.append(const_cast<char*>(XR_ANDROID_RAYCAST_EXTENSION_NAME));
+#endif
+#endif
+#endif
 
     XrInstanceCreateInfo createInfo = createOpenXRStruct<XrInstanceCreateInfo, XR_TYPE_INSTANCE_CREATE_INFO >();
     createInfo.applicationInfo = { "WebKit", 1, "WebKit", 1, XR_CURRENT_API_VERSION };
@@ -357,10 +551,31 @@ void OpenXRCoordinator::createInstance()
     createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
     createInfo.enabledExtensionNames = extensions.mutableSpan().data();
 
+#if OS(ANDROID)
+    static WPEAndroidRuntimeGetJavaVMFunction s_wpeAndroidRuntimeGetJavaVM =
+        reinterpret_cast<WPEAndroidRuntimeGetJavaVMFunction>(dlsym(RTLD_DEFAULT, "wpe_android_runtime_get_current_java_vm"));
+    if (!s_wpeAndroidRuntimeGetJavaVM) [[unlikely]] {
+        RELEASE_LOG_ERROR(XR, "Cannot resolve wpe_android_runtime_get_current_java_vm(): %s.", dlerror());
+        return;
+    }
+
+    static WPEAndroidRuntimeGetActivityFunction s_wpeAndroidRuntimeGetActivity =
+        reinterpret_cast<WPEAndroidRuntimeGetActivityFunction>(dlsym(RTLD_DEFAULT, "wpe_android_runtime_get_current_activity"));
+    if (!s_wpeAndroidRuntimeGetActivity) [[unlikely]] {
+        RELEASE_LOG_ERROR(XR, "Cannot resolve wpe_android_runtime_get_current_activity(): %s.", dlerror());
+        return;
+    }
+
+    auto java = createOpenXRStruct<XrInstanceCreateInfoAndroidKHR, XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR>();
+    java.applicationVM = s_wpeAndroidRuntimeGetJavaVM();
+    java.applicationActivity = s_wpeAndroidRuntimeGetActivity();
+    createInfo.next = reinterpret_cast<XrBaseInStructure*>(&java);
+#endif
+
     CHECK_XRCMD(xrCreateInstance(&createInfo, &m_instance));
 }
 
-RefPtr<WebCore::GLDisplay> OpenXRCoordinator::createGLDisplay() const
+RefPtr<WebCore::GLDisplay> OpenXRCoordinator::createGLDisplay(bool isForTesting) const
 {
     ASSERT(RunLoop::isMain());
     ASSERT(!m_glDisplay);
@@ -375,9 +590,20 @@ RefPtr<WebCore::GLDisplay> OpenXRCoordinator::createGLDisplay() const
     };
 
     RefPtr<WebCore::GLDisplay> glDisplay;
+
+#if OS(ANDROID)
+    if (WebCore::GLContext::isExtensionSupported(extensions, "EGL_KHR_platform_android")) {
+        glDisplay = tryCreateDisplay(EGL_PLATFORM_ANDROID_KHR, EGL_DEFAULT_DISPLAY);
+        if (!glDisplay)
+            glDisplay = WebCore::GLDisplay::create(eglGetDisplay(EGL_DEFAULT_DISPLAY));
+        if (glDisplay && !(glDisplay->extensions().ANDROID_get_native_client_buffer && glDisplay->extensions().ANDROID_image_native_buffer))
+            glDisplay = nullptr;
+    }
+#endif // OS(ANDROID)
+
     if (WebCore::GLContext::isExtensionSupported(extensions, "EGL_MESA_platform_surfaceless")) {
         glDisplay = tryCreateDisplay(EGL_PLATFORM_SURFACELESS_MESA, EGL_DEFAULT_DISPLAY);
-        if (glDisplay && !glDisplay->extensions().MESA_image_dma_buf_export)
+        if (glDisplay && !isForTesting && !glDisplay->extensions().MESA_image_dma_buf_export)
             glDisplay = nullptr;
     }
 
@@ -386,7 +612,8 @@ RefPtr<WebCore::GLDisplay> OpenXRCoordinator::createGLDisplay() const
         const auto& mainDevice = drmMainDevice();
         if (!mainDevice.isNull()) {
             m_gbmDevice = WebCore::GBMDevice::create(!mainDevice.renderNode.isNull() ? mainDevice.renderNode : mainDevice.primaryNode);
-            glDisplay = tryCreateDisplay(EGL_PLATFORM_GBM_KHR, m_gbmDevice->device());
+            if (m_gbmDevice)
+                glDisplay = tryCreateDisplay(EGL_PLATFORM_GBM_KHR, m_gbmDevice->device());
         }
     }
 #endif
@@ -434,14 +661,14 @@ void OpenXRCoordinator::initializeSystem()
     CHECK_XRCMD(xrGetSystem(m_instance, &systemInfo, &m_systemId));
 }
 
-void OpenXRCoordinator::initializeDevice()
+void OpenXRCoordinator::initializeDevice(bool isForTesting)
 {
     ASSERT(RunLoop::isMain());
 
     if (m_instance != XR_NULL_HANDLE)
         return;
 
-    auto display = createGLDisplay();
+    auto display = createGLDisplay(isForTesting);
     if (!display) {
         LOG(XR, "Failed to create a display for OpenXR.");
         return;
@@ -467,7 +694,7 @@ void OpenXRCoordinator::initializeDevice()
     collectViewConfigurations();
     initializeBlendModes();
 
-    m_glDisplay = WTFMove(display);
+    m_glDisplay = WTF::move(display);
 }
 
 void OpenXRCoordinator::initializeBlendModes()
@@ -500,10 +727,12 @@ void OpenXRCoordinator::initializeBlendModes()
 
 void OpenXRCoordinator::tryInitializeGraphicsBinding()
 {
+#if !OS(ANDROID)
     if (!OpenXRExtensions::singleton().isExtensionSupported(XR_MNDX_EGL_ENABLE_EXTENSION_NAME ""_span)) {
         LOG(XR, "OpenXR MNDX_EGL_ENABLE extension is not supported.");
         return;
     }
+#endif
 
     if (!m_glContext) {
 #if USE(GBM)
@@ -516,13 +745,21 @@ void OpenXRCoordinator::tryInitializeGraphicsBinding()
             LOG(XR, "Failed to create the GL context for OpenXR.");
             return;
         }
+        if (!m_glContext->makeContextCurrent()) {
+            LOG(XR, "Failed to make the GL context current.");
+            return;
+        }
     }
 
+#if OS(ANDROID)
+    m_graphicsBinding = createOpenXRStruct<XrGraphicsBindingOpenGLESAndroidKHR, XR_TYPE_GRAPHICS_BINDING_OPENGL_ES_ANDROID_KHR>();
+#else
     m_graphicsBinding = createOpenXRStruct<XrGraphicsBindingEGLMNDX, XR_TYPE_GRAPHICS_BINDING_EGL_MNDX>();
+    m_graphicsBinding.getProcAddress = OpenXRExtensions::singleton().methods().getProcAddressFunc;
+#endif
     m_graphicsBinding.display = m_glDisplay->eglDisplay();
     m_graphicsBinding.context = m_glContext->platformContext();
     m_graphicsBinding.config = m_glContext->config();
-    m_graphicsBinding.getProcAddress = OpenXRExtensions::singleton().methods().getProcAddressFunc;
 }
 
 void OpenXRCoordinator::createSessionIfNeeded()
@@ -553,6 +790,13 @@ void OpenXRCoordinator::cleanupSessionAndAssociatedResources()
 {
     ASSERT(!RunLoop::isMain());
 
+#if ENABLE(WEBXR_HIT_TEST)
+    if (m_viewerSpace != XR_NULL_HANDLE) {
+        CHECK_XRCMD(xrDestroySpace(m_viewerSpace));
+        m_viewerSpace = XR_NULL_HANDLE;
+    }
+#endif
+
     if (m_localSpace != XR_NULL_HANDLE) {
         CHECK_XRCMD(xrDestroySpace(m_localSpace));
         m_localSpace = XR_NULL_HANDLE;
@@ -575,6 +819,27 @@ void OpenXRCoordinator::cleanupSessionAndAssociatedResources()
     m_glContext.reset();
 }
 
+void OpenXRCoordinator::cleanupInstanceAndAssociatedResources()
+{
+    m_viewConfigurationViews.clear();
+    m_systemId = XR_NULL_SYSTEM_ID;
+
+    ASSERT(!m_glContext);
+    m_glDisplay = nullptr;
+
+    if (m_instance == XR_NULL_HANDLE)
+        return;
+
+    xrDestroyInstance(m_instance);
+    m_instance = XR_NULL_HANDLE;
+}
+
+void OpenXRCoordinator::cleanupAllResources()
+{
+    cleanupSessionAndAssociatedResources();
+    cleanupInstanceAndAssociatedResources();
+}
+
 void OpenXRCoordinator::handleSessionStateChange()
 {
     ASSERT(!RunLoop::isMain());
@@ -585,6 +850,16 @@ void OpenXRCoordinator::handleSessionStateChange()
         sessionBeginInfo.primaryViewConfigurationType = m_currentViewConfiguration;
         CHECK_XRCMD(xrBeginSession(m_session, &sessionBeginInfo));
         m_isSessionRunning = true;
+        callOnMainRunLoop([this] {
+            WTF::switchOn(m_state,
+                [&](Idle&) { },
+                [&](Active& active) {
+                    if (RefPtr page = WebProcessProxy::webPage(active.pageIdentifier)) {
+                        active.didStart = true;
+                        page->uiClient().didStartXRSession(*page);
+                    }
+                });
+        });
         break;
     }
     case XR_SESSION_STATE_STOPPING:
@@ -595,7 +870,7 @@ void OpenXRCoordinator::handleSessionStateChange()
         break;
     case XR_SESSION_STATE_LOSS_PENDING:
     case XR_SESSION_STATE_EXITING:
-        cleanupSessionAndAssociatedResources();
+        cleanupAllResources();
         break;
     default:
         break;
@@ -623,7 +898,7 @@ OpenXRCoordinator::PollResult OpenXRCoordinator::pollEvents()
         case XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED: {
             auto* event = reinterpret_cast<XrEventDataInteractionProfileChanged*>(&runtimeEvent);
             LOG(XR, "OpenXR interaction profile changed for session %p", static_cast<void*>(event->session));
-            if (m_input && event->session == m_session)
+            if (event->session == m_session)
                 m_input->updateInteractionProfile();
             break;
         }
@@ -633,6 +908,44 @@ OpenXRCoordinator::PollResult OpenXRCoordinator::pollEvents()
     }
     return PollResult::Continue;
 }
+
+XrEnvironmentBlendMode OpenXRCoordinator::blendModeForSessionMode(Box<RenderState> renderState) const
+{
+    return (m_sessionMode == PlatformXR::SessionMode::ImmersiveAr && !renderState->passthroughFullyObscured) ? m_arBlendMode : m_vrBlendMode;
+}
+
+#if ENABLE(WEBXR_HIT_TEST)
+XrSpace OpenXRCoordinator::spaceForHitTest(const PlatformXR::NativeOriginInformation& nativeOrigin) const
+{
+    return WTF::switchOn(nativeOrigin, [&](const PlatformXR::ReferenceSpaceType& referenceSpaceType) -> XrSpace {
+        switch (referenceSpaceType) {
+        case PlatformXR::ReferenceSpaceType::Viewer:
+            return m_viewerSpace;
+        case PlatformXR::ReferenceSpaceType::Local:
+            return m_localSpace;
+        case PlatformXR::ReferenceSpaceType::LocalFloor:
+            return m_floorSpace;
+        default:
+            return XR_NULL_HANDLE;
+        }
+    }, [&](const PlatformXR::InputSourceSpaceInfo& inputSource) -> XrSpace {
+        auto i = m_input->inputSources().findIf([&](auto& item) {
+            return item->handle() == inputSource.handle;
+        });
+        if (i == notFound)
+            return XR_NULL_HANDLE;
+        switch (inputSource.type) {
+        case PlatformXR::InputSourceSpaceType::TargetRay:
+            return m_input->inputSources()[i]->aimSpace();
+        case PlatformXR::InputSourceSpaceType::Grip:
+            return m_input->inputSources()[i]->gripSpace();
+        default:
+            ASSERT_NOT_REACHED();
+            return XR_NULL_HANDLE;
+        }
+    });
+}
+#endif
 
 PlatformXR::FrameData OpenXRCoordinator::populateFrameData(Box<RenderState> renderState)
 {
@@ -664,8 +977,7 @@ PlatformXR::FrameData OpenXRCoordinator::populateFrameData(Box<RenderState> rend
     frameData.isPositionValid = viewState.viewStateFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT;
     frameData.isPositionEmulated = !(viewState.viewStateFlags & XR_SPACE_LOCATION_POSITION_TRACKED_BIT);
 
-    if (m_input)
-        frameData.inputSources = m_input->collectInputSources(renderState->frameState, m_localSpace);
+    frameData.inputSources = m_input->collectInputSources(renderState->frameState, m_localSpace);
 
     frameData.origin = XrIdentityPose();
 
@@ -679,10 +991,43 @@ PlatformXR::FrameData OpenXRCoordinator::populateFrameData(Box<RenderState> rend
     for (auto& layer : m_layers) {
         auto layerData = layer.value->startFrame();
         if (layerData) {
-            auto layerDataRef = makeUniqueRef<PlatformXR::FrameData::LayerData>(WTFMove(*layerData));
-            frameData.layers.add(layer.key, WTFMove(layerDataRef));
+            auto layerDataRef = makeUniqueRef<PlatformXR::FrameData::LayerData>(WTF::move(*layerData));
+            frameData.layers.add(layer.key, WTF::move(layerDataRef));
         }
     }
+
+#if ENABLE(WEBXR_HIT_TEST)
+    for (auto& pair : renderState->hitTestSources)
+        frameData.hitTestResults.add(pair.key, renderState->hitTestManager->requestHitTest(pair.value->offsetRay, spaceForHitTest(pair.value->nativeOrigin), renderState->frameState.predictedDisplayTime));
+    for (auto& pair : renderState->transientInputHitTestSources) {
+        Vector<PlatformXR::FrameData::TransientInputHitTestResult> results;
+        for (const auto& inputSource : m_input->inputSources()) {
+            if (inputSource->profiles().contains(pair.value->profile)) {
+                PlatformXR::FrameData::TransientInputHitTestResult result = {
+                    inputSource->handle(),
+                    renderState->hitTestManager->requestHitTest(pair.value->offsetRay, inputSource->aimSpace(), renderState->frameState.predictedDisplayTime)
+                };
+                results.append(WTF::move(result));
+            }
+        }
+        frameData.transientInputHitTestResults.add(pair.key, WTF::move(results));
+    }
+#endif
+
+    auto toXREnvironmentBlendMode = [](XrEnvironmentBlendMode mode) {
+        switch (mode) {
+        case XR_ENVIRONMENT_BLEND_MODE_OPAQUE:
+            return PlatformXR::XREnvironmentBlendMode::Opaque;
+        case XR_ENVIRONMENT_BLEND_MODE_ADDITIVE:
+            return PlatformXR::XREnvironmentBlendMode::Additive;
+        case XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND:
+            return PlatformXR::XREnvironmentBlendMode::AlphaBlend;
+        default:
+            ASSERT_NOT_REACHED();
+            return PlatformXR::XREnvironmentBlendMode::Opaque;
+        }
+    };
+    frameData.environmentBlendMode = toXREnvironmentBlendMode(blendModeForSessionMode(renderState));
 
     return frameData;
 }
@@ -719,6 +1064,9 @@ void OpenXRCoordinator::createReferenceSpacesIfNeeded(Box<RenderState> renderSta
         return referenceSpace;
     };
 
+#if ENABLE(WEBXR_HIT_TEST)
+    m_viewerSpace = createReferenceSpace(XR_REFERENCE_SPACE_TYPE_VIEW);
+#endif
     m_localSpace = createReferenceSpace(XR_REFERENCE_SPACE_TYPE_LOCAL);
 
 #if defined(XR_EXT_local_floor)
@@ -753,8 +1101,6 @@ void OpenXRCoordinator::createReferenceSpacesIfNeeded(Box<RenderState> renderSta
 void OpenXRCoordinator::beginFrame(Box<RenderState> renderState)
 {
     ASSERT(!RunLoop::isMain());
-    if (!m_glContext->makeContextCurrent())
-        return;
 
     XrFrameWaitInfo frameWaitInfo = createOpenXRStruct<XrFrameWaitInfo, XR_TYPE_FRAME_WAIT_INFO>();
     XrFrameState frameState = createOpenXRStruct<XrFrameState, XR_TYPE_FRAME_STATE>();
@@ -769,8 +1115,8 @@ void OpenXRCoordinator::beginFrame(Box<RenderState> renderState)
     createReferenceSpacesIfNeeded(renderState);
     PlatformXR::FrameData frameData = populateFrameData(renderState);
 
-    callOnMainRunLoop([callback = WTFMove(renderState->onFrameUpdate), frameData = WTFMove(frameData)]() mutable {
-        callback(WTFMove(frameData));
+    callOnMainRunLoop([callback = WTF::move(renderState->onFrameUpdate), frameData = WTF::move(frameData)]() mutable {
+        callback(WTF::move(frameData));
     });
 
     renderState->pendingFrame = true;
@@ -786,9 +1132,6 @@ void OpenXRCoordinator::endFrame(Box<RenderState> renderState, Vector<XRDeviceLa
 {
     ASSERT(!RunLoop::isMain());
 
-    if (!m_glContext->makeContextCurrent())
-        return;
-
     Vector<const XrCompositionLayerBaseHeader*, 1> frameEndLayers;
     for (auto& layer : layers) {
         auto it = m_layers.find(layer.handle);
@@ -798,7 +1141,7 @@ void OpenXRCoordinator::endFrame(Box<RenderState> renderState, Vector<XRDeviceLa
         }
 
         if (layer.fenceFD) {
-            if (auto fence = WebCore::GLFence::importFD(*m_glDisplay, WTFMove(layer.fenceFD)))
+            if (auto fence = WebCore::GLFence::importFD(*m_glDisplay, WTF::move(layer.fenceFD)))
                 fence->serverWait();
         }
 
@@ -813,7 +1156,7 @@ void OpenXRCoordinator::endFrame(Box<RenderState> renderState, Vector<XRDeviceLa
 
     XrFrameEndInfo frameEndInfo = createOpenXRStruct<XrFrameEndInfo, XR_TYPE_FRAME_END_INFO>();
     frameEndInfo.displayTime = renderState->frameState.predictedDisplayTime;
-    frameEndInfo.environmentBlendMode = m_sessionMode == PlatformXR::SessionMode::ImmersiveAr ? m_arBlendMode : m_vrBlendMode;
+    frameEndInfo.environmentBlendMode = blendModeForSessionMode(renderState);
     frameEndInfo.layerCount = static_cast<uint32_t>(frameEndLayers.size());
     frameEndInfo.layers = frameEndLayers.mutableSpan().data();
     CHECK_XRCMD(xrEndFrame(m_session, &frameEndInfo));

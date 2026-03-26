@@ -14,7 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <optional>
+#include <string>
 #include <vector>
 
 #include "api/array_view.h"
@@ -40,7 +40,7 @@ namespace webrtc {
 class RTPVideoFrameSenderInterface {
  public:
   virtual bool SendVideo(int payload_type,
-                         std::optional<VideoCodecType> codec_type,
+                         VideoCodecType codec_type,
                          uint32_t rtp_timestamp,
                          Timestamp capture_time,
                          ArrayView<const uint8_t> payload,
@@ -67,17 +67,19 @@ class RTPSenderVideoFrameTransformerDelegate : public TransformedFrameCallback {
       RTPVideoFrameSenderInterface* sender,
       scoped_refptr<FrameTransformerInterface> frame_transformer,
       uint32_t ssrc,
+      std::string rid,
       TaskQueueFactory* send_transport_queue);
 
   void Init();
 
   // Delegates the call to FrameTransformerInterface::TransformFrame.
   bool TransformFrame(int payload_type,
-                      std::optional<VideoCodecType> codec_type,
+                      VideoCodecType codec_type,
                       uint32_t rtp_timestamp,
                       const EncodedImage& encoded_image,
                       RTPVideoHeader video_header,
-                      TimeDelta expected_retransmission_time);
+                      TimeDelta expected_retransmission_time,
+                      const std::vector<uint32_t>& csrcs = {});
 
   // Implements TransformedFrameCallback. Can be called on any thread. Posts
   // the transformed frame to be sent on the `encoder_queue_`.
@@ -115,6 +117,7 @@ class RTPSenderVideoFrameTransformerDelegate : public TransformedFrameCallback {
   RTPVideoFrameSenderInterface* sender_ RTC_GUARDED_BY(sender_lock_);
   scoped_refptr<FrameTransformerInterface> frame_transformer_;
   const uint32_t ssrc_;
+  const std::string rid_;
   // Used when the encoded frames arrives without a current task queue. This can
   // happen if a hardware encoder was used.
   std::unique_ptr<TaskQueueBase, TaskQueueDeleter> transformation_queue_;

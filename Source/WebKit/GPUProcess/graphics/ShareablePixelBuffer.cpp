@@ -47,14 +47,14 @@ RefPtr<ShareablePixelBuffer> ShareablePixelBuffer::tryCreate(const PixelBufferFo
 
 ShareablePixelBuffer::ShareablePixelBuffer(const PixelBufferFormat& format, const IntSize& size, Ref<SharedMemory>&& data)
     : PixelBuffer(format, size, data->mutableSpan())
-    , m_data(WTFMove(data))
+    , m_data(WTF::move(data))
 {
-    RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(m_size.area() * 4 <= bytes().size());
+    RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(computeBufferSize(format.pixelFormat, size).value() <= bytes().size());
 }
 
 RefPtr<PixelBuffer> ShareablePixelBuffer::createScratchPixelBuffer(const IntSize& size) const
 {
-    return ShareablePixelBuffer::tryCreate(m_format, size);
+    return ShareablePixelBuffer::tryCreate(format(), size);
 }
 
 Ref<WebCore::SharedMemory> ShareablePixelBuffer::protectedData() const

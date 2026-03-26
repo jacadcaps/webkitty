@@ -47,10 +47,10 @@ NSString *interactionRegionElementIdentifierKey = @"WKInteractionRegionElementId
 
 RCPRemoteEffectInputTypes interactionRegionInputTypes = RCPRemoteEffectInputTypesAll ^ RCPRemoteEffectInputTypePointer;
 
-static Class interactionRegionLayerClass()
+static Class interactionRegionLayerClassSingleton()
 {
-    if (getRCPGlowEffectLayerClass())
-        return getRCPGlowEffectLayerClass();
+    if (getRCPGlowEffectLayerClassSingleton())
+        return getRCPGlowEffectLayerClassSingleton();
     return [CALayer class];
 }
 
@@ -60,7 +60,7 @@ static NSDictionary *interactionRegionEffectUserInfo()
     static bool cached = false;
     if (!cached) {
         if (canLoadRCPAllowedInputTypesUserInfoKey())
-            interactionRegionEffectUserInfo.get() = @{ getRCPAllowedInputTypesUserInfoKey(): @(interactionRegionInputTypes) };
+            interactionRegionEffectUserInfo.get() = @{ getRCPAllowedInputTypesUserInfoKeySingleton(): @(interactionRegionInputTypes) };
         cached = true;
     }
     return interactionRegionEffectUserInfo.get().get();
@@ -92,7 +92,7 @@ static bool applyBackgroundColorForDebugging()
 
 static void configureLayerForInteractionRegion(CALayer *layer, NSString *groupName)
 {
-    if (![layer isKindOfClass:getRCPGlowEffectLayerClass()])
+    if (![layer isKindOfClass:getRCPGlowEffectLayerClassSingleton()])
         return;
 
     [(RCPGlowEffectLayer *)layer setBrightnessMultiplier:brightnessMultiplier() forInputTypes:interactionRegionInputTypes];
@@ -106,7 +106,7 @@ static void configureLayerForInteractionRegion(CALayer *layer, NSString *groupNa
 
 static void reconfigureLayerContentHint(CALayer *layer, WebCore::InteractionRegion::ContentHint contentHint)
 {
-    if (![layer isKindOfClass:getRCPGlowEffectLayerClass()])
+    if (![layer isKindOfClass:getRCPGlowEffectLayerClassSingleton()])
         return;
 
     if (contentHint == WebCore::InteractionRegion::ContentHint::Photo)
@@ -169,7 +169,7 @@ static void applyBackgroundColorForDebuggingToLayer(CALayer *layer, const WebCor
 static CALayer *createInteractionRegionLayer(WebCore::InteractionRegion::Type type, WebCore::NodeIdentifier identifier, NSString *groupName)
 {
     CALayer *layer = type == InteractionRegion::Type::Interaction
-        ? [[interactionRegionLayerClass() alloc] init]
+        ? [[interactionRegionLayerClassSingleton() alloc] init]
         : [[CALayer alloc] init];
 
     [layer setHitTestsAsOpaque:YES];
@@ -226,8 +226,8 @@ void updateLayersForInteractionRegions(RemoteLayerTreeNode& node)
 
     CALayer *container = node.ensureInteractionRegionsContainer();
 
-    HashMap<std::pair<IntRect, InteractionRegion::Type>, CALayer *>existingLayers;
-    HashMap<std::pair<UInt64, InteractionRegion::Type>, CALayer *>reusableLayers;
+    HashMap<std::pair<IntRect, InteractionRegion::Type>, RetainPtr<CALayer>> existingLayers;
+    HashMap<std::pair<UInt64, InteractionRegion::Type>, RetainPtr<CALayer>> reusableLayers;
     for (CALayer *sublayer in container.sublayers) {
         if (auto identifier = interactionRegionElementIdentifierForLayer(sublayer)) {
             if (auto type = interactionRegionTypeForLayer(sublayer)) {
@@ -338,7 +338,7 @@ void updateLayersForInteractionRegions(RemoteLayerTreeNode& node)
         insertionPoint++;
     }
 
-    for (CALayer *sublayer : existingLayers.values())
+    for (auto& sublayer : existingLayers.values())
         [sublayer removeFromSuperlayer];
 }
 

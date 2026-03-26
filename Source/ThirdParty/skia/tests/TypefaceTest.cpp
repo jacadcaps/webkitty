@@ -45,6 +45,10 @@
 #include <memory>
 #include <utility>
 
+namespace {
+[[maybe_unused]] static inline const constexpr bool kVerboseTypefaceTest = false;
+}
+
 static void TypefaceStyle_test(skiatest::Reporter* reporter,
                                uint16_t weight, uint16_t width, SkData* data)
 {
@@ -120,7 +124,7 @@ DEF_TEST(TypefaceStyle, reporter) {
     }
 }
 
-void TestSkTypefaceGlyphToUnicodeMap(SkTypeface& typeface, SkUnichar* codepoints) {
+void TestSkTypefaceGlyphToUnicodeMap(SkTypeface& typeface, SkSpan<SkUnichar> codepoints) {
     typeface.getGlyphToUnicodeMap(codepoints);
 }
 
@@ -259,6 +263,34 @@ DEF_TEST(TypefacePostScriptName, reporter) {
     }
 }
 
+DEF_TEST(TypefaceNameIter, reporter) {
+    sk_sp<SkTypeface> typeface(ToolUtils::CreateTypefaceFromResource("fonts/SpiderSymbol.ttf"));
+    if (!typeface) {
+        // Not all SkFontMgr can MakeFromStream().
+        return;
+    }
+
+    constexpr const char* expectedNames[] = { "SpiderSymbol", "Symbole de l'Araignée" };
+    std::vector<bool> found(std::size(expectedNames));
+    sk_sp<SkTypeface::LocalizedStrings> otherNames(typeface->createFamilyNameIterator());
+    SkTypeface::LocalizedString otherName;
+    while (otherNames->next(&otherName)) {
+        if constexpr (kVerboseTypefaceTest) {
+            SkDebugf("TypefaceNameIter %s, %s\n",
+                     otherName.fString.c_str(), otherName.fLanguage.c_str());
+        }
+        for (size_t i = 0; i < std::size(expectedNames); ++i) {
+            if (otherName.fString.equals(expectedNames[i])) {
+                found[i] = true;
+                break;
+            }
+        }
+    }
+    for (size_t i = 0; i < std::size(expectedNames); ++i) {
+        REPORTER_ASSERT(reporter, found[i], "Missing: %s", expectedNames[i]);
+    }
+}
+
 DEF_TEST(TypefaceRoundTrip, reporter) {
     sk_sp<SkTypeface> typeface(ToolUtils::CreateTypefaceFromResource("fonts/7630.otf"));
     if (!typeface) {
@@ -322,7 +354,7 @@ DEF_TEST(TypefaceAxes, reporter) {
         REPORTER_ASSERT(reporter, typeface->getBounds().isEmpty());
 
         std::unique_ptr<Variation::Coordinate[]> actual(new Variation::Coordinate[actualCount]);
-        actualCount = typeface->getVariationDesignPosition({actual.get(), actualCount});
+        actualCount = typeface->getVariationDesignPosition({actual.get(), (size_t)actualCount});
         if (actualCount == -1) {
             return;  // The position cannot be determined.
         }
@@ -504,8 +536,8 @@ DEF_TEST(TypefaceAxesParameters, reporter) {
         REPORTER_ASSERT(reporter, actualCount == expectedCount ||
                                   actualCount == alsoAcceptedAxisTagCount);
 
-        std::unique_ptr<Axis[]> actual(new Axis[actualCount]);
-        actualCount = typeface->getVariationDesignParameters({actual.get(), actualCount});
+        skia_private::AutoTArray<Axis> actual(actualCount);
+        actualCount = typeface->getVariationDesignParameters(actual);
         if (actualCount == -1) {
             return;  // The position cannot be determined.
         }
@@ -750,8 +782,7 @@ DEF_TEST(LegacyMakeTypeface, reporter) {
 }
 
 DEF_TEST(CustomTypeface_invalid_glyphid, reporter) {
-    SkPath glyph_path;
-    glyph_path.addRect({10, 20, 30, 40});
+    SkPath glyph_path = SkPath::Rect({10, 20, 30, 40});
 
     SkCustomTypefaceBuilder builder;
     builder.setGlyph(0, 42, glyph_path);

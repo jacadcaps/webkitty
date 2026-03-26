@@ -27,7 +27,7 @@
 #include "WPEViewWayland.h"
 
 #include "GRefPtrWPE.h"
-#include "WPEBufferDMABufFormats.h"
+#include "WPEBufferFormats.h"
 #include "WPEDisplayWaylandPrivate.h"
 #include "WPEToplevelWaylandPrivate.h"
 #include "WPEWaylandSHMPool.h"
@@ -230,7 +230,7 @@ class SharedMemoryBuffer final : public WaylandBuffer {
 public:
     SharedMemoryBuffer(WPEView* view, std::unique_ptr<WPE::WaylandSHMPool>&& pool, uint32_t offset, uint32_t width, uint32_t height, uint32_t stride)
         : WaylandBuffer(view, pool->createBuffer(offset, width, height, stride))
-        , m_wlPool(WTFMove(pool))
+        , m_wlPool(WTF::move(pool))
     {
     }
 
@@ -320,7 +320,7 @@ static struct wl_buffer* createWaylandBufferFromDMABuf(WPEView* view, WPEBuffer*
     }
 
     auto* toplevel = wpe_view_get_toplevel(WPE_VIEW(view));
-    if (!wpeToplevelWaylandGetSurfaceSync(WPE_TOPLEVEL_WAYLAND(toplevel)) || wpe_buffer_dma_buf_get_rendering_fence(bufferDMABuf) == -1)
+    if (!wpeToplevelWaylandGetSurfaceSync(WPE_TOPLEVEL_WAYLAND(toplevel)) || wpe_buffer_get_rendering_fence(buffer) == -1)
         wl_buffer_add_listener(dmaBufBuffer->wlBuffer(), &bufferListener, buffer);
 
     wpe_buffer_set_user_data(buffer, dmaBufBuffer, reinterpret_cast<GDestroyNotify>(waylandBufferDestroy));
@@ -340,7 +340,7 @@ static SharedMemoryBuffer* sharedMemoryBufferCreate(WPEView* view, GBytes* bytes
         return nullptr;
 
     wlPool->write(WTF::span(bytes), offset);
-    return new SharedMemoryBuffer(view, WTFMove(wlPool), offset, width, height, stride);
+    return new SharedMemoryBuffer(view, WTF::move(wlPool), offset, width, height, stride);
 }
 
 static struct wl_buffer* createWaylandBufferSHM(WPEView* view, WPEBuffer* buffer, GError** error)
@@ -536,7 +536,7 @@ const struct zwp_linux_buffer_release_v1_listener bufferReleaseListener = {
     [](void* userData, struct zwp_linux_buffer_release_v1*, int32_t fence)
     {
         auto* buffer = WPE_BUFFER(userData);
-        wpe_buffer_dma_buf_set_release_fence(WPE_BUFFER_DMA_BUF(buffer), fence);
+        wpe_buffer_set_release_fence(buffer, fence);
         dmaBufBufferReleased(buffer);
     },
     // immediate_release
@@ -572,17 +572,15 @@ static gboolean wpeViewWaylandRenderBuffer(WPEView* view, WPEBuffer* buffer, con
     auto* wlSurface = wpe_view_wayland_get_wl_surface(WPE_VIEW_WAYLAND(view));
     wl_surface_attach(wlSurface, wlBuffer, 0, 0);
 
-    if (WPE_IS_BUFFER_DMA_BUF(buffer)) {
-        auto renderingFence = UnixFileDescriptor { wpe_buffer_dma_buf_take_rendering_fence(WPE_BUFFER_DMA_BUF(buffer)), UnixFileDescriptor::Adopt };
-        if (renderingFence) {
-            auto* surfaceSync = wpeToplevelWaylandGetSurfaceSync(WPE_TOPLEVEL_WAYLAND(wpe_view_get_toplevel(view)));
-            zwp_linux_surface_synchronization_v1_set_acquire_fence(surfaceSync, renderingFence.value());
+    auto renderingFence = UnixFileDescriptor { wpe_buffer_take_rendering_fence(buffer), UnixFileDescriptor::Adopt };
+    if (renderingFence) {
+        auto* surfaceSync = wpeToplevelWaylandGetSurfaceSync(WPE_TOPLEVEL_WAYLAND(wpe_view_get_toplevel(view)));
+        zwp_linux_surface_synchronization_v1_set_acquire_fence(surfaceSync, renderingFence.value());
 
-            auto* release = zwp_linux_surface_synchronization_v1_get_release(surfaceSync);
-            zwp_linux_buffer_release_v1_add_listener(release, &bufferReleaseListener, buffer);
-            auto* dmaBufBuffer = static_cast<DMABufBuffer*>(wpe_buffer_get_user_data(buffer));
-            dmaBufBuffer->setRelease(release);
-        }
+        auto* release = zwp_linux_surface_synchronization_v1_get_release(surfaceSync);
+        zwp_linux_buffer_release_v1_add_listener(release, &bufferReleaseListener, buffer);
+        auto* dmaBufBuffer = static_cast<DMABufBuffer*>(wpe_buffer_get_user_data(buffer));
+        dmaBufBuffer->setRelease(release);
     }
 
     auto* display = WPE_DISPLAY_WAYLAND(wpe_view_get_display(view));
@@ -599,7 +597,7 @@ static gboolean wpeViewWaylandRenderBuffer(WPEView* view, WPEBuffer* buffer, con
     wl_callback_add_listener(priv->frameCallback, &frameListener, view);
 
 #if USE(SYSPROF_CAPTURE)
-    if (auto* annotator = SysprofAnnotator::singletonIfCreated()) {
+    if (SysprofAnnotator::singletonIfCreated()) {
         if (auto* presentation = wpeDisplayWaylandGetPresentation(display)) {
             if (!priv->presentationFeedbackStatistics)
                 priv->presentationFeedbackStatistics = makeUnique<PresentationFeedbackStatistics>(kFrameHistorySize);
@@ -730,21 +728,6 @@ static void wpe_view_wayland_class_init(WPEViewWaylandClass* viewWaylandClass)
     viewClass->set_cursor_from_bytes = wpeViewWaylandSetCursorFromBytes;
     viewClass->set_opaque_rectangles = wpeViewWaylandSetOpaqueRectangles;
     viewClass->can_be_mapped = wpeViewWaylandCanBeMapped;
-}
-
-/**
- * wpe_view_wayland_new:
- * @display: a #WPEDisplayWayland
- *
- * Create a new #WPEViewWayland
- *
- * Returns: (transfer full): a #WPEView
- */
-WPEView* wpe_view_wayland_new(WPEDisplayWayland* display)
-{
-    g_return_val_if_fail(WPE_IS_DISPLAY_WAYLAND(display), nullptr);
-
-    return WPE_VIEW(g_object_new(WPE_TYPE_VIEW_WAYLAND, "display", display, nullptr));
 }
 
 /**

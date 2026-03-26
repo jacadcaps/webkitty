@@ -33,7 +33,6 @@
 #if ENABLE(WK_WEB_EXTENSIONS) && ENABLE(INSPECTOR_EXTENSIONS)
 
 #import "APIInspectorExtension.h"
-#import "APISerializedScriptValue.h"
 #import "JavaScriptEvaluationResult.h"
 #import "WebExtensionContextProxyMessages.h"
 #import "WebExtensionUtilities.h"
@@ -60,20 +59,20 @@ void WebExtensionContext::devToolsInspectedWindowEval(WebPageProxyIdentifier web
         return;
     }
 
-    requestPermissionToAccessURLs({ tab->url() }, tab, [extension, tab, scriptSource, frameURL, completionHandler = WTFMove(completionHandler)](auto&& requestedURLs, auto&& allowedURLs, auto expirationDate) mutable {
+    requestPermissionToAccessURLs({ tab->url() }, tab, [extension, tab, scriptSource, frameURL, completionHandler = WTF::move(completionHandler)](auto&& requestedURLs, auto&& allowedURLs, auto expirationDate) mutable {
         if (!tab->extensionHasPermission()) {
             completionHandler(toWebExtensionError(apiName, nullString(), @"this extension does not have access to this tab"));
             return;
         }
 
-        extension->evaluateScript(scriptSource, frameURL, std::nullopt, std::nullopt, [completionHandler = WTFMove(completionHandler)](Inspector::ExtensionEvaluationResult&& result) mutable {
+        extension->evaluateScript(scriptSource, frameURL, std::nullopt, std::nullopt, [completionHandler = WTF::move(completionHandler)](Inspector::ExtensionEvaluationResult&& result) mutable {
             if (!result) {
                 RELEASE_LOG_ERROR(Extensions, "Inspector could not evaluate script (%{public}@)", extensionErrorToString(result.error()).createNSString().get());
                 completionHandler(toWebExtensionError(apiName, nullString(), @"Web Inspector could not evaluate script"));
                 return;
             }
 
-            completionHandler({ WTFMove(*result) });
+            completionHandler({ WTF::move(*result) });
         });
     });
 }

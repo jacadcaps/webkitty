@@ -20,8 +20,8 @@
 
 #pragma once
 
-#include "JSDOMWrapper.h"
 #include "TestGlobalObject.h"
+#include <WebCore/JSDOMWrapper.h>
 #include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
@@ -34,7 +34,7 @@ public:
     static JSTestGlobalObject* create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestGlobalObject>&& impl)
     {
         SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
-        JSTestGlobalObject* ptr = new (NotNull, JSC::allocateCell<JSTestGlobalObject>(vm)) JSTestGlobalObject(structure, *globalObject, WTFMove(impl));
+        JSTestGlobalObject* ptr = new (NotNull, JSC::allocateCell<JSTestGlobalObject>(vm)) JSTestGlobalObject(structure, *globalObject, WTF::move(impl));
         ptr->finishCreation(vm);
         return ptr;
     }

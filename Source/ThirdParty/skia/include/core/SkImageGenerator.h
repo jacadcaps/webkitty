@@ -18,7 +18,6 @@
 #include <cstddef>
 #include <cstdint>
 
-class GrRecordingContext;
 class SkRecorder;
 
 class SK_API SkImageGenerator {
@@ -38,9 +37,7 @@ public:
      *  If non-NULL is returned, the caller is responsible for calling
      *  unref() on the data when it is finished.
      */
-    sk_sp<SkData> refEncodedData() {
-        return this->onRefEncodedData();
-    }
+    sk_sp<const SkData> refEncodedData() { return this->onRefEncodedData(); }
 
     /**
      *  Return the ImageInfo associated with this generator.
@@ -51,9 +48,6 @@ public:
      *  Can this generator be used to produce images that will be drawable to the specified context
      *  (or to CPU, if context is nullptr)?
      */
-    bool isValid(GrRecordingContext* context) const {
-        return this->onIsValid(context);
-    }
     bool isValid(SkRecorder* recorder) const { return this->onIsValid(recorder); }
 
     /**
@@ -122,10 +116,13 @@ protected:
 
     SkImageGenerator(const SkImageInfo& info, uint32_t uniqueId = kNeedNewImageUniqueID);
 
+#if defined(SK_DISABLE_LEGACY_NONCONST_ENCODED_IMAGE_DATA)
+    virtual sk_sp<const SkData> onRefEncodedData() { return nullptr; }
+#else
     virtual sk_sp<SkData> onRefEncodedData() { return nullptr; }
+#endif
     struct Options {};
     virtual bool onGetPixels(const SkImageInfo&, void*, size_t, const Options&) { return false; }
-    virtual bool onIsValid(GrRecordingContext*) const { return true; }
     virtual bool onIsValid(SkRecorder*) const { return true; }
     virtual bool onIsProtected() const { return false; }
     virtual bool onQueryYUVAInfo(const SkYUVAPixmapInfo::SupportedDataTypes&,

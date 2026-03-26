@@ -25,6 +25,8 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if USE(AVFOUNDATION)
 
 OBJC_CLASS AVOutputDevice;
@@ -43,8 +45,6 @@ public:
         Video = 1 << 2,
     };
     uint8_t deviceFeatures() const;
-
-    bool supportsSpatialAudio() const;
 
     AVOutputDevice* platformDevice() const { return m_device.get(); }
 private:

@@ -36,6 +36,23 @@ public:
     InstanceMethodSwizzler(Class, SEL, IMP);
     ~InstanceMethodSwizzler();
 
+private:
     Method m_method;
+    IMP m_originalImplementation;
+};
+
+// Allows users to (more conveniently) invoke the original method in the swizzled method.
+// Restores the original method upon destruction.
+class InstanceMethodSwapper {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(InstanceMethodSwapper);
+    WTF_MAKE_NONCOPYABLE(InstanceMethodSwapper);
+public:
+    InstanceMethodSwapper(Class, SEL original, SEL swizzled);
+    ~InstanceMethodSwapper();
+
+private:
+    Class m_class;
+    Method m_method;
+    SEL m_originalSelector;
     IMP m_originalImplementation;
 };

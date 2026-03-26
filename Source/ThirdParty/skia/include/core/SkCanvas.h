@@ -19,7 +19,7 @@
 #include "include/core/SkMatrix.h"
 #include "include/core/SkPaint.h"
 #include "include/core/SkPoint.h"
-#include "include/core/SkRSXform.h"
+#include "include/core/SkRSXform.h" // IWYU pragma: keep    (for unspanned apis)
 #include "include/core/SkRasterHandleAllocator.h"
 #include "include/core/SkRect.h"
 #include "include/core/SkRefCnt.h"
@@ -2187,7 +2187,9 @@ public:
 
         SkMaskFilter and SkPathEffect on paint are ignored.
 
-        xform, tex, and colors if present, must contain count entries.
+        For non-empty spans, the number of draws will be the min of
+        xform.size(), tex.size(), and (if not empty) colors.size().
+
         Optional colors are applied for each sprite using SkBlendMode mode, treating
         sprite as source and colors as destination.
         Optional cullRect is a conservative bounds of all transformed sprites.
@@ -2199,15 +2201,25 @@ public:
         @param xform     SkRSXform mappings for sprites in atlas
         @param tex       SkRect locations of sprites in atlas
         @param colors    one per sprite, blended with sprite using SkBlendMode; may be nullptr
-        @param count     number of sprites to draw
         @param mode      SkBlendMode combining colors and sprites
         @param sampling  SkSamplingOptions used when sampling from the atlas image
         @param cullRect  bounds of transformed sprites for efficient clipping; may be nullptr
         @param paint     SkColorFilter, SkImageFilter, SkBlendMode, and so on; may be nullptr
     */
+    void drawAtlas(const SkImage* atlas, SkSpan<const SkRSXform> xform,
+                   SkSpan<const SkRect> tex, SkSpan<const SkColor> colors, SkBlendMode mode,
+                   const SkSamplingOptions& sampling, const SkRect* cullRect, const SkPaint* paint);
+#ifdef SK_SUPPORT_UNSPANNED_APIS
     void drawAtlas(const SkImage* atlas, const SkRSXform xform[], const SkRect tex[],
                    const SkColor colors[], int count, SkBlendMode mode,
-                   const SkSamplingOptions& sampling, const SkRect* cullRect, const SkPaint* paint);
+                   const SkSamplingOptions& samp, const SkRect* cullRect, const SkPaint* paint) {
+        this->drawAtlas(atlas,
+                        {xform, count},
+                        {tex, tex ? count : 0},
+                        {colors, colors ? count : 0},
+                        mode, samp, cullRect, paint);
+    }
+#endif
 
     /** Draws SkDrawable drawable using clip and SkMatrix, concatenated with
         optional matrix.
@@ -2572,6 +2584,8 @@ private:
     void checkForDeferredSave();
     void internalSetMatrix(const SkM44&);
 
+    virtual void onSurfaceDelete() {}
+
     friend class SkAndroidFrameworkUtils;
     friend class SkCanvasPriv;      // needs to expose android functions for testing outside android
     friend class AutoLayerForImageFilter;
@@ -2587,7 +2601,8 @@ private:
 
 protected:
     // For use by SkNoDrawCanvas (via SkCanvasVirtualEnforcer, which can't be a friend)
-    SkCanvas(const SkIRect& bounds);
+    explicit SkCanvas(const SkIRect& bounds);
+
 private:
     SkCanvas(const SkBitmap&, std::unique_ptr<SkRasterHandleAllocator>,
              SkRasterHandleAllocator::Handle, const SkSurfaceProps* props);
@@ -2734,7 +2749,7 @@ private:
     goes out of scope. Use this to guarantee that the canvas is restored to a known
     state.
 */
-class SkAutoCanvasRestore {
+class [[nodiscard]] SkAutoCanvasRestore {
 public:
 
     /** Preserves SkCanvas::save() count. Optionally saves SkCanvas clip and SkCanvas matrix.

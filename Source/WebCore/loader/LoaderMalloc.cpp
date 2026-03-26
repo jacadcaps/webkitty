@@ -26,6 +26,11 @@
 #include "config.h"
 #include "LoaderMalloc.h"
 
+#include <wtf/NeverDestroyed.h>
+
 namespace WebCore {
+
 DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(Loader);
-}
+WTF_MAKE_TZONE_ALLOCATED_IMPL(LocalFrameLoaderClient);
+
+} // namespace WebCore

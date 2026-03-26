@@ -13,12 +13,16 @@
 
 #include <jni.h>
 
+#include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
+#include "api/array_view.h"
 #include "api/audio_codecs/audio_format.h"
 #include "api/call/transport.h"
+#include "api/environment/environment.h"
 #include "api/voip/voip_base.h"
 #include "api/voip/voip_engine.h"
 #include "rtc_base/async_packet_socket.h"
@@ -26,7 +30,8 @@
 #include "rtc_base/network/received_packet.h"
 #include "rtc_base/socket_address.h"
 #include "rtc_base/thread.h"
-#include "sdk/android/native_api/jni/scoped_java_ref.h"
+#include "rtc_base/thread_annotations.h"
+#include "third_party/jni_zero/jni_zero.h"
 
 namespace webrtc_examples {
 
@@ -130,9 +135,7 @@ class AndroidVoipClient : public webrtc::Transport {
 
  private:
   AndroidVoipClient(JNIEnv* env,
-                    const jni_zero::JavaParamRef<jobject>& j_voip_client)
-      : voip_thread_(webrtc::Thread::CreateWithSocketServer()),
-        j_voip_client_(env, j_voip_client) {}
+                    const jni_zero::JavaParamRef<jobject>& j_voip_client);
 
   void Init(JNIEnv* env,
             const jni_zero::JavaParamRef<jobject>& application_context);
@@ -154,6 +157,7 @@ class AndroidVoipClient : public webrtc::Transport {
   // Method to print out ChannelStatistics
   void LogChannelStatistics(JNIEnv* env);
 
+  const webrtc::Environment webrtc_env_;
   // Used to invoke operations and send/receive RTP/RTCP packets.
   std::unique_ptr<webrtc::Thread> voip_thread_;
   // Reference to the VoipClient java instance used to

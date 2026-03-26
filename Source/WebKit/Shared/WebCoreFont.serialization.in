@@ -20,12 +20,39 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-using WebCore::FontPlatformData::IPCData = Variant<WebCore::FontPlatformSerializedData, WebCore::FontPlatformSerializedCreationData>;
+header: <WebCore/Font.h>
+[Nested] enum class WebCore::FontOrigin : bool;
+[Nested] enum class WebCore::FontIsInterstitial : bool;
+[Nested] enum class WebCore::FontVisibility : bool;
+[Nested] enum class WebCore::FontIsOrientationFallback : bool;
 
-[RefCounted] class WebCore::Font {
-    WebCore::FontInternalAttributes attributes();
-    WebCore::FontPlatformData platformData();
-}
+header: <WebCore/Font.h>
+[CustomHeader] struct WebCore::FontInternalAttributes {
+    std::optional<WebCore::RenderingResourceIdentifier> renderingResourceIdentifier;
+    [BitField] WebCore::FontOrigin origin;
+    [BitField] WebCore::FontIsInterstitial isInterstitial;
+    [BitField] WebCore::FontVisibility visibility;
+    [BitField] WebCore::FontIsOrientationFallback isTextOrientationFallback;
+};
+
+enum class WebCore::FontOrientation : bool
+
+enum class WebCore::FontWidthVariant : uint8_t {
+    RegularWidth,
+    HalfWidth,
+    ThirdWidth,
+    QuarterWidth,
+};
+
+enum class WebCore::TextRenderingMode : uint8_t {
+    Auto,
+    OptimizeSpeed,
+    OptimizeLegibility,
+    GeometricPrecision
+};
+
+#if !USE(CORE_TEXT)
+using WebCore::FontPlatformData::IPCData = Variant<WebCore::FontPlatformSerializedData, WebCore::CustomFontCreationData>;
 
 [CreateUsing=fromIPCData] class WebCore::FontPlatformData {
     float size();
@@ -36,6 +63,7 @@ using WebCore::FontPlatformData::IPCData = Variant<WebCore::FontPlatformSerializ
     bool syntheticOblique();
     WebCore::FontPlatformData::IPCData toIPCData();
 }
+#endif
 
 header: <WebCore/FontPlatformData.h>
 [CustomHeader] struct WebCore::FontPlatformDataAttributes {
@@ -49,7 +77,7 @@ header: <WebCore/FontPlatformData.h>
     LOGFONT m_font;
 #endif
 #if USE(CORE_TEXT)
-    RetainPtr<CFDictionaryRef> m_attributes;
+    std::optional<WebCore::FontPlatformSerializedAttributes> serializableAttributes();
     CTFontDescriptorOptions m_options;
     RetainPtr<CFStringRef> m_url;
     RetainPtr<CFStringRef> m_psName;
@@ -67,3 +95,106 @@ header: <WebCore/FontCustomPlatformData.h>
     String itemInCollection;
     WebCore::RenderingResourceIdentifier renderingResourceIdentifier;
 };
+
+#if USE(CORE_TEXT)
+
+header: <WebCore/FontPlatformData.h>
+
+[CustomHeader] struct WebCore::FontPlatformSerializedTraits {
+    String uiFontDesign;
+    RetainPtr<CFNumberRef> weight;
+    RetainPtr<CFNumberRef> width;
+    RetainPtr<CFNumberRef> symbolic;
+    RetainPtr<CFNumberRef> grade;
+};
+
+[CustomHeader] struct WebCore::FontPlatformOpticalSize {
+    Variant<RetainPtr<CFNumberRef>, String> opticalSize;
+};
+
+[CustomHeader] struct WebCore::FontPlatformFeatureSetting {
+    RetainPtr<CFNumberRef> type;
+    RetainPtr<CFNumberRef> selector;
+    RetainPtr<CFStringRef> tag;
+    RetainPtr<CFNumberRef> value;
+};
+
+[CustomHeader] struct WebCore::FontPlatformSerializedAttributes {
+    String fontName;
+    String descriptorLanguage;
+    String descriptorTextStyle;
+
+    RetainPtr<CFDataRef> matrix;
+
+    RetainPtr<CFBooleanRef> ignoreLegibilityWeight;
+
+    RetainPtr<CFNumberRef> baselineAdjust;
+    RetainPtr<CFNumberRef> fallbackOption;
+    RetainPtr<CFNumberRef> fixedAdvance;
+    RetainPtr<CFNumberRef> orientation;
+    RetainPtr<CFNumberRef> palette;
+    RetainPtr<CFNumberRef> size;
+    RetainPtr<CFNumberRef> sizeCategory;
+    RetainPtr<CFNumberRef> track;
+    RetainPtr<CFNumberRef> unscaledTracking;
+
+    std::optional<Vector<std::pair<RetainPtr<CFNumberRef>, RetainPtr<CGColorRef>>>> paletteColors;
+    std::optional<Vector<std::pair<RetainPtr<CFNumberRef>, RetainPtr<CFNumberRef>>>> variations;
+
+    std::optional<WebCore::FontPlatformOpticalSize> opticalSize;
+    std::optional<WebCore::FontPlatformSerializedTraits> traits;
+
+    std::optional<Vector<WebCore::FontPlatformFeatureSetting>> featureSettings;
+
+#if HAVE(ADDITIONAL_FONT_PLATFORM_SERIALIZED_ATTRIBUTES)
+    RetainPtr<CFNumberRef> additionalNumber;
+#endif
+};
+
+[CustomHeader] struct WebCore::CustomFontCreationData {
+    WebCore::FontMetadata metadata;
+    Vector<uint8_t> fontFaceData;
+    std::optional<WebCore::FontPlatformSerializedAttributes> attributes;
+    String itemInCollection;
+};
+
+[CustomHeader] struct WebCore::FontMetadata {
+    double pointSize;
+    WebCore::FontOrientation orientation;
+    WebCore::FontWidthVariant widthVariant;
+    WebCore::TextRenderingMode textRenderingMode;
+    bool syntheticBold;
+    bool syntheticOblique;
+}
+
+using WebCore::SystemUIFontType = uint32_t;
+
+[CustomHeader, Nested] struct WebCore::InstalledFont::SystemUIFont {
+    WebCore::SystemUIFontType systemUIFontType;
+    String language;
+}
+
+[CustomHeader, Nested] struct WebCore::InstalledFont::PostScriptFont {
+    String postScriptName;
+    CTFontDescriptorOptions fontDescriptorOptions;
+    std::optional<WebCore::FontPlatformSerializedAttributes> fontSerializedAttributes
+}
+
+[CustomHeader] struct WebCore::InstalledFont {
+    Variant<WebCore::InstalledFont::SystemUIFont, WebCore::InstalledFont::PostScriptFont> font;
+    WebCore::FontMetadata metadata;
+}
+
+
+[RefCounted, CreateUsing=fromIPCData] class WebCore::Font {
+    Variant<WebCore::InstalledFont, WebCore::CustomFontCreationData> toSerializableFont();
+}
+
+#endif // USE(CORE_TEXT)
+
+#if !USE(CORE_TEXT)
+[RefCounted] class WebCore::Font {
+    WebCore::FontInternalAttributes attributes();
+    WebCore::FontPlatformData platformData();
+}
+#endif

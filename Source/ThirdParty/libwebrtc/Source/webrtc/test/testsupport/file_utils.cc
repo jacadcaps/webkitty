@@ -10,6 +10,8 @@
 
 #include "test/testsupport/file_utils.h"
 
+#include <stdlib.h>
+
 #include <cstdio>
 #include <cstdlib>
 #include <optional>
@@ -21,7 +23,6 @@
 #include "absl/strings/string_view.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/crypto_random.h"
-#include "rtc_base/string_utils.h"
 #include "rtc_base/strings/string_builder.h"
 #include "test/testsupport/file_utils_override.h"
 
@@ -30,6 +31,8 @@
 #endif
 
 #if defined(WEBRTC_WIN)
+#include <Shlwapi.h>
+#include <WinDef.h>
 #include <direct.h>
 #include <tchar.h>
 #include <windows.h>
@@ -37,8 +40,7 @@
 #include <algorithm>
 #include <locale>
 
-#include "Shlwapi.h"
-#include "WinDef.h"
+#include "rtc_base/string_utils.h"
 #include "rtc_base/win32.h"
 
 #define GET_CURRENT_DIR _getcwd
@@ -88,12 +90,12 @@ absl::string_view FileName(absl::string_view path) {
 }
 
 bool FileExists(absl::string_view file_name) {
-  struct stat file_info = {0};
+  struct stat file_info = {.st_dev = 0};
   return stat(std::string(file_name).c_str(), &file_info) == 0;
 }
 
 bool DirExists(absl::string_view directory_name) {
-  struct stat directory_info = {0};
+  struct stat directory_info = {.st_dev = 0};
   return stat(std::string(directory_name).c_str(), &directory_info) == 0 &&
          S_ISDIR(directory_info.st_mode);
 }
@@ -147,7 +149,7 @@ std::string GenerateTempFilename(absl::string_view dir,
 }
 
 std::optional<std::vector<std::string>> ReadDirectory(absl::string_view path) {
-  if (path.length() == 0)
+  if (path.empty())
     return std::optional<std::vector<std::string>>();
 
   std::string path_str(path);
@@ -202,7 +204,7 @@ std::optional<std::vector<std::string>> ReadDirectory(absl::string_view path) {
 
 bool CreateDir(absl::string_view directory_name) {
   std::string directory_name_str(directory_name);
-  struct stat path_info = {0};
+  struct stat path_info = {.st_dev = 0};
   // Check if the path exists already:
   if (stat(directory_name_str.c_str(), &path_info) == 0) {
     if (!S_ISDIR(path_info.st_mode)) {

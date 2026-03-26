@@ -65,8 +65,8 @@ class SpeechRecognitionRealtimeMediaSourceManager::Source final
 public:
     Source(RealtimeMediaSourceIdentifier identifier, Ref<RealtimeMediaSource>&& source, Ref<IPC::Connection>&& connection)
         : m_identifier(identifier)
-        , m_source(WTFMove(source))
-        , m_connection(WTFMove(connection))
+        , m_source(WTF::move(source))
+        , m_connection(WTF::move(connection))
     {
         m_source->addObserver(*this);
         m_source->addAudioSampleObserver(*this);
@@ -88,12 +88,14 @@ public:
         m_source->stop();
     }
 
-private:
     // CheckedPtr interface
     uint32_t checkedPtrCount() const final { return CanMakeCheckedPtr::checkedPtrCount(); }
     uint32_t checkedPtrCountWithoutThreadCheck() const final { return CanMakeCheckedPtr::checkedPtrCountWithoutThreadCheck(); }
     void incrementCheckedPtrCount() const final { CanMakeCheckedPtr::incrementCheckedPtrCount(); }
     void decrementCheckedPtrCount() const final { CanMakeCheckedPtr::decrementCheckedPtrCount(); }
+    void setDidBeginCheckedPtrDeletion() final { CanMakeCheckedPtr::setDidBeginCheckedPtrDeletion(); }
+
+private:
 
     void sourceStopped() final
     {
@@ -115,9 +117,9 @@ private:
             auto& format = m_description->streamDescription();
             auto result = ProducerSharedCARingBuffer::allocate(format, numberOfFrames);
             RELEASE_ASSERT(result); // FIXME(https://bugs.webkit.org/show_bug.cgi?id=262690): Handle allocation failure.
-            auto [ringBuffer, handle] = WTFMove(*result);
-            m_ringBuffer = WTFMove(ringBuffer);
-            m_connection->send(Messages::SpeechRecognitionRemoteRealtimeMediaSourceManager::SetStorage(m_identifier, WTFMove(handle), format), 0);
+            auto [ringBuffer, handle] = WTF::move(*result);
+            m_ringBuffer = WTF::move(ringBuffer);
+            m_connection->send(Messages::SpeechRecognitionRemoteRealtimeMediaSourceManager::SetStorage(m_identifier, WTF::move(handle), format), 0);
         }
 
         m_ringBuffer->store(downcast<WebAudioBufferList>(audioData).list(), numberOfFrames, time.timeValue());
@@ -133,10 +135,11 @@ private:
     void audioUnitWillStart() final
     {
 #if USE(AUDIO_SESSION)
-        auto bufferSize = AudioSession::singleton().sampleRate() / 50;
-        if (AudioSession::singleton().preferredBufferSize() > bufferSize)
-            AudioSession::singleton().setPreferredBufferSize(bufferSize);
-        AudioSession::singleton().setCategory(AudioSession::CategoryType::PlayAndRecord, AudioSession::Mode::Default, RouteSharingPolicy::Default);
+        auto& audioSessionSingleton = AudioSession::singleton();
+        auto bufferSize = audioSessionSingleton.sampleRate() / 50;
+        if (audioSessionSingleton.preferredBufferSize() > bufferSize)
+            audioSessionSingleton.setPreferredBufferSize(bufferSize);
+        audioSessionSingleton.setCategory(AudioSession::CategoryType::PlayAndRecord, AudioSession::Mode::Default, RouteSharingPolicy::Default);
 #endif
     }
 
@@ -160,7 +163,7 @@ SpeechRecognitionRealtimeMediaSourceManager::SpeechRecognitionRealtimeMediaSourc
 
 SpeechRecognitionRealtimeMediaSourceManager::~SpeechRecognitionRealtimeMediaSourceManager()
 {
-    m_process->removeMessageReceiver(*this);
+    CheckedRef { m_process.get() }->removeMessageReceiver(*this);
 }
 
 IPC::Connection& SpeechRecognitionRealtimeMediaSourceManager::connection() const
@@ -203,13 +206,13 @@ void SpeechRecognitionRealtimeMediaSourceManager::deleteSource(RealtimeMediaSour
 
 void SpeechRecognitionRealtimeMediaSourceManager::start(RealtimeMediaSourceIdentifier identifier)
 {
-    if (auto source = m_sources.get(identifier))
+    if (CheckedPtr source = m_sources.get(identifier))
         source->start();
 }
 
 void SpeechRecognitionRealtimeMediaSourceManager::stop(RealtimeMediaSourceIdentifier identifier)
 {
-    if (auto source = m_sources.get(identifier))
+    if (CheckedPtr source = m_sources.get(identifier))
         source->stop();
 }
 

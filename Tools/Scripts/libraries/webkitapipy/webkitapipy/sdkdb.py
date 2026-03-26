@@ -28,7 +28,7 @@ import os
 import sqlite3
 from enum import Enum
 from fnmatch import fnmatch
-from typing import Callable, Iterable, NamedTuple, Optional, Union
+from typing import Any, Callable, Iterable, NamedTuple, Optional, Union
 from pathlib import Path
 
 from .macho import APIReport, objc_fully_qualified_method
@@ -37,7 +37,7 @@ from .allow import AllowList
 
 # Increment this number to force clients to rebuild from scratch, to
 # accomodate schema changes or fix caching bugs.
-VERSION = 6
+VERSION = 8
 
 
 class DeclarationKind(Enum):
@@ -57,7 +57,7 @@ class DeclarationKind(Enum):
         return self.name
 
     @classmethod
-    def from_sql(cls, value: bytes):
+    def from_sql(cls, value: bytes) -> DeclarationKind:
         return cls[value.decode()]
 
 
@@ -120,7 +120,7 @@ class SDKDB:
         while user_version != VERSION:
             self.con = sqlite3.connect(db_file, isolation_level='IMMEDIATE',
                                        detect_types=sqlite3.PARSE_DECLTYPES)
-            self.con.execute('PRAGMA busy_timeout = 30000')
+            self.con.execute('PRAGMA busy_timeout = 300000')
             self.con.execute('PRAGMA foreign_keys = ON')
             user_version, = self.con.execute('PRAGMA user_version').fetchone()
             if user_version == 0:
@@ -149,14 +149,15 @@ class SDKDB:
             # The database was initialized while we were waiting.
             return
         cur.execute('CREATE TABLE input_file(path PRIMARY KEY, hash)')
-        cur.execute('CREATE TABLE exports(name, kind DeclarationKind, '
+        cur.execute('CREATE TABLE exports('
+                    '   name, class_name, kind DeclarationKind, '
                     '   input_file REFERENCES input_file(path) '
                     '              ON DELETE CASCADE)')
         cur.execute('CREATE INDEX export_names ON exports (name, kind)')
         cur.execute('CREATE TABLE allow('
-                    '   name, kind DeclarationKind, cond_id,'
-                    '   input_file REFERENCES input_file(path) '
-                    '              ON DELETE CASCADE)')
+                    '   name, class_name, allow_unused, kind DeclarationKind, '
+                    '   cond_id, input_file REFERENCES input_file(path) '
+                    '                       ON DELETE CASCADE)')
         cur.execute('CREATE INDEX allow_names ON allow (name, kind)')
         cur.execute('CREATE TABLE condition_chain(name, invert, nextid, '
                     '   input_file REFERENCES input_file(path) '
@@ -225,8 +226,12 @@ class SDKDB:
         if self._cache_hit_preparing_to_insert(sdkdb_file,
                                                sdkdb_hash):
             return False
-
         doc = json.load(fd)
+        self._add_partial_sdkdb(doc, sdkdb_file, spi, abi)
+        return True
+
+    def _add_partial_sdkdb(self, doc: dict[str, Any], sdkdb_file: Path,
+                           spi: bool, abi: bool):
         criteria = [
             ('PublicSDKContentRoot', lambda _: True),
             ('SDKContentRoot',
@@ -256,11 +261,20 @@ class SDKDB:
                                                  sdkdb_file, pred)
         return True
 
-    def add_binary(self, binary: Path, arch: str) -> bool:
+    def add_binary(self, binary: Path, arch: str, *,
+                   for_auditing: bool = False) -> bool:
+        # When only adding a binary to check exports, avoid generating the
+        # report until we know it missed the cache.
+        if for_auditing:
+            report = APIReport.from_binary(binary, arch=arch,
+                                           exports_only=False)
+            self._add_imports(report)
         stat_hash = binary.stat().st_mtime_ns
         if self._cache_hit_preparing_to_insert(binary, stat_hash):
             return False
-        report = APIReport.from_binary(binary, arch=arch, exports_only=True)
+        if not for_auditing:
+            report = APIReport.from_binary(binary, arch=arch,
+                                           exports_only=True)
         self._add_api_report(report, binary)
         return True
 
@@ -271,14 +285,17 @@ class SDKDB:
         @property
         def statement(self) -> str:
             if self == self.EXPORTS:
-                return f'INSERT INTO exports VALUES (:name, :kind, :file)'
+                return (f'INSERT INTO exports VALUES (:name, :class_name, '
+                        '                             :kind, :file)')
             else:  # self.ALLOW
-                return f'INSERT INTO allow VALUES (:name, :kind, :cond, :file)'
+                return (f'INSERT INTO allow VALUES (:name, :class_name, '
+                        '                           :allow_unused, :kind, '
+                        '                           :cond, :file)')
 
     def _add_api_report(self, report: APIReport, binary: Path,
                         dest=InsertionKind.EXPORTS):
-        for selector in report.methods:
-            self._add_objc_selector(selector, None, binary, dest=dest)
+        for sel in report.methods:
+            self._add_objc_selector(sel.name, sel.class_, binary, dest=dest)
         for symbol in report.exports:
             m = objc_fully_qualified_method.match(symbol)
             if m:
@@ -340,22 +357,25 @@ class SDKDB:
             for symbol in entry.symbols:
                 self._add_symbol(symbol, allowlist,
                                  dest=self.InsertionKind.ALLOW,
-                                 cond_id=cond_id)
+                                 cond_id=cond_id,
+                                 allow_unused=entry.allow_unused)
             for class_ in entry.classes:
                 self._add_objc_class(class_, allowlist,
                                      dest=self.InsertionKind.ALLOW,
-                                     cond_id=cond_id)
-            for selector in entry.selectors:
-                self._add_objc_selector(selector, None, allowlist,
+                                     cond_id=cond_id,
+                                     allow_unused=entry.allow_unused)
+            for sel in entry.selectors:
+                self._add_objc_selector(sel.name, sel.class_, allowlist,
                                         dest=self.InsertionKind.ALLOW,
-                                        cond_id=cond_id)
+                                        cond_id=cond_id,
+                                        allow_unused=entry.allow_unused)
 
     def add_defines(self, defines: list[str]):
         cur = self.con.cursor()
         cur.executemany('INSERT INTO condition VALUES (?)',
                         ((d,) for d in defines))
 
-    def add_for_auditing(self, report: APIReport):
+    def _add_imports(self, report: APIReport):
         cur = self.con.cursor()
         path = str(report.file.resolve())
         arch = report.arch
@@ -371,14 +391,9 @@ class SDKDB:
                           path, arch) if sym.startswith(_OBJC_METACLASS_) else
                          (sym, SYMBOL, path, arch)
                          for sym in report.imports))
-        # Some ObjC selectors may be implemented by methods in the binary.
-        # Since this binary's exports are not added to the cache, the query
-        # won't weed these false positives out. Instead, remove them via the
-        # `if` clause below.
         cur.executemany('INSERT INTO imports VALUES (?, ?, ?, ?)',
                         ((sel, OBJC_SEL, path, report.arch)
-                         for sel in report.selrefs
-                         if sel not in report.methods))
+                         for sel in report.selrefs))
 
     def audit(self) -> Iterable[Diagnostic]:
         cur = self.con.cursor()
@@ -405,11 +420,13 @@ class SDKDB:
                     # exports.
                     'SELECT i.arch, i.kind, i.input_file, i.name, '
                     '       a.kind, group_concat(aw.input_file), a.name, '
-                    '       ew.input_file, '
+                    '           min(a.allow_unused), '
+                    '       group_concat(ew.input_file), '
                     '       sum(e.name IS NOT NULL AND '
                     '           ew.input_file IS NOT NULL) as export_found, '
                     '       sum(a.name IS NOT NULL AND '
                     '           a.cond_id IS c.nextid AND '
+                    '           (a.class_name = e.class_name IS NOT FALSE) AND '
                     '           aw.input_file IS NOT NULL) as allow_found '
                     'FROM imports AS i '
                     'LEFT JOIN exports AS e USING (name, kind) '
@@ -435,24 +452,28 @@ class SDKDB:
                     'HAVING export_found = 0 OR allow_found > 0 '
                     'ORDER BY i.input_file, i.kind, a.kind, i.name, a.name')
         for (arch, import_kind, input_path, import_name,
-             allowed_kind, allowlist_paths, allowed_name,
-             export_path, export_found, allow_found) in cur.fetchall():
+             allowed_kind, allowlist_paths, allowed_name, allow_unused,
+             export_paths, export_found, allow_found) in cur.fetchall():
             if import_name and not export_found and not allow_found:
                 # Imported but neither exported nor allowed => possible SPI.
                 yield MissingName(name=import_name, file=Path(input_path),
                                   arch=arch, kind=import_kind)
-            elif not import_name and allow_found:
+            elif not import_name and allow_found and not allow_unused:
                 # Not imported but allowed => unused allowlist entry to remove.
                 # FIXME: split(',') falls apart if an allowlist path contains a
                 # comma. We could improve this by using quote() in the query
                 # and unquoting here.
-                for path in allowlist_paths.split(','):
+                for path in sorted(set(allowlist_paths.split(','))):
                     yield UnusedAllowedName(name=allowed_name, file=Path(path),
                                             kind=allowed_kind)
             elif allow_found and export_found:
                 # Allowed but also exported => unnecessary allowlist entry to
                 # remove.
-                for path in allowlist_paths.split(','):
+                for path in sorted(set(allowlist_paths.split(','))):
+                    # Normally, a declaration would only be exported from one
+                    # library in the SDK. If the cache sees multiple sources,
+                    # just pick one.
+                    export_path = min(export_paths.split(','))
                     yield UnnecessaryAllowedName(name=allowed_name,
                                                  file=Path(path),
                                                  kind=allowed_kind,
@@ -490,24 +511,30 @@ class SDKDB:
 
     def _add_symbol(self, name: str, file: Path,
                     dest=InsertionKind.EXPORTS,
+                    allow_unused: Optional[bool] = None,
                     cond_id: Optional[int] = None):
         cur = self.con.cursor()
-        params = dict(name=name, kind=SYMBOL, file=str(file.resolve()),
-                      cond=cond_id)
+        params = dict(name=name, class_name=None, kind=SYMBOL,
+                      file=str(file.resolve()), cond=cond_id,
+                      allow_unused=allow_unused)
         cur.execute(dest.statement, params)
 
     def _add_objc_class(self, name: str, file: Path,
                         dest=InsertionKind.EXPORTS,
+                        allow_unused: Optional[bool] = None,
                         cond_id: Optional[int] = None):
         cur = self.con.cursor()
-        params = dict(name=name, kind=OBJC_CLS, file=str(file.resolve()),
-                      cond=cond_id)
+        params = dict(name=name, class_name=None, kind=OBJC_CLS,
+                      file=str(file.resolve()), cond=cond_id,
+                      allow_unused=allow_unused)
         cur.execute(dest.statement, params)
 
     def _add_objc_selector(self, name: str, class_name: Optional[str],
                            file: Path, dest=InsertionKind.EXPORTS,
+                           allow_unused: Optional[bool] = None,
                            cond_id: Optional[int] = None):
         cur = self.con.cursor()
-        params = dict(name=name, kind=OBJC_SEL, file=str(file.resolve()),
-                      cond=cond_id)
+        params = dict(name=name, class_name=class_name,
+                      kind=OBJC_SEL, file=str(file.resolve()), cond=cond_id,
+                      allow_unused=allow_unused)
         cur.execute(dest.statement, params)

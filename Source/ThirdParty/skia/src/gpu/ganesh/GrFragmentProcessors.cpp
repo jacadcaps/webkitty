@@ -100,6 +100,7 @@
 #include <optional>
 #include <utility>
 
+class GrRenderTargetProxy;
 class SkBitmap;
 enum class SkTileMode;
 
@@ -586,8 +587,8 @@ static std::unique_ptr<GrFragmentProcessor> make_shader_fp(const SkCoordClampSha
 static std::unique_ptr<GrFragmentProcessor> make_shader_fp(const SkCTMShader* shader,
                                                            const GrFPArgs& args,
                                                            const SkShaders::MatrixRec& mRec) {
-    SkMatrix ctmInv;
-    if (!shader->ctm().invert(&ctmInv)) {
+    auto ctmInv = shader->ctm().invert();
+    if (!ctmInv) {
         return nullptr;
     }
 
@@ -599,7 +600,7 @@ static std::unique_ptr<GrFragmentProcessor> make_shader_fp(const SkCTMShader* sh
     // In order for the shader to be evaluated with the original CTM, we explicitly evaluate it
     // at sk_FragCoord, and pass that through the inverse of the original CTM. This avoids requiring
     // local coords for the shader and mapping from the draw's local to device and then back.
-    return GrFragmentProcessor::DeviceSpace(GrMatrixEffect::Make(ctmInv, std::move(base)));
+    return GrFragmentProcessor::DeviceSpace(GrMatrixEffect::Make(*ctmInv, std::move(base)));
 }
 
 static std::unique_ptr<GrFragmentProcessor> make_shader_fp(const SkEmptyShader* shader,
@@ -763,8 +764,11 @@ static std::unique_ptr<GrFragmentProcessor> make_shader_fp(const SkPictureShader
         if (!image) {
             return nullptr;
         }
-
-        auto [v, ct] = skgpu::ganesh::AsView(ctx, image, skgpu::Mipmapped::kNo);
+        // Images from a picture shader shouldn't ever be drawn into a surface backed by the same
+        // texture so there will never be need to make a copy of the image. So just pass in nullptr
+        // for targetSurface of the view.
+        constexpr GrRenderTargetProxy* targetSurface = nullptr;
+        auto [v, ct] = skgpu::ganesh::AsView(ctx, image, skgpu::Mipmapped::kNo, targetSurface);
         view = std::move(v);
         provider->assignUniqueKeyToProxy(key, view.asTextureProxy());
     }
@@ -834,14 +838,20 @@ static std::unique_ptr<GrFragmentProcessor> make_shader_fp(const SkWorkingColorS
                                                            const GrFPArgs& args,
                                                            const SkShaders::MatrixRec& mRec) {
     const GrColorInfo* dstInfo = args.fDstColorInfo;
+    SkAlphaType dstAT = dstInfo->alphaType();
     sk_sp<SkColorSpace> dstCS = dstInfo->refColorSpace();
     if (!dstCS) {
         dstCS = SkColorSpace::MakeSRGB();
     }
 
-    GrColorInfo dst     = {dstInfo->colorType(), dstInfo->alphaType(), dstCS},
-                working = {dstInfo->colorType(), dstInfo->alphaType(), shader->workingSpace()};
-    GrFPArgs workingArgs(args.fSurfaceDrawContext, &working, args.fSurfaceProps, args.fScope);
+
+    auto [inputCS, outputCS, workingAT] = shader->workingSpace(dstCS, dstAT);
+
+    GrColorInfo dst    = {dstInfo->colorType(), dstAT,     dstCS},
+                input  = {dstInfo->colorType(), workingAT, inputCS},
+                output = {dstInfo->colorType(), workingAT, outputCS};
+
+    GrFPArgs workingArgs(args.fSurfaceDrawContext, &input, args.fSurfaceProps, args.fScope);
 
     auto childFP = Make(shader->shader().get(), workingArgs, mRec);
     if (!childFP) {
@@ -849,9 +859,10 @@ static std::unique_ptr<GrFragmentProcessor> make_shader_fp(const SkWorkingColorS
     }
 
     auto childWithWorkingInput = GrFragmentProcessor::Compose(
-            std::move(childFP), GrColorSpaceXformEffect::Make(nullptr, dst, working));
-
-    return GrColorSpaceXformEffect::Make(std::move(childWithWorkingInput), working, dst);
+            std::move(childFP), GrColorSpaceXformEffect::Make(nullptr, dst, input));
+    // Assuming that childFP operates on inputCS/workingAT values and returns outputCS/workingAT
+    // values, then we only need to transform from output to dst.
+    return GrColorSpaceXformEffect::Make(std::move(childWithWorkingInput), output, dst);
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////
@@ -862,7 +873,7 @@ static std::unique_ptr<GrFragmentProcessor> make_gradient_fp(const SkConicalGrad
     // The 2 point conical gradient can reject a pixel so it does change opacity even if the input
     // was opaque. Thus, all of these layout FPs disable that optimization.
     std::unique_ptr<GrFragmentProcessor> fp;
-    SkTLazy<SkMatrix> matrix;
+    std::optional<SkMatrix> matrix;
     switch (shader->getType()) {
         case SkConicalGradient::Type::kStrip: {
             static const SkRuntimeEffect* kEffect =
@@ -917,8 +928,8 @@ static std::unique_ptr<GrFragmentProcessor> make_gradient_fp(const SkConicalGrad
             // to have |dr| = 1, so manually compute the final gradient matrix here.
 
             // Map center to (0, 0)
-            matrix.set(SkMatrix::Translate(-shader->getStartCenter().fX,
-                                           -shader->getStartCenter().fY));
+            matrix = SkMatrix::Translate(-shader->getStartCenter().fX,
+                                         -shader->getStartCenter().fY);
             // scale |diffRadius| to 1
             matrix->postScale(1 / dr, 1 / dr);
         } break;
@@ -1015,7 +1026,7 @@ static std::unique_ptr<GrFragmentProcessor> make_gradient_fp(const SkConicalGrad
         } break;
     }
     return GrGradientShader::MakeGradientFP(
-            *shader, args, mRec, std::move(fp), matrix.getMaybeNull());
+            *shader, args, mRec, std::move(fp), SkOptAddressOrNull(matrix));
 }
 
 static std::unique_ptr<GrFragmentProcessor> make_gradient_fp(const SkLinearGradient* shader,

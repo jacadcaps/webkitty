@@ -26,12 +26,12 @@
 #include "config.h"
 #include "WebAutomationSession.h"
 
+#include "GtkUtilities.h"
+#include "GtkVersioning.h"
 #include "ViewSnapshotStore.h"
 #include "WebAutomationSessionMacros.h"
 #include "WebKitWebViewBaseInternal.h"
 #include "WebPageProxy.h"
-#include <WebCore/GtkUtilities.h>
-#include <WebCore/GtkVersioning.h>
 #include <WebCore/Scrollbar.h>
 #include <wtf/glib/GSpanExtras.h>
 #include <wtf/text/Base64.h>
@@ -56,14 +56,16 @@ static unsigned modifiersToEventState(OptionSet<WebEventModifier> modifiers)
 
 static unsigned mouseButtonToGdkButton(MouseButton button)
 {
+    // FIXME: Add support for the forward and backward mouse buttons.
+
     switch (button) {
     case MouseButton::None:
     case MouseButton::Left:
         return GDK_BUTTON_PRIMARY;
-    case MouseButton::Middle:
-        return GDK_BUTTON_MIDDLE;
     case MouseButton::Right:
         return GDK_BUTTON_SECONDARY;
+    default:
+        return GDK_BUTTON_MIDDLE;
     }
     return GDK_BUTTON_PRIMARY;
 }

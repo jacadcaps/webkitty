@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,6 +29,7 @@
 #import "InstanceMethodSwizzler.h"
 #import "PlatformUtilities.h"
 #import "TestDraggingInfo.h"
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <WebCore/PasteboardCustomData.h>
 #import <WebKit/WKPreferencesPrivate.h>
 #import <WebKit/WKWebViewPrivate.h>
@@ -112,6 +113,9 @@ TEST(DragAndDropTests, DragPromisedImageFileIntoFileUpload)
     TestWebKitAPI::Util::waitForConditionWithLogging([&] () -> bool {
         return [webView stringByEvaluatingJavaScript:@"imageload.textContent"].boolValue;
     }, 2, @"Expected image to finish loading.");
+    static constexpr auto expectedDataTransferItems = "[{\"kind\":\"file\",\"type\":\"image/gif\",\"file\":null}]";
+    EXPECT_WK_STREQ(expectedDataTransferItems, [webView stringByEvaluatingJavaScript:@"dragenterItems.textContent"]);
+    EXPECT_WK_STREQ(expectedDataTransferItems, [webView stringByEvaluatingJavaScript:@"dragoverItems.textContent"]);
     EXPECT_EQ(1, [webView stringByEvaluatingJavaScript:@"filecount.textContent"].integerValue);
 
     TestDraggingInfo *draggingInfo = [simulator draggingInfo];
@@ -119,7 +123,7 @@ TEST(DragAndDropTests, DragPromisedImageFileIntoFileUpload)
     EXPECT_EQ(1UL, [filePromiseReceivers count]);
     NSFilePromiseReceiver *filePromiseReceiver = filePromiseReceivers.firstObject;
     EXPECT_EQ(1UL, [filePromiseReceiver.fileTypes count]);
-    EXPECT_WK_STREQ((__bridge NSString *)kUTTypeGIF, filePromiseReceiver.fileTypes.firstObject);
+    EXPECT_WK_STREQ(UTTypeGIF.identifier, filePromiseReceiver.fileTypes.firstObject);
 }
 
 TEST(DragAndDropTests, ReadURLWhenDroppingPromisedWebLoc)
@@ -225,18 +229,40 @@ TEST(DragAndDropTests, ProvideImageDataAsTypeIdentifiers)
 
     [webView synchronouslyLoadHTMLString:@"<img src='sunset-in-cupertino-600px.jpg'></img>"];
     [simulator runFrom:NSMakePoint(25, 25) to:NSMakePoint(300, 300)];
-    [webView pasteboard:uniquePasteboard.get() provideDataForType:(__bridge NSString *)kUTTypeJPEG];
-    EXPECT_GT([uniquePasteboard dataForType:(__bridge NSString *)kUTTypeJPEG].length, 0u);
+    [webView pasteboard:uniquePasteboard.get() provideDataForType:UTTypeJPEG.identifier];
+    EXPECT_GT([uniquePasteboard dataForType:UTTypeJPEG.identifier].length, 0u);
 
     [webView synchronouslyLoadHTMLString:@"<img src='icon.png'></img>"];
     [simulator runFrom:NSMakePoint(25, 25) to:NSMakePoint(300, 300)];
-    [webView pasteboard:uniquePasteboard.get() provideDataForType:(__bridge NSString *)kUTTypePNG];
-    EXPECT_GT([uniquePasteboard dataForType:(__bridge NSString *)kUTTypePNG].length, 0u);
+    [webView pasteboard:uniquePasteboard.get() provideDataForType:UTTypePNG.identifier];
+    EXPECT_GT([uniquePasteboard dataForType:UTTypePNG.identifier].length, 0u);
 
     [webView synchronouslyLoadHTMLString:@"<img src='apple.gif'></img>"];
     [simulator runFrom:NSMakePoint(25, 25) to:NSMakePoint(300, 300)];
-    [webView pasteboard:uniquePasteboard.get() provideDataForType:(__bridge NSString *)kUTTypeGIF];
-    EXPECT_GT([uniquePasteboard dataForType:(__bridge NSString *)kUTTypeGIF].length, 0u);
+    [webView pasteboard:uniquePasteboard.get() provideDataForType:UTTypeGIF.identifier];
+    EXPECT_GT([uniquePasteboard dataForType:UTTypeGIF.identifier].length, 0u);
+}
+
+TEST(DragAndDropTests, DragLocationForImageInScrolledSubframe)
+{
+    RetainPtr configuration = adoptNS([WKWebViewConfiguration new]);
+    [configuration preferences]._largeImageAsyncDecodingEnabled = NO;
+
+    RetainPtr simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 400, 400) configuration:configuration.get()]);
+    RetainPtr webView = [simulator webView];
+    [webView synchronouslyLoadTestPageNamed:@"image-in-scrolled-subframe"];
+
+    TestWebKitAPI::Util::waitForConditionWithLogging([&] -> bool {
+        return [webView stringByEvaluatingJavaScript:@"doneLoadingSubframe"].boolValue;
+    }, 3, @"Expected subframe to finish loading.");
+
+    [simulator runFrom:NSMakePoint(100, 100) to:NSMakePoint(200, 200)];
+
+    CGPoint dragLocation = [simulator initialDragImageLocationInView];
+    EXPECT_TRUE(NSPointInRect(dragLocation, [webView bounds]));
+
+    RetainPtr dragTypes = [[[simulator draggingInfo] draggingPasteboard] types];
+    EXPECT_TRUE([dragTypes containsObject:UTTypePNG.identifier]);
 }
 
 #endif // ENABLE(DRAG_SUPPORT) && PLATFORM(MAC)

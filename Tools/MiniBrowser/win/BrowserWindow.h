@@ -39,7 +39,7 @@ class BrowserWindow : public RefCounted<BrowserWindow> {
 public:
     enum class FeatureType { Experimental, InternalDebug };
 
-    virtual ~BrowserWindow() { };
+    virtual ~BrowserWindow() = default;
 
     virtual HRESULT init() = 0;
     virtual HWND hwnd() = 0;

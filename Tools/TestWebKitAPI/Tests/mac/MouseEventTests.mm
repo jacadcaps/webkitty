@@ -27,6 +27,7 @@
 
 #if PLATFORM(MAC)
 
+#import "ClassMethodSwizzler.h"
 #import "InstanceMethodSwizzler.h"
 #import "PlatformUtilities.h"
 #import "TestNavigationDelegate.h"
@@ -38,6 +39,22 @@
 #import <wtf/RunLoop.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 #import <wtf/text/MakeString.h>
+
+@interface OverrideMouseLocation : NSObject
++ (NSPoint)overrideMouseLocation;
++ (void)setOverrideMouseLocation:(NSPoint)location;
+@end
+
+@implementation OverrideMouseLocation
+static NSPoint overrideMouseLocation = { 0, 0 };
++ (NSPoint)overrideMouseLocation {
+    return overrideMouseLocation;
+}
+
++ (void)setOverrideMouseLocation:(NSPoint)location {
+    overrideMouseLocation = location;
+}
+@end
 
 namespace TestWebKitAPI {
 
@@ -261,6 +278,128 @@ TEST(MouseEventTests, ShouldDelayWindowOrderingForEvent)
     EXPECT_FALSE([webView shouldDelayWindowOrderingForEvent:makeMouseEventAt(16, 500)]);
 }
 
+static void runModifierIsKeptWhenJSInterceptsClickTest(NSEventModifierFlags modifiers)
+{
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600)]);
+    [webView synchronouslyLoadHTMLString:@"<!DOCTYPE html>"
+        "<html>"
+        "<head>"
+        "<style>"
+        "body, html, div { margin: 0; width: 100%; height: 100%; }"
+        "</style>"
+        "</head>"
+        "<body>"
+        "<a href='https://www.apple.com' id='testLink'><div>Link</div></a>"
+        "<script>"
+        "function handleClickEvent(e) {"
+        "    e.stopPropagation();"
+        "    e.stopImmediatePropagation();"
+        "    e.preventDefault();"
+        "    testLink.removeEventListener('click', handleClickEvent);"
+        "    let newMouseEvent1 = document.createEvent('MouseEvents');"
+        "    newMouseEvent1.initMouseEvent('click', e.bubbles, e.cancelable, e.view, e.detail, e.screenX, e.screenY, e.clientX, e.clientY, e.ctrlKey, e.altKey, e.shiftKey, e.metaKey, e.button, e.relatedTarget);"
+        "    let newMouseEvent2 = document.createEvent('MouseEvents');"
+        "    newMouseEvent2.initMouseEvent('click', e.bubbles, e.cancelable, e.view, e.detail, e.screenX, e.screenY, e.clientX, e.clientY, e.ctrlKey, e.altKey, e.shiftKey, e.metaKey, e.button, e.relatedTarget);"
+        "    setTimeout(() => {"
+        "        testLink.dispatchEvent(newMouseEvent1);"
+        "    }, 0);"
+        "    setTimeout(() => {"
+        "        testLink.dispatchEvent(newMouseEvent2);"
+        "    }, 0);"
+        "}"
+        "testLink.addEventListener('click', handleClickEvent);"
+        "</script>"
+        "</body>"
+        "</html>"];
+
+    __block unsigned navigationCount = 0;
+    RetainPtr navigationDelegate = adoptNS([[TestNavigationDelegate alloc] init]);
+    navigationDelegate.get().decidePolicyForNavigationAction = ^(WKNavigationAction *action, void (^completionHandler)(WKNavigationActionPolicy)) {
+        if (!navigationCount) {
+            // Modifiers should be kept the first time.
+            EXPECT_EQ(action.modifierFlags, modifiers);
+        } else {
+            // Any further attempts to simulate events with the same modifiers should lose
+            // the modifiers since the user click was consumed the first time around.
+            EXPECT_EQ(action.modifierFlags, 0U);
+        }
+        ++navigationCount;
+        completionHandler(WKNavigationActionPolicyCancel);
+    };
+    webView.get().navigationDelegate = navigationDelegate.get();
+
+    [webView mouseEnterAtPoint:NSMakePoint(100, 300)];
+    [webView mouseDownAtPoint:NSMakePoint(300, 300) simulatePressure:NO withFlags:modifiers eventType:NSEventTypeLeftMouseDown];
+    [webView mouseUpAtPoint:NSMakePoint(300, 300) withFlags:modifiers eventType:NSEventTypeLeftMouseUp];
+
+    while (navigationCount != 2)
+        Util::spinRunLoop(10);
+}
+
+TEST(MouseEventTests, CmdModifierIsKeptWhenJSInterceptsClick)
+{
+    runModifierIsKeptWhenJSInterceptsClickTest(NSEventModifierFlagCommand);
+}
+
+TEST(MouseEventTests, ShiftModifierIsKeptWhenJSInterceptsClick)
+{
+    runModifierIsKeptWhenJSInterceptsClickTest(NSEventModifierFlagShift);
+}
+
+TEST(MouseEventTests, AltModifierIsKeptWhenJSInterceptsClick)
+{
+    runModifierIsKeptWhenJSInterceptsClickTest(NSEventModifierFlagOption);
+}
+
+TEST(MouseEventTests, CmdShiftModifierIsKeptWhenJSInterceptsClick)
+{
+    runModifierIsKeptWhenJSInterceptsClickTest(NSEventModifierFlagCommand | NSEventModifierFlagShift);
+}
+
+static void runDispatchMouseLeaveEventOnWindowMoveTest(NSPoint initialMouseLocationInWindow, NSRect initialFrame, NSRect finalFrame, int expectedNumberOfMouseLeaveEvents)
+{
+    ClassMethodSwizzler swizzler([NSEvent class], @selector(mouseLocation), [OverrideMouseLocation methodForSelector:@selector(overrideMouseLocation)]);
+
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:initialFrame]);
+    [webView removeFromSuperview];
+    [webView addToTestWindow];
+
+    [webView synchronouslyLoadHTMLString:@"<!DOCTYPE html>"
+        "<html>"
+        "<head>"
+        "<style>"
+        "    body, html { margin: 0; width: 100%; height: 100%; }"
+        "    #target {width: 100px; height: 100px; background-color: red; position: absolute; bottom: 0; right: 0;}"
+        "</style>"
+        "</head>"
+        "<body>"
+        "<div id='target'></div>"
+        "<script>"
+        "    let mouseLeaveCount = 0;"
+        "    let target = document.getElementById('target');"
+        "    target.addEventListener('mouseleave', function() { mouseLeaveCount++ });"
+        "</script>"
+        "</body>"
+        "</html>"];
+
+    [webView mouseMoveToPoint:initialMouseLocationInWindow withFlags:0];
+    [OverrideMouseLocation setOverrideMouseLocation:initialMouseLocationInWindow];
+
+    [[webView window] setFrame:finalFrame display:YES];
+
+    [webView waitForPendingMouseEvents];
+
+    EXPECT_EQ([[webView objectByEvaluatingJavaScript:@"mouseLeaveCount"] intValue], expectedNumberOfMouseLeaveEvents);
+}
+
+TEST(MouseEventTests, WindowChangeShouldCauseMouseLeaveEvent)
+{
+    runDispatchMouseLeaveEventOnWindowMoveTest(NSMakePoint(350, 50), NSMakeRect(0, 0, 400, 400), NSMakeRect(100, 0, 400, 400), 1);
+}
+TEST(MouseEventTests, WindowChangeShouldNotCauseMouseLeaveEvent)
+{
+    runDispatchMouseLeaveEventOnWindowMoveTest(NSMakePoint(250, 50), NSMakeRect(0, 0, 400, 400), NSMakeRect(100, 0, 400, 400), 0);
+}
 } // namespace TestWebKitAPI
 
 #endif // PLATFORM(MAC)

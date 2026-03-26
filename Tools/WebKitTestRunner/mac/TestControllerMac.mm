@@ -46,6 +46,7 @@
 #import <WebKit/WKWebViewPrivate.h>
 #import <mach-o/dyld.h>
 #import <pal/spi/mac/NSApplicationSPI.h>
+#import <wtf/darwin/DispatchExtras.h>
 
 @interface NSMenu ()
 - (id)_menuImpl;
@@ -75,7 +76,7 @@ static PlatformWindow wtr_NSApplication_keyWindow(id self, SEL _cmd)
     return WTR::PlatformWebView::keyWindow();
 }
 
-static Class menuImplClass()
+static Class menuImplClassSingleton()
 {
     static dispatch_once_t onceToken;
     static Class menuImplClass;
@@ -97,7 +98,7 @@ static void setSwizzledPopUpMenu(NSMenu *menu)
 
     gCurrentPopUpMenu = menu;
 
-    dispatch_async(dispatch_get_main_queue(), ^{
+    dispatch_async(mainDispatchQueueSingleton(), ^{
         [[NSNotificationCenter defaultCenter] postNotificationName:NSMenuDidBeginTrackingNotification object:nil];
     });
 }
@@ -123,7 +124,7 @@ static void swizzledCancelTracking(NSMenu *menu, SEL)
     if ([menu.delegate respondsToSelector:@selector(menuDidClose:)])
         [menu.delegate menuDidClose:menu];
 
-    dispatch_async(dispatch_get_main_queue(), ^{
+    dispatch_async(mainDispatchQueueSingleton(), ^{
         [[NSNotificationCenter defaultCenter] postNotificationName:NSMenuDidEndTrackingNotification object:nil];
     });
 }
@@ -153,7 +154,7 @@ void TestController::platformInitialize(const Options& options)
     static InstanceMethodSwizzler cancelTrackingSwizzler { NSMenu.class, @selector(cancelTracking), reinterpret_cast<IMP>(swizzledCancelTracking) };
     static ClassMethodSwizzler menuPopUpSwizzler { NSMenu.class, @selector(popUpContextMenu:withEvent:forView:), reinterpret_cast<IMP>(swizzledPopUpContextMenu) };
     static InstanceMethodSwizzler menuImplPopUpSwizzler {
-        menuImplClass(),
+        menuImplClassSingleton(),
         NSSelectorFromString(@"popUpMenu:atLocation:width:forView:withSelectedItem:withFont:withFlags:withOptions:"),
         reinterpret_cast<IMP>(swizzledPopUpMenu)
     };
@@ -162,6 +163,10 @@ void TestController::platformInitialize(const Options& options)
 void TestController::platformDestroy()
 {
     [WebKitTestRunnerPasteboard releaseLocalPasteboards];
+#if !ENABLE(DNS_SERVER_FOR_TESTING_IN_NETWORKING_PROCESS)
+    if (auto resolverConfig = m_resolverConfig)
+        nw_resolver_config_unpublish(resolverConfig.get());
+#endif
 }
 
 void TestController::initializeInjectedBundlePath()
@@ -229,7 +234,7 @@ void TestController::configureContentExtensionForTest(const TestInvocation& test
         return;
 
     auto testURL = adoptCF(WKURLCopyCFURL(kCFAllocatorDefault, test.url()));
-    NSURL *filterURL = [(__bridge NSURL *)testURL.get() URLByAppendingPathExtension:@"json"];
+    NSURL *filterURL = [[(__bridge NSURL *)testURL.get() URLByDeletingPathExtension] URLByAppendingPathExtension:@"json"];
 
     __block RetainPtr<NSString> contentExtensionString;
     __block bool doneFetchingContentExtension = false;

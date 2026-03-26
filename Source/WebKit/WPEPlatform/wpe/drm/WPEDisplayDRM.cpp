@@ -43,6 +43,7 @@
 #include <wtf/ASCIICType.h>
 #include <wtf/Scope.h>
 #include <wtf/dtoa.h>
+#include <wtf/glib/GUniquePtr.h>
 #include <wtf/glib/WTFGType.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/StringView.h>
@@ -156,7 +157,7 @@ static struct DisplayDevice findTargetDevice(struct udev* udev, const char* seat
             continue;
 
         auto drmDevice = createDisplayDevice(fd, filename);
-        displayDevice = { WTFMove(fd), WTFMove(drmDevice) };
+        displayDevice = { WTF::move(fd), WTF::move(drmDevice) };
         if (isBootVGA)
             return displayDevice;
     }
@@ -312,9 +313,9 @@ static gboolean wpeDisplayDRMSetup(WPEDisplayDRM* displayDRM, const char* device
         }
         WTF::UnixFileDescriptor unixFd(fd, WTF::UnixFileDescriptor::Adopt);
         auto drmDevice = createDisplayDevice(unixFd, deviceName);
-        displayDevice = { WTFMove(unixFd), WTFMove(drmDevice) };
+        displayDevice = { WTF::move(unixFd), WTF::move(drmDevice) };
     }
-    auto fd = WTFMove(displayDevice.fd);
+    auto fd = WTF::move(displayDevice.fd);
     if (drmSetMaster(fd.value()) == -1) {
         g_set_error_literal(error, WPE_DISPLAY_ERROR, WPE_DISPLAY_ERROR_CONNECTION_FAILED, "Failed to become DRM master");
         return FALSE;
@@ -355,13 +356,13 @@ static gboolean wpeDisplayDRMSetup(WPEDisplayDRM* displayDRM, const char* device
         return FALSE;
     }
 
-    displayDRM->priv->session = WTFMove(session);
-    displayDRM->priv->fd = WTFMove(fd);
-    displayDRM->priv->displayDevice = WTFMove(displayDevice.drmDevice);
+    displayDRM->priv->session = WTF::move(session);
+    displayDRM->priv->fd = WTF::move(fd);
+    displayDRM->priv->displayDevice = WTF::move(displayDevice.drmDevice);
     if (!wpe_drm_device_get_render_node(displayDRM->priv->displayDevice.get()))
         displayDRM->priv->renderDevice = findFirstDeviceWithRenderNode();
     displayDRM->priv->device = device;
-    displayDRM->priv->connector = WTFMove(connector);
+    displayDRM->priv->connector = WTF::move(connector);
 
     static const auto scaleIsInBounds = [](double scale) {
         return (scale >= 0.05) && (scale <= 20.0);
@@ -370,7 +371,7 @@ static gboolean wpeDisplayDRMSetup(WPEDisplayDRM* displayDRM, const char* device
     std::optional<double> scaleFromEnvironment;
     if (const auto scaleString = StringView::fromLatin1(getenv("WPE_DRM_SCALE"))) {
         RELEASE_ASSERT(scaleString.is8Bit());
-        auto trimmedScaleString = scaleString.trim(isASCIIWhitespace<LChar>);
+        auto trimmedScaleString = scaleString.trim(isASCIIWhitespace<Latin1Character>);
         size_t parsedLength = 0;
         auto scale = parseDouble(trimmedScaleString, parsedLength);
         if (parsedLength == trimmedScaleString.length() && scaleIsInBounds(scale))
@@ -383,12 +384,14 @@ static gboolean wpeDisplayDRMSetup(WPEDisplayDRM* displayDRM, const char* device
     int y = crtc->y();
     int width = crtc->width();
     int height = crtc->height();
-    displayDRM->priv->screen = wpeScreenDRMCreate(WTFMove(crtc), *displayDRM->priv->connector);
+    displayDRM->priv->screen = wpeScreenDRMCreate(WTF::move(crtc), *displayDRM->priv->connector);
     if (!width || !height) {
         auto* mode = wpeScreenDRMGetMode(WPE_SCREEN_DRM(displayDRM->priv->screen.get()));
         width = mode->hdisplay;
         height = mode->vdisplay;
     }
+
+    wpeScreenDRMCreateDumbBufferIfNeeded(WPE_SCREEN_DRM(displayDRM->priv->screen.get()), displayDRM->priv->fd.value(), displayDRM->priv->connector->id());
 
     double scale = scaleFromEnvironment.value_or(wpeScreenDRMGuessScale(WPE_SCREEN_DRM(displayDRM->priv->screen.get())));
     RELEASE_ASSERT(wpe_settings_set_double(wpe_display_get_settings(WPE_DISPLAY(displayDRM)), WPE_SETTING_DRM_SCALE, scale, WPE_SETTINGS_SOURCE_PLATFORM, nullptr));
@@ -406,10 +409,17 @@ static gboolean wpeDisplayDRMSetup(WPEDisplayDRM* displayDRM, const char* device
     wpe_screen_set_size(displayDRM->priv->screen.get(), width / scale, height / scale);
     wpe_screen_set_scale(displayDRM->priv->screen.get(), scale);
 
-    displayDRM->priv->primaryPlane = WTFMove(primaryPlane);
-    displayDRM->priv->seat = WTFMove(seat);
+    displayDRM->priv->primaryPlane = WTF::move(primaryPlane);
+    displayDRM->priv->seat = WTF::move(seat);
+    wpe_display_set_available_input_devices(WPE_DISPLAY(displayDRM), displayDRM->priv->seat->availableInputDevices());
+    displayDRM->priv->seat->setAvailableInputDevicesChangedCallback([weakDisplay = GWeakPtr { displayDRM }](WPEAvailableInputDevices devices) {
+        if (!weakDisplay)
+            return;
+
+        wpe_display_set_available_input_devices(WPE_DISPLAY(weakDisplay.get()), devices);
+    });
     if (cursorPlane)
-        displayDRM->priv->cursor = makeUnique<WPE::DRM::Cursor>(WTFMove(cursorPlane), device, displayDRM->priv->cursorWidth, displayDRM->priv->cursorHeight);
+        displayDRM->priv->cursor = makeUnique<WPE::DRM::Cursor>(WTF::move(cursorPlane), device, displayDRM->priv->cursorWidth, displayDRM->priv->cursorHeight);
 
     return TRUE;
 }
@@ -422,28 +432,33 @@ static gboolean wpeDisplayDRMConnect(WPEDisplay* display, GError** error)
 static WPEView* wpeDisplayDRMCreateView(WPEDisplay* display)
 {
     auto* displayDRM = WPE_DISPLAY_DRM(display);
-    auto* view = wpe_view_drm_new(displayDRM);
-
-    if (wpe_settings_get_boolean(wpe_display_get_settings(display), WPE_SETTING_CREATE_VIEWS_WITH_A_TOPLEVEL, nullptr)) {
-        GRefPtr<WPEToplevel> toplevel = adoptGRef(wpe_toplevel_drm_new(displayDRM));
-        wpe_view_set_toplevel(view, toplevel.get());
-    }
-
+    auto* view = WPE_VIEW(g_object_new(WPE_TYPE_VIEW_DRM, "display", display, nullptr));
     displayDRM->priv->seat->setView(view);
     return view;
 }
 
-static WPEBufferDMABufFormats* wpeDisplayDRMGetPreferredDMABufFormats(WPEDisplay* display)
+static WPEToplevel* wpeDisplayDRMCreateToplevel(WPEDisplay* display, guint)
+{
+    // DRM doesn't support multiple toplevels.
+    GUniquePtr<GList> toplevels(wpe_toplevel_list());
+    for (auto* iter = toplevels.get(); iter; iter = g_list_next(iter)) {
+        if (WPE_IS_TOPLEVEL_DRM(iter->data))
+            return nullptr;
+    }
+    return WPE_TOPLEVEL(g_object_new(WPE_TYPE_TOPLEVEL_DRM, "display", display, nullptr));
+}
+
+static WPEBufferFormats* wpeDisplayDRMGetPreferredBufferFormats(WPEDisplay* display)
 {
     auto* displayDRM = WPE_DISPLAY_DRM(display);
-    auto* builder = wpe_buffer_dma_buf_formats_builder_new(displayDRM->priv->displayDevice.get());
-    wpe_buffer_dma_buf_formats_builder_append_group(builder, nullptr, WPE_BUFFER_DMA_BUF_FORMAT_USAGE_SCANOUT);
+    auto* builder = wpe_buffer_formats_builder_new(displayDRM->priv->displayDevice.get());
+    wpe_buffer_formats_builder_append_group(builder, nullptr, WPE_BUFFER_FORMAT_USAGE_SCANOUT);
     for (const auto& format : displayDRM->priv->primaryPlane->formats()) {
         for (auto modifier : format.modifiers)
-            wpe_buffer_dma_buf_formats_builder_append_format(builder, format.format, modifier);
+            wpe_buffer_formats_builder_append_format(builder, format.format, modifier);
     }
 
-    return wpe_buffer_dma_buf_formats_builder_end(builder);
+    return wpe_buffer_formats_builder_end(builder);
 }
 
 static guint wpeDisplayDRMGetNScreens(WPEDisplay*)
@@ -478,7 +493,8 @@ static void wpe_display_drm_class_init(WPEDisplayDRMClass* displayDRMClass)
     WPEDisplayClass* displayClass = WPE_DISPLAY_CLASS(displayDRMClass);
     displayClass->connect = wpeDisplayDRMConnect;
     displayClass->create_view = wpeDisplayDRMCreateView;
-    displayClass->get_preferred_dma_buf_formats = wpeDisplayDRMGetPreferredDMABufFormats;
+    displayClass->create_toplevel = wpeDisplayDRMCreateToplevel;
+    displayClass->get_preferred_buffer_formats = wpeDisplayDRMGetPreferredBufferFormats;
     displayClass->get_n_screens = wpeDisplayDRMGetNScreens;
     displayClass->get_screen = wpeDisplayDRMGetScreen;
     displayClass->get_drm_device = wpeDisplayDRMGetDRMDevice;

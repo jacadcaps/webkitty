@@ -25,12 +25,13 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
 #if PLATFORM(COCOA)
 
-#include "NullPlaybackSessionInterface.h"
-#include "VideoFullscreenCaptions.h"
-#include "VideoPresentationLayerProvider.h"
-#include "VideoPresentationModel.h"
+#include <WebCore/NullPlaybackSessionInterface.h>
+#include <WebCore/VideoFullscreenCaptions.h>
+#include <WebCore/VideoPresentationLayerProvider.h>
+#include <WebCore/VideoPresentationModel.h>
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -54,8 +55,6 @@ public:
     NullPlaybackSessionInterface& playbackSessionInterface() const { return m_playbackSessionInterface.get(); }
     PlaybackSessionModel* playbackSessionModel() const { return m_playbackSessionInterface->playbackSessionModel(); }
 
-    void setSpatialVideoMetadata(const std::optional<SpatialVideoMetadata>&) { }
-    void setVideoProjectionMetadata(const std::optional<VideoProjectionMetadata>&) { }
     void setVideoPresentationModel(VideoPresentationModel* model) { m_videoPresentationModel = model; }
     void setupFullscreen(const FloatRect&, const FloatSize&, UIView*, HTMLMediaElementEnums::VideoFullscreenMode, bool, bool, bool) { }
     void enterFullscreen() { }
@@ -71,7 +70,7 @@ public:
     void preparedToReturnToStandby() { }
     bool mayAutomaticallyShowVideoPictureInPicture() const { return false; }
     void applicationDidBecomeActive() { }
-    void setMode(HTMLMediaElementEnums::VideoFullscreenMode, bool) { }
+    void setMode(HTMLMediaElementEnums::VideoFullscreenMode, VideoPresentationModel::ShouldNotifyMediaElement) { }
     HTMLMediaElementEnums::VideoFullscreenMode mode() const { return HTMLMediaElementEnums::VideoFullscreenModeNone; }
     bool hasMode(HTMLMediaElementEnums::VideoFullscreenMode) const { return false; }
     bool pictureInPictureWasStartedWhenEnteringBackground() const { return false; }
@@ -102,6 +101,7 @@ private:
     uint32_t checkedPtrCountWithoutThreadCheck() const final { return CanMakeCheckedPtr::checkedPtrCountWithoutThreadCheck(); }
     void incrementCheckedPtrCount() const final { CanMakeCheckedPtr::incrementCheckedPtrCount(); }
     void decrementCheckedPtrCount() const final { CanMakeCheckedPtr::decrementCheckedPtrCount(); }
+    void setDidBeginCheckedPtrDeletion() final { CanMakeCheckedPtr::setDidBeginCheckedPtrDeletion(); }
 
     const Ref<NullPlaybackSessionInterface> m_playbackSessionInterface;
     ThreadSafeWeakPtr<VideoPresentationModel> m_videoPresentationModel;

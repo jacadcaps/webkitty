@@ -1,6 +1,6 @@
 
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,6 +34,7 @@
 #import "TestNavigationDelegate.h"
 #import "TestURLSchemeHandler.h"
 #import "TestWKWebView.h"
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <WebKit/_WKArchiveConfiguration.h>
 #import <WebKit/_WKArchiveExclusionRule.h>
 
@@ -113,7 +114,7 @@ TEST(WebArchive, CreateCustomScheme)
     done = false;
 
     [webView performAfterReceivingMessage:@"done" action:[&] { done = true; }];
-    [webView loadData:archiveData.get() MIMEType:(NSString *)kUTTypeArchive characterEncodingName:@"utf-8" baseURL:[NSURL URLWithString:@"about:blank"]];
+    [webView loadData:archiveData.get() MIMEType:UTTypeArchive.identifier characterEncodingName:@"utf-8" baseURL:[NSURL URLWithString:@"about:blank"]];
 
     Util::run(&done);
     done = false;
@@ -183,7 +184,7 @@ TEST(WebArchive, SaveResourcesBasic)
     NSData *scriptData = [@"function notifyTestRunner() { window.webkit.messageHandlers.testHandler.postMessage(\"done\"); }" dataUsingEncoding:NSUTF8StringEncoding];
     NSData *imageData = [NSData dataWithContentsOfURL:[NSBundle.test_resourcesBundle URLForResource:@"400x400-green" withExtension:@"png"]];
     [schemeHandler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
-        NSData *data = nil;
+        RetainPtr<NSData> data;
         NSString *mimeType = nil;
         if ([task.request.URL.absoluteString isEqualToString:@"webarchivetest://host/main.html"]) {
             mimeType = @"text/html";
@@ -197,9 +198,9 @@ TEST(WebArchive, SaveResourcesBasic)
         } else
             FAIL();
 
-        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.length textEncodingName:nil]);
+        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.get().length textEncodingName:nil]);
         [task didReceiveResponse:response.get()];
-        [task didReceiveData:data];
+        [task didReceiveData:data.get()];
         [task didFinish];
     }];
 
@@ -275,7 +276,7 @@ TEST(WebArchive, SaveResourcesIframe)
     NSData *cssData = [NSData dataWithBytes:cssDataBytesForIframe length:strlen(cssDataBytesForIframe)];
     NSData *imageData = [NSData dataWithContentsOfURL:[NSBundle.test_resourcesBundle URLForResource:@"400x400-green" withExtension:@"png"]];
     [schemeHandler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
-        NSData *data = nil;
+        RetainPtr<NSData> data;
         NSString *mimeType = nil;
         if ([task.request.URL.absoluteString isEqualToString:@"webarchivetest://host/main.html"]) {
             mimeType = @"text/html";
@@ -292,9 +293,9 @@ TEST(WebArchive, SaveResourcesIframe)
         } else
             FAIL();
 
-        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.length textEncodingName:nil]);
+        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.get().length textEncodingName:nil]);
         [task didReceiveResponse:response.get()];
-        [task didReceiveData:data];
+        [task didReceiveData:data.get()];
         [task didFinish];
     }];
 
@@ -384,7 +385,7 @@ TEST(WebArchive, SaveResourcesFrame)
     NSData *frameHTMLData = [NSData dataWithBytes:frameHTMLDataBytes length:strlen(frameHTMLDataBytes)];
     NSData *imageData = [NSData dataWithContentsOfURL:[NSBundle.test_resourcesBundle URLForResource:@"400x400-green" withExtension:@"png"]];
     [schemeHandler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
-        NSData *data = nil;
+        RetainPtr<NSData> data;
         NSString *mimeType = nil;
         if ([task.request.URL.absoluteString isEqualToString:@"webarchivetest://host/main.html"]) {
             mimeType = @"text/html";
@@ -398,9 +399,9 @@ TEST(WebArchive, SaveResourcesFrame)
         } else
             FAIL();
 
-        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.length textEncodingName:nil]);
+        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.get().length textEncodingName:nil]);
         [task didReceiveResponse:response.get()];
-        [task didReceiveData:data];
+        [task didReceiveData:data.get()];
         [task didFinish];
     }];
 
@@ -478,7 +479,7 @@ TEST(WebArchive, SaveResourcesValidFileName)
     NSString *cssString = @"img { width: 10px; }";
     NSData *cssData = [cssString dataUsingEncoding:NSUTF8StringEncoding];
     [schemeHandler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
-        NSData *data = nil;
+        RetainPtr<NSData> data;
         NSString *mimeType = nil;
         if ([task.request.URL.absoluteString isEqualToString:@"webarchivetest://host/main.html"]) {
             mimeType = @"text/html";
@@ -490,9 +491,9 @@ TEST(WebArchive, SaveResourcesValidFileName)
             mimeType = @"image/png";
             data = imageData;
         }
-        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.length textEncodingName:nil]);
+        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.get().length textEncodingName:nil]);
         [task didReceiveResponse:response.get()];
-        [task didReceiveData:data];
+        [task didReceiveData:data.get()];
         [task didFinish];
     }];
 
@@ -566,7 +567,7 @@ TEST(WebArchive, SaveResourcesBlobURL)
     NSData *htmlData = [NSData dataWithBytes:htmlDataBytesForBlobURL length:strlen(htmlDataBytesForBlobURL)];
     NSData *imageData = [NSData dataWithContentsOfURL:[NSBundle.test_resourcesBundle URLForResource:@"400x400-green" withExtension:@"png"]];
     [schemeHandler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
-        NSData *data = nil;
+        RetainPtr<NSData> data;
         NSString *mimeType = nil;
         if ([task.request.URL.absoluteString isEqualToString:@"webarchivetest://host/main.html"]) {
             mimeType = @"text/html";
@@ -577,9 +578,9 @@ TEST(WebArchive, SaveResourcesBlobURL)
         } else
             FAIL();
 
-        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.length textEncodingName:nil]);
+        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.get().length textEncodingName:nil]);
         [task didReceiveResponse:response.get()];
-        [task didReceiveData:data];
+        [task didReceiveData:data.get()];
         [task didFinish];
     }];
 
@@ -676,7 +677,7 @@ TEST(WebArchive, SaveResourcesResponsiveImages)
     NSData *htmlData = [NSData dataWithBytes:htmlDataBytesForResponsiveImages length:strlen(htmlDataBytesForResponsiveImages)];
     NSData *imageData = [NSData dataWithContentsOfURL:[NSBundle.test_resourcesBundle URLForResource:@"400x400-green" withExtension:@"png"]];
     [schemeHandler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
-        NSData *data = nil;
+        RetainPtr<NSData> data;
         NSString *mimeType = nil;
         if ([task.request.URL.absoluteString isEqualToString:@"webarchivetest://host/main.html"]) {
             mimeType = @"text/html";
@@ -687,9 +688,9 @@ TEST(WebArchive, SaveResourcesResponsiveImages)
         } else
             FAIL();
 
-        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.length textEncodingName:nil]);
+        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.get().length textEncodingName:nil]);
         [task didReceiveResponse:response.get()];
-        [task didReceiveData:data];
+        [task didReceiveData:data.get()];
         [task didFinish];
     }];
 
@@ -749,7 +750,7 @@ TEST(WebArchive, SaveResourcesDataURL)
     NSData *htmlData = [NSData dataWithBytes:hTMLDataBytesForDataURL length:strlen(hTMLDataBytesForDataURL)];
     NSData *imageData = [NSData dataWithContentsOfURL:[NSBundle.test_resourcesBundle URLForResource:@"400x400-green" withExtension:@"png"]];
     [schemeHandler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
-        NSData *data = nil;
+        RetainPtr<NSData> data;
         NSString *mimeType = nil;
         if ([task.request.URL.absoluteString isEqualToString:@"webarchivetest://host/main.html"]) {
             mimeType = @"text/html";
@@ -760,9 +761,9 @@ TEST(WebArchive, SaveResourcesDataURL)
         } else
             FAIL();
 
-        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.length textEncodingName:nil]);
+        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.get().length textEncodingName:nil]);
         [task didReceiveResponse:response.get()];
-        [task didReceiveData:data];
+        [task didReceiveData:data.get()];
         [task didFinish];
     }];
 
@@ -850,7 +851,7 @@ TEST(WebArchive, SaveResourcesIframeInIframe)
     NSData *iframe1HTMLData = [NSData dataWithBytes:iframe1HTMLDataBytes length:strlen(iframe1HTMLDataBytes)];
     NSData *iframe2HTMLData = [NSData dataWithBytes:iframe2HTMLDataBytes length:strlen(iframe2HTMLDataBytes)];
     [schemeHandler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
-        NSData *data = nil;
+        RetainPtr<NSData> data;
         NSString *mimeType = nil;
         if ([task.request.URL.absoluteString isEqualToString:@"webarchivetest://host/main.html"]) {
             mimeType = @"text/html";
@@ -864,9 +865,9 @@ TEST(WebArchive, SaveResourcesIframeInIframe)
         } else
             FAIL();
 
-        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.length textEncodingName:nil]);
+        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.get().length textEncodingName:nil]);
         [task didReceiveResponse:response.get()];
-        [task didReceiveData:data];
+        [task didReceiveData:data.get()];
         [task didFinish];
     }];
 
@@ -954,7 +955,7 @@ TEST(WebArchive, SaveResourcesIframesWithSameURL)
     NSData *htmlData = [NSData dataWithBytes:htmlDataBytesForIframesWithSameURL length:strlen(htmlDataBytesForIframesWithSameURL)];
     NSData *iframeHTMLData = [NSData dataWithBytes:iframeHTMLDataBytesForIframesWithSameURL length:strlen(iframeHTMLDataBytesForIframesWithSameURL)];
     [schemeHandler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
-        NSData *data = nil;
+        RetainPtr<NSData> data;
         NSString *mimeType = nil;
         if ([task.request.URL.absoluteString isEqualToString:@"webarchivetest://host/main.html"]) {
             mimeType = @"text/html";
@@ -965,9 +966,9 @@ TEST(WebArchive, SaveResourcesIframesWithSameURL)
         } else
             FAIL();
 
-        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.length textEncodingName:nil]);
+        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.get().length textEncodingName:nil]);
         [task didReceiveResponse:response.get()];
-        [task didReceiveData:data];
+        [task didReceiveData:data.get()];
         [task didFinish];
     }];
 
@@ -1044,7 +1045,7 @@ TEST(WebArchive, SaveResourcesShadowDOM)
     [configuration setURLSchemeHandler:schemeHandler.get() forURLScheme:@"webarchivetest"];
     NSData *htmlData = [NSData dataWithBytes:htmlDataBytesForShadowDOM length:strlen(htmlDataBytesForShadowDOM)];
     [schemeHandler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
-        NSData *data = nil;
+        RetainPtr<NSData> data;
         NSString *mimeType = nil;
         if ([task.request.URL.absoluteString isEqualToString:@"webarchivetest://host/main.html"]) {
             mimeType = @"text/html";
@@ -1052,9 +1053,9 @@ TEST(WebArchive, SaveResourcesShadowDOM)
         } else
             FAIL();
 
-        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.length textEncodingName:nil]);
+        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.get().length textEncodingName:nil]);
         [task didReceiveResponse:response.get()];
-        [task didReceiveData:data];
+        [task didReceiveData:data.get()];
         [task didFinish];
     }];
 
@@ -1109,7 +1110,7 @@ TEST(WebArchive, SaveResourcesDeclarativeShadowDOM)
     [configuration setURLSchemeHandler:schemeHandler.get() forURLScheme:@"webarchivetest"];
     NSData *htmlData = [NSData dataWithBytes:htmlDataBytesForDeclarativeShadowDOM length:strlen(htmlDataBytesForDeclarativeShadowDOM)];
     [schemeHandler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
-        NSData *data = nil;
+        RetainPtr<NSData> data;
         NSString *mimeType = nil;
         if ([task.request.URL.absoluteString isEqualToString:@"webarchivetest://host/main.html"]) {
             mimeType = @"text/html";
@@ -1117,9 +1118,9 @@ TEST(WebArchive, SaveResourcesDeclarativeShadowDOM)
         } else
             FAIL();
 
-        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.length textEncodingName:nil]);
+        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.get().length textEncodingName:nil]);
         [task didReceiveResponse:response.get()];
-        [task didReceiveData:data];
+        [task didReceiveData:data.get()];
         [task didFinish];
     }];
 
@@ -1178,7 +1179,7 @@ TEST(WebArchive, SaveResourcesStyle)
     NSData *imageData = [NSData dataWithContentsOfURL:[NSBundle.test_resourcesBundle URLForResource:@"400x400-green" withExtension:@"png"]];
     NSData *fontData = [NSData dataWithContentsOfURL:[NSBundle.test_resourcesBundle URLForResource:@"Ahem-10000A" withExtension:@"ttf"]];
     [schemeHandler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
-        NSData *data = nil;
+        RetainPtr<NSData> data;
         NSString *mimeType = nil;
         if ([task.request.URL.absoluteString isEqualToString:@"webarchivetest://host/main.html"]) {
             mimeType = @"text/html";
@@ -1192,9 +1193,9 @@ TEST(WebArchive, SaveResourcesStyle)
         } else
             FAIL();
 
-        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.length textEncodingName:nil]);
+        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.get().length textEncodingName:nil]);
         [task didReceiveResponse:response.get()];
-        [task didReceiveData:data];
+        [task didReceiveData:data.get()];
         [task didFinish];
     }];
 
@@ -1250,7 +1251,7 @@ TEST(WebArchive, SaveResourcesInlineStyle)
     NSData *htmlData = [NSData dataWithBytes:htmlDataBytesForInlineStyle length:strlen(htmlDataBytesForInlineStyle)];
     NSData *imageData = [NSData dataWithContentsOfURL:[NSBundle.test_resourcesBundle URLForResource:@"400x400-green" withExtension:@"png"]];
     [schemeHandler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
-        NSData *data = nil;
+        RetainPtr<NSData> data;
         NSString *mimeType = nil;
         if ([task.request.URL.absoluteString isEqualToString:@"webarchivetest://host/main.html"]) {
             mimeType = @"text/html";
@@ -1261,9 +1262,9 @@ TEST(WebArchive, SaveResourcesInlineStyle)
         } else
             FAIL();
 
-        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.length textEncodingName:nil]);
+        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.get().length textEncodingName:nil]);
         [task didReceiveResponse:response.get()];
-        [task didReceiveData:data];
+        [task didReceiveData:data.get()];
         [task didFinish];
     }];
 
@@ -1350,7 +1351,7 @@ TEST(WebArchive, SaveResourcesLink)
     NSData *manifestData = [NSData dataWithBytes:manifestDataBytesForLink length:strlen(manifestDataBytesForLink)];
     NSData *fontData = [NSData dataWithContentsOfURL:[NSBundle.test_resourcesBundle URLForResource:@"Ahem-10000A" withExtension:@"ttf"]];
     [schemeHandler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
-        NSData *data = nil;
+        RetainPtr<NSData> data;
         NSString *mimeType = nil;
         if ([task.request.URL.absoluteString isEqualToString:@"webarchivetest://host/main.html"]) {
             mimeType = @"text/html";
@@ -1369,9 +1370,9 @@ TEST(WebArchive, SaveResourcesLink)
             data = fontData;
         }
 
-        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.length textEncodingName:nil]);
+        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.get().length textEncodingName:nil]);
         [task didReceiveResponse:response.get()];
-        [task didReceiveData:data];
+        [task didReceiveData:data.get()];
         [task didFinish];
     }];
 
@@ -1515,7 +1516,7 @@ TEST(WebArchive, SaveResourcesLinksWithSameURL)
     NSData *htmlData = [NSData dataWithBytes:htmlDataBytesForLinksWithSameURL length:strlen(htmlDataBytesForLinksWithSameURL)];
     NSData *cssData = [NSData dataWithBytes:cssDataBytesForLinksWithSameURL length:strlen(cssDataBytesForLinksWithSameURL)];
     [schemeHandler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
-        NSData *data = nil;
+        RetainPtr<NSData> data;
         NSString *mimeType = nil;
         if ([task.request.URL.absoluteString isEqualToString:@"webarchivetest://host/main.html"]) {
             mimeType = @"text/html";
@@ -1525,9 +1526,9 @@ TEST(WebArchive, SaveResourcesLinksWithSameURL)
             data = cssData;
         }
 
-        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.length textEncodingName:nil]);
+        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.get().length textEncodingName:nil]);
         [task didReceiveResponse:response.get()];
-        [task didReceiveData:data];
+        [task didReceiveData:data.get()];
         [task didFinish];
     }];
 
@@ -1604,7 +1605,7 @@ TEST(WebArchive, SaveResourcesCSSImportRule)
     NSData *cssData = [NSData dataWithBytes:cssDataBytesForLink length:strlen(cssDataBytesForLink)];
     NSData *imageData = [NSData dataWithContentsOfURL:[NSBundle.test_resourcesBundle URLForResource:@"400x400-green" withExtension:@"png"]];
     [schemeHandler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
-        NSData *data = nil;
+        RetainPtr<NSData> data;
         NSString *mimeType = nil;
         if ([task.request.URL.absoluteString isEqualToString:@"webarchivetest://host/main.html"]) {
             mimeType = @"text/html";
@@ -1617,9 +1618,9 @@ TEST(WebArchive, SaveResourcesCSSImportRule)
             data = cssData;
         }
 
-        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.length textEncodingName:nil]);
+        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.get().length textEncodingName:nil]);
         [task didReceiveResponse:response.get()];
-        [task didReceiveData:data];
+        [task didReceiveData:data.get()];
         [task didFinish];
     }];
 
@@ -1692,7 +1693,7 @@ TEST(WebArchive, SaveResourcesCSSSupportsRule)
     NSData *htmlData = [NSData dataWithBytes:htmlDataBytesForCSSSupportsRule length:strlen(htmlDataBytesForCSSSupportsRule)];
     NSData *imageData = [NSData dataWithContentsOfURL:[NSBundle.test_resourcesBundle URLForResource:@"400x400-green" withExtension:@"png"]];
     [schemeHandler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
-        NSData *data = nil;
+        RetainPtr<NSData> data;
         NSString *mimeType = nil;
         if ([task.request.URL.absoluteString isEqualToString:@"webarchivetest://host/main.html"]) {
             mimeType = @"text/html";
@@ -1702,9 +1703,9 @@ TEST(WebArchive, SaveResourcesCSSSupportsRule)
             data = imageData;
         }
 
-        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.length textEncodingName:nil]);
+        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.get().length textEncodingName:nil]);
         [task didReceiveResponse:response.get()];
-        [task didReceiveData:data];
+        [task didReceiveData:data.get()];
         [task didFinish];
     }];
 
@@ -1845,7 +1846,7 @@ TEST(WebArchive, SaveResourcesCrossOriginLink)
     NSData *htmlData = [NSData dataWithBytes:htmlDataBytesForCrossOriginLink length:strlen(htmlDataBytesForCrossOriginLink)];
     NSData *cssData = [NSData dataWithBytes:cssDataBytesForCrossOriginLink length:strlen(cssDataBytesForCrossOriginLink)];
     [schemeHandler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
-        NSData *data = nil;
+        RetainPtr<NSData> data;
         NSString *mimeType = nil;
         if ([task.request.URL.absoluteString isEqualToString:@"webarchivetest://host.com/main.html"]) {
             mimeType = @"text/html";
@@ -1855,9 +1856,9 @@ TEST(WebArchive, SaveResourcesCrossOriginLink)
             data = cssData;
         }
 
-        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.length textEncodingName:nil]);
+        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.get().length textEncodingName:nil]);
         [task didReceiveResponse:response.get()];
-        [task didReceiveData:data];
+        [task didReceiveData:data.get()];
         [task didFinish];
     }];
 
@@ -1914,7 +1915,7 @@ TEST(WebArchive, SaveResourcesExcludeBaseElement)
     NSData *htmlData = [NSData dataWithBytes:htmlDataBytesForExcludeBaseElement length:strlen(htmlDataBytesForExcludeBaseElement)];
     NSData *imageData = [NSData dataWithContentsOfURL:[NSBundle.test_resourcesBundle URLForResource:@"400x400-green" withExtension:@"png"]];
     [schemeHandler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
-        NSData *data = nil;
+        RetainPtr<NSData> data;
         NSString *mimeType = nil;
         if ([task.request.URL.absoluteString isEqualToString:@"webarchivetest://host.com/main.html"]) {
             mimeType = @"text/html";
@@ -1924,9 +1925,9 @@ TEST(WebArchive, SaveResourcesExcludeBaseElement)
             data = imageData;
         }
 
-        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.length textEncodingName:nil]);
+        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.get().length textEncodingName:nil]);
         [task didReceiveResponse:response.get()];
-        [task didReceiveData:data];
+        [task didReceiveData:data.get()];
         [task didFinish];
     }];
 
@@ -1982,17 +1983,17 @@ TEST(WebArchive, SaveResourcesExclusionRules)
     [configuration setURLSchemeHandler:schemeHandler.get() forURLScheme:@"webarchivetest"];
     NSData *htmlData = [NSData dataWithBytes:htmlDataBytesForExclusionRules length:strlen(htmlDataBytesForExclusionRules)];
     [schemeHandler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
-        NSData *data = nil;
+        RetainPtr<NSData> data;
         NSString *mimeType = nil;
         if ([task.request.URL.absoluteString isEqualToString:@"webarchivetest://host/main.html"]) {
             mimeType = @"text/html";
             data = htmlData;
         }
 
-        EXPECT_TRUE(data);
-        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.length textEncodingName:nil]);
+        EXPECT_TRUE(data.get());
+        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.get().length textEncodingName:nil]);
         [task didReceiveResponse:response.get()];
-        [task didReceiveData:data];
+        [task didReceiveData:data.get()];
         [task didFinish];
     }];
 
@@ -2056,7 +2057,7 @@ TEST(WebArchive, SaveResourcesExcludeCrossOriginAttribute)
     NSData *scriptData = [NSData dataWithBytes:scriptDataBytesForExcludeCrossOriginAttribute length:strlen(scriptDataBytesForExcludeCrossOriginAttribute)];
     NSData *cssData = [NSData dataWithBytes:cssDataBytesForExcludeCrossOriginAttribute length:strlen(cssDataBytesForExcludeCrossOriginAttribute)];
     [schemeHandler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
-        NSData *data = nil;
+        RetainPtr<NSData> data;
         NSString *mimeType = nil;
         bool shouldAddAccessControlHeader = false;
         if ([task.request.URL.absoluteString isEqualToString:@"webarchivetest://host/main.html"]) {
@@ -2071,10 +2072,10 @@ TEST(WebArchive, SaveResourcesExcludeCrossOriginAttribute)
             data = cssData;
             shouldAddAccessControlHeader = true;
         }
-        EXPECT_TRUE(data);
+        EXPECT_TRUE(data.get());
 
         RetainPtr<NSMutableDictionary> headerFields = adoptNS(@{
-            @"Content-Length": [NSString stringWithFormat:@"%zu", (size_t)data.length],
+            @"Content-Length": [NSString stringWithFormat:@"%zu", (size_t)data.get().length],
             @"Content-Type": mimeType,
         }.mutableCopy);
         if (shouldAddAccessControlHeader)
@@ -2082,7 +2083,7 @@ TEST(WebArchive, SaveResourcesExcludeCrossOriginAttribute)
 
         auto response = adoptNS([[NSHTTPURLResponse alloc] initWithURL:task.request.URL statusCode:200 HTTPVersion:nil headerFields:headerFields.get()]);
         [task didReceiveResponse:response.get()];
-        [task didReceiveData:data];
+        [task didReceiveData:data.get()];
         [task didFinish];
     }];
 
@@ -2219,17 +2220,17 @@ TEST(WebArchive, SaveResourcesWithUTF8Encoding)
     [configuration setURLSchemeHandler:schemeHandler.get() forURLScheme:@"webarchivetest"];
     NSData *htmlData = [NSData dataWithBytes:htmlDataBytesForUTF8Encoding length:strlen(htmlDataBytesForUTF8Encoding)];
     [schemeHandler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
-        NSData *data = nil;
+        RetainPtr<NSData> data;
         NSString *mimeType = nil;
         if ([task.request.URL.absoluteString isEqualToString:@"webarchivetest://host/main.html"]) {
             mimeType = @"text/html";
             data = htmlData;
         }
-        EXPECT_TRUE(data);
+        EXPECT_TRUE(data.get());
 
-        RetainPtr response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.length textEncodingName:nil]);
+        RetainPtr response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:mimeType expectedContentLength:data.get().length textEncodingName:nil]);
         [task didReceiveResponse:response.get()];
-        [task didReceiveData:data];
+        [task didReceiveData:data.get()];
         [task didFinish];
     }];
 

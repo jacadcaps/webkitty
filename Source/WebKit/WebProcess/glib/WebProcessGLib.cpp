@@ -33,10 +33,11 @@
 #include "WebPage.h"
 #include "WebProcessCreationParameters.h"
 #include "WebProcessExtensionManager.h"
-
+#include "WebSystemSoundDelegate.h"
 #include <WebCore/PlatformScreen.h>
 #include <WebCore/RenderTheme.h>
 #include <WebCore/ScreenProperties.h>
+#include <WebCore/SystemSoundManager.h>
 
 #if ENABLE(REMOTE_INSPECTOR)
 #include <JavaScriptCore/RemoteInspector.h>
@@ -64,7 +65,11 @@
 #include <WebCore/PlatformDisplaySurfaceless.h>
 #endif
 
-#if PLATFORM(GTK)
+#if OS(ANDROID)
+#include <WebCore/PlatformDisplayAndroid.h>
+#endif
+
+#if PLATFORM(GTK) || OS(ANDROID)
 #include <WebCore/PlatformDisplayDefault.h>
 #endif
 
@@ -118,6 +123,10 @@ void WebProcess::stopRunLoop()
     if (auto* display = PlatformDisplay::sharedDisplayIfExists())
         display->clearGLContexts();
 
+#if USE(ATSPI)
+    AccessibilityAtspi::singleton().disconnect();
+#endif
+
     AuxiliaryProcess::stopRunLoop();
 }
 
@@ -146,7 +155,9 @@ void WebProcess::initializePlatformDisplayIfNeeded() const
         bool disabled = false;
 #if PLATFORM(GTK)
         const char* disableGBM = getenv("WEBKIT_DMABUF_RENDERER_DISABLE_GBM");
+        IGNORE_CLANG_WARNINGS_BEGIN("unsafe-buffer-usage-in-libc-call")
         disabled = disableGBM && strcmp(disableGBM, "0");
+        IGNORE_CLANG_WARNINGS_END
 #endif
         if (!disabled) {
             if (auto device = DRMDeviceManager::singleton().mainGBMDevice(DRMDeviceManager::NodeType::Render)) {
@@ -157,14 +168,21 @@ void WebProcess::initializePlatformDisplayIfNeeded() const
     }
 #endif
 
+#if OS(ANDROID)
+    if (auto display = PlatformDisplayAndroid::create()) {
+        PlatformDisplay::setSharedDisplay(WTF::move(display));
+        return;
+    }
+#endif
+
     if (auto display = PlatformDisplaySurfaceless::create()) {
-        PlatformDisplay::setSharedDisplay(WTFMove(display));
+        PlatformDisplay::setSharedDisplay(WTF::move(display));
         return;
     }
 
-#if PLATFORM(GTK)
+#if PLATFORM(GTK) || OS(ANDROID)
     if (auto display = PlatformDisplayDefault::create()) {
-        PlatformDisplay::setSharedDisplay(WTFMove(display));
+        PlatformDisplay::setSharedDisplay(WTF::move(display));
         return;
     }
 #endif
@@ -177,8 +195,10 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
 {
 #if USE(SKIA)
     const char* enableCPURendering = getenv("WEBKIT_SKIA_ENABLE_CPU_RENDERING");
+    IGNORE_CLANG_WARNINGS_BEGIN("unsafe-buffer-usage-in-libc-call")
     if (enableCPURendering && strcmp(enableCPURendering, "0"))
         ProcessCapabilities::setCanUseAcceleratedBuffers(false);
+    IGNORE_CLANG_WARNINGS_END
 #endif
 
 #if ENABLE(MEDIA_STREAM)
@@ -186,11 +206,12 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
 #endif
 
 #if USE(GBM)
-    DRMDeviceManager::singleton().initializeMainDevice(WTFMove(parameters.drmDevice));
+    DRMDeviceManager::singleton().initializeMainDevice(WTF::move(parameters.drmDevice));
 #endif
 
     m_rendererBufferTransportMode = parameters.rendererBufferTransportMode;
 #if PLATFORM(WPE)
+#if USE(WPE_RENDERER)
     if (!parameters.isServiceWorkerProcess) {
         if (m_rendererBufferTransportMode.isEmpty()) {
             auto& implementationLibraryName = parameters.implementationLibraryName;
@@ -200,12 +221,15 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
         } else
             initializePlatformDisplayIfNeeded();
     }
+#else
+    initializePlatformDisplayIfNeeded();
+#endif
 #endif
 
     m_availableInputDevices = parameters.availableInputDevices;
 
 #if USE(GSTREAMER)
-    WebCore::setGStreamerOptionsFromUIProcess(WTFMove(parameters.gstreamerOptions));
+    WebCore::setGStreamerOptionsFromUIProcess(WTF::move(parameters.gstreamerOptions));
 #endif
 
 #if PLATFORM(GTK) && !USE(GTK4) && USE(CAIRO)
@@ -213,7 +237,7 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
 #endif
 
     if (parameters.memoryPressureHandlerConfiguration)
-        MemoryPressureHandler::singleton().setConfiguration(WTFMove(*parameters.memoryPressureHandlerConfiguration));
+        MemoryPressureHandler::singleton().setConfiguration(WTF::move(*parameters.memoryPressureHandlerConfiguration));
 
     if (!parameters.applicationID.isEmpty())
         WebCore::setApplicationID(parameters.applicationID);
@@ -223,7 +247,7 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
 
 #if ENABLE(REMOTE_INSPECTOR)
     if (!parameters.inspectorServerAddress.isNull())
-        Inspector::RemoteInspector::setInspectorServerAddress(WTFMove(parameters.inspectorServerAddress));
+        Inspector::RemoteInspector::setInspectorServerAddress(WTF::move(parameters.inspectorServerAddress));
 #endif
 
 #if USE(ATSPI)
@@ -235,6 +259,8 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
 
 #if PLATFORM(GTK)
     WebCore::setScreenProperties(parameters.screenProperties);
+
+    WebCore::SystemSoundManager::singleton().setSystemSoundDelegate(makeUnique<WebSystemSoundDelegate>());
 #endif
 
 #if PLATFORM(WPE) && ENABLE(WPE_PLATFORM)
@@ -254,7 +280,7 @@ void WebProcess::platformTerminate()
 void WebProcess::sendMessageToWebProcessExtension(UserMessage&& message)
 {
     if (auto* extension = WebProcessExtensionManager::singleton().extension())
-        webkitWebProcessExtensionDidReceiveUserMessage(extension, WTFMove(message));
+        webkitWebProcessExtensionDidReceiveUserMessage(extension, WTF::move(message));
 }
 
 #if PLATFORM(GTK) && !USE(GTK4) && USE(CAIRO)

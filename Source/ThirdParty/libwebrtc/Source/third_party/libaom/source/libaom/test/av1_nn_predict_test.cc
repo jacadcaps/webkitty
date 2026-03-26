@@ -24,11 +24,11 @@
 #include "test/acm_random.h"
 
 namespace {
-typedef void (*NnPredict_Func)(const float *const input_nodes,
-                               const NN_CONFIG *const nn_config,
-                               int reduce_prec, float *const output);
+using NnPredict_Func = void (*)(const float *const input_nodes,
+                                const NN_CONFIG *const nn_config,
+                                int reduce_prec, float *const output);
 
-typedef std::tuple<const NnPredict_Func> NnPredictTestParam;
+using NnPredictTestParam = std::tuple<const NnPredict_Func>;
 
 const float epsilon = 1e-3f;  // Error threshold for functional equivalence
 
@@ -76,8 +76,7 @@ void NnPredictTest::RunNnPredictTest(const NN_CONFIG *const shape) {
   float outputs_test[NN_MAX_NODES_PER_LAYER] = { 0 };
   float outputs_ref[NN_MAX_NODES_PER_LAYER] = { 0 };
 
-  NN_CONFIG nn_config;
-  memcpy(&nn_config, shape, sizeof(nn_config));
+  NN_CONFIG nn_config = *shape;
 
   char shape_str[32] = { 0 };
   snprintf(shape_str, sizeof(shape_str), "%d", shape->num_inputs);
@@ -141,8 +140,7 @@ void NnPredictTest::RunNnPredictSpeedTest(const NN_CONFIG *const shape,
   float outputs_test[NN_MAX_NODES_PER_LAYER] = { 0 };
   float outputs_ref[NN_MAX_NODES_PER_LAYER] = { 0 };
 
-  NN_CONFIG nn_config;
-  memcpy(&nn_config, shape, sizeof(nn_config));
+  NN_CONFIG nn_config = *shape;
 
   for (int i = 0; i < NN_MAX_HIDDEN_LAYERS; i++) {
     nn_config.weights[i] = weights[i];

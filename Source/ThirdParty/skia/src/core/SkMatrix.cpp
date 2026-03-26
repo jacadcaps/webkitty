@@ -7,7 +7,7 @@
 
 #include "include/core/SkMatrix.h"
 
-#include "include/core/SkPath.h"
+#include "include/core/SkPathBuilder.h"
 #include "include/core/SkPoint3.h"
 #include "include/core/SkRSXform.h"
 #include "include/core/SkSamplingOptions.h"
@@ -539,55 +539,63 @@ SkMatrix& SkMatrix::postSkew(SkScalar sx, SkScalar sy) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-bool SkMatrix::setRectToRect(const SkRect& src, const SkRect& dst, ScaleToFit align) {
+SkMatrix SkMatrix::ScaleTranslate(float sx, float sy, float tx, float ty) {
+    uint8_t mask = 0;
+    if (sx != 1 || sy != 1) {
+        mask |= SkMatrix::kScale_Mask;
+    }
+    if (tx != 0.0f || ty != 0.0f) {
+        mask |= SkMatrix::kTranslate_Mask;
+    }
+    if (sx != 0 && sy != 0) {
+        mask |= SkMatrix::kRectStaysRect_Mask;
+    }
+    return SkMatrix(sx,  0, tx,
+                     0, sy, ty,
+                     0,  0,  1,
+                     mask);
+}
+
+std::optional<SkMatrix> SkMatrix::Rect2Rect(const SkRect& src, const SkRect& dst, ScaleToFit stf) {
     if (src.isEmpty()) {
-        this->reset();
-        return false;
+        return {};
     }
 
-    if (dst.isEmpty()) {
-        sk_bzero(fMat, 8 * sizeof(SkScalar));
-        fMat[kMPersp2] = 1;
-        this->setTypeMask(kScale_Mask);
-    } else {
-        SkScalar    tx, sx = sk_ieee_float_divide(dst.width(), src.width());
-        SkScalar    ty, sy = sk_ieee_float_divide(dst.height(), src.height());
-        bool        xLarger = false;
+    SkScalar tx, sx = sk_ieee_float_divide(dst.width(), src.width());
+    SkScalar ty, sy = sk_ieee_float_divide(dst.height(), src.height());
+    bool     xLarger = false;
 
-        if (align != kFill_ScaleToFit) {
-            if (sx > sy) {
-                xLarger = true;
-                sx = sy;
-            } else {
-                sy = sx;
-            }
+    if (stf != kFill_ScaleToFit) {
+        if (sx > sy) {
+            xLarger = true;
+            sx = sy;
+        } else {
+            sy = sx;
         }
-
-        tx = dst.fLeft - src.fLeft * sx;
-        ty = dst.fTop - src.fTop * sy;
-        if (align == kCenter_ScaleToFit || align == kEnd_ScaleToFit) {
-            SkScalar diff;
-
-            if (xLarger) {
-                diff = dst.width() - src.width() * sy;
-            } else {
-                diff = dst.height() - src.height() * sy;
-            }
-
-            if (align == kCenter_ScaleToFit) {
-                diff = SkScalarHalf(diff);
-            }
-
-            if (xLarger) {
-                tx += diff;
-            } else {
-                ty += diff;
-            }
-        }
-
-        this->setScaleTranslate(sx, sy, tx, ty);
     }
-    return true;
+
+    tx = dst.fLeft - src.fLeft * sx;
+    ty = dst.fTop - src.fTop * sy;
+    if (stf == kCenter_ScaleToFit || stf == kEnd_ScaleToFit) {
+        SkScalar diff;
+
+        if (xLarger) {
+            diff = dst.width() - src.width() * sy;
+        } else {
+            diff = dst.height() - src.height() * sy;
+        }
+
+        if (stf == kCenter_ScaleToFit) {
+            diff = SkScalarHalf(diff);
+        }
+
+        if (xLarger) {
+            tx += diff;
+        } else {
+            ty += diff;
+        }
+    }
+    return ScaleTranslate(sx, sy, tx, ty);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -807,10 +815,12 @@ void SkMatrix::ComputeInv(SkScalar dst[9], const SkScalar src[9], double invDet,
     }
 }
 
-bool SkMatrix::invertNonIdentity(SkMatrix* inv) const {
-    SkASSERT(!this->isIdentity());
-
+std::optional<SkMatrix> SkMatrix::invert() const {
     TypeMask mask = this->getType();
+
+    if (mask == kIdentity_Mask) {
+        return *this;
+    }
 
     // Optimized invert for only scale and/or translation matrices.
     if (0 == (mask & ~(kScale_Mask | kTranslate_Mask))) {
@@ -821,74 +831,53 @@ bool SkMatrix::invertNonIdentity(SkMatrix* inv) const {
             // Denormalized (non-zero) scale factors will overflow when inverted, in which case
             // the inverse matrix would not be finite, so return false.
             if (!SkIsFinite(invSX, invSY)) {
-                return false;
+                return {};
             }
             SkScalar invTX = -fMat[kMTransX] * invSX;
             SkScalar invTY = -fMat[kMTransY] * invSY;
             // Make sure inverse translation didn't overflow/underflow after dividing by scale.
             // Also catches cases where the original matrix's translation values are not finite.
             if (!SkIsFinite(invTX, invTY)) {
-                return false;
+                return {};
             }
 
-            // Must be careful when writing to inv, since it may be the
-            // same memory as this.
-            if (inv) {
-                inv->fMat[kMSkewX] = inv->fMat[kMSkewY] =
-                inv->fMat[kMPersp0] = inv->fMat[kMPersp1] = 0;
+            SkMatrix inv;
+            inv.fMat[kMSkewX] = inv.fMat[kMSkewY] =
+            inv.fMat[kMPersp0] = inv.fMat[kMPersp1] = 0;
 
-                inv->fMat[kMScaleX] = invSX;
-                inv->fMat[kMScaleY] = invSY;
-                inv->fMat[kMPersp2] = 1;
-                inv->fMat[kMTransX] = invTX;
-                inv->fMat[kMTransY] = invTY;
+            inv.fMat[kMScaleX] = invSX;
+            inv.fMat[kMScaleY] = invSY;
+            inv.fMat[kMPersp2] = 1;
+            inv.fMat[kMTransX] = invTX;
+            inv.fMat[kMTransY] = invTY;
 
-                inv->setTypeMask(mask | kRectStaysRect_Mask);
-            }
-
-            return true;
+            inv.setTypeMask(mask | kRectStaysRect_Mask);
+            return inv;
         }
 
         // Translate-only
         if (!SkIsFinite(fMat[kMTransX], fMat[kMTransY])) {
             // Translation components aren't finite, so inverse isn't possible
-            return false;
+            return {};
         }
 
-        if (inv) {
-            inv->setTranslate(-fMat[kMTransX], -fMat[kMTransY]);
-        }
-        return true;
+        return SkMatrix::Translate(-fMat[kMTransX], -fMat[kMTransY]);
     }
 
     int    isPersp = mask & kPerspective_Mask;
     double invDet = sk_inv_determinant(fMat, isPersp);
 
     if (invDet == 0) { // underflow
-        return false;
+        return {};
     }
 
-    bool applyingInPlace = (inv == this);
-
-    SkMatrix* tmp = inv;
-
-    SkMatrix storage;
-    if (applyingInPlace || nullptr == tmp) {
-        tmp = &storage;     // we either need to avoid trampling memory or have no memory
+    SkMatrix inv;
+    ComputeInv(inv.fMat, fMat, invDet, isPersp);
+    if (!inv.isFinite()) {
+        return {};
     }
-
-    ComputeInv(tmp->fMat, fMat, invDet, isPersp);
-    if (!tmp->isFinite()) {
-        return false;
-    }
-
-    tmp->setTypeMask(fTypeMask);
-
-    if (applyingInPlace) {
-        *inv = storage; // need to copy answer back
-    }
-
-    return true;
+    inv.setTypeMask(fTypeMask);
+    return inv;
 }
 
 SkPoint SkMatrix::mapPointPerspective(SkPoint p) const {
@@ -1154,7 +1143,7 @@ void SkMatrix::mapRectScaleTranslate(SkRect* dst, const SkRect& src) const {
     sort_as_rect(skvx::float4::Load(&src.fLeft) * scale + trans).store(&dst->fLeft);
 }
 
-bool SkMatrix::mapRect(SkRect* dst, const SkRect& src, SkApplyPerspectiveClip pc) const {
+bool SkMatrix::mapRect(SkRect* dst, const SkRect& src) const {
     SkASSERT(dst);
 
     if (this->getType() <= kTranslate_Mask) {
@@ -1167,16 +1156,14 @@ bool SkMatrix::mapRect(SkRect* dst, const SkRect& src, SkApplyPerspectiveClip pc
     if (this->isScaleTranslate()) {
         this->mapRectScaleTranslate(dst, src);
         return true;
-    } else if (pc == SkApplyPerspectiveClip::kYes && this->hasPerspective()) {
-        SkPath path;
-        path.addRect(src);
-        path.transform(*this);
-        *dst = path.getBounds();
+    } else if (this->hasPerspective()) {
+        SkPathBuilder builder;
+        builder.addRect(src);
+        builder.transform(*this);
+        *dst = builder.computeBounds();
         return false;
     } else {
-        SkPoint quad[4];
-
-        src.toQuad(quad);
+        std::array<SkPoint, 4> quad = src.toQuad();
         this->mapPoints(quad);
         dst->setBoundsNoCheck(quad);
         return this->rectStaysRect();   // might still return true if rotated by 90, etc.
@@ -1314,41 +1301,40 @@ bool SkMatrix::Poly4Proc(const SkPoint srcPt[], SkMatrix* dst) {
 
 typedef bool (*PolyMapProc)(const SkPoint[], SkMatrix*);
 
-/*  Adapted from Rob Johnson's original sample code in QuickDraw GX
+/*  Originally adapted from Rob Johnson's original sample code in QuickDraw GX
 */
-bool SkMatrix::setPolyToPoly(const SkPoint src[], const SkPoint dst[], int count) {
-    if ((unsigned)count > 4) {
-        SkDebugf("--- SkMatrix::setPolyToPoly count out of range %d\n", count);
-        return false;
-    }
-
-    if (0 == count) {
-        this->reset();
-        return true;
-    }
-    if (1 == count) {
-        this->setTranslate(dst[0].fX - src[0].fX, dst[0].fY - src[0].fY);
-        return true;
+std::optional<SkMatrix> SkMatrix::PolyToPoly(SkSpan<const SkPoint> src, SkSpan<const SkPoint> dst) {
+    if (src.size() != dst.size() || src.size() > 4) {
+        return {};
     }
 
     const PolyMapProc gPolyMapProcs[] = {
         SkMatrix::Poly2Proc, SkMatrix::Poly3Proc, SkMatrix::Poly4Proc
     };
-    PolyMapProc proc = gPolyMapProcs[count - 2];
 
-    SkMatrix tempMap, result;
+    switch (src.size()) {
+        case 0: return SkMatrix::I();
+        case 1: return SkMatrix::Translate(dst[0] - src[0]);
+        case 2: [[fallthrough]];
+        case 3: [[fallthrough]];
+        case 4: {
+            PolyMapProc proc = gPolyMapProcs[src.size() - 2];
 
-    if (!proc(src, &tempMap)) {
-        return false;
+            SkMatrix tempMap;
+            if (!proc(src.data(), &tempMap)) {
+                return {};
+            }
+            auto inverse = tempMap.invert();
+            if (!inverse) {
+                return {};
+            }
+            if (!proc(dst.data(), &tempMap)) {
+                return {};
+            }
+            return tempMap * inverse.value();
+        }
     }
-    if (!tempMap.invert(&result)) {
-        return false;
-    }
-    if (!proc(dst, &tempMap)) {
-        return false;
-    }
-    this->setConcat(tempMap, result);
-    return true;
+    SkUNREACHABLE;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1762,10 +1748,8 @@ bool SkMatrixPriv::NearlyAffine(const SkMatrix& m,
     // that the transformation is nearly affine.
 
     // We can map the four points simultaneously.
-    SkPoint quad[4];
-    bounds.toQuad(quad);
     SkPoint3 xyw[4];
-    m.mapPointsToHomogeneous(xyw, quad);
+    m.mapPointsToHomogeneous(xyw, bounds.toQuad());
 
     // Since the Jacobian is a 3x3 matrix, the determinant is a scalar triple product,
     // and the initial cross product is constant across all four points.

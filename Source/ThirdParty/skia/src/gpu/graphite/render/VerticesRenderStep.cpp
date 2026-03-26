@@ -42,7 +42,7 @@ static constexpr Attribute kTexCoordAttr =
 static constexpr Attribute kColorAttr =
         {"vertColor", VertexAttribType::kUByte4_norm, SkSLType::kHalf4};
 static constexpr Attribute kSsboIndexAttr =
-        {"ssboIndices", VertexAttribType::kUInt2, SkSLType::kUInt2};
+        {"ssboIndex", VertexAttribType::kUInt, SkSLType::kUInt};
 
 static constexpr Attribute kAttributePositionOnly[] =
         {kPositionAttr, kSsboIndexAttr};
@@ -104,14 +104,16 @@ RenderStep::RenderStepID variant_id(PrimitiveType type, bool hasColor, bool hasT
 
 }  // namespace
 
-VerticesRenderStep::VerticesRenderStep(PrimitiveType type, bool hasColor, bool hasTexCoords)
-        : RenderStep(variant_id(type, hasColor, hasTexCoords),
+VerticesRenderStep::VerticesRenderStep(Layout layout, PrimitiveType type, bool hasColor,
+                                       bool hasTexCoords)
+        : RenderStep(layout,
+                     variant_id(type, hasColor, hasTexCoords),
                      (hasColor ? Flags::kEmitsPrimitiveColor : Flags::kNone) |
                      Flags::kPerformsShading | Flags::kAppendVertices,
                      /*uniforms=*/{{"localToDevice", SkSLType::kFloat4x4},
                                    {"depth", SkSLType::kFloat}},
                      type,
-                     kDirectDepthGEqualPass,
+                     kDirectDepthLEqualPass,
                      /*staticAttrs=*/ {},
                      /*appendAttrs=*/kAttributes[2*hasTexCoords + hasColor],
                      /*varyings=*/   kVaryings[hasColor])
@@ -156,7 +158,7 @@ const char* VerticesRenderStep::fragmentColorSkSL() const {
 
 void VerticesRenderStep::writeVertices(DrawWriter* writer,
                                        const DrawParams& params,
-                                       skvx::uint2 ssboIndices) const {
+                                       uint32_t ssboIndex) const {
     SkVerticesPriv info(params.geometry().vertices()->priv());
     const int vertexCount = info.vertexCount();
     const int indexCount = info.indexCount();
@@ -188,19 +190,19 @@ void VerticesRenderStep::writeVertices(DrawWriter* writer,
                                                               : SK_ColorTRANSPARENT)
                         << VertexWriter::If(fHasTexCoords, texCoords ? texCoords[state.f0]
                                                                      : SkPoint{0.f, 0.f})
-                        << ssboIndices
+                        << ssboIndex
                         << positions[state.f1]
                         << VertexWriter::If(fHasColor, colors ? colors[state.f1]
                                                               : SK_ColorTRANSPARENT)
                         << VertexWriter::If(fHasTexCoords, texCoords ? texCoords[state.f1]
                                                                      : SkPoint{0.f, 0.f})
-                        << ssboIndices
+                        << ssboIndex
                         << positions[state.f2]
                         << VertexWriter::If(fHasColor, colors ? colors[state.f2]
                                                               : SK_ColorTRANSPARENT)
                         << VertexWriter::If(fHasTexCoords, texCoords ? texCoords[state.f2]
                                                                      : SkPoint{0.f, 0.f})
-                        << ssboIndices;
+                        << ssboIndex;
     }
 }
 
@@ -208,6 +210,7 @@ void VerticesRenderStep::writeUniformsAndTextures(const DrawParams& params,
                                                   PipelineDataGatherer* gatherer) const {
     // Vertices are transformed on the GPU. Store PaintDepth as a uniform to avoid copying the
     // same depth for each vertex.
+    SkDEBUGCODE(gatherer->checkRewind());
     SkDEBUGCODE(UniformExpectationsValidator uev(gatherer, this->uniforms());)
     gatherer->write(params.transform().matrix());
     gatherer->write(params.order().depthAsFloat());

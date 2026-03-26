@@ -48,13 +48,20 @@ enum {
     WEBKIT_GL_VIDEO_SINK_PROP_LAST
 };
 
-struct _WebKitGLVideoSinkPrivate {
-    GRefPtr<GstElement> appSink;
-    MediaPlayerPrivateGStreamer* mediaPlayerPrivate;
-};
-
 GST_DEBUG_CATEGORY_STATIC(webkit_gl_video_sink_debug);
 #define GST_CAT_DEFAULT webkit_gl_video_sink_debug
+
+struct _WebKitGLVideoSinkPrivate {
+    ~_WebKitGLVideoSinkPrivate()
+    {
+        ASSERT(isMainThread());
+        webKitVideoSinkDisconnectSignalHandlers(appSink.get(), signalIdentifiers);
+        GST_DEBUG_OBJECT(appSink.get(), "WebKitGLVideoSink finalized.");
+    }
+
+    GRefPtr<GstElement> appSink;
+    WebKitVideoSinkSignalIdentifiers signalIdentifiers;
+};
 
 #define GST_GL_CAPS_FORMAT "{ A420, RGBx, RGBA, I420, Y444, YV12, Y41B, Y42B, NV12, NV21, VUYA }"
 static GstStaticPadTemplate glVideoSinkTemplate = GST_STATIC_PAD_TEMPLATE("sink", GST_PAD_SINK, GST_PAD_ALWAYS, GST_STATIC_CAPS_ANY);
@@ -69,11 +76,11 @@ static void initializeDMABufAvailability()
 {
     static std::once_flag onceFlag;
     std::call_once(onceFlag, [] {
-        if (!webkitGstCheckVersion(1, 20, 0))
+        if (!gst_check_version(1, 20, 0))
             return;
 
-        auto value = unsafeSpan(g_getenv("WEBKIT_GST_DMABUF_SINK_DISABLED"));
-        s_isDMABufDisabled = value.data() && (equalLettersIgnoringASCIICase(value, "true"_s) || equalLettersIgnoringASCIICase(value, "1"_s));
+        auto value = CStringView::unsafeFromUTF8(g_getenv("WEBKIT_GST_DMABUF_SINK_DISABLED"));
+        s_isDMABufDisabled = !value.isEmpty() && (equalLettersIgnoringASCIICase(value.span(), "true"_s) || equalLettersIgnoringASCIICase(value.span(), "1"_s));
         if (!s_isDMABufDisabled && !DRMDeviceManager::singleton().mainGBMDevice(DRMDeviceManager::NodeType::Render))
             s_isDMABufDisabled = true;
     });
@@ -141,21 +148,6 @@ static void webKitGLVideoSinkConstructed(GObject* object)
     gst_element_add_pad(GST_ELEMENT_CAST(sink), gst_ghost_pad_new("sink", pad.get()));
 }
 
-void webKitGLVideoSinkFinalize(GObject* object)
-{
-    ASSERT(isMainThread());
-
-    WebKitGLVideoSink* sink = WEBKIT_GL_VIDEO_SINK(object);
-    WebKitGLVideoSinkPrivate* priv = sink->priv;
-
-    if (priv->mediaPlayerPrivate)
-        g_signal_handlers_disconnect_by_data(priv->appSink.get(), priv->mediaPlayerPrivate);
-
-    GST_DEBUG_OBJECT(object, "WebKitGLVideoSink finalized.");
-
-    G_OBJECT_CLASS(webkit_gl_video_sink_parent_class)->finalize(object);
-}
-
 static GstStateChangeReturn webKitGLVideoSinkChangeState(GstElement* element, GstStateChange transition)
 {
     GST_DEBUG_OBJECT(element, "%s", gst_state_change_get_name(transition));
@@ -202,7 +194,6 @@ static void webkit_gl_video_sink_class_init(WebKitGLVideoSinkClass* klass)
     GstElementClass* elementClass = GST_ELEMENT_CLASS(klass);
 
     objectClass->constructed = webKitGLVideoSinkConstructed;
-    objectClass->finalize = webKitGLVideoSinkFinalize;
     objectClass->get_property = webKitGLVideoSinkGetProperty;
 
     gst_element_class_add_pad_template(elementClass, gst_static_pad_template_get(&glVideoSinkTemplate));
@@ -214,12 +205,11 @@ static void webkit_gl_video_sink_class_init(WebKitGLVideoSinkClass* klass)
     elementClass->change_state = GST_DEBUG_FUNCPTR(webKitGLVideoSinkChangeState);
 }
 
-void webKitGLVideoSinkSetMediaPlayerPrivate(WebKitGLVideoSink* sink, MediaPlayerPrivateGStreamer* player)
+void webKitGLVideoSinkSetMediaPlayerPrivate(WebKitGLVideoSink* sink, const ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>& player)
 {
     WebKitGLVideoSinkPrivate* priv = sink->priv;
 
-    priv->mediaPlayerPrivate = player;
-    webKitVideoSinkSetMediaPlayerPrivate(priv->appSink.get(), priv->mediaPlayerPrivate);
+    priv->signalIdentifiers = webKitVideoSinkSetMediaPlayerPrivate(priv->appSink.get(), player);
 }
 
 bool webKitGLVideoSinkProbePlatform()

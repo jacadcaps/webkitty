@@ -29,6 +29,7 @@
 #if PLATFORM(COCOA)
 
 #import "ViewSnapshotStore.h"
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <wtf/FileSystem.h>
 
 #if PLATFORM(IOS_FAMILY)
@@ -43,9 +44,7 @@ using namespace WebCore;
 static std::optional<String> getBase64EncodedPNGData(const RetainPtr<CGImageRef>&& cgImage)
 {
     RetainPtr<NSMutableData> imageData = adoptNS([[NSMutableData alloc] init]);
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    RetainPtr<CGImageDestinationRef> destination = adoptCF(CGImageDestinationCreateWithData((CFMutableDataRef)imageData.get(), kUTTypePNG, 1, 0));
-ALLOW_DEPRECATED_DECLARATIONS_END
+    RetainPtr<CGImageDestinationRef> destination = adoptCF(CGImageDestinationCreateWithData((CFMutableDataRef)imageData.get(), bridge_cast(UTTypePNG.identifier), 1, 0));
     if (!destination)
         return std::nullopt;
 
@@ -58,11 +57,11 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 std::optional<String> WebAutomationSession::platformGetBase64EncodedPNGData(ShareableBitmap::Handle&& imageDataHandle)
 {
-    auto bitmap = ShareableBitmap::create(WTFMove(imageDataHandle), SharedMemory::Protection::ReadOnly);
+    auto bitmap = ShareableBitmap::create(WTF::move(imageDataHandle), SharedMemory::Protection::ReadOnly);
     if (!bitmap)
         return std::nullopt;
 
-    return getBase64EncodedPNGData(bitmap->makeCGImage());
+    return getBase64EncodedPNGData(bitmap->createPlatformImage(DontCopyBackingStore));
 }
 
 std::optional<String> WebAutomationSession::platformGetBase64EncodedPNGData(const ViewSnapshot& snapshot)
@@ -84,7 +83,7 @@ std::optional<String> WebAutomationSession::platformGenerateLocalFilePathForRemo
 
     RetainPtr temporaryDirectory = FileSystem::createTemporaryDirectory(@"WebDriver");
     RetainPtr remoteFile = adoptNS([[NSURL alloc] initFileURLWithPath:remoteFilePath.createNSString().get() isDirectory:NO]);
-    RetainPtr localFilePath = [temporaryDirectory stringByAppendingPathComponent:remoteFile.get().lastPathComponent];
+    RetainPtr localFilePath = [temporaryDirectory stringByAppendingPathComponent:retainPtr(remoteFile.get().lastPathComponent).get()];
 
     NSError *fileWriteError;
     [fileContents.get() writeToFile:localFilePath.get() options:NSDataWritingAtomic error:&fileWriteError];

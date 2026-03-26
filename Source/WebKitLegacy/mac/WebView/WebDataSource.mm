@@ -55,6 +55,7 @@
 #import <WebCore/ResourceRequest.h>
 #import <WebCore/SharedBuffer.h>
 #import <WebCore/WebCoreJITOperations.h>
+#import <WebCore/WebCoreMainThread.h>
 #import <WebCore/WebCoreObjCExtras.h>
 #import <WebCore/WebCoreURLResponse.h>
 #import <WebKitLegacy/DOMHTML.h>
@@ -81,7 +82,7 @@ class WebDataSourcePrivate
 {
 public:
     WebDataSourcePrivate(Ref<WebDocumentLoaderMac>&& loader)
-        : loader(WTFMove(loader))
+        : loader(WTF::move(loader))
         , representationFinishedLoading(NO)
         , includedInWebKitStatistics(NO)
 #if PLATFORM(IOS_FAMILY)
@@ -152,13 +153,8 @@ void addTypesFromClass(NSMutableDictionary *allTypes, Class objCClass, NSArray *
 
 + (void)initialize
 {
-    if (self == [WebDataSource class]) {
-#if !PLATFORM(IOS_FAMILY)
-        JSC::initialize();
-        WTF::initializeMainThread();
-        WebCore::populateJITOperations();
-#endif
-    }
+    if (self == [WebDataSource class])
+        WebCore::initializeMainThreadIfNeeded();
 }
 
 - (NSError *)_mainDocumentError
@@ -384,8 +380,8 @@ void addTypesFromClass(NSMutableDictionary *allTypes, Class objCClass, NSArray *
         [self _setRepresentation:(id <WebDocumentRepresentation>)newRep.get()];
     }
 
-    id<WebDocumentRepresentation> representation = toPrivate(_private)->representation.get();
-    [representation setDataSource:self];
+    RetainPtr<id<WebDocumentRepresentation>> representation = toPrivate(_private)->representation.get();
+    [representation.get() setDataSource:self];
 #if PLATFORM(IOS_FAMILY)
     toPrivate(_private)->loader->setResponseMIMEType([self _responseMIMEType]);
 #endif
@@ -402,7 +398,7 @@ void addTypesFromClass(NSMutableDictionary *allTypes, Class objCClass, NSArray *
     if (!self)
         return nil;
 
-    _private = static_cast<void*>(new WebDataSourcePrivate(WTFMove(loader)));
+    _private = static_cast<void*>(new WebDataSourcePrivate(WTF::move(loader)));
         
     LOG(Loading, "creating datasource for %@", toPrivate(_private)->loader->request().url().createNSURL().get());
 
@@ -480,7 +476,7 @@ void addTypesFromClass(NSMutableDictionary *allTypes, Class objCClass, NSArray *
 
 - (NSURLRequest *)initialRequest
 {
-    return toPrivate(_private)->loader->originalRequest().nsURLRequest(WebCore::HTTPBodyUpdatePolicy::UpdateHTTPBody);
+    return toPrivate(_private)->loader->originalRequest().protectedNSURLRequest(WebCore::HTTPBodyUpdatePolicy::UpdateHTTPBody).autorelease();
 }
 
 - (NSMutableURLRequest *)request
@@ -490,12 +486,12 @@ void addTypesFromClass(NSMutableDictionary *allTypes, Class objCClass, NSArray *
         return nil;
 
     // FIXME: this cast is dubious
-    return (NSMutableURLRequest *)toPrivate(_private)->loader->request().nsURLRequest(WebCore::HTTPBodyUpdatePolicy::UpdateHTTPBody);
+    return (NSMutableURLRequest *)toPrivate(_private)->loader->request().protectedNSURLRequest(WebCore::HTTPBodyUpdatePolicy::UpdateHTTPBody).autorelease();
 }
 
 - (NSURLResponse *)response
 {
-    return toPrivate(_private)->loader->response().nsURLResponse();
+    return toPrivate(_private)->loader->response().protectedNSURLResponse().autorelease();
 }
 
 - (NSString *)textEncodingName
@@ -545,7 +541,7 @@ void addTypesFromClass(NSMutableDictionary *allTypes, Class objCClass, NSArray *
 - (NSArray *)subresources
 {
     return createNSArray(toPrivate(_private)->loader->subresources(), [] (auto&& resource) {
-        return adoptNS([[WebResource alloc] _initWithCoreResource:WTFMove(resource)]);
+        return adoptNS([[WebResource alloc] _initWithCoreResource:WTF::move(resource)]);
     }).autorelease();
 }
 

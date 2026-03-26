@@ -53,9 +53,11 @@ struct NetworkSessionCreationParameters {
     Markable<WTF::UUID> dataStoreIdentifier;
     String boundInterfaceIdentifier;
     AllowsCellularAccess allowsCellularAccess { AllowsCellularAccess::Yes };
+#if PLATFORM(COCOA) || USE(SOUP)
+    String sourceApplicationBundleIdentifier;
+#endif
 #if PLATFORM(COCOA)
     RetainPtr<CFDictionaryRef> proxyConfiguration;
-    String sourceApplicationBundleIdentifier;
     String sourceApplicationSecondaryIdentifier;
     bool shouldLogCookieInformation { false };
     URL httpProxy;

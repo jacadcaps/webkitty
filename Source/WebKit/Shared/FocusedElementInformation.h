@@ -25,7 +25,6 @@
 
 #pragma once
 
-#include "ArgumentCoders.h"
 #include "ColorControlSupportsAlpha.h"
 #include "FrameInfoData.h"
 #include "IdentifierTypes.h"

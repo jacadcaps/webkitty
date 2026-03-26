@@ -48,6 +48,7 @@ class SecurityOrigin;
 namespace WebCore {
 class RegistrableDomain;
 struct OrganizationStorageAccessPromptQuirk;
+struct XRCanvasConfiguration;
 }
 
 namespace WebKit {
@@ -120,7 +121,7 @@ private:
         bool focusFromServiceWorker(WebKit::WebPageProxy&) final;
         bool runOpenPanel(WebPageProxy&, WebFrameProxy*, FrameInfoData&&, API::OpenPanelParameters*, WebOpenPanelResultListenerProxy*) final;
 #if PLATFORM(MAC) || HAVE(UIKIT_WITH_MOUSE_SUPPORT)
-        void mouseDidMoveOverElement(WebPageProxy&, const WebHitTestResultData&, OptionSet<WebEventModifier>, API::Object*);
+        void mouseDidMoveOverElement(WebPageProxy&, const WebHitTestResultData&, OptionSet<WebEventModifier>);
 #endif
 
 #if PLATFORM(MAC)
@@ -143,7 +144,6 @@ private:
         void drawFooter(WebPageProxy&, WebFrameProxy&, WebCore::FloatRect&&) final;
 
         void didClickAutoFillButton(WebPageProxy&, API::Object*) final;
-        void toolbarsAreVisible(WebPageProxy&, Function<void(bool)>&&) final;
         void saveDataToFileInDownloadsFolder(WebPageProxy*, const WTF::String&, const WTF::String&, const URL&, API::Data&) final;
         Ref<API::InspectorConfiguration> configurationForLocalInspector(WebPageProxy&, WebInspectorUIProxy&) final;
         void didAttachLocalInspector(WebPageProxy&, WebInspectorUIProxy&) final;
@@ -190,11 +190,13 @@ private:
         void didEnableInspectorBrowserDomain(WebPageProxy&) final;
         void didDisableInspectorBrowserDomain(WebPageProxy&) final;
 
+        void addMessageToConsoleForTesting(WebPageProxy&, String&&) final;
+
 #if ENABLE(WEBXR)
         void requestPermissionOnXRSessionFeatures(WebPageProxy&, const WebCore::SecurityOriginData&, PlatformXR::SessionMode, const PlatformXR::Device::FeatureList& /* granted */, const PlatformXR::Device::FeatureList& /* consentRequired */, const PlatformXR::Device::FeatureList& /* consentOptional */, const PlatformXR::Device::FeatureList& /* requiredFeaturesRequested */, const PlatformXR::Device::FeatureList& /* optionalFeaturesRequested */, CompletionHandler<void(std::optional<PlatformXR::Device::FeatureList>&&)>&&) final;
         void supportedXRSessionFeatures(PlatformXR::Device::FeatureList&, PlatformXR::Device::FeatureList&) final;
 #if PLATFORM(IOS_FAMILY)
-        void startXRSession(WebPageProxy&, const PlatformXR::Device::FeatureList&, CompletionHandler<void(RetainPtr<id>, PlatformViewController *)>&&) final;
+        void startXRSession(WebPageProxy&, const PlatformXR::Device::FeatureList&, std::optional<WebCore::XRCanvasConfiguration>&&, CompletionHandler<void(RetainPtr<id>, PlatformViewController *)>&&) final;
         void endXRSession(WebPageProxy&, PlatformXRSessionEndReason) final;
 #endif
 #endif
@@ -213,7 +215,12 @@ private:
         void didExitStandby(WebPageProxy&) final;
 #endif
 
+#if PLATFORM(VISION)
+        void willPresentModalUI(WebPageProxy&) final;
+#endif
+
         id<WKUIDelegatePrivate> uiDelegatePrivate();
+        RetainPtr<id<WKUIDelegatePrivate>> protectedUIDelegatePrivate();
 
         WeakPtr<UIDelegate> m_uiDelegate;
     };
@@ -256,7 +263,6 @@ private:
         bool webViewDrawHeaderInRectForPageWithTitleURL : 1;
         bool webViewDrawFooterInRectForPageWithTitleURL : 1;
         bool webViewGetWindowFrameWithCompletionHandler : 1;
-        bool webViewGetToolbarsAreVisibleWithCompletionHandler : 1;
         bool webViewSaveDataToFileSuggestedFilenameMimeTypeOriginatingURL : 1;
         bool webViewConfigurationForLocalInspector : 1;
         bool webViewDidAttachLocalInspector : 1;
@@ -271,7 +277,6 @@ private:
         bool webViewLockScreenOrientation : 1;
         bool webViewUnlockScreenOrientation : 1;
 #endif
-        bool webViewDecideWebApplicationCacheQuotaForSecurityOriginCurrentQuotaTotalBytesNeeded : 1;
         bool webViewPrintFrame : 1;
         bool webViewPrintFramePDFFirstPageSizeCompletionHandler : 1;
         bool webViewDidClose : 1;
@@ -332,6 +337,10 @@ private:
 #if PLATFORM(IOS_FAMILY)
         bool webViewDidEnterStandby : 1;
         bool webViewDidExitStandby : 1;
+#endif
+
+#if PLATFORM(VISION)
+        bool webViewWillPresentModalUI : 1;
 #endif
     } m_delegateMethods;
 };

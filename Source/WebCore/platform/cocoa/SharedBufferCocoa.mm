@@ -98,7 +98,7 @@ Ref<SharedBuffer> SharedBuffer::create(NSData *data)
     return adoptRef(*new SharedBuffer(bridge_cast(data)));
 }
 
-void FragmentedSharedBuffer::append(NSData *data)
+void SharedBufferBuilder::append(NSData *data)
 {
     return append(bridge_cast(data));
 }
@@ -128,7 +128,7 @@ RetainPtr<CMBlockBufferRef> FragmentedSharedBuffer::createCMBlockBuffer() const
         return adoptCF(partialBuffer);
     };
 
-    if (hasOneSegment() && !isEmpty())
+    if (isContiguous() && !isEmpty())
         return segmentToCMBlockBuffer(m_segments[0].segment);
 
     CMBlockBufferRef rawBlockBuffer = nullptr;

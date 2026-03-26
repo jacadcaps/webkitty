@@ -54,22 +54,29 @@
 - (void)doNotCallCompletionHandler:(void (^)())completionHandler;
 - (void)sendRequest:(NSURLRequest *)request response:(NSURLResponse *)response challenge:(NSURLAuthenticationChallenge *)challenge error:(NSError *)error nsNull:(id)nsNull uuid:(id)uuid completionHandler:(void (^)(NSURLRequest *, NSURLResponse *, NSURLAuthenticationChallenge *, NSError *, id, id))completionHandler;
 - (void)callUIProcessMethodWithReplyBlock;
+- (void)callUIProcessMethodWithInvalidTypeSignature;
 - (void)sendError:(NSError *)error completionHandler:(void (^)(NSError *))completionHandler;
 - (void)sendAwakener:(TestAwakener *)awakener completionHandler:(void (^)(TestAwakener *))completionHandler;
 - (void)getGroupIdentifier:(void(^)(NSString *))completionHandler;
 
 @end
 
-@protocol LocalObjectProtocol <NSObject>
-
-- (void)doSomethingWithCompletionHandler:(void (^)(void))completionHandler;
-
-@end
-
 @protocol StringReplyObjectProtocol
 
 - (void)methodWithInteger:(uint64_t)integer;
-- (void)methodWithCompletionHandler:(void (^)(id, NSString *))completionHandler;
+- (void)methodWithCompletionHandler:(void (^)(id, NSString *)) completionHandler;
+
+@end
+
+@protocol IntegerReplyObjectProtocol
+
+- (void)methodWithCompletionHandler:(void (^)(uint64_t, uint64_t, uint64_t, uint64_t)) completionHandler;
+
+@end
+
+@protocol LocalObjectProtocol <NSObject>
+
+- (void)doSomethingWithCompletionHandler:(void (^)(void))completionHandler;
 
 @end
 
@@ -92,5 +99,11 @@ static inline _WKRemoteObjectInterface *localObjectInterface()
 static inline _WKRemoteObjectInterface *stringReplyObjectInterface()
 {
     _WKRemoteObjectInterface *interface = [_WKRemoteObjectInterface remoteObjectInterfaceWithProtocol:@protocol(StringReplyObjectProtocol)];
+    return interface;
+}
+
+static inline _WKRemoteObjectInterface *integerReplyObjectInterface()
+{
+    _WKRemoteObjectInterface *interface = [_WKRemoteObjectInterface remoteObjectInterfaceWithProtocol:@protocol(IntegerReplyObjectProtocol)];
     return interface;
 }

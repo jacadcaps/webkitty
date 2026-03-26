@@ -258,7 +258,7 @@ double PageLoadState::estimatedProgress() const
 void PageLoadState::setPendingAPIRequest(const Transaction::Token& token, PendingAPIRequest&& pendingAPIRequest, const URL& resourceDirectoryURL)
 {
     ASSERT_UNUSED(token, &token.m_pageLoadState == this);
-    m_uncommittedState.pendingAPIRequest = WTFMove(pendingAPIRequest);
+    m_uncommittedState.pendingAPIRequest = WTF::move(pendingAPIRequest);
     m_uncommittedState.resourceDirectoryURL = resourceDirectoryURL;
 }
 
@@ -353,13 +353,6 @@ void PageLoadState::didSameDocumentNavigation(const Transaction::Token& token, c
     m_uncommittedState.url = url;
 }
 
-void PageLoadState::didDisplayOrRunInsecureContent(const Transaction::Token& token)
-{
-    ASSERT_UNUSED(token, &token.m_pageLoadState == this);
-
-    m_uncommittedState.hasInsecureContent = true;
-}
-
 void PageLoadState::setUnreachableURL(const Transaction::Token& token, const String& unreachableURL)
 {
     ASSERT_UNUSED(token, &token.m_pageLoadState == this);
@@ -379,7 +372,7 @@ const String& PageLoadState::title() const
 void PageLoadState::setTitle(const Transaction::Token& token, String&& title)
 {
     ASSERT_UNUSED(token, &token.m_pageLoadState == this);
-    m_uncommittedState.title = WTFMove(title);
+    m_uncommittedState.title = WTF::move(title);
 }
 
 void PageLoadState::setTitleFromBrowsingWarning(const Transaction::Token& token, const String& title)

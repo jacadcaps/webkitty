@@ -115,10 +115,10 @@ protected:
         paint.setAntiAlias(true);
         SkSamplingOptions sampling(SkFilterMode::kLinear);
 
-        canvas->drawAtlas(atlas.get(), xform, tex, nullptr, N, SkBlendMode::kDst,
+        canvas->drawAtlas(atlas.get(), xform, tex, {}, SkBlendMode::kDst,
                           sampling, nullptr, &paint);
         canvas->translate(0, 100);
-        canvas->drawAtlas(atlas.get(), xform, tex, colors, N, SkBlendMode::kSrcIn,
+        canvas->drawAtlas(atlas.get(), xform, tex, colors, SkBlendMode::kSrcIn,
                           sampling, nullptr, &paint);
     }
 
@@ -134,7 +134,7 @@ static void draw_text_on_path(SkCanvas* canvas, const void* text, size_t length,
                               float baseline_offset) {
     SkPathMeasure meas(path, false);
 
-    int count = font.countText(text, length, SkTextEncoding::kUTF8);
+    size_t count = font.countText(text, length, SkTextEncoding::kUTF8);
     size_t size = count * (sizeof(SkRSXform) + sizeof(SkScalar));
     SkAutoSMalloc<512> storage(size);
     SkRSXform* xform = (SkRSXform*)storage.get();
@@ -150,7 +150,7 @@ static void draw_text_on_path(SkCanvas* canvas, const void* text, size_t length,
     font.textToGlyphs(text, length, SkTextEncoding::kUTF8, glyphs);
     font.getWidths(glyphs, {widths, count});
 
-    for (int i = 0; i < count; ++i) {
+    for (size_t i = 0; i < count; ++i) {
         // we want to position each character on the center of its advance
         const SkScalar offset = SkScalarHalf(widths[i]);
         SkPoint pos;
@@ -178,9 +178,9 @@ static void draw_text_on_path(SkCanvas* canvas, const void* text, size_t length,
 }
 
 static sk_sp<SkShader> make_shader() {
-    SkPoint pts[2] = {{0, 0}, {220, 0}};
-    SkColor colors[2] = {SK_ColorRED, SK_ColorBLUE};
-    return SkGradientShader::MakeLinear(pts, colors, nullptr, 2, SkTileMode::kMirror);
+    const SkPoint pts[2] = {{0, 0}, {220, 0}};
+    const SkColor4f colors[2] = {SkColors::kRed, SkColors::kBlue};
+    return SkShaders::LinearGradient(pts, {{colors, {}, SkTileMode::kMirror}, {}});
 }
 
 static void drawTextPath(SkCanvas* canvas, bool doStroke) {
@@ -213,8 +213,7 @@ static void drawTextPath(SkCanvas* canvas, bool doStroke) {
         SkPathDirection::kCW, SkPathDirection::kCCW,
     };
     for (auto d : dirs) {
-        path.reset();
-        path.addOval(SkRect::MakeXYWH(160, 160, 540, 540), d);
+        path = SkPath::Oval(SkRect::MakeXYWH(160, 160, 540, 540), d);
         draw_text_on_path(canvas, text0, N, pos, path, font, paint, baseline_offset);
     }
 
@@ -302,11 +301,10 @@ DEF_SIMPLE_GM(blob_rsxform_distortable, canvas, 500, 100) {
 
 static sk_sp<SkVertices> make_vertices(sk_sp<SkImage> image, const SkRect& r,
                                        SkColor color) {
-    SkPoint pos[4];
-    r.toQuad(pos);
+    const std::array<SkPoint, 4> pos = r.toQuad();
     SkColor colors[4] = { color, color, color, color };
     return SkVertices::MakeCopy(SkVertices::kTriangleFan_VertexMode, 4,
-                                pos, pos, colors);
+                                pos.data(), pos.data(), colors);
 }
 
 /*
@@ -344,7 +342,7 @@ DEF_SIMPLE_GM(compare_atlas_vertices, canvas, 560, 585) {
             canvas->save();
             for (const sk_sp<SkColorFilter>& cf : filters) {
                 paint.setColorFilter(cf);
-                canvas->drawAtlas(image.get(), &xform, &tex, &color, 1, mode,
+                canvas->drawAtlas(image.get(), {&xform, 1}, {&tex, 1}, {&color, 1}, mode,
                                   SkSamplingOptions(), &tex, &paint);
                 canvas->translate(128, 0);
                 paint.setShader(image->makeShader(SkSamplingOptions()));

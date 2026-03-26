@@ -27,15 +27,39 @@
 
 #if ENABLE(WEBGL)
 
-#include "GraphicsTypesGL.h"
-#include <wtf/text/WTFString.h>
+#include <WebCore/GraphicsTypesGL.h>
+#include <wtf/Vector.h>
+#include <wtf/text/CString.h>
 
 namespace WebCore {
 
-struct GraphicsContextGLActiveInfo {
-    String name;
+class GCGLUniformActiveInfo {
+public:
+    CString name;
+    GCGLenum type { 0 };
+    int size { -1 };
+    // WebGL2 properties.
+    int blockIndex { -1 };
+    int offset { -1 };
+    int arrayStride { -1 };
+    int matrixStride { -1 };
+    int isRowMajor { -1 };
+    // For default block uniforms.
+    Vector<int> locations;
+};
+
+class GCGLAttribActiveInfo {
+public:
+    CString name;
     GCGLenum type;
-    GCGLint size;
+    int location;
+};
+
+class GCGLTransformFeedbackActiveInfo {
+public:
+    CString name;
+    GCGLenum type;
+    int size { 0 };
 };
 
 } // namespace WebCore

@@ -36,7 +36,9 @@
 #include <WebCore/ShareableResource.h>
 #include <pal/SessionID.h>
 #include <wtf/CompletionHandler.h>
+#include <wtf/CrossThreadCopier.h>
 #include <wtf/Hasher.h>
+#include <wtf/Markable.h>
 #include <wtf/OptionSet.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/Seconds.h>
@@ -59,6 +61,8 @@ struct GlobalFrameID {
     WebPageProxyIdentifier webPageProxyID;
     WebCore::PageIdentifier webPageID;
     WebCore::FrameIdentifier frameID;
+
+    static constexpr bool safeToCompareToHashTableEmptyOrDeletedValue = true;
 };
 
 inline void add(Hasher& hasher, const GlobalFrameID& identifier)
@@ -78,12 +82,6 @@ inline bool operator==(const GlobalFrameID& a, const GlobalFrameID& b)
 
 namespace WTF {
 
-struct GlobalFrameIDHash {
-    static unsigned hash(const WebKit::NetworkCache::GlobalFrameID& key) { return computeHash(key); }
-    static bool equal(const WebKit::NetworkCache::GlobalFrameID& a, const WebKit::NetworkCache::GlobalFrameID& b) { return a == b; }
-    static const bool safeToCompareToEmptyOrDeleted = true;
-};
-
 template<> struct HashTraits<WebKit::NetworkCache::GlobalFrameID> : GenericHashTraits<WebKit::NetworkCache::GlobalFrameID> {
     static WebKit::NetworkCache::GlobalFrameID emptyValue() { return { HashTraits<WebKit::WebPageProxyIdentifier>::emptyValue(), HashTraits<WebCore::PageIdentifier>::emptyValue(), HashTraits<WebCore::FrameIdentifier>::emptyValue() }; }
     static bool isEmptyValue(const WebKit::NetworkCache::GlobalFrameID& slot) { return slot.webPageID.isHashTableEmptyValue(); }
@@ -92,8 +90,6 @@ template<> struct HashTraits<WebKit::NetworkCache::GlobalFrameID> : GenericHashT
 
     static bool isDeletedValue(const WebKit::NetworkCache::GlobalFrameID& slot) { return slot.webPageID.isHashTableDeletedValue(); }
 };
-
-template<> struct DefaultHash<WebKit::NetworkCache::GlobalFrameID> : GlobalFrameIDHash { };
 
 }
 
@@ -120,6 +116,12 @@ enum class RetrieveDecision {
     NoDueToConditionalRequest,
     NoDueToReloadIgnoringCache,
     NoDueToStreamingMedia
+};
+
+enum class SpeculativeLoadDecision {
+    Yes,
+    NoDueToVaryingHeaderMismatch,
+    NoDueToCannotUse,
 };
 
 enum class StoreDecision {
@@ -162,13 +164,38 @@ public:
 
     // Completion handler may get called back synchronously on failure.
     struct RetrieveInfo {
+        WTF_MAKE_STRUCT_TZONE_ALLOCATED(RetrieveInfo);
+
+        URL url;
         MonotonicTime startTime;
         MonotonicTime completionTime;
         unsigned priority;
         Storage::Timings storageTimings;
-        bool wasSpeculativeLoad { false };
+        Markable<RetrieveDecision> retrieveDecision;
+        Markable<SpeculativeLoadDecision> speculativeLoadDecision;
+        Markable<UseDecision> useDecision;
 
-        WTF_MAKE_TZONE_ALLOCATED(RetrieveInfo);
+        RetrieveInfo isolatedCopy() && { return {
+            crossThreadCopy(WTF::move(url)),
+            startTime,
+            completionTime,
+            priority,
+            storageTimings,
+            retrieveDecision,
+            speculativeLoadDecision,
+            useDecision
+        }; }
+
+        RetrieveInfo isolatedCopy() const & { return {
+            crossThreadCopy(url),
+            startTime,
+            completionTime,
+            priority,
+            storageTimings,
+            retrieveDecision,
+            speculativeLoadDecision,
+            useDecision
+        }; }
     };
     using RetrieveCompletionHandler = Function<void(std::unique_ptr<Entry>, const RetrieveInfo&)>;
     void retrieve(const WebCore::ResourceRequest&, std::optional<GlobalFrameID>, std::optional<NavigatingToAppBoundDomain>, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections>, RetrieveCompletionHandler&&);

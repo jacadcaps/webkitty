@@ -30,7 +30,7 @@
 
 #import "PDFAnnotationTypeHelpers.h"
 #import "PDFKitSPI.h"
-#import <WebCore/AddEventListenerOptions.h>
+#import <WebCore/AddEventListenerOptionsInlines.h>
 #import <WebCore/CSSPrimitiveValue.h>
 #import <WebCore/CSSPropertyNames.h>
 #import <WebCore/ColorCocoa.h>
@@ -106,12 +106,12 @@ void PDFPluginTextAnnotation::updateGeometry()
     PDFPluginAnnotation::updateGeometry();
 
     Ref styledElement = downcast<StyledElement>(*element());
-    styledElement->setInlineStyleProperty(CSSPropertyFontSize, annotation().font.pointSize * plugin()->contentScaleFactor(), CSSUnitType::CSS_PX);
+    styledElement->setInlineStyleProperty(CSSPropertyFontSize, protectedAnnotation().get().font.pointSize * plugin()->contentScaleFactor(), CSSUnitType::CSS_PX);
 }
 
 void PDFPluginTextAnnotation::commit()
 {
-    annotation().widgetStringValue = value().createNSString().get();
+    protectedAnnotation().get().widgetStringValue = value().createNSString().get();
     PDFPluginAnnotation::commit();
 }
 

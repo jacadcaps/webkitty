@@ -73,6 +73,9 @@
 #include <@API_INCLUDE_PREFIX@/WebKitGeolocationManager.h>
 #include <@API_INCLUDE_PREFIX@/WebKitGeolocationPermissionRequest.h>
 #include <@API_INCLUDE_PREFIX@/WebKitHitTestResult.h>
+#if PLATFORM(WPE) && ENABLE(2022_GLIB_API)
+#include <@API_INCLUDE_PREFIX@/WebKitImage.h>
+#endif
 #include <@API_INCLUDE_PREFIX@/WebKitInputMethodContext.h>
 #include <@API_INCLUDE_PREFIX@/WebKitInstallMissingMediaPluginsPermissionRequest.h>
 #if !ENABLE(2022_GLIB_API)
@@ -122,7 +125,8 @@
 #include <@API_INCLUDE_PREFIX@/WebKitUserMessage.h>
 #include <@API_INCLUDE_PREFIX@/WebKitVersion.h>
 #include <@API_INCLUDE_PREFIX@/WebKitWebContext.h>
-#if PLATFORM(GTK)
+#if ENABLE(2022_GLIB_API)
+#include <@API_INCLUDE_PREFIX@/WebKitWebExtension.h>
 #include <@API_INCLUDE_PREFIX@/WebKitWebExtensionMatchPattern.h>
 #endif
 #if PLATFORM(GTK)
@@ -130,7 +134,7 @@
 #endif
 #include <@API_INCLUDE_PREFIX@/WebKitWebResource.h>
 #include <@API_INCLUDE_PREFIX@/WebKitWebView.h>
-#if PLATFORM(WPE)
+#if PLATFORM(WPE) && USE(LIBWPE)
 #include <wpe/WebKitWebViewBackend.h>
 #endif
 #if PLATFORM(GTK)
@@ -141,6 +145,7 @@
 #include <@API_INCLUDE_PREFIX@/WebKitWebsiteDataAccessPermissionRequest.h>
 #include <@API_INCLUDE_PREFIX@/WebKitWebsiteDataManager.h>
 #include <@API_INCLUDE_PREFIX@/WebKitWindowProperties.h>
+#include <@API_INCLUDE_PREFIX@/WebKitXRPermissionRequest.h>
 
 #include <@API_INCLUDE_PREFIX@/WebKitAutocleanups.h>
 

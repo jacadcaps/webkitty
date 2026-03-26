@@ -25,7 +25,8 @@
 
 #pragma once
 
-#include "ScrollbarThemeComposite.h"
+#include <WebCore/ScrollbarThemeComposite.h>
+#include <wtf/Platform.h>
 
 #if PLATFORM(MAC)
 
@@ -45,7 +46,7 @@ public:
     bool paint(Scrollbar&, GraphicsContext&, const IntRect& damageRect) override;
     void paintScrollCorner(ScrollableArea&, GraphicsContext&, const IntRect& cornerRect) override;
 
-    int scrollbarThickness(ScrollbarWidth = ScrollbarWidth::Auto, ScrollbarExpansionState = ScrollbarExpansionState::Expanded, OverlayScrollbarSizeRelevancy = OverlayScrollbarSizeRelevancy::IncludeOverlayScrollbarSize) override;
+    int scrollbarThickness(ScrollbarWidth = ScrollbarWidth::Auto, OverlayScrollbarSizeRelevancy = OverlayScrollbarSizeRelevancy::IncludeOverlayScrollbarSize) override;
     
     bool supportsControlTints() const override { return true; }
     bool usesOverlayScrollbars() const  override;
@@ -61,6 +62,7 @@ public:
     void unregisterScrollbar(Scrollbar&) override;
 
     static NSScrollerImp *scrollerImpForScrollbar(Scrollbar&);
+    static RetainPtr<NSScrollerImp> protectedScrollerImpForScrollbar(Scrollbar&);
 
     void setPaintCharacteristicsForScrollbar(Scrollbar&);
 

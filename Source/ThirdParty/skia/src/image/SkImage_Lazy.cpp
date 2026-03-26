@@ -178,7 +178,7 @@ bool SkImage_Lazy::onReadPixels(GrDirectContext* dContext,
     return false;
 }
 
-sk_sp<SkData> SkImage_Lazy::onRefEncoded() const {
+sk_sp<const SkData> SkImage_Lazy::onRefEncoded() const {
     // check that we aren't a subset or colortype/etc modification of the original
     if (fSharedGenerator->fGenerator->uniqueID() == this->uniqueID()) {
         ScopedGenerator generator(fSharedGenerator);
@@ -187,24 +187,12 @@ sk_sp<SkData> SkImage_Lazy::onRefEncoded() const {
     return nullptr;
 }
 
-bool SkImage_Lazy::isValid(GrRecordingContext* context) const {
-    ScopedGenerator generator(fSharedGenerator);
-    return generator->isValid(context);
-}
-
 bool SkImage_Lazy::isValid(SkRecorder* recorder) const {
     ScopedGenerator generator(fSharedGenerator);
     return generator->isValid(recorder);
 }
 
-sk_sp<SkImage> SkImage_Lazy::onMakeSubset(GrDirectContext*, const SkIRect& subset) const {
-    // neither picture-backed nor codec-backed lazy images need the context to do readbacks.
-    // The subclass for cross-context images *does* use the direct context.
-    auto pixels = this->makeRasterImage(nullptr);
-    return pixels ? pixels->makeSubset(nullptr, subset) : nullptr;
-}
-
-sk_sp<SkImage> SkImage_Lazy::onMakeSubset(skgpu::graphite::Recorder*,
+sk_sp<SkImage> SkImage_Lazy::onMakeSubset(SkRecorder*,
                                           const SkIRect& subset,
                                           RequiredProperties props) const {
     // TODO: can we do this more efficiently, by telling the generator we want to
@@ -226,16 +214,18 @@ sk_sp<SkSurface> SkImage_Lazy::onMakeSurface(SkRecorder* recorder, const SkImage
     return recorder->cpuRecorder()->makeBitmapSurface(info, rowBytes, props);
 }
 
-sk_sp<SkImage> SkImage_Lazy::onMakeColorTypeAndColorSpace(SkColorType targetCT,
-                                                          sk_sp<SkColorSpace> targetCS,
-                                                          GrDirectContext*) const {
+sk_sp<SkImage> SkImage_Lazy::makeColorTypeAndColorSpace(SkRecorder*,
+                                                        SkColorType targetColorType,
+                                                        sk_sp<SkColorSpace> targetColorSpace,
+                                                        RequiredProperties) const {
     SkAutoMutexExclusive autoAquire(fOnMakeColorTypeAndSpaceMutex);
     if (fOnMakeColorTypeAndSpaceResult &&
-        targetCT == fOnMakeColorTypeAndSpaceResult->colorType() &&
-        SkColorSpace::Equals(targetCS.get(), fOnMakeColorTypeAndSpaceResult->colorSpace())) {
+        targetColorType == fOnMakeColorTypeAndSpaceResult->colorType() &&
+        SkColorSpace::Equals(targetColorSpace.get(),
+                             fOnMakeColorTypeAndSpaceResult->colorSpace())) {
         return fOnMakeColorTypeAndSpaceResult;
     }
-    Validator validator(fSharedGenerator, &targetCT, targetCS);
+    Validator validator(fSharedGenerator, &targetColorType, targetColorSpace);
     sk_sp<SkImage> result = validator ? sk_sp<SkImage>(new SkImage_Lazy(&validator)) : nullptr;
     if (result) {
         fOnMakeColorTypeAndSpaceResult = result;

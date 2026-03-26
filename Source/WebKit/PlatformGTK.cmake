@@ -52,6 +52,11 @@ list(APPEND WebKit_UNIFIED_SOURCE_LIST_FILES
     "SourcesGTK.txt"
 )
 
+list(APPEND WebKit_LIBRARIES
+    GLib::GioUnix
+    GLib::Module
+)
+
 list(APPEND WebKit_MESSAGES_IN_FILES
     UIProcess/ViewGestureController
 
@@ -73,8 +78,9 @@ endif ()
 
 list(APPEND WebKit_SERIALIZATION_IN_FILES
     Shared/glib/AvailableInputDevices.serialization.in
-    Shared/glib/RendererBufferFormat.serialization.in
     Shared/glib/InputMethodState.serialization.in
+    Shared/glib/RenderProcessInfo.serialization.in
+    Shared/glib/RendererBufferFormat.serialization.in
     Shared/glib/RendererBufferTransportMode.serialization.in
     Shared/glib/SelectionData.serialization.in
     Shared/glib/SystemSettings.serialization.in
@@ -124,6 +130,10 @@ add_custom_command(
     VERBATIM
 )
 
+list(APPEND WebKit_PUBLIC_FRAMEWORK_HEADERS
+    UIProcess/gtk/GtkVersioning.h
+)
+
 if (USE_GTK4)
     set(GTK_API_VERSION 4)
     set(GTK_PKGCONFIG_PACKAGE gtk4)
@@ -159,6 +169,7 @@ set(WebKitGTK_HEADER_TEMPLATES
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitGeolocationManager.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitGeolocationPermissionRequest.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitHitTestResult.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitImage.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitInputMethodContext.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitInstallMissingMediaPluginsPermissionRequest.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitMediaKeySystemPermissionRequest.h.in
@@ -189,7 +200,6 @@ set(WebKitGTK_HEADER_TEMPLATES
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitUserMediaPermissionRequest.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitUserMessage.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWebContext.h.in
-    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWebExtensionMatchPattern.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWebResource.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWebView.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWebViewSessionState.h.in
@@ -198,6 +208,7 @@ set(WebKitGTK_HEADER_TEMPLATES
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWebsiteDataManager.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWindowProperties.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWebsitePolicies.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitXRPermissionRequest.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/webkit.h.in
     ${WEBKIT_DIR}/UIProcess/API/gtk/WebKitColorChooserRequest.h.in
     ${WEBKIT_DIR}/UIProcess/API/gtk/WebKitPointerLockPermissionRequest.h.in
@@ -209,6 +220,17 @@ set(WebKitGTK_HEADER_TEMPLATES
 if (ENABLE_2022_GLIB_API)
     list(APPEND WebKitGTK_HEADER_TEMPLATES
         ${WEBKIT_DIR}/UIProcess/API/glib/WebKitNetworkSession.h.in
+    )
+endif ()
+
+if (ENABLE_2022_GLIB_API)
+    list(APPEND WebKitGTK_HEADER_TEMPLATES
+        ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWebExtensionMatchPattern.h.in
+        ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWebExtension.h.in
+    )
+    list(APPEND WebKit_SOURCES
+        ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWebExtensionMatchPattern.cpp
+        ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWebExtension.cpp
     )
 endif ()
 
@@ -273,9 +295,10 @@ list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
 )
 
 list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
+    "${WEBCORE_DIR}/Modules/mediastream"
     "${WEBKIT_DIR}/NetworkProcess/glib"
-    "${WEBKIT_DIR}/NetworkProcess/gtk"
     "${WEBKIT_DIR}/NetworkProcess/soup"
+    "${WEBKIT_DIR}/NetworkProcess/webrtc/rice"
     "${WEBKIT_DIR}/Platform/IPC/glib"
     "${WEBKIT_DIR}/Platform/IPC/unix"
     "${WEBKIT_DIR}/Platform/classifier"
@@ -305,6 +328,7 @@ list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/WebProcess/InjectedBundle/API/glib"
     "${WEBKIT_DIR}/WebProcess/InjectedBundle/API/gtk"
     "${WEBKIT_DIR}/WebProcess/Inspector/gtk"
+    "${WEBKIT_DIR}/WebProcess/Network/webrtc/rice"
     "${WEBKIT_DIR}/WebProcess/glib"
     "${WEBKIT_DIR}/WebProcess/gtk"
     "${WEBKIT_DIR}/WebProcess/soup"
@@ -315,13 +339,8 @@ list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
 )
 
 list(APPEND WebKit_SYSTEM_INCLUDE_DIRECTORIES
-    ${ENCHANT_INCLUDE_DIRS}
-    ${GIO_UNIX_INCLUDE_DIRS}
-    ${GLIB_INCLUDE_DIRS}
     ${GSTREAMER_INCLUDE_DIRS}
     ${GSTREAMER_PBUTILS_INCLUDE_DIRS}
-    ${GTK_INCLUDE_DIRS}
-    ${LIBSOUP_INCLUDE_DIRS}
 )
 
 list(APPEND WebKit_INTERFACE_INCLUDE_DIRECTORIES
@@ -405,6 +424,8 @@ GENERATE_GLIB_API_HEADERS(WebKit WebKitWebProcessExtension_HEADER_TEMPLATES
     "-DENABLE_2022_GLIB_API=$<BOOL:${ENABLE_2022_GLIB_API}>"
 )
 
+list(REMOVE_ITEM WebKitGTK_INSTALLED_HEADERS ${WebKitGTK_DERIVED_SOURCES_DIR}/webkit/WebKitImage.h)
+
 if (NOT USE_GTK4)
     list(REMOVE_ITEM WebKitGTK_INSTALLED_HEADERS ${WebKitGTK_DERIVED_SOURCES_DIR}/webkit/webkit.h)
     list(REMOVE_ITEM WebKitWebProcessExtension_INSTALLED_HEADERS ${WebKitGTK_DERIVED_SOURCES_DIR}/webkit/webkit-web-process-extension.h)
@@ -455,13 +476,14 @@ WEBKIT_BUILD_INSPECTOR_GRESOURCES(
 )
 
 set(WebKitResources "")
-list(APPEND WebKitResources "<file alias=\"css/gtk-theme.css\">gtk-theme.css</file>\n")
-list(APPEND WebKitResources "<file alias=\"images/missingImage\">missingImage.png</file>\n")
-list(APPEND WebKitResources "<file alias=\"images/missingImage@2x\">missingImage@2x.png</file>\n")
-list(APPEND WebKitResources "<file alias=\"images/missingImage@3x\">missingImage@3x.png</file>\n")
-list(APPEND WebKitResources "<file alias=\"images/panIcon\">panIcon.png</file>\n")
-list(APPEND WebKitResources "<file alias=\"images/textAreaResizeCorner\">textAreaResizeCorner.png</file>\n")
-list(APPEND WebKitResources "<file alias=\"images/textAreaResizeCorner@2x\">textAreaResizeCorner@2x.png</file>\n")
+list(APPEND WebKitResources "        <file alias='css/gtk-theme.css'>gtk-theme.css</file>\n"
+  "        <file alias='images/missingImage@2x'>missingImage@2x.png</file>\n"
+  "        <file alias='images/missingImage@3x'>missingImage@3x.png</file>\n"
+  "        <file alias='images/missingImage'>missingImage.png</file>\n"
+  "        <file alias='images/panIcon'>panIcon.png</file>\n"
+  "        <file alias='images/textAreaResizeCorner@2x'>textAreaResizeCorner@2x.png</file>\n"
+  "        <file alias='images/textAreaResizeCorner'>textAreaResizeCorner.png</file>\n"
+)
 
 if (ENABLE_WEB_AUDIO)
     list(APPEND WebKitResources
@@ -592,7 +614,7 @@ GI_INTROSPECT(WebKit${WEBKITGTK_API_INFIX} ${WEBKITGTK_API_VERSION} webkit${WEBK
     DEPENDENCIES
         JavaScriptCore
         Gtk-${GTK_API_VERSION}.0:${GTK_PKGCONFIG_PACKAGE}
-        Soup-${SOUP_API_VERSION}:libsoup-${SOUP_API_VERSION}
+        Soup-3.0:libsoup-3.0
     SOURCES
         ${WebKitGTK_INSTALLED_HEADERS}
         ${WEBKITGTK_SOURCES_FOR_INTROSPECTION}
@@ -628,7 +650,7 @@ GI_INTROSPECT(${WEBKITGTK_WEB_PROCESS_EXTENSION_API_NAME} ${WEBKITGTK_API_VERSIO
     DEPENDENCIES
         JavaScriptCore
         Gtk-${GTK_API_VERSION}.0:${GTK_PKGCONFIG_PACKAGE}
-        Soup-${SOUP_API_VERSION}:libsoup-${SOUP_API_VERSION}
+        Soup-3.0:libsoup-3.0
     SOURCES
         ${WebKitDOM_SOURCES_FOR_INTROSPECTION}
         ${WebKitWebProcessExtension_INSTALLED_HEADERS}

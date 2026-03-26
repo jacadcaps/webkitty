@@ -23,7 +23,8 @@
 */
 
 [
-    ImplementedAs=CryptoAlgorithmAesCtrParams
+    ImplementedAs=CryptoAlgorithmAesCtrParams,
+    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary AesCtrParams : CryptoAlgorithmParameters {
     // The initial value of the counter block. counter MUST be 16 bytes
     // (the AES block size). The counter bits are the rightmost length

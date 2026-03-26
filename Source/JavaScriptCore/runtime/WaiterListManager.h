@@ -24,8 +24,8 @@
  */
 #pragma once
 
-#include "DeferredWorkTimer.h"
-#include "JSPromise.h"
+#include <JavaScriptCore/DeferredWorkTimer.h>
+#include <JavaScriptCore/JSPromise.h>
 #include <wtf/Condition.h>
 #include <wtf/HashMap.h>
 #include <wtf/Lock.h>
@@ -75,7 +75,7 @@ public:
     void setTimer(const AbstractLocker&, Ref<RunLoop::DispatchTimer>&& timer)
     {
         ASSERT(m_isAsync);
-        m_timer = WTFMove(timer);
+        m_timer = WTF::move(timer);
     }
 
     bool hasTimer(const AbstractLocker&)

@@ -28,11 +28,11 @@
 
 #if ENABLE(DRAG_SUPPORT) && !USE(GTK4)
 
+#include "GRefPtrGtk.h"
+#include "GtkUtilities.h"
 #include "SandboxExtension.h"
 #include "WebKitWebViewBasePrivate.h"
 #include <WebCore/DragData.h>
-#include <WebCore/GRefPtrGtk.h>
-#include <WebCore/GtkUtilities.h>
 #include <WebCore/PasteboardCustomData.h>
 #include <gtk/gtk.h>
 #include <wtf/glib/GUniquePtr.h>
@@ -148,7 +148,7 @@ void DropTarget::accept(GdkDragContext* drop, std::optional<WebCore::IntPoint> p
 
 void DropTarget::enter(IntPoint&& position, unsigned time)
 {
-    m_position = WTFMove(position);
+    m_position = WTF::move(position);
 
     auto* page = webkitWebViewBaseGetPage(WEBKIT_WEB_VIEW_BASE(m_webView));
     ASSERT(page);
@@ -163,7 +163,7 @@ void DropTarget::update(IntPoint&& position, unsigned time)
     if (m_dataRequestCount || !m_selectionData)
         return;
 
-    m_position = WTFMove(position);
+    m_position = WTF::move(position);
 
     auto* page = webkitWebViewBaseGetPage(WEBKIT_WEB_VIEW_BASE(m_webView));
     ASSERT(page);
@@ -225,7 +225,7 @@ void DropTarget::dataReceived(IntPoint&& position, GtkSelectionData* data, unsig
     if (--m_dataRequestCount)
         return;
 
-    enter(WTFMove(position), time);
+    enter(WTF::move(position), time);
 }
 
 void DropTarget::didPerformAction()

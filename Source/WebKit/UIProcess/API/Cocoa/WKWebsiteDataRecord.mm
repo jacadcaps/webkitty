@@ -57,6 +57,7 @@ NSString * const _WKWebsiteDataTypeAdClickAttributions = @"_WKWebsiteDataTypeAdC
 NSString * const _WKWebsiteDataTypePrivateClickMeasurements = @"_WKWebsiteDataTypePrivateClickMeasurements";
 NSString * const _WKWebsiteDataTypeAlternativeServices = @"_WKWebsiteDataTypeAlternativeServices";
 NSString * const _WKWebsiteDataTypeFileSystem = WKWebsiteDataTypeFileSystem;
+NSString* const _WKWebsiteDataTypeEnhancedSecurityRecord = @"_WKWebsiteDataTypeEnhancedSecurityRecord";
 
 @implementation WKWebsiteDataRecord
 
@@ -67,7 +68,7 @@ WK_OBJECT_DISABLE_DISABLE_KVC_IVAR_ACCESS;
     if (WebCoreObjCScheduleDeallocateOnMainRunLoop(WKWebsiteDataRecord.class, self))
         return;
 
-    _websiteDataRecord->API::WebsiteDataRecord::~WebsiteDataRecord();
+    SUPPRESS_UNRETAINED_ARG _websiteDataRecord->API::WebsiteDataRecord::~WebsiteDataRecord();
 
     [super dealloc];
 }
@@ -82,8 +83,6 @@ static NSString *dataTypesToString(NSSet *dataTypes)
         [array addObject:@"Fetch Cache"];
     if ([dataTypes containsObject:WKWebsiteDataTypeMemoryCache])
         [array addObject:@"Memory Cache"];
-    if ([dataTypes containsObject:WKWebsiteDataTypeOfflineWebApplicationCache])
-        [array addObject:@"Offline Web Application Cache"];
     if ([dataTypes containsObject:WKWebsiteDataTypeCookies])
         [array addObject:@"Cookies"];
     if ([dataTypes containsObject:WKWebsiteDataTypeSessionStorage])
@@ -118,16 +117,18 @@ static NSString *dataTypesToString(NSSet *dataTypes)
     if ([dataTypes containsObject:WKWebsiteDataTypeScreenTime])
         [array addObject:@"Screen Time"];
 #endif
+    if ([dataTypes containsObject:_WKWebsiteDataTypeEnhancedSecurityRecord])
+        [array addObject:@"Enhanced Security Record"];
 
     return [array componentsJoinedByString:@", "];
 }
 
 - (NSString *)description
 {
-    auto result = adoptNS([[NSMutableString alloc] initWithFormat:@"<%@: %p; displayName = %@; dataTypes = { %@ }", NSStringFromClass(self.class), self, self.displayName, dataTypesToString(self.dataTypes)]);
+    auto result = adoptNS([[NSMutableString alloc] initWithFormat:@"<%@: %p; displayName = %@; dataTypes = { %@ }", RetainPtr { NSStringFromClass(self.class) }.get(), self, self.displayName, RetainPtr { dataTypesToString(self.dataTypes) }.get()]);
 
-    if (auto* dataSize = self._dataSize)
-        [result appendFormat:@"; _dataSize = { %llu bytes }", dataSize.totalSize];
+    if (RetainPtr<_WKWebsiteDataSize> dataSize = self._dataSize)
+        [result appendFormat:@"; _dataSize = { %llu bytes }", dataSize.get().totalSize];
 
     [result appendString:@">"];
     return result.autorelease();

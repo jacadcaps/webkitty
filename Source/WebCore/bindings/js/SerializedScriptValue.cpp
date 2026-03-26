@@ -100,6 +100,7 @@
 #include <JavaScriptCore/PropertyNameArray.h>
 #include <JavaScriptCore/RegExp.h>
 #include <JavaScriptCore/RegExpObject.h>
+#include <JavaScriptCore/Strong.h>
 #include <JavaScriptCore/TypedArrayInlines.h>
 #include <JavaScriptCore/TypedArrays.h>
 #include <JavaScriptCore/WasmModule.h>
@@ -989,7 +990,7 @@ static std::optional<Vector<uint8_t>> serializeAndWrapCryptoKey(JSGlobalObject* 
     if (!context)
         return std::nullopt;
 
-    return context->serializeAndWrapCryptoKey(WTFMove(key));
+    return context->serializeAndWrapCryptoKey(WTF::move(key));
 }
 
 static std::optional<Vector<uint8_t>> unwrapCryptoKey(JSGlobalObject* lexicalGlobalObject, const Vector<uint8_t>& wrappedKey)
@@ -1059,11 +1060,11 @@ public:
         Vector<uint8_t> serializedKey;
         Vector<URLKeepingBlobAlive> dummyBlobHandles;
         Vector<Ref<MessagePort>> dummyMessagePorts;
-        Vector<RefPtr<JSC::ArrayBuffer>> dummyArrayBuffers;
+        Vector<Ref<JSC::ArrayBuffer>> dummyArrayBuffers;
 #if ENABLE(WEB_CODECS)
-        Vector<RefPtr<WebCodecsEncodedVideoChunkStorage>> dummyVideoChunks;
+        Vector<Ref<WebCodecsEncodedVideoChunkStorage>> dummyVideoChunks;
         Vector<RefPtr<WebCodecsVideoFrame>> dummyVideoFrames;
-        Vector<RefPtr<WebCodecsEncodedAudioChunkStorage>> dummyAudioChunks;
+        Vector<Ref<WebCodecsEncodedAudioChunkStorage>> dummyAudioChunks;
         Vector<RefPtr<WebCodecsAudioData>> dummyAudioData;
 #endif
 #if ENABLE(WEB_RTC)
@@ -1079,7 +1080,7 @@ public:
 #endif
         ArrayBufferContentsArray dummySharedBuffers;
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
-        Vector<RefPtr<OffscreenCanvas>> dummyInMemoryOffscreenCanvases;
+        Vector<Ref<OffscreenCanvas>> dummyInMemoryOffscreenCanvases;
 #endif
         Vector<Ref<MessagePort>> dummyInMemoryMessagePorts;
         CloneSerializer rawKeySerializer(nullptr, dummyMessagePorts, dummyArrayBuffers, { },
@@ -1112,10 +1113,10 @@ public:
         return serializedKey;
     }
 
-    static SerializationReturnCode serialize(JSGlobalObject* lexicalGlobalObject, JSValue value, Vector<Ref<MessagePort>>& messagePorts, Vector<RefPtr<JSC::ArrayBuffer>>& arrayBuffers, const Vector<RefPtr<ImageBitmap>>& imageBitmaps,
+    static SerializationReturnCode serialize(JSGlobalObject* lexicalGlobalObject, JSValue value, Vector<Ref<MessagePort>>& messagePorts, Vector<Ref<JSC::ArrayBuffer>>& arrayBuffers, const Vector<Ref<ImageBitmap>>& imageBitmaps,
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
-            const Vector<RefPtr<OffscreenCanvas>>& offscreenCanvases,
-            Vector<RefPtr<OffscreenCanvas>>& inMemoryOffscreenCanvases,
+            const Vector<Ref<OffscreenCanvas>>& offscreenCanvases,
+            Vector<Ref<OffscreenCanvas>>& inMemoryOffscreenCanvases,
 #endif
             Vector<Ref<MessagePort>>& inMemoryMessagePorts,
 #if ENABLE(WEB_RTC)
@@ -1127,9 +1128,9 @@ public:
             const Vector<Ref<MediaSourceHandle>>& mediaSourceHandles,
 #endif
 #if ENABLE(WEB_CODECS)
-            Vector<RefPtr<WebCodecsEncodedVideoChunkStorage>>& serializedVideoChunks,
+            Vector<Ref<WebCodecsEncodedVideoChunkStorage>>& serializedVideoChunks,
             Vector<RefPtr<WebCodecsVideoFrame>>& serializedVideoFrames,
-            Vector<RefPtr<WebCodecsEncodedAudioChunkStorage>>& serializedAudioChunks,
+            Vector<Ref<WebCodecsEncodedAudioChunkStorage>>& serializedAudioChunks,
             Vector<RefPtr<WebCodecsAudioData>>& serializedAudioData,
 #endif
 #if ENABLE(MEDIA_STREAM)
@@ -1209,10 +1210,10 @@ public:
 private:
     using ObjectPoolMap = HashMap<JSObject*, uint32_t>;
 
-    CloneSerializer(JSGlobalObject* lexicalGlobalObject, Vector<Ref<MessagePort>>& messagePorts, Vector<RefPtr<JSC::ArrayBuffer>>& arrayBuffers, const Vector<RefPtr<ImageBitmap>>& imageBitmaps,
+    CloneSerializer(JSGlobalObject* lexicalGlobalObject, Vector<Ref<MessagePort>>& messagePorts, Vector<Ref<JSC::ArrayBuffer>>& arrayBuffers, const Vector<Ref<ImageBitmap>>& imageBitmaps,
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
-            const Vector<RefPtr<OffscreenCanvas>>& offscreenCanvases,
-            Vector<RefPtr<OffscreenCanvas>>& inMemoryOffscreenCanvases,
+            const Vector<Ref<OffscreenCanvas>>& offscreenCanvases,
+            Vector<Ref<OffscreenCanvas>>& inMemoryOffscreenCanvases,
 #endif
             Vector<Ref<MessagePort>>& inMemoryMessagePorts,
 #if ENABLE(WEB_RTC)
@@ -1224,9 +1225,9 @@ private:
             const Vector<Ref<MediaSourceHandle>>& mediaSourceHandles,
 #endif
 #if ENABLE(WEB_CODECS)
-            Vector<RefPtr<WebCodecsEncodedVideoChunkStorage>>& serializedVideoChunks,
+            Vector<Ref<WebCodecsEncodedVideoChunkStorage>>& serializedVideoChunks,
             Vector<RefPtr<WebCodecsVideoFrame>>& serializedVideoFrames,
-            Vector<RefPtr<WebCodecsEncodedAudioChunkStorage>>& serializedAudioChunks,
+            Vector<Ref<WebCodecsEncodedAudioChunkStorage>>& serializedAudioChunks,
             Vector<RefPtr<WebCodecsAudioData>>& serializedAudioData,
 #endif
 #if ENABLE(MEDIA_STREAM)
@@ -1281,6 +1282,20 @@ private:
     }
 
     template<typename T>
+    JSValue toJSOrNull(JSDOMGlobalObject* globalObject, const Ref<T>& value)
+    {
+        return toJS(globalObject, globalObject, value);
+    }
+
+    template<typename T>
+    JSValue toJSOrNull(JSDOMGlobalObject* globalObject, const RefPtr<T>& value)
+    {
+        if (!value)
+            return jsNull();
+        return toJS(globalObject, globalObject, *value);
+    }
+
+    template<typename T>
     void fillTransferMap(const Vector<T>& input, ObjectPoolMap& result)
     {
         if (input.isEmpty())
@@ -1288,7 +1303,7 @@ private:
 
         auto* globalObject = jsCast<JSDOMGlobalObject*>(m_lexicalGlobalObject);
         for (size_t i = 0; i < input.size(); ++i) {
-            if (auto* object = toJS(globalObject, globalObject, input[i].get()).getObject())
+            if (auto* object = toJSOrNull(globalObject, input[i]).getObject())
                 result.add(object, i);
         }
     }
@@ -1667,9 +1682,6 @@ private:
         Ref imageBitmap = jsCast<JSImageBitmap*>(obj)->wrapped();
         auto index = m_transferredImageBitmaps.find(obj);
         if (index != m_transferredImageBitmaps.end()) {
-#if USE(SKIA)
-            imageBitmap->prepareForCrossThreadTransfer();
-#endif
             write(ImageBitmapTransferTag);
             write(index->value);
             return;
@@ -1735,7 +1747,7 @@ private:
         } else if (m_context == SerializationContext::CloneAcrossWorlds) {
             write(InMemoryOffscreenCanvasTag);
             write(static_cast<uint32_t>(m_inMemoryOffscreenCanvases.size()));
-            m_inMemoryOffscreenCanvases.append(&jsCast<JSOffscreenCanvas*>(obj)->wrapped());
+            m_inMemoryOffscreenCanvases.append(jsCast<JSOffscreenCanvas*>(obj)->protectedWrapped());
             return;
         }
 
@@ -1762,7 +1774,7 @@ private:
         auto index = m_serializedRTCEncodedAudioFrames.find(frame.ptr());
         if (index == notFound) {
             index = m_serializedRTCEncodedAudioFrames.size();
-            m_serializedRTCEncodedAudioFrames.append(WTFMove(frame));
+            m_serializedRTCEncodedAudioFrames.append(WTF::move(frame));
         }
 
         write(RTCEncodedAudioFrameTag);
@@ -1775,7 +1787,7 @@ private:
         auto index = m_serializedRTCEncodedVideoFrames.find(frame.ptr());
         if (index == notFound) {
             index = m_serializedRTCEncodedVideoFrames.size();
-            m_serializedRTCEncodedVideoFrames.append(WTFMove(frame));
+            m_serializedRTCEncodedVideoFrames.append(WTF::move(frame));
         }
 
         write(RTCEncodedVideoFrameTag);
@@ -1790,7 +1802,7 @@ private:
         auto index = m_serializedVideoChunks.find(&videoChunk->storage());
         if (index == notFound) {
             index = m_serializedVideoChunks.size();
-            m_serializedVideoChunks.append(&videoChunk->storage());
+            m_serializedVideoChunks.append(videoChunk->storage());
         }
 
         write(WebCodecsEncodedVideoChunkTag);
@@ -1806,7 +1818,7 @@ private:
         auto index = m_serializedVideoFrames.find(videoFrame.ptr());
         if (index == notFound) {
             index = m_serializedVideoFrames.size();
-            m_serializedVideoFrames.append(WTFMove(videoFrame));
+            m_serializedVideoFrames.append(WTF::move(videoFrame));
         }
         write(WebCodecsVideoFrameTag);
         write(static_cast<uint32_t>(index));
@@ -1820,7 +1832,7 @@ private:
         auto index = m_serializedAudioChunks.find(&audioChunk->storage());
         if (index == notFound) {
             index = m_serializedAudioChunks.size();
-            m_serializedAudioChunks.append(&audioChunk->storage());
+            m_serializedAudioChunks.append(audioChunk->storage());
         }
 
         write(WebCodecsEncodedAudioChunkTag);
@@ -1836,7 +1848,7 @@ private:
         auto index = m_serializedAudioData.find(audioData.ptr());
         if (index == notFound) {
             index = m_serializedAudioData.size();
-            m_serializedAudioData.append(WTFMove(audioData));
+            m_serializedAudioData.append(WTF::move(audioData));
         }
         write(WebCodecsAudioDataTag);
         write(static_cast<uint32_t>(index));
@@ -1851,7 +1863,7 @@ private:
         auto index = m_serializedMediaStreamTracks.find(track.ptr());
         if (index == notFound) {
             index = m_serializedMediaStreamTracks.size();
-            m_serializedMediaStreamTracks.append(WTFMove(track));
+            m_serializedMediaStreamTracks.append(WTF::move(track));
         }
 
         write(MediaStreamTrackTag);
@@ -1990,7 +2002,7 @@ private:
                     return true;
                 }
                 write(dataLength);
-                write(data->data().span());
+                write(data->data().protectedArrayBufferView()->span());
                 write(data->colorSpace());
                 return true;
             }
@@ -2031,7 +2043,7 @@ private:
                 code = SerializationReturnCode::ValidationError;
                 return true;
             }
-            if (auto* arrayBuffer = toPossiblySharedArrayBuffer(vm, obj)) {
+            if (RefPtr arrayBuffer = toPossiblySharedArrayBuffer(vm, obj)) {
                 if (arrayBuffer->isDetached()) {
                     code = SerializationReturnCode::ValidationError;
                     return true;
@@ -2056,7 +2068,7 @@ private:
                     if (arrayBuffer->shareWith(contents)) {
                         appendObjectPoolTag(SharedArrayBufferTag);
                         write(SharedArrayBufferTag);
-                        m_sharedBuffers.append(WTFMove(contents));
+                        m_sharedBuffers.append(WTF::move(contents));
                         write(index);
                         return true;
                     }
@@ -2118,8 +2130,8 @@ private:
                 if (m_context != SerializationContext::WorkerPostMessage && m_context != SerializationContext::WindowPostMessage)
                     return false;
 
-                uint32_t index = m_wasmModules.size(); 
-                m_wasmModules.append(&module->module());
+                uint32_t index = m_wasmModules.size();
+                m_wasmModules.append(Ref { module->module() });
                 write(WasmModuleTag);
                 write(agentClusterIDFromGlobalObject(*m_lexicalGlobalObject));
                 write(index);
@@ -2461,10 +2473,10 @@ private:
 #endif
 
 #if PLATFORM(COCOA)
-        auto colorSpace = destinationColorSpace.platformColorSpace();
+        RetainPtr colorSpace = destinationColorSpace.platformColorSpace();
 
-        if (auto name = CGColorSpaceGetName(colorSpace)) {
-            auto data = adoptCF(CFStringCreateExternalRepresentation(nullptr, name, kCFStringEncodingUTF8, 0));
+        if (RetainPtr name = CGColorSpaceGetName(colorSpace.get())) {
+            auto data = adoptCF(CFStringCreateExternalRepresentation(nullptr, name.get(), kCFStringEncodingUTF8, 0));
             if (!data) {
                 write(DestinationColorSpaceSRGBTag);
                 return;
@@ -2475,7 +2487,7 @@ private:
             return;
         }
 
-        if (auto propertyList = adoptCF(CGColorSpaceCopyPropertyList(colorSpace))) {
+        if (auto propertyList = adoptCF(CGColorSpaceCopyPropertyList(colorSpace.get()))) {
             auto data = adoptCF(CFPropertyListCreateData(nullptr, propertyList.get(), kCFPropertyListBinaryFormat_v1_0, 0, nullptr));
             if (!data) {
                 write(DestinationColorSpaceSRGBTag);
@@ -2726,14 +2738,14 @@ private:
 #if ENABLE(MEDIA_SOURCE_IN_WORKERS)
     ObjectPoolMap m_transferredMediaSourceHandles;
 #endif
-    typedef HashMap<RefPtr<AtomStringImpl>, uint32_t, IdentifierRepHash> StringConstantPool;
+    using StringConstantPool = HashMap<RefPtr<AtomStringImpl>, uint32_t, IdentifierRepHash>;
     StringConstantPool m_constantPool;
     using ImageDataPool = HashMap<Ref<ImageData>, uint32_t>;
     ImageDataPool m_imageDataPool;
     SerializationContext m_context;
     ArrayBufferContentsArray& m_sharedBuffers;
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
-    Vector<RefPtr<OffscreenCanvas>>& m_inMemoryOffscreenCanvases;
+    Vector<Ref<OffscreenCanvas>>& m_inMemoryOffscreenCanvases;
 #endif
     Vector<Ref<MessagePort>>& m_inMemoryMessagePorts;
 #if ENABLE(WEBASSEMBLY)
@@ -2741,9 +2753,9 @@ private:
     WasmMemoryHandleArray& m_wasmMemoryHandles;
 #endif
 #if ENABLE(WEB_CODECS)
-    Vector<RefPtr<WebCodecsEncodedVideoChunkStorage>>& m_serializedVideoChunks;
+    Vector<Ref<WebCodecsEncodedVideoChunkStorage>>& m_serializedVideoChunks;
     Vector<RefPtr<WebCodecsVideoFrame>>& m_serializedVideoFrames;
-    Vector<RefPtr<WebCodecsEncodedAudioChunkStorage>>& m_serializedAudioChunks;
+    Vector<Ref<WebCodecsEncodedAudioChunkStorage>>& m_serializedAudioChunks;
     Vector<RefPtr<WebCodecsAudioData>>& m_serializedAudioData;
 #endif
 #if ENABLE(MEDIA_STREAM)
@@ -2761,7 +2773,7 @@ SerializationReturnCode CloneSerializer::serialize(JSValue in)
     VM& vm = m_lexicalGlobalObject->vm();
     Vector<uint32_t, 16> indexStack;
     Vector<uint32_t, 16> lengthStack;
-    Vector<PropertyNameArray, 16> propertyStack;
+    Vector<PropertyNameArrayBuilder, 16> propertyStack;
     Vector<JSObject*, 32> inputObjectStack;
     Vector<JSMapIterator*, 4> mapIteratorStack;
     Vector<JSSetIterator*, 4> setIteratorStack;
@@ -2798,7 +2810,7 @@ SerializationReturnCode CloneSerializer::serialize(JSValue in)
                     lengthStack.removeLast();
                     write(TerminatorTag); // Terminate the indexed property section.
 
-                    propertyStack.append(PropertyNameArray(vm, PropertyNameMode::Strings, PrivateSymbolMode::Exclude));
+                    propertyStack.append(PropertyNameArrayBuilder(vm, PropertyNameMode::Strings, PrivateSymbolMode::Exclude));
                     array->getOwnNonIndexPropertyNames(m_lexicalGlobalObject, propertyStack.last(), DontEnumPropertiesMode::Exclude);
                     if (scope.exception()) [[unlikely]]
                         return SerializationReturnCode::ExistingExceptionError;
@@ -2856,7 +2868,7 @@ SerializationReturnCode CloneSerializer::serialize(JSValue in)
                     return SerializationReturnCode::DataCloneError;
                 inputObjectStack.append(inObject);
                 indexStack.append(0);
-                propertyStack.append(PropertyNameArray(vm, PropertyNameMode::Strings, PrivateSymbolMode::Exclude));
+                propertyStack.append(PropertyNameArrayBuilder(vm, PropertyNameMode::Strings, PrivateSymbolMode::Exclude));
                 inObject->methodTable()->getOwnPropertyNames(inObject, m_lexicalGlobalObject, propertyStack.last(), DontEnumPropertiesMode::Exclude);
                 if (scope.exception()) [[unlikely]]
                     return SerializationReturnCode::ExistingExceptionError;
@@ -2866,7 +2878,7 @@ SerializationReturnCode CloneSerializer::serialize(JSValue in)
             case ObjectStartVisitNamedMember: {
                 JSObject* object = inputObjectStack.last();
                 uint32_t index = indexStack.last();
-                PropertyNameArray& properties = propertyStack.last();
+                PropertyNameArrayBuilder& properties = propertyStack.last();
                 if (index == properties.size()) {
                     endObject();
                     inputObjectStack.removeLast();
@@ -2912,9 +2924,7 @@ SerializationReturnCode CloneSerializer::serialize(JSValue in)
                 if (!addToObjectPoolIfNotDupe<MapObjectTag>(inMap))
                     break;
                 write(MapObjectTag);
-                JSMapIterator* iterator = JSMapIterator::create(m_lexicalGlobalObject, m_lexicalGlobalObject->mapIteratorStructure(), inMap, IterationKind::Entries);
-                if (scope.exception()) [[unlikely]]
-                    return SerializationReturnCode::ExistingExceptionError;
+                JSMapIterator* iterator = JSMapIterator::create(vm, m_lexicalGlobalObject->mapIteratorStructure(), inMap, IterationKind::Entries);
                 m_keepAliveBuffer.appendWithCrashOnOverflow(iterator);
                 mapIteratorStack.append(iterator);
                 inputObjectStack.append(inMap);
@@ -2928,7 +2938,7 @@ SerializationReturnCode CloneSerializer::serialize(JSValue in)
                     mapIteratorStack.removeLast();
                     JSObject* object = inputObjectStack.last();
                     ASSERT(jsDynamicCast<JSMap*>(object));
-                    propertyStack.append(PropertyNameArray(vm, PropertyNameMode::Strings, PrivateSymbolMode::Exclude));
+                    propertyStack.append(PropertyNameArrayBuilder(vm, PropertyNameMode::Strings, PrivateSymbolMode::Exclude));
                     object->methodTable()->getOwnPropertyNames(object, m_lexicalGlobalObject, propertyStack.last(), DontEnumPropertiesMode::Exclude);
                     if (scope.exception()) [[unlikely]]
                         return SerializationReturnCode::ExistingExceptionError;
@@ -2960,9 +2970,7 @@ SerializationReturnCode CloneSerializer::serialize(JSValue in)
                 if (!addToObjectPoolIfNotDupe<SetObjectTag>(inSet))
                     break;
                 write(SetObjectTag);
-                JSSetIterator* iterator = JSSetIterator::create(m_lexicalGlobalObject, m_lexicalGlobalObject->setIteratorStructure(), inSet, IterationKind::Keys);
-                if (scope.exception()) [[unlikely]]
-                    return SerializationReturnCode::ExistingExceptionError;
+                JSSetIterator* iterator = JSSetIterator::create(vm, m_lexicalGlobalObject->setIteratorStructure(), inSet, IterationKind::Keys);
                 m_keepAliveBuffer.appendWithCrashOnOverflow(iterator);
                 setIteratorStack.append(iterator);
                 inputObjectStack.append(inSet);
@@ -2976,7 +2984,7 @@ SerializationReturnCode CloneSerializer::serialize(JSValue in)
                     setIteratorStack.removeLast();
                     JSObject* object = inputObjectStack.last();
                     ASSERT(jsDynamicCast<JSSet*>(object));
-                    propertyStack.append(PropertyNameArray(vm, PropertyNameMode::Strings, PrivateSymbolMode::Exclude));
+                    propertyStack.append(PropertyNameArrayBuilder(vm, PropertyNameMode::Strings, PrivateSymbolMode::Exclude));
                     object->methodTable()->getOwnPropertyNames(object, m_lexicalGlobalObject, propertyStack.last(), DontEnumPropertiesMode::Exclude);
                     if (scope.exception()) [[unlikely]]
                         return SerializationReturnCode::ExistingExceptionError;
@@ -3051,13 +3059,13 @@ public:
     static DeserializationResult deserialize(JSGlobalObject* lexicalGlobalObject, JSGlobalObject* globalObject, const Vector<Ref<MessagePort>>& messagePorts, Vector<std::optional<DetachedImageBitmap>>&& detachedImageBitmaps
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
         , Vector<std::unique_ptr<DetachedOffscreenCanvas>>&& detachedOffscreenCanvases
-        , const Vector<RefPtr<OffscreenCanvas>>& inMemoryOffscreenCanvases
+        , const Vector<Ref<OffscreenCanvas>>& inMemoryOffscreenCanvases
 #endif
         , const Vector<Ref<MessagePort>>& inMemoryMessagePorts
 #if ENABLE(WEB_RTC)
         , Vector<std::unique_ptr<DetachedRTCDataChannel>>&& detachedRTCDataChannels
-        , Vector<RefPtr<RTCRtpTransformableFrame>>&& serializedRTCEncodedAudioFrames
-        , Vector<RefPtr<RTCRtpTransformableFrame>>&& serializedRTCEncodedVideoFrames
+        , Vector<Ref<RTCRtpTransformableFrame>>&& serializedRTCEncodedAudioFrames
+        , Vector<Ref<RTCRtpTransformableFrame>>&& serializedRTCEncodedVideoFrames
 #endif
 #if ENABLE(MEDIA_SOURCE_IN_WORKERS)
         , Vector<RefPtr<DetachedMediaSourceHandle>>&& detachedMediaSourceHandles
@@ -3068,9 +3076,9 @@ public:
         , WasmMemoryHandleArray* wasmMemoryHandles
 #endif
 #if ENABLE(WEB_CODECS)
-        , Vector<RefPtr<WebCodecsEncodedVideoChunkStorage>>&& serializedVideoChunks
+        , Vector<Ref<WebCodecsEncodedVideoChunkStorage>>&& serializedVideoChunks
         , Vector<WebCodecsVideoFrameData>&& serializedVideoFrames
-        , Vector<RefPtr<WebCodecsEncodedAudioChunkStorage>>&& serializedAudioChunks
+        , Vector<Ref<WebCodecsEncodedAudioChunkStorage>>&& serializedAudioChunks
         , Vector<WebCodecsAudioInternalData>&& serializedAudioData
 #endif
 #if ENABLE(MEDIA_STREAM)
@@ -3080,32 +3088,32 @@ public:
     {
         if (!buffer.size())
             return std::make_pair(jsNull(), SerializationReturnCode::UnspecifiedError);
-        CloneDeserializer deserializer(lexicalGlobalObject, globalObject, messagePorts, arrayBufferContentsArray, buffer, blobURLs, blobFilePaths, sharedBuffers, WTFMove(detachedImageBitmaps)
+        CloneDeserializer deserializer(lexicalGlobalObject, globalObject, messagePorts, arrayBufferContentsArray, buffer, blobURLs, blobFilePaths, sharedBuffers, WTF::move(detachedImageBitmaps)
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
-            , WTFMove(detachedOffscreenCanvases)
+            , WTF::move(detachedOffscreenCanvases)
             , inMemoryOffscreenCanvases
 #endif
             , inMemoryMessagePorts
 #if ENABLE(WEB_RTC)
-            , WTFMove(detachedRTCDataChannels)
-            , WTFMove(serializedRTCEncodedAudioFrames)
-            , WTFMove(serializedRTCEncodedVideoFrames)
+            , WTF::move(detachedRTCDataChannels)
+            , WTF::move(serializedRTCEncodedAudioFrames)
+            , WTF::move(serializedRTCEncodedVideoFrames)
 #endif
 #if ENABLE(MEDIA_SOURCE_IN_WORKERS)
-            , WTFMove(detachedMediaSourceHandles)
+            , WTF::move(detachedMediaSourceHandles)
 #endif
 #if ENABLE(WEBASSEMBLY)
             , wasmModules
             , wasmMemoryHandles
 #endif
 #if ENABLE(WEB_CODECS)
-            , WTFMove(serializedVideoChunks)
-            , WTFMove(serializedVideoFrames)
-            , WTFMove(serializedAudioChunks)
-            , WTFMove(serializedAudioData)
+            , WTF::move(serializedVideoChunks)
+            , WTF::move(serializedVideoFrames)
+            , WTF::move(serializedAudioChunks)
+            , WTF::move(serializedAudioData)
 #endif
 #if ENABLE(MEDIA_STREAM)
-            , WTFMove(serializedMediaStreamTracks)
+            , WTF::move(serializedMediaStreamTracks)
 #endif
             );
         if (!deserializer.isValid())
@@ -3151,7 +3159,7 @@ public:
 private:
     struct CachedString {
         CachedString(String&& string)
-            : m_string(WTFMove(string))
+            : m_string(WTF::move(string))
         {
         }
 
@@ -3165,7 +3173,7 @@ private:
             return m_jsString;
         }
         const String& string() { return m_string; }
-        String takeString() { return WTFMove(m_string); }
+        String takeString() { return WTF::move(m_string); }
 
     private:
         String m_string;
@@ -3191,13 +3199,13 @@ private:
     CloneDeserializer(JSGlobalObject* lexicalGlobalObject, JSGlobalObject* globalObject, const Vector<Ref<MessagePort>>& messagePorts, ArrayBufferContentsArray* arrayBufferContents, Vector<std::optional<DetachedImageBitmap>>&& detachedImageBitmaps, const Vector<uint8_t>& buffer
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
         , Vector<std::unique_ptr<DetachedOffscreenCanvas>>&& detachedOffscreenCanvases = { }
-        , const Vector<RefPtr<OffscreenCanvas>>& inMemoryOffscreenCanvases = { }
+        , const Vector<Ref<OffscreenCanvas>>& inMemoryOffscreenCanvases = { }
 #endif
         , const Vector<Ref<MessagePort>>& inMemoryMessagePorts = { }
 #if ENABLE(WEB_RTC)
         , Vector<std::unique_ptr<DetachedRTCDataChannel>>&& detachedRTCDataChannels = { }
-        , Vector<RefPtr<RTCRtpTransformableFrame>>&& serializedRTCEncodedAudioFrames = { }
-        , Vector<RefPtr<RTCRtpTransformableFrame>>&& serializedRTCEncodedVideoFrames = { }
+        , Vector<Ref<RTCRtpTransformableFrame>>&& serializedRTCEncodedAudioFrames = { }
+        , Vector<Ref<RTCRtpTransformableFrame>>&& serializedRTCEncodedVideoFrames = { }
 #endif
 #if ENABLE(MEDIA_SOURCE_IN_WORKERS)
         , Vector<RefPtr<DetachedMediaSourceHandle>>&& detachedMediaSourceHandles = { }
@@ -3207,9 +3215,9 @@ private:
         , WasmMemoryHandleArray* wasmMemoryHandles = nullptr
 #endif
 #if ENABLE(WEB_CODECS)
-        , Vector<RefPtr<WebCodecsEncodedVideoChunkStorage>>&& serializedVideoChunks = { }
+        , Vector<Ref<WebCodecsEncodedVideoChunkStorage>>&& serializedVideoChunks = { }
         , Vector<WebCodecsVideoFrameData>&& serializedVideoFrames = { }
-        , Vector<RefPtr<WebCodecsEncodedAudioChunkStorage>>&& serializedAudioChunks = { }
+        , Vector<Ref<WebCodecsEncodedAudioChunkStorage>>&& serializedAudioChunks = { }
         , Vector<WebCodecsAudioInternalData>&& serializedAudioData = { }
 #endif
 #if ENABLE(MEDIA_STREAM)
@@ -3226,24 +3234,24 @@ private:
         , m_messagePorts(messagePorts)
         , m_arrayBufferContents(arrayBufferContents)
         , m_arrayBuffers(arrayBufferContents ? arrayBufferContents->size() : 0)
-        , m_detachedImageBitmaps(WTFMove(detachedImageBitmaps))
+        , m_detachedImageBitmaps(WTF::move(detachedImageBitmaps))
         , m_imageBitmaps(m_detachedImageBitmaps.size())
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
-        , m_detachedOffscreenCanvases(WTFMove(detachedOffscreenCanvases))
+        , m_detachedOffscreenCanvases(WTF::move(detachedOffscreenCanvases))
         , m_offscreenCanvases(m_detachedOffscreenCanvases.size())
         , m_inMemoryOffscreenCanvases(inMemoryOffscreenCanvases)
 #endif
         , m_inMemoryMessagePorts(inMemoryMessagePorts)
 #if ENABLE(WEB_RTC)
-        , m_detachedRTCDataChannels(WTFMove(detachedRTCDataChannels))
+        , m_detachedRTCDataChannels(WTF::move(detachedRTCDataChannels))
         , m_rtcDataChannels(m_detachedRTCDataChannels.size())
-        , m_serializedRTCEncodedAudioFrames(WTFMove(serializedRTCEncodedAudioFrames))
+        , m_serializedRTCEncodedAudioFrames(WTF::move(serializedRTCEncodedAudioFrames))
         , m_rtcEncodedAudioFrames(m_serializedRTCEncodedAudioFrames.size())
-        , m_serializedRTCEncodedVideoFrames(WTFMove(serializedRTCEncodedVideoFrames))
+        , m_serializedRTCEncodedVideoFrames(WTF::move(serializedRTCEncodedVideoFrames))
         , m_rtcEncodedVideoFrames(m_serializedRTCEncodedVideoFrames.size())
 #endif
 #if ENABLE(MEDIA_SOURCE_IN_WORKERS)
-        , m_detachedMediaSourceHandles(WTFMove(detachedMediaSourceHandles))
+        , m_detachedMediaSourceHandles(WTF::move(detachedMediaSourceHandles))
         , m_mediaSourceHandles(m_detachedMediaSourceHandles.size())
 #endif
 #if ENABLE(WEBASSEMBLY)
@@ -3251,17 +3259,17 @@ private:
         , m_wasmMemoryHandles(wasmMemoryHandles)
 #endif
 #if ENABLE(WEB_CODECS)
-        , m_serializedVideoChunks(WTFMove(serializedVideoChunks))
+        , m_serializedVideoChunks(WTF::move(serializedVideoChunks))
         , m_videoChunks(m_serializedVideoChunks.size())
-        , m_serializedVideoFrames(WTFMove(serializedVideoFrames))
+        , m_serializedVideoFrames(WTF::move(serializedVideoFrames))
         , m_videoFrames(m_serializedVideoFrames.size())
-        , m_serializedAudioChunks(WTFMove(serializedAudioChunks))
+        , m_serializedAudioChunks(WTF::move(serializedAudioChunks))
         , m_audioChunks(m_serializedAudioChunks.size())
-        , m_serializedAudioData(WTFMove(serializedAudioData))
+        , m_serializedAudioData(WTF::move(serializedAudioData))
         , m_audioData(m_serializedAudioData.size())
 #endif
 #if ENABLE(MEDIA_STREAM)
-        , m_serializedMediaStreamTracks(WTFMove(serializedMediaStreamTracks))
+        , m_serializedMediaStreamTracks(WTF::move(serializedMediaStreamTracks))
         , m_mediaStreamTracks(m_serializedMediaStreamTracks.size())
 #endif
     {
@@ -3275,13 +3283,13 @@ private:
     CloneDeserializer(JSGlobalObject* lexicalGlobalObject, JSGlobalObject* globalObject, const Vector<Ref<MessagePort>>& messagePorts, ArrayBufferContentsArray* arrayBufferContents, const Vector<uint8_t>& buffer, const Vector<String>& blobURLs, const Vector<String> blobFilePaths, ArrayBufferContentsArray* sharedBuffers, Vector<std::optional<DetachedImageBitmap>>&& detachedImageBitmaps
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
         , Vector<std::unique_ptr<DetachedOffscreenCanvas>>&& detachedOffscreenCanvases
-        , const Vector<RefPtr<OffscreenCanvas>>& inMemoryOffscreenCanvases
+        , const Vector<Ref<OffscreenCanvas>>& inMemoryOffscreenCanvases
 #endif
         , const Vector<Ref<MessagePort>>& inMemoryMessagePorts
 #if ENABLE(WEB_RTC)
         , Vector<std::unique_ptr<DetachedRTCDataChannel>>&& detachedRTCDataChannels
-        , Vector<RefPtr<RTCRtpTransformableFrame>>&& serializedRTCEncodedAudioFrames
-        , Vector<RefPtr<RTCRtpTransformableFrame>>&& serializedRTCEncodedVideoFrames
+        , Vector<Ref<RTCRtpTransformableFrame>>&& serializedRTCEncodedAudioFrames
+        , Vector<Ref<RTCRtpTransformableFrame>>&& serializedRTCEncodedVideoFrames
 #endif
 #if ENABLE(MEDIA_SOURCE_IN_WORKERS)
         , Vector<RefPtr<DetachedMediaSourceHandle>>&& detachedMediaSourceHandles
@@ -3291,9 +3299,9 @@ private:
         , WasmMemoryHandleArray* wasmMemoryHandles
 #endif
 #if ENABLE(WEB_CODECS)
-        , Vector<RefPtr<WebCodecsEncodedVideoChunkStorage>>&& serializedVideoChunks = { }
+        , Vector<Ref<WebCodecsEncodedVideoChunkStorage>>&& serializedVideoChunks = { }
         , Vector<WebCodecsVideoFrameData>&& serializedVideoFrames = { }
-        , Vector<RefPtr<WebCodecsEncodedAudioChunkStorage>>&& serializedAudioChunks = { }
+        , Vector<Ref<WebCodecsEncodedAudioChunkStorage>>&& serializedAudioChunks = { }
         , Vector<WebCodecsAudioInternalData>&& serializedAudioData = { }
 #endif
 #if ENABLE(MEDIA_STREAM)
@@ -3313,24 +3321,24 @@ private:
         , m_blobURLs(blobURLs)
         , m_blobFilePaths(blobFilePaths)
         , m_sharedBuffers(sharedBuffers)
-        , m_detachedImageBitmaps(WTFMove(detachedImageBitmaps))
+        , m_detachedImageBitmaps(WTF::move(detachedImageBitmaps))
         , m_imageBitmaps(m_detachedImageBitmaps.size())
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
-        , m_detachedOffscreenCanvases(WTFMove(detachedOffscreenCanvases))
+        , m_detachedOffscreenCanvases(WTF::move(detachedOffscreenCanvases))
         , m_offscreenCanvases(m_detachedOffscreenCanvases.size())
         , m_inMemoryOffscreenCanvases(inMemoryOffscreenCanvases)
 #endif
         , m_inMemoryMessagePorts(inMemoryMessagePorts)
 #if ENABLE(WEB_RTC)
-        , m_detachedRTCDataChannels(WTFMove(detachedRTCDataChannels))
+        , m_detachedRTCDataChannels(WTF::move(detachedRTCDataChannels))
         , m_rtcDataChannels(m_detachedRTCDataChannels.size())
-        , m_serializedRTCEncodedAudioFrames(WTFMove(serializedRTCEncodedAudioFrames))
+        , m_serializedRTCEncodedAudioFrames(WTF::move(serializedRTCEncodedAudioFrames))
         , m_rtcEncodedAudioFrames(m_serializedRTCEncodedAudioFrames.size())
-        , m_serializedRTCEncodedVideoFrames(WTFMove(serializedRTCEncodedVideoFrames))
+        , m_serializedRTCEncodedVideoFrames(WTF::move(serializedRTCEncodedVideoFrames))
         , m_rtcEncodedVideoFrames(m_serializedRTCEncodedVideoFrames.size())
 #endif
 #if ENABLE(MEDIA_SOURCE_IN_WORKERS)
-        , m_detachedMediaSourceHandles(WTFMove(detachedMediaSourceHandles))
+        , m_detachedMediaSourceHandles(WTF::move(detachedMediaSourceHandles))
         , m_mediaSourceHandles(m_detachedMediaSourceHandles.size())
 #endif
 #if ENABLE(WEBASSEMBLY)
@@ -3338,17 +3346,17 @@ private:
         , m_wasmMemoryHandles(wasmMemoryHandles)
 #endif
 #if ENABLE(WEB_CODECS)
-        , m_serializedVideoChunks(WTFMove(serializedVideoChunks))
+        , m_serializedVideoChunks(WTF::move(serializedVideoChunks))
         , m_videoChunks(m_serializedVideoChunks.size())
-        , m_serializedVideoFrames(WTFMove(serializedVideoFrames))
+        , m_serializedVideoFrames(WTF::move(serializedVideoFrames))
         , m_videoFrames(m_serializedVideoFrames.size())
-        , m_serializedAudioChunks(WTFMove(serializedAudioChunks))
+        , m_serializedAudioChunks(WTF::move(serializedAudioChunks))
         , m_audioChunks(m_serializedAudioChunks.size())
-        , m_serializedAudioData(WTFMove(serializedAudioData))
+        , m_serializedAudioData(WTF::move(serializedAudioData))
         , m_audioData(m_serializedAudioData.size())
 #endif
 #if ENABLE(MEDIA_STREAM)
-        , m_serializedMediaStreamTracks(WTFMove(serializedMediaStreamTracks))
+        , m_serializedMediaStreamTracks(WTF::move(serializedMediaStreamTracks))
         , m_mediaStreamTracks(m_serializedMediaStreamTracks.size())
 #endif
     {
@@ -3418,13 +3426,13 @@ private:
 #endif
 #if ENABLE(WEB_RTC)
     Vector<std::unique_ptr<DetachedRTCDataChannel>> takeDetachedRTCDataChannels() { return std::exchange(m_detachedRTCDataChannels, { }); }
-    Vector<RefPtr<RTCRtpTransformableFrame>> takeSerializedRTCEncodedAudioFrames() { return std::exchange(m_serializedRTCEncodedAudioFrames, { }); }
-    Vector<RefPtr<RTCRtpTransformableFrame>> takeSerializedRTCEncodedVideoFrames() { return std::exchange(m_serializedRTCEncodedVideoFrames, { }); }
+    Vector<Ref<RTCRtpTransformableFrame>> takeSerializedRTCEncodedAudioFrames() { return std::exchange(m_serializedRTCEncodedAudioFrames, { }); }
+    Vector<Ref<RTCRtpTransformableFrame>> takeSerializedRTCEncodedVideoFrames() { return std::exchange(m_serializedRTCEncodedVideoFrames, { }); }
 #endif
 #if ENABLE(WEB_CODECS)
-    Vector<RefPtr<WebCodecsEncodedVideoChunkStorage>> takeSerializedVideoChunks() { return std::exchange(m_serializedVideoChunks, { }); }
+    Vector<Ref<WebCodecsEncodedVideoChunkStorage>> takeSerializedVideoChunks() { return std::exchange(m_serializedVideoChunks, { }); }
     Vector<WebCodecsVideoFrameData> takeSerializedVideoFrames() { return std::exchange(m_serializedVideoFrames, { }); }
-    Vector<RefPtr<WebCodecsEncodedAudioChunkStorage>> takeSerializedAudioChunks() { return std::exchange(m_serializedAudioChunks, { }); }
+    Vector<Ref<WebCodecsEncodedAudioChunkStorage>> takeSerializedAudioChunks() { return std::exchange(m_serializedAudioChunks, { }); }
     Vector<WebCodecsAudioInternalData> takeSerializedAudioData() { return std::exchange(m_serializedAudioData, { }); }
 #endif
 #if ENABLE(MEDIA_STREAM)
@@ -3598,9 +3606,9 @@ private:
             if (span.size() < length)
                 return false;
             if (shouldAtomize == ShouldAtomize::Yes)
-                str = AtomString(consumeSpan(span, length));
+                str = AtomString(byteCast<Latin1Character>(consumeSpan(span, length)));
             else
-                str = String(consumeSpan(span, length));
+                str = String(byteCast<Latin1Character>(consumeSpan(span, length)));
             return true;
         }
 
@@ -3677,7 +3685,7 @@ private:
             fail();
             return false;
         }
-        m_constantPool.append(WTFMove(str));
+        m_constantPool.append(WTF::move(str));
         cachedString = CachedStringRef(&m_constantPool, m_constantPool.size() - 1);
         return true;
     }
@@ -3829,7 +3837,7 @@ private:
         auto makeArrayBufferView = [&] (auto view) -> bool {
             if (!view)
                 return false;
-            arrayBufferView = toJS(m_lexicalGlobalObject, m_globalObject, WTFMove(view));
+            arrayBufferView = toJS(m_lexicalGlobalObject, m_globalObject, WTF::move(view));
             if (!arrayBufferView)
                 return false;
             return true;
@@ -4129,7 +4137,7 @@ private:
         CryptoAlgorithmIdentifier hash;
         if (!read(hash))
             return false;
-        result = CryptoKeyHMAC::importRaw(0, hash, WTFMove(keyData), extractable, usages);
+        result = CryptoKeyHMAC::importRaw(0, hash, WTF::move(keyData), extractable, usages);
         return true;
     }
 
@@ -4143,7 +4151,7 @@ private:
         Vector<uint8_t> keyData;
         if (!read(keyData))
             return false;
-        result = CryptoKeyAES::importRaw(algorithm, WTFMove(keyData), extractable, usages);
+        result = CryptoKeyAES::importRaw(algorithm, WTF::move(keyData), extractable, usages);
         return true;
     }
 
@@ -4174,7 +4182,7 @@ private:
         if (type == CryptoKeyAsymmetricTypeSubtag::Public) {
             auto keyData = CryptoKeyRSAComponents::createPublic(modulus, exponent);
             auto key = CryptoKeyRSA::create(algorithm, hash, isRestrictedToHash, *keyData, extractable, usages);
-            result = WTFMove(key);
+            result = WTF::move(key);
             return true;
         }
 
@@ -4189,7 +4197,7 @@ private:
         if (!primeCount) {
             auto keyData = CryptoKeyRSAComponents::createPrivate(modulus, exponent, privateExponent);
             auto key = CryptoKeyRSA::create(algorithm, hash, isRestrictedToHash, *keyData, extractable, usages);
-            result = WTFMove(key);
+            result = WTF::move(key);
             return true;
         }
 
@@ -4221,7 +4229,7 @@ private:
 
         auto keyData = CryptoKeyRSAComponents::createPrivateWithAdditionalData(modulus, exponent, privateExponent, firstPrimeInfo, secondPrimeInfo, otherPrimeInfos);
         auto key = CryptoKeyRSA::create(algorithm, hash, isRestrictedToHash, *keyData, extractable, usages);
-        result = WTFMove(key);
+        result = WTF::move(key);
         return true;
     }
 
@@ -4244,10 +4252,10 @@ private:
 
         switch (type) {
         case CryptoKeyAsymmetricTypeSubtag::Public:
-            result = CryptoKeyEC::importRaw(algorithm, curve->string(), WTFMove(keyData), extractable, usages);
+            result = CryptoKeyEC::importRaw(algorithm, curve->string(), WTF::move(keyData), extractable, usages);
             break;
         case CryptoKeyAsymmetricTypeSubtag::Private:
-            result = CryptoKeyEC::importPkcs8(algorithm, curve->string(), WTFMove(keyData), extractable, usages);
+            result = CryptoKeyEC::importPkcs8(algorithm, curve->string(), WTF::move(keyData), extractable, usages);
             break;
         }
 
@@ -4268,7 +4276,7 @@ private:
         if (!read(keyData))
             return false;
 
-        result = CryptoKeyOKP::importRaw(algorithm, namedCurve, WTFMove(keyData), extractable, usages);
+        result = CryptoKeyOKP::importRaw(algorithm, namedCurve, WTF::move(keyData), extractable, usages);
         return true;
     }
 
@@ -4280,7 +4288,7 @@ private:
         Vector<uint8_t> keyData;
         if (!read(keyData))
             return false;
-        result = CryptoKeyRaw::create(algorithm, WTFMove(keyData), usages);
+        result = CryptoKeyRaw::create(algorithm, WTF::move(keyData), usages);
         return true;
     }
 
@@ -4361,7 +4369,8 @@ private:
                 return false;
             break;
         }
-        cryptoKey = getJSValue(result.get());
+        ASSERT(result);
+        cryptoKey = getJSValue(result.releaseNonNull());
         return true;
     }
 
@@ -4434,7 +4443,7 @@ private:
             TransformationMatrix matrix(m11, m12, m21, m22, m41, m42);
             if (!m_isDOMGlobalObject)
                 return { };
-            return toJSNewlyCreated(m_lexicalGlobalObject, jsCast<JSDOMGlobalObject*>(m_globalObject), T::create(WTFMove(matrix), DOMMatrixReadOnly::Is2D::Yes));
+            return toJSNewlyCreated(m_lexicalGlobalObject, jsCast<JSDOMGlobalObject*>(m_globalObject), T::create(WTF::move(matrix), DOMMatrixReadOnly::Is2D::Yes));
         } else {
             double m11;
             if (!read(m11))
@@ -4488,7 +4497,7 @@ private:
             TransformationMatrix matrix(m11, m12, m13, m14, m21, m22, m23, m24, m31, m32, m33, m34, m41, m42, m43, m44);
             if (!m_isDOMGlobalObject)
                 return { };
-            return toJSNewlyCreated(m_lexicalGlobalObject, jsCast<JSDOMGlobalObject*>(m_globalObject), T::create(WTFMove(matrix), DOMMatrixReadOnly::Is2D::No));
+            return toJSNewlyCreated(m_lexicalGlobalObject, jsCast<JSDOMGlobalObject*>(m_globalObject), T::create(WTF::move(matrix), DOMMatrixReadOnly::Is2D::No));
         }
     }
 
@@ -4559,13 +4568,12 @@ private:
         }
 
         if (!m_imageBitmaps[index] && m_detachedImageBitmaps.at(index))
-            m_imageBitmaps[index] = ImageBitmap::create(*protectedExecutionContext(m_lexicalGlobalObject).get(), WTFMove(*m_detachedImageBitmaps.at(index)));
+            m_imageBitmaps[index] = ImageBitmap::create(*protectedExecutionContext(m_lexicalGlobalObject).get(), WTF::move(*m_detachedImageBitmaps.at(index)));
 
         RefPtr bitmap = m_imageBitmaps[index];
-#if USE(SKIA)
-        bitmap->finalizeCrossThreadTransfer();
-#endif
-        return getJSValue(bitmap.get());
+        if (!bitmap)
+            return jsNull();
+        return getJSValue(bitmap.releaseNonNull());
     }
 
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
@@ -4580,10 +4588,8 @@ private:
         }
 
         if (!m_offscreenCanvases[index])
-            m_offscreenCanvases[index] = OffscreenCanvas::create(*protectedExecutionContext(m_lexicalGlobalObject), WTFMove(m_detachedOffscreenCanvases.at(index)));
-
-        RefPtr offscreenCanvas = m_offscreenCanvases[index];
-        return getJSValue(offscreenCanvas.get());
+            m_offscreenCanvases[index] = OffscreenCanvas::create(*protectedExecutionContext(m_lexicalGlobalObject), WTF::move(m_detachedOffscreenCanvases.at(index)));
+        return getJSValue(*m_offscreenCanvases[index]);
     }
 
     JSValue readInMemoryOffscreenCanvas()
@@ -4595,7 +4601,7 @@ private:
             fail();
             return JSValue();
         }
-        return getJSValue(m_inMemoryOffscreenCanvases[index].get());
+        return getJSValue(m_inMemoryOffscreenCanvases[index]);
     }
 #endif
 
@@ -4649,8 +4655,8 @@ private:
         if (!m_canCreateDOMObject)
             return constructEmptyObject(m_lexicalGlobalObject, m_globalObject->objectPrototype());
 
-        auto rtcCertificate = RTCCertificate::create(SecurityOrigin::createFromString(origin->string()), expires, WTFMove(fingerprints), certificate->takeString(), keyedMaterial->takeString());
-        return toJSNewlyCreated(m_lexicalGlobalObject, jsCast<JSDOMGlobalObject*>(m_globalObject), WTFMove(rtcCertificate));
+        auto rtcCertificate = RTCCertificate::create(SecurityOrigin::createFromString(origin->string()), expires, WTF::move(fingerprints), certificate->takeString(), keyedMaterial->takeString());
+        return toJSNewlyCreated(m_lexicalGlobalObject, jsCast<JSDOMGlobalObject*>(m_globalObject), WTF::move(rtcCertificate));
     }
 
     JSValue readRTCDataChannel()
@@ -4664,11 +4670,10 @@ private:
         }
 
         if (!m_rtcDataChannels[index]) {
-            auto detachedChannel = WTFMove(m_detachedRTCDataChannels.at(index));
-            m_rtcDataChannels[index] = RTCDataChannel::create(*protectedExecutionContext(m_lexicalGlobalObject), detachedChannel->identifier, WTFMove(detachedChannel->label), WTFMove(detachedChannel->options), detachedChannel->state);
+            auto detachedChannel = WTF::move(m_detachedRTCDataChannels.at(index));
+            m_rtcDataChannels[index] = RTCDataChannel::create(*protectedExecutionContext(m_lexicalGlobalObject), detachedChannel->identifier, WTF::move(detachedChannel->label), WTF::move(detachedChannel->options), detachedChannel->state);
         }
-
-        return getJSValue(m_rtcDataChannels[index].get());
+        return getJSValue(*m_rtcDataChannels[index]);
     }
 
     JSValue readRTCEncodedAudioFrame()
@@ -4682,9 +4687,8 @@ private:
         }
 
         if (!m_rtcEncodedAudioFrames[index])
-            m_rtcEncodedAudioFrames[index] = RTCEncodedAudioFrame::create(m_serializedRTCEncodedAudioFrames.at(index).releaseNonNull());
-
-        return getJSValue(m_rtcEncodedAudioFrames[index].get());
+            m_rtcEncodedAudioFrames[index] = RTCEncodedAudioFrame::create(WTF::move(m_serializedRTCEncodedAudioFrames.at(index)));
+        return getJSValue(*m_rtcEncodedAudioFrames[index]);
     }
 
     JSValue readRTCEncodedVideoFrame()
@@ -4698,9 +4702,8 @@ private:
         }
 
         if (!m_rtcEncodedVideoFrames[index])
-            m_rtcEncodedVideoFrames[index] = RTCEncodedVideoFrame::create(m_serializedRTCEncodedVideoFrames.at(index).releaseNonNull());
-
-        return getJSValue(m_rtcEncodedVideoFrames[index].get());
+            m_rtcEncodedVideoFrames[index] = RTCEncodedVideoFrame::create(WTF::move(m_serializedRTCEncodedVideoFrames.at(index)));
+        return getJSValue(*m_rtcEncodedVideoFrames[index]);
     }
 #endif
 
@@ -4716,9 +4719,8 @@ private:
         }
 
         if (!m_videoChunks[index])
-            m_videoChunks[index] = WebCodecsEncodedVideoChunk::create(m_serializedVideoChunks.at(index).releaseNonNull());
-
-        return getJSValue(m_videoChunks[index].get());
+            m_videoChunks[index] = WebCodecsEncodedVideoChunk::create(WTF::move(m_serializedVideoChunks.at(index)));
+        return getJSValue(*m_videoChunks[index]);
     }
     JSValue readWebCodecsVideoFrame()
     {
@@ -4731,9 +4733,8 @@ private:
         }
 
         if (!m_videoFrames[index])
-            m_videoFrames[index] = WebCodecsVideoFrame::create(*protectedExecutionContext(m_lexicalGlobalObject), WTFMove(m_serializedVideoFrames.at(index)));
-
-        return getJSValue(m_videoFrames[index].get());
+            m_videoFrames[index] = WebCodecsVideoFrame::create(*protectedExecutionContext(m_lexicalGlobalObject), WTF::move(m_serializedVideoFrames.at(index)));
+        return getJSValue(*m_videoFrames[index]);
     }
     JSValue readWebCodecsEncodedAudioChunk()
     {
@@ -4746,9 +4747,8 @@ private:
         }
 
         if (!m_audioChunks[index])
-            m_audioChunks[index] = WebCodecsEncodedAudioChunk::create(m_serializedAudioChunks.at(index).releaseNonNull());
-
-        return getJSValue(m_audioChunks[index].get());
+            m_audioChunks[index] = WebCodecsEncodedAudioChunk::create(WTF::move(m_serializedAudioChunks.at(index)));
+        return getJSValue(*m_audioChunks[index]);
     }
     JSValue readWebCodecsAudioData()
     {
@@ -4761,9 +4761,8 @@ private:
         }
 
         if (!m_audioData[index])
-            m_audioData[index] = WebCodecsAudioData::create(*protectedExecutionContext(m_lexicalGlobalObject), WTFMove(m_serializedAudioData.at(index)));
-
-        return getJSValue(m_audioData[index].get());
+            m_audioData[index] = WebCodecsAudioData::create(*protectedExecutionContext(m_lexicalGlobalObject), WTF::move(m_serializedAudioData.at(index)));
+        return getJSValue(*m_audioData[index]);
     }
 #endif
 
@@ -4779,8 +4778,7 @@ private:
 
         if (!m_mediaStreamTracks[index])
             m_mediaStreamTracks[index] = MediaStreamTrack::create(*protectedExecutionContext(m_lexicalGlobalObject), makeUniqueRefFromNonNullUniquePtr(std::exchange(m_serializedMediaStreamTracks.at(index), { })));
-
-        return getJSValue(m_mediaStreamTracks[index].get());
+        return getJSValue(*m_mediaStreamTracks[index]);
     }
 #endif
 
@@ -4796,8 +4794,7 @@ private:
 
         if (!m_mediaSourceHandles[index])
             m_mediaSourceHandles[index] = MediaSourceHandle::create(std::exchange(m_detachedMediaSourceHandles.at(index), { }).releaseNonNull());
-
-        return getJSValue(m_mediaSourceHandles[index].get());
+        return getJSValue(*m_mediaSourceHandles[index]);
     }
 #endif
 
@@ -4842,8 +4839,8 @@ private:
 
         buffer->putPixelBuffer(*pixelBuffer, { IntPoint::zero(), logicalSize });
         const bool originClean = true;
-        auto bitmap = ImageBitmap::create(buffer.releaseNonNull(), originClean, flags.contains(ImageBitmapSerializationFlags::PremultiplyAlpha), flags.contains(ImageBitmapSerializationFlags::ForciblyPremultiplyAlpha));
-        return getJSValue(bitmap);
+        Ref bitmap = ImageBitmap::create(buffer.releaseNonNull(), originClean, flags.contains(ImageBitmapSerializationFlags::PremultiplyAlpha), flags.contains(ImageBitmapSerializationFlags::ForciblyPremultiplyAlpha));
+        return getJSValue(WTF::move(bitmap));
     }
 
     JSValue readDOMException()
@@ -5040,7 +5037,7 @@ private:
                 return JSValue();
             if (!m_canCreateDOMObject)
                 return jsNull();
-            return toJS(m_lexicalGlobalObject, jsCast<JSDOMGlobalObject*>(m_globalObject), file.get());
+            return toJS(m_lexicalGlobalObject, jsCast<JSDOMGlobalObject*>(m_globalObject), file.releaseNonNull());
         }
         case FileListTag: {
             unsigned length = 0;
@@ -5056,7 +5053,7 @@ private:
             }
             if (!m_canCreateDOMObject)
                 return jsNull();
-            return getJSValue(FileList::create(WTFMove(files)).get());
+            return getJSValue(FileList::create(WTF::move(files)).get());
         }
         case ImageDataTag: {
             uint32_t width;
@@ -5208,7 +5205,7 @@ private:
                 fail();
                 return JSValue();
             }
-            return ErrorInstance::create(m_lexicalGlobalObject, WTFMove(message), toErrorType(serializedErrorType), { line, column }, WTFMove(sourceURL), WTFMove(stackString), WTFMove(causeString));
+            return ErrorInstance::create(m_lexicalGlobalObject, WTF::move(message), toErrorType(serializedErrorType), { line, column }, WTF::move(sourceURL), WTF::move(stackString), WTF::move(causeString));
         }
         case ObjectReferenceTag: {
             auto index = readConstantPoolIndex(m_objectPool);
@@ -5258,7 +5255,7 @@ private:
                 fail();
                 return JSValue();
             }
-            return JSC::JSWebAssemblyModule::create(m_lexicalGlobalObject->vm(), m_globalObject->webAssemblyModuleStructure(), Ref { *m_wasmModules->at(index) });
+            return JSC::JSWebAssemblyModule::create(m_lexicalGlobalObject->vm(), m_globalObject->webAssemblyModuleStructure(), m_wasmModules->at(index).copyRef());
         }
         case WasmMemoryTag: {
             if (m_majorVersion >= 12) {
@@ -5288,10 +5285,10 @@ private:
                     fail();
                     return JSValue();
                 }
-                memory = Wasm::Memory::create(vm, contents.releaseNonNull(), WTFMove(handler));
+                memory = Wasm::Memory::create(contents.releaseNonNull(), WTF::move(handler));
             } else {
                 // zero size & max-size.
-                memory = Wasm::Memory::createZeroSized(vm, JSC::MemorySharingMode::Shared, WTFMove(handler));
+                memory = Wasm::Memory::createZeroSized(JSC::MemorySharingMode::Shared, WTF::move(handler));
             }
 
             result->adopt(memory.releaseNonNull());
@@ -5313,7 +5310,7 @@ private:
                 fail();
                 return JSValue();
             }
-            JSValue result = JSArrayBuffer::create(m_lexicalGlobalObject->vm(), structure, WTFMove(arrayBuffer));
+            JSValue result = JSArrayBuffer::create(m_lexicalGlobalObject->vm(), structure, WTF::move(arrayBuffer));
             addToObjectPool<ArrayBufferTag>(result);
             return result;
         }
@@ -5332,7 +5329,7 @@ private:
                 fail();
                 return JSValue();
             }
-            JSValue result = JSArrayBuffer::create(m_lexicalGlobalObject->vm(), structure, WTFMove(arrayBuffer));
+            JSValue result = JSArrayBuffer::create(m_lexicalGlobalObject->vm(), structure, WTF::move(arrayBuffer));
             addToObjectPool<ResizableArrayBufferTag>(result);
             return result;
         }
@@ -5346,7 +5343,7 @@ private:
             }
 
             if (!m_arrayBuffers[index])
-                m_arrayBuffers[index] = ArrayBuffer::create(WTFMove(m_arrayBufferContents->at(index)));
+                m_arrayBuffers[index] = ArrayBuffer::create(WTF::move(m_arrayBufferContents->at(index)));
 
             return getJSValue(m_arrayBuffers[index].get());
         }
@@ -5363,7 +5360,7 @@ private:
             RELEASE_ASSERT(m_sharedBuffers->at(index));
             ArrayBufferContents arrayBufferContents;
             m_sharedBuffers->at(index).shareWith(arrayBufferContents);
-            auto buffer = ArrayBuffer::create(WTFMove(arrayBufferContents));
+            auto buffer = ArrayBuffer::create(WTF::move(arrayBufferContents));
             JSValue result = getJSValue(buffer.get());
             addToObjectPool<SharedArrayBufferTag>(result);
             return result;
@@ -5496,15 +5493,15 @@ private:
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
     Vector<std::unique_ptr<DetachedOffscreenCanvas>> m_detachedOffscreenCanvases;
     Vector<RefPtr<OffscreenCanvas>> m_offscreenCanvases;
-    const Vector<RefPtr<OffscreenCanvas>>& m_inMemoryOffscreenCanvases;
+    const Vector<Ref<OffscreenCanvas>>& m_inMemoryOffscreenCanvases;
 #endif
     const Vector<Ref<MessagePort>>& m_inMemoryMessagePorts;
 #if ENABLE(WEB_RTC)
     Vector<std::unique_ptr<DetachedRTCDataChannel>> m_detachedRTCDataChannels;
     Vector<RefPtr<RTCDataChannel>> m_rtcDataChannels;
-    Vector<RefPtr<RTCRtpTransformableFrame>> m_serializedRTCEncodedAudioFrames;
+    Vector<Ref<RTCRtpTransformableFrame>> m_serializedRTCEncodedAudioFrames;
     Vector<RefPtr<RTCEncodedAudioFrame>> m_rtcEncodedAudioFrames;
-    Vector<RefPtr<RTCRtpTransformableFrame>> m_serializedRTCEncodedVideoFrames;
+    Vector<Ref<RTCRtpTransformableFrame>> m_serializedRTCEncodedVideoFrames;
     Vector<RefPtr<RTCEncodedVideoFrame>> m_rtcEncodedVideoFrames;
 #endif
 #if ENABLE(MEDIA_SOURCE_IN_WORKERS)
@@ -5516,11 +5513,11 @@ private:
     WasmMemoryHandleArray* const m_wasmMemoryHandles;
 #endif
 #if ENABLE(WEB_CODECS)
-    Vector<RefPtr<WebCodecsEncodedVideoChunkStorage>> m_serializedVideoChunks;
+    Vector<Ref<WebCodecsEncodedVideoChunkStorage>> m_serializedVideoChunks;
     Vector<RefPtr<WebCodecsEncodedVideoChunk>> m_videoChunks;
     Vector<WebCodecsVideoFrameData> m_serializedVideoFrames;
     Vector<RefPtr<WebCodecsVideoFrame>> m_videoFrames;
-    Vector<RefPtr<WebCodecsEncodedAudioChunkStorage>> m_serializedAudioChunks;
+    Vector<Ref<WebCodecsEncodedAudioChunkStorage>> m_serializedAudioChunks;
     Vector<RefPtr<WebCodecsEncodedAudioChunk>> m_audioChunks;
     Vector<WebCodecsAudioInternalData> m_serializedAudioData;
     Vector<RefPtr<WebCodecsAudioData>> m_audioData;
@@ -5843,12 +5840,12 @@ void validateSerializedResult(CloneSerializer& serializer, SerializationReturnCo
     Vector<std::optional<WebCore::DetachedImageBitmap>> detachedImageBitmaps;
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
     Vector<std::unique_ptr<DetachedOffscreenCanvas>> detachedOffscreenCanvases;
-    Vector<RefPtr<OffscreenCanvas>> inMemoryOffscreenCanvases;
+    Vector<Ref<OffscreenCanvas>> inMemoryOffscreenCanvases;
 #endif
 #if ENABLE(WEB_RTC)
     Vector<std::unique_ptr<DetachedRTCDataChannel>> detachedRTCDataChannels;
-    Vector<RefPtr<RTCRtpTransformableFrame>> serializedRTCEncodedAudioFrames;
-    Vector<RefPtr<RTCRtpTransformableFrame>> serializedRTCEncodedVideoFrames;
+    Vector<Ref<RTCRtpTransformableFrame>> serializedRTCEncodedAudioFrames;
+    Vector<Ref<RTCRtpTransformableFrame>> serializedRTCEncodedVideoFrames;
 #endif
 #if ENABLE(MEDIA_SOURCE_IN_WORKERS)
     Vector<RefPtr<DetachedMediaSourceHandle>> detachedMediaSourceHandles;
@@ -5858,23 +5855,23 @@ void validateSerializedResult(CloneSerializer& serializer, SerializationReturnCo
     WasmMemoryHandleArray* wasmMemoryHandles = nullptr;
 #endif
 #if ENABLE(WEB_CODECS)
-    Vector<RefPtr<WebCodecsEncodedVideoChunkStorage>> serializedVideoChunks;
+    Vector<Ref<WebCodecsEncodedVideoChunkStorage>> serializedVideoChunks;
     Vector<WebCodecsVideoFrameData> serializedVideoFrames;
-    Vector<RefPtr<WebCodecsEncodedAudioChunkStorage>> serializedAudioChunks;
+    Vector<Ref<WebCodecsEncodedAudioChunkStorage>> serializedAudioChunks;
     Vector<WebCodecsAudioInternalData> serializedAudioData;
 #endif
 
-    CloneDeserializer deserializer(lexicalGlobalObject, globalObject, messagePorts, &arrayBufferContentsArray, result, blobURLs, blobFilePaths, &sharedBuffers, WTFMove(detachedImageBitmaps)
+    CloneDeserializer deserializer(lexicalGlobalObject, globalObject, messagePorts, &arrayBufferContentsArray, result, blobURLs, blobFilePaths, &sharedBuffers, WTF::move(detachedImageBitmaps)
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
-        , WTFMove(detachedOffscreenCanvases)
+        , WTF::move(detachedOffscreenCanvases)
         , inMemoryOffscreenCanvases
 #endif
         , inMemoryMessagePorts
 #if ENABLE(WEB_RTC)
-        , WTFMove(detachedRTCDataChannels), WTFMove(serializedRTCEncodedAudioFrames), WTFMove(serializedRTCEncodedVideoFrames)
+        , WTF::move(detachedRTCDataChannels), WTF::move(serializedRTCEncodedAudioFrames), WTF::move(serializedRTCEncodedVideoFrames)
 #endif
 #if ENABLE(MEDIA_SOURCE_IN_WORKERS)
-        , WTFMove(detachedMediaSourceHandles)
+        , WTF::move(detachedMediaSourceHandles)
 #endif
 
 #if ENABLE(WEBASSEMBLY)
@@ -5882,10 +5879,10 @@ void validateSerializedResult(CloneSerializer& serializer, SerializationReturnCo
         , wasmMemoryHandles
 #endif
 #if ENABLE(WEB_CODECS)
-        , WTFMove(serializedVideoChunks)
-        , WTFMove(serializedVideoFrames)
-        , WTFMove(serializedAudioChunks)
-        , WTFMove(serializedAudioData)
+        , WTF::move(serializedVideoChunks)
+        , WTF::move(serializedVideoFrames)
+        , WTF::move(serializedAudioChunks)
+        , WTF::move(serializedAudioData)
 #endif
         );
     RELEASE_ASSERT(deserializer.isValid());
@@ -5946,16 +5943,16 @@ SerializedScriptValue::~SerializedScriptValue() = default;
 SerializedScriptValue::SerializedScriptValue(Vector<uint8_t>&& buffer, std::unique_ptr<ArrayBufferContentsArray>&& arrayBufferContentsArray
 #if ENABLE(WEB_RTC)
     , Vector<std::unique_ptr<DetachedRTCDataChannel>>&& detachedRTCDataChannels
-    , Vector<RefPtr<RTCRtpTransformableFrame>>&& serializedRTCEncodedAudioFrames
-    , Vector<RefPtr<RTCRtpTransformableFrame>>&& serializedRTCEncodedVideoFrames
+    , Vector<Ref<RTCRtpTransformableFrame>>&& serializedRTCEncodedAudioFrames
+    , Vector<Ref<RTCRtpTransformableFrame>>&& serializedRTCEncodedVideoFrames
 #endif
 #if ENABLE(MEDIA_SOURCE_IN_WORKERS)
     , Vector<RefPtr<DetachedMediaSourceHandle>>&& detachedMediaSourceHandles
 #endif
 #if ENABLE(WEB_CODECS)
-    , Vector<RefPtr<WebCodecsEncodedVideoChunkStorage>>&& serializedVideoChunks
+    , Vector<Ref<WebCodecsEncodedVideoChunkStorage>>&& serializedVideoChunks
     , Vector<WebCodecsVideoFrameData>&& serializedVideoFrames
-    , Vector<RefPtr<WebCodecsEncodedAudioChunkStorage>>&& serializedAudioChunks
+    , Vector<Ref<WebCodecsEncodedAudioChunkStorage>>&& serializedAudioChunks
     , Vector<WebCodecsAudioInternalData>&& serializedAudioData
 #endif
 #if ENABLE(MEDIA_STREAM)
@@ -5963,26 +5960,26 @@ SerializedScriptValue::SerializedScriptValue(Vector<uint8_t>&& buffer, std::uniq
 #endif
         )
     : m_internals {
-        .data = WTFMove(buffer)
-        , .arrayBufferContentsArray = WTFMove(arrayBufferContentsArray)
+        .data = WTF::move(buffer)
+        , .arrayBufferContentsArray = WTF::move(arrayBufferContentsArray)
 #if ENABLE(WEB_RTC)
-        , .detachedRTCDataChannels = WTFMove(detachedRTCDataChannels)
+        , .detachedRTCDataChannels = WTF::move(detachedRTCDataChannels)
 #endif
 #if ENABLE(WEB_CODECS)
-        , .serializedVideoChunks = WTFMove(serializedVideoChunks)
-        , .serializedAudioChunks = WTFMove(serializedAudioChunks)
-        , .serializedVideoFrames = WTFMove(serializedVideoFrames)
-        , .serializedAudioData = WTFMove(serializedAudioData)
+        , .serializedVideoChunks = WTF::move(serializedVideoChunks)
+        , .serializedAudioChunks = WTF::move(serializedAudioChunks)
+        , .serializedVideoFrames = WTF::move(serializedVideoFrames)
+        , .serializedAudioData = WTF::move(serializedAudioData)
 #endif
 #if ENABLE(WEB_RTC)
-        , .serializedRTCEncodedAudioFrames = WTFMove(serializedRTCEncodedAudioFrames)
-        , .serializedRTCEncodedVideoFrames = WTFMove(serializedRTCEncodedVideoFrames)
+        , .serializedRTCEncodedAudioFrames = WTF::move(serializedRTCEncodedAudioFrames)
+        , .serializedRTCEncodedVideoFrames = WTF::move(serializedRTCEncodedVideoFrames)
 #endif
 #if ENABLE(MEDIA_SOURCE_IN_WORKERS)
-        , .detachedMediaSourceHandles = WTFMove(detachedMediaSourceHandles)
+        , .detachedMediaSourceHandles = WTF::move(detachedMediaSourceHandles)
 #endif
 #if ENABLE(MEDIA_STREAM)
-        , .serializedMediaStreamTracks = WTFMove(serializedMediaStreamTracks)
+        , .serializedMediaStreamTracks = WTF::move(serializedMediaStreamTracks)
 #endif
     }
 {
@@ -5992,13 +5989,13 @@ SerializedScriptValue::SerializedScriptValue(Vector<uint8_t>&& buffer, std::uniq
 SerializedScriptValue::SerializedScriptValue(Vector<uint8_t>&& buffer, Vector<URLKeepingBlobAlive>&& blobHandles, std::unique_ptr<ArrayBufferContentsArray> arrayBufferContentsArray, std::unique_ptr<ArrayBufferContentsArray> sharedBufferContentsArray, Vector<std::optional<DetachedImageBitmap>>&& detachedImageBitmaps
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
         , Vector<std::unique_ptr<DetachedOffscreenCanvas>>&& detachedOffscreenCanvases
-        , Vector<RefPtr<OffscreenCanvas>>&& inMemoryOffscreenCanvases
+        , Vector<Ref<OffscreenCanvas>>&& inMemoryOffscreenCanvases
 #endif
         , Vector<Ref<MessagePort>>&& inMemoryMessagePorts
 #if ENABLE(WEB_RTC)
         , Vector<std::unique_ptr<DetachedRTCDataChannel>>&& detachedRTCDataChannels
-        , Vector<RefPtr<RTCRtpTransformableFrame>>&& serializedRTCEncodedAudioFrames
-        , Vector<RefPtr<RTCRtpTransformableFrame>>&& serializedRTCEncodedVideoFrames
+        , Vector<Ref<RTCRtpTransformableFrame>>&& serializedRTCEncodedAudioFrames
+        , Vector<Ref<RTCRtpTransformableFrame>>&& serializedRTCEncodedVideoFrames
 #endif
 #if ENABLE(MEDIA_SOURCE_IN_WORKERS)
         , Vector<RefPtr<DetachedMediaSourceHandle>>&& detachedMediaSourceHandles
@@ -6008,9 +6005,9 @@ SerializedScriptValue::SerializedScriptValue(Vector<uint8_t>&& buffer, Vector<UR
         , std::unique_ptr<WasmMemoryHandleArray> wasmMemoryHandlesArray
 #endif
 #if ENABLE(WEB_CODECS)
-        , Vector<RefPtr<WebCodecsEncodedVideoChunkStorage>>&& serializedVideoChunks
+        , Vector<Ref<WebCodecsEncodedVideoChunkStorage>>&& serializedVideoChunks
         , Vector<WebCodecsVideoFrameData>&& serializedVideoFrames
-        , Vector<RefPtr<WebCodecsEncodedAudioChunkStorage>>&& serializedAudioChunks
+        , Vector<Ref<WebCodecsEncodedAudioChunkStorage>>&& serializedAudioChunks
         , Vector<WebCodecsAudioInternalData>&& serializedAudioData
 #endif
 #if ENABLE(MEDIA_STREAM)
@@ -6018,46 +6015,46 @@ SerializedScriptValue::SerializedScriptValue(Vector<uint8_t>&& buffer, Vector<UR
 #endif
         )
     : m_internals {
-        .data = WTFMove(buffer)
-        , .arrayBufferContentsArray = WTFMove(arrayBufferContentsArray)
+        .data = WTF::move(buffer)
+        , .arrayBufferContentsArray = WTF::move(arrayBufferContentsArray)
 #if ENABLE(WEB_RTC)
-        , .detachedRTCDataChannels = WTFMove(detachedRTCDataChannels)
+        , .detachedRTCDataChannels = WTF::move(detachedRTCDataChannels)
 #endif
 #if ENABLE(WEB_CODECS)
-        , .serializedVideoChunks = WTFMove(serializedVideoChunks)
-        , .serializedAudioChunks = WTFMove(serializedAudioChunks)
-        , .serializedVideoFrames = WTFMove(serializedVideoFrames)
-        , .serializedAudioData = WTFMove(serializedAudioData)
+        , .serializedVideoChunks = WTF::move(serializedVideoChunks)
+        , .serializedAudioChunks = WTF::move(serializedAudioChunks)
+        , .serializedVideoFrames = WTF::move(serializedVideoFrames)
+        , .serializedAudioData = WTF::move(serializedAudioData)
 #endif
 #if ENABLE(WEB_RTC)
-        , .serializedRTCEncodedAudioFrames = WTFMove(serializedRTCEncodedAudioFrames)
-        , .serializedRTCEncodedVideoFrames = WTFMove(serializedRTCEncodedVideoFrames)
+        , .serializedRTCEncodedAudioFrames = WTF::move(serializedRTCEncodedAudioFrames)
+        , .serializedRTCEncodedVideoFrames = WTF::move(serializedRTCEncodedVideoFrames)
 #endif
 #if ENABLE(MEDIA_SOURCE_IN_WORKERS)
-        , .detachedMediaSourceHandles = WTFMove(detachedMediaSourceHandles)
+        , .detachedMediaSourceHandles = WTF::move(detachedMediaSourceHandles)
 #endif
 #if ENABLE(MEDIA_STREAM)
-        , .serializedMediaStreamTracks = WTFMove(serializedMediaStreamTracks)
+        , .serializedMediaStreamTracks = WTF::move(serializedMediaStreamTracks)
 #endif
-        , .sharedBufferContentsArray = WTFMove(sharedBufferContentsArray)
-        , .detachedImageBitmaps = WTFMove(detachedImageBitmaps)
+        , .sharedBufferContentsArray = WTF::move(sharedBufferContentsArray)
+        , .detachedImageBitmaps = WTF::move(detachedImageBitmaps)
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
-        , .detachedOffscreenCanvases = WTFMove(detachedOffscreenCanvases)
-        , .inMemoryOffscreenCanvases = WTFMove(inMemoryOffscreenCanvases)
+        , .detachedOffscreenCanvases = WTF::move(detachedOffscreenCanvases)
+        , .inMemoryOffscreenCanvases = WTF::move(inMemoryOffscreenCanvases)
 #endif
-        , .inMemoryMessagePorts = WTFMove(inMemoryMessagePorts)
+        , .inMemoryMessagePorts = WTF::move(inMemoryMessagePorts)
 #if ENABLE(WEBASSEMBLY)
-        , .wasmModulesArray = wasmModulesArray.isEmpty() ? nullptr : makeUnique<WasmModuleArray>(WTFMove(wasmModulesArray))
-        , .wasmMemoryHandlesArray = WTFMove(wasmMemoryHandlesArray)
+        , .wasmModulesArray = wasmModulesArray.isEmpty() ? nullptr : makeUnique<WasmModuleArray>(WTF::move(wasmModulesArray))
+        , .wasmMemoryHandlesArray = WTF::move(wasmMemoryHandlesArray)
 #endif
-        , .blobHandles = crossThreadCopy(WTFMove(blobHandles))
+        , .blobHandles = crossThreadCopy(WTF::move(blobHandles))
     }
 {
     m_internals.memoryCost = computeMemoryCost();
 }
 
 SerializedScriptValue::SerializedScriptValue(Internals&& internals)
-    : m_internals(WTFMove(internals))
+    : m_internals(WTF::move(internals))
 {
 }
 
@@ -6094,16 +6091,12 @@ size_t SerializedScriptValue::computeMemoryCost() const
     }
 #endif
 #if ENABLE(WEB_CODECS)
-    for (auto& chunk : m_internals.serializedVideoChunks) {
-        if (chunk)
-            cost += chunk->memoryCost();
-    }
+    for (auto& chunk : m_internals.serializedVideoChunks)
+        cost += chunk->memoryCost();
     for (auto& frame : m_internals.serializedVideoFrames)
         cost += frame.memoryCost();
-    for (auto& chunk : m_internals.serializedAudioChunks) {
-        if (chunk)
-            cost += chunk->memoryCost();
-    }
+    for (auto& chunk : m_internals.serializedAudioChunks)
+        cost += chunk->memoryCost();
     for (auto& data : m_internals.serializedAudioData)
         cost += data.memoryCost();
 #endif
@@ -6114,20 +6107,20 @@ size_t SerializedScriptValue::computeMemoryCost() const
     return cost;
 }
 
-static ExceptionOr<std::unique_ptr<ArrayBufferContentsArray>> transferArrayBuffers(VM& vm, const Vector<RefPtr<JSC::ArrayBuffer>>& arrayBuffers)
+static ExceptionOr<std::unique_ptr<ArrayBufferContentsArray>> transferArrayBuffers(VM& vm, const Vector<Ref<JSC::ArrayBuffer>>& arrayBuffers)
 {
     if (arrayBuffers.isEmpty())
         return nullptr;
 
     auto contents = makeUnique<ArrayBufferContentsArray>(arrayBuffers.size());
 
-    HashSet<JSC::ArrayBuffer*> visited;
+    HashSet<Ref<JSC::ArrayBuffer>> visited;
     for (size_t arrayBufferIndex = 0; arrayBufferIndex < arrayBuffers.size(); arrayBufferIndex++) {
-        if (visited.contains(arrayBuffers[arrayBufferIndex].get()))
+        if (visited.contains(arrayBuffers[arrayBufferIndex].ptr()))
             continue;
         visited.add(arrayBuffers[arrayBufferIndex].get());
 
-        bool result = arrayBuffers[arrayBufferIndex]->transferTo(vm, contents->at(arrayBufferIndex));
+        bool result = Ref { arrayBuffers[arrayBufferIndex] }->transferTo(vm, contents->at(arrayBufferIndex));
         if (!result)
             return Exception { ExceptionCode::TypeError };
     }
@@ -6184,9 +6177,9 @@ static Exception exceptionForSerializationFailure(SerializationReturnCode code)
     return Exception { ExceptionCode::TypeError };
 }
 
-static bool containsDuplicates(const Vector<RefPtr<ImageBitmap>>& imageBitmaps)
+static bool containsDuplicates(const Vector<Ref<ImageBitmap>>& imageBitmaps)
 {
-    HashSet<ImageBitmap*> visited;
+    HashSet<Ref<ImageBitmap>> visited;
     for (auto& imageBitmap : imageBitmaps) {
         if (!visited.add(imageBitmap.get()))
             return true;
@@ -6195,9 +6188,9 @@ static bool containsDuplicates(const Vector<RefPtr<ImageBitmap>>& imageBitmaps)
 }
 
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
-static bool canOffscreenCanvasesDetach(const Vector<RefPtr<OffscreenCanvas>>& offscreenCanvases)
+static bool canOffscreenCanvasesDetach(const Vector<Ref<OffscreenCanvas>>& offscreenCanvases)
 {
-    HashSet<OffscreenCanvas*> visited;
+    HashSet<Ref<OffscreenCanvas>> visited;
     for (auto& offscreenCanvas : offscreenCanvases) {
         if (!offscreenCanvas->canDetach())
             return false;
@@ -6212,12 +6205,12 @@ static bool canOffscreenCanvasesDetach(const Vector<RefPtr<OffscreenCanvas>>& of
 #if ENABLE(WEB_RTC)
 static bool canDetachRTCDataChannels(const Vector<Ref<RTCDataChannel>>& channels)
 {
-    HashSet<RTCDataChannel*> visited;
+    HashSet<Ref<RTCDataChannel>> visited;
     for (auto& channel : channels) {
         if (!channel->canDetach())
             return false;
         // Check the return value of add, we should not encounter duplicates.
-        if (!visited.add(channel.ptr()))
+        if (!visited.add(channel.get()))
             return false;
     }
     return true;
@@ -6227,9 +6220,9 @@ static bool canDetachRTCDataChannels(const Vector<Ref<RTCDataChannel>>& channels
 #if ENABLE(MEDIA_STREAM)
 static bool canDetachMediaStreamTracks(const Vector<Ref<MediaStreamTrack>>& tracks)
 {
-    HashSet<MediaStreamTrack*> visited;
+    HashSet<Ref<MediaStreamTrack>> visited;
     for (auto& track : tracks) {
-        if (!visited.add(track.ptr()))
+        if (!visited.add(track.get()))
             return false;
     }
     return true;
@@ -6239,12 +6232,12 @@ static bool canDetachMediaStreamTracks(const Vector<Ref<MediaStreamTrack>>& trac
 #if ENABLE(MEDIA_SOURCE_IN_WORKERS)
 static bool canDetachMediaSourceHandles(const Vector<Ref<MediaSourceHandle>>& handles)
 {
-    HashSet<MediaSourceHandle*> visited;
+    HashSet<Ref<MediaSourceHandle>> visited;
     for (auto& handle : handles) {
         if (!handle->canDetach())
             return false;
         // Check the return value of add, we should not encounter duplicates.
-        if (!visited.add(handle.ptr()))
+        if (!visited.add(handle.get()))
             return false;
     }
     return true;
@@ -6262,7 +6255,7 @@ RefPtr<SerializedScriptValue> SerializedScriptValue::create(JSC::JSGlobalObject&
 
 ExceptionOr<Ref<SerializedScriptValue>> SerializedScriptValue::create(JSGlobalObject& globalObject, JSValue value, Vector<JSC::Strong<JSC::JSObject>>&& transferList, Vector<Ref<MessagePort>>& messagePorts, SerializationForStorage forStorage, SerializationContext serializationContext)
 {
-    return create(globalObject, value, WTFMove(transferList), messagePorts, forStorage, SerializationErrorMode::NonThrowing, serializationContext);
+    return create(globalObject, value, WTF::move(transferList), messagePorts, forStorage, SerializationErrorMode::NonThrowing, serializationContext);
 }
 
 ExceptionOr<Ref<SerializedScriptValue>> SerializedScriptValue::create(JSGlobalObject& lexicalGlobalObject, JSValue value, Vector<JSC::Strong<JSC::JSObject>>&& transferList, Vector<Ref<MessagePort>>& messagePorts, SerializationForStorage forStorage, SerializationErrorMode throwExceptions, SerializationContext context)
@@ -6270,10 +6263,10 @@ ExceptionOr<Ref<SerializedScriptValue>> SerializedScriptValue::create(JSGlobalOb
     VM& vm = lexicalGlobalObject.vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    Vector<RefPtr<JSC::ArrayBuffer>> arrayBuffers;
-    Vector<RefPtr<ImageBitmap>> imageBitmaps;
+    Vector<Ref<JSC::ArrayBuffer>> arrayBuffers;
+    Vector<Ref<ImageBitmap>> imageBitmaps;
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
-    Vector<RefPtr<OffscreenCanvas>> offscreenCanvases;
+    Vector<Ref<OffscreenCanvas>> offscreenCanvases;
 #endif
 #if ENABLE(WEB_RTC)
     Vector<Ref<RTCDataChannel>> dataChannels;
@@ -6289,20 +6282,20 @@ ExceptionOr<Ref<SerializedScriptValue>> SerializedScriptValue::create(JSGlobalOb
     Vector<Ref<MediaStreamTrack>> transferredMediaStreamTracks;
 #endif
 
-    HashSet<JSC::JSObject*> uniqueTransferables;
+    HashSet<JSC::Strong<JSC::JSObject>> visited;
     for (auto& transferable : transferList) {
-        if (!uniqueTransferables.add(transferable.get()).isNewEntry)
+        if (!visited.add(JSC::Strong<JSC::JSObject> { vm, transferable.get() }).isNewEntry)
             return Exception { ExceptionCode::DataCloneError, "Duplicate transferable for structured clone"_s };
 
-        if (auto arrayBuffer = toPossiblySharedArrayBuffer(vm, transferable.get())) {
+        if (RefPtr arrayBuffer = toPossiblySharedArrayBuffer(vm, transferable.get())) {
             if (arrayBuffer->isDetached() || arrayBuffer->isShared())
                 return Exception { ExceptionCode::DataCloneError };
             if (!arrayBuffer->isDetachable()) {
                 auto scope = DECLARE_THROW_SCOPE(vm);
-                throwVMTypeError(&lexicalGlobalObject, scope, errorMessageForTransfer(arrayBuffer));
+                throwVMTypeError(&lexicalGlobalObject, scope, errorMessageForTransfer(arrayBuffer.get()));
                 return Exception { ExceptionCode::ExistingExceptionError };
             }
-            arrayBuffers.append(WTFMove(arrayBuffer));
+            arrayBuffers.append(arrayBuffer.releaseNonNull());
             continue;
         }
         if (RefPtr port = JSMessagePort::toWrapped(vm, transferable.get())) {
@@ -6318,13 +6311,13 @@ ExceptionOr<Ref<SerializedScriptValue>> SerializedScriptValue::create(JSGlobalOb
             if (!imageBitmap->originClean())
                 return Exception { ExceptionCode::DataCloneError };
 
-            imageBitmaps.append(WTFMove(imageBitmap));
+            imageBitmaps.append(imageBitmap.releaseNonNull());
             continue;
         }
 
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
         if (RefPtr offscreenCanvas = JSOffscreenCanvas::toWrapped(vm, transferable.get())) {
-            offscreenCanvases.append(WTFMove(offscreenCanvas));
+            offscreenCanvases.append(offscreenCanvas.releaseNonNull());
             continue;
         }
 #endif
@@ -6394,7 +6387,7 @@ ExceptionOr<Ref<SerializedScriptValue>> SerializedScriptValue::create(JSGlobalOb
     Vector<uint8_t> buffer;
     Vector<URLKeepingBlobAlive> blobHandles;
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
-    Vector<RefPtr<OffscreenCanvas>> inMemoryOffscreenCanvases;
+    Vector<Ref<OffscreenCanvas>> inMemoryOffscreenCanvases;
 #endif
     Vector<Ref<MessagePort>> inMemoryMessagePorts;
 #if ENABLE(WEBASSEMBLY)
@@ -6407,9 +6400,9 @@ ExceptionOr<Ref<SerializedScriptValue>> SerializedScriptValue::create(JSGlobalOb
     Vector<RefPtr<RTCEncodedVideoFrame>> serializedRTCEncodedVideoFrames;
 #endif
 #if ENABLE(WEB_CODECS)
-    Vector<RefPtr<WebCodecsEncodedVideoChunkStorage>> serializedVideoChunks;
+    Vector<Ref<WebCodecsEncodedVideoChunkStorage>> serializedVideoChunks;
     Vector<RefPtr<WebCodecsVideoFrame>> serializedVideoFrames;
-    Vector<RefPtr<WebCodecsEncodedAudioChunkStorage>> serializedAudioChunks;
+    Vector<Ref<WebCodecsEncodedAudioChunkStorage>> serializedAudioChunks;
     Vector<RefPtr<WebCodecsAudioData>> serializedAudioData;
 #endif
 #if ENABLE(MEDIA_STREAM)
@@ -6463,7 +6456,7 @@ ExceptionOr<Ref<SerializedScriptValue>> SerializedScriptValue::create(JSGlobalOb
     if (arrayBufferContentsArray.hasException())
         return arrayBufferContentsArray.releaseException();
 
-    auto detachedImageBitmaps = map(WTFMove(imageBitmaps), [](auto&& imageBitmap) -> std::optional<DetachedImageBitmap> {
+    auto detachedImageBitmaps = map(WTF::move(imageBitmaps), [](auto&& imageBitmap) -> std::optional<DetachedImageBitmap> {
         return imageBitmap->detach();
     });
 
@@ -6476,10 +6469,10 @@ ExceptionOr<Ref<SerializedScriptValue>> SerializedScriptValue::create(JSGlobalOb
     Vector<std::unique_ptr<DetachedRTCDataChannel>> detachedRTCDataChannels;
     for (auto& channel : dataChannels)
         detachedRTCDataChannels.append(channel->detach());
-    auto serializedRTCEncodedAudioFrameStorages = map(serializedRTCEncodedAudioFrames, [](auto& frame) -> RefPtr<RTCRtpTransformableFrame> {
+    auto serializedRTCEncodedAudioFrameStorages = map(serializedRTCEncodedAudioFrames, [](auto& frame) -> Ref<RTCRtpTransformableFrame> {
         return frame->serialize();
     });
-    auto serializedRTCEncodedVideoFrameStorages = map(serializedRTCEncodedVideoFrames, [](auto& frame) -> RefPtr<RTCRtpTransformableFrame> {
+    auto serializedRTCEncodedVideoFrameStorages = map(serializedRTCEncodedVideoFrames, [](auto& frame) -> Ref<RTCRtpTransformableFrame> {
         return frame->serialize();
     });
 #endif
@@ -6505,32 +6498,32 @@ ExceptionOr<Ref<SerializedScriptValue>> SerializedScriptValue::create(JSGlobalOb
         track->stopTrack();
 #endif
 
-    return adoptRef(*new SerializedScriptValue(WTFMove(buffer), WTFMove(blobHandles), arrayBufferContentsArray.releaseReturnValue(), context == SerializationContext::WorkerPostMessage ? WTFMove(sharedBuffers) : nullptr, WTFMove(detachedImageBitmaps)
+    return adoptRef(*new SerializedScriptValue(WTF::move(buffer), WTF::move(blobHandles), arrayBufferContentsArray.releaseReturnValue(), context == SerializationContext::WorkerPostMessage ? WTF::move(sharedBuffers) : nullptr, WTF::move(detachedImageBitmaps)
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
-                , WTFMove(detachedCanvases)
-                , WTFMove(inMemoryOffscreenCanvases)
+                , WTF::move(detachedCanvases)
+                , WTF::move(inMemoryOffscreenCanvases)
 #endif
-                , WTFMove(inMemoryMessagePorts)
+                , WTF::move(inMemoryMessagePorts)
 #if ENABLE(WEB_RTC)
-                , WTFMove(detachedRTCDataChannels)
-                , WTFMove(serializedRTCEncodedAudioFrameStorages)
-                , WTFMove(serializedRTCEncodedVideoFrameStorages)
+                , WTF::move(detachedRTCDataChannels)
+                , WTF::move(serializedRTCEncodedAudioFrameStorages)
+                , WTF::move(serializedRTCEncodedVideoFrameStorages)
 #endif
 #if ENABLE(MEDIA_SOURCE_IN_WORKERS)
-                , WTFMove(detachedMediaSourceHandles)
+                , WTF::move(detachedMediaSourceHandles)
 #endif
 #if ENABLE(WEBASSEMBLY)
-                , WTFMove(wasmModules)
+                , WTF::move(wasmModules)
                 , context == SerializationContext::WorkerPostMessage ? makeUnique<WasmMemoryHandleArray>(wasmMemoryHandles) : nullptr
 #endif
 #if ENABLE(WEB_CODECS)
-                , WTFMove(serializedVideoChunks)
-                , WTFMove(serializedVideoFrameData)
-                , WTFMove(serializedAudioChunks)
-                , WTFMove(serializedAudioInternalData)
+                , WTF::move(serializedVideoChunks)
+                , WTF::move(serializedVideoFrameData)
+                , WTF::move(serializedAudioChunks)
+                , WTF::move(serializedAudioInternalData)
 #endif
 #if ENABLE(MEDIA_STREAM)
-                , WTFMove(serializedMediaStreamTrackStorages)
+                , WTF::move(serializedMediaStreamTrackStorages)
 #endif
                 ));
 }
@@ -6540,7 +6533,7 @@ RefPtr<SerializedScriptValue> SerializedScriptValue::create(StringView string)
     Vector<uint8_t> buffer;
     if (!CloneSerializer::serialize(string, buffer))
         return nullptr;
-    return adoptRef(*new SerializedScriptValue(WTFMove(buffer)));
+    return adoptRef(*new SerializedScriptValue(WTF::move(buffer)));
 }
 
 RefPtr<SerializedScriptValue> SerializedScriptValue::create(JSContextRef originContext, JSValueRef apiValue, JSValueRef* exception)
@@ -6589,19 +6582,19 @@ JSValue SerializedScriptValue::deserialize(JSGlobalObject& lexicalGlobalObject, 
     VM& vm = lexicalGlobalObject.vm();
     auto scope = DECLARE_CATCH_SCOPE(vm);
 
-    DeserializationResult result = CloneDeserializer::deserialize(&lexicalGlobalObject, globalObject, messagePorts, WTFMove(m_internals.detachedImageBitmaps)
+    DeserializationResult result = CloneDeserializer::deserialize(&lexicalGlobalObject, globalObject, messagePorts, WTF::move(m_internals.detachedImageBitmaps)
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
-        , WTFMove(m_internals.detachedOffscreenCanvases)
+        , WTF::move(m_internals.detachedOffscreenCanvases)
         , m_internals.inMemoryOffscreenCanvases
 #endif
         , m_internals.inMemoryMessagePorts
 #if ENABLE(WEB_RTC)
-        , WTFMove(m_internals.detachedRTCDataChannels)
-        , WTFMove(m_internals.serializedRTCEncodedAudioFrames)
-        , WTFMove(m_internals.serializedRTCEncodedVideoFrames)
+        , WTF::move(m_internals.detachedRTCDataChannels)
+        , WTF::move(m_internals.serializedRTCEncodedAudioFrames)
+        , WTF::move(m_internals.serializedRTCEncodedVideoFrames)
 #endif
 #if ENABLE(MEDIA_SOURCE_IN_WORKERS)
-        , WTFMove(m_internals.detachedMediaSourceHandles)
+        , WTF::move(m_internals.detachedMediaSourceHandles)
 #endif
         , m_internals.arrayBufferContentsArray.get(), m_internals.data, blobURLs, blobFilePaths, m_internals.sharedBufferContentsArray.get()
 #if ENABLE(WEBASSEMBLY)
@@ -6609,13 +6602,13 @@ JSValue SerializedScriptValue::deserialize(JSGlobalObject& lexicalGlobalObject, 
         , m_internals.wasmMemoryHandlesArray.get()
 #endif
 #if ENABLE(WEB_CODECS)
-        , WTFMove(m_internals.serializedVideoChunks)
-        , WTFMove(m_internals.serializedVideoFrames)
-        , WTFMove(m_internals.serializedAudioChunks)
-        , WTFMove(m_internals.serializedAudioData)
+        , WTF::move(m_internals.serializedVideoChunks)
+        , WTF::move(m_internals.serializedVideoFrames)
+        , WTF::move(m_internals.serializedAudioChunks)
+        , WTF::move(m_internals.serializedAudioData)
 #endif
 #if ENABLE(MEDIA_STREAM)
-        , WTFMove(m_internals.serializedMediaStreamTracks)
+        , WTF::move(m_internals.serializedMediaStreamTracks)
 #endif
         );
     if (didFail)
@@ -6675,7 +6668,7 @@ void SerializedScriptValue::writeBlobsToDiskForIndexedDB(bool isEphemeral, Compl
     if (isEphemeral)
         return completionHandler({ });
 
-    blobRegistry().writeBlobsToTemporaryFilesForIndexedDB(blobURLs(), [completionHandler = WTFMove(completionHandler), this, protectedThis = Ref { *this }] (auto&& blobFilePaths) mutable {
+    blobRegistry()->writeBlobsToTemporaryFilesForIndexedDB(blobURLs(), [completionHandler = WTF::move(completionHandler), this, protectedThis = Ref { *this }] (auto&& blobFilePaths) mutable {
         ASSERT(isMainThread());
 
         if (blobFilePaths.isEmpty()) {
@@ -6770,6 +6763,74 @@ std::optional<ErrorInformation> extractErrorInformationFromErrorInstance(JSC::JS
     RETURN_IF_EXCEPTION(scope, std::nullopt);
 
     return { ErrorInformation { errorTypeString, message, line, column, sourceURL, stack, cause } };
+}
+
+auto SerializedScriptValue::deserializationBehavior(JSC::JSObject& object) -> DeserializationBehavior
+{
+    // These correspond to legacy use of m_canCreateDOMObject and m_isDOMGlobalObject.
+    if (object.inherits<JSBlob>()
+        || object.inherits<JSFile>()
+        || object.inherits<JSFileList>()
+        || object.inherits<JSImageData>())
+        return DeserializationBehavior::LegacyMapToNull;
+
+    if (object.inherits<JSDOMPoint>()
+        || object.inherits<JSDOMPointReadOnly>()
+        || object.inherits<JSDOMRect>()
+        || object.inherits<JSDOMRectReadOnly>()
+        || object.inherits<JSDOMMatrix>()
+        || object.inherits<JSDOMMatrixReadOnly>()
+        || object.inherits<JSDOMQuad>()
+        || object.inherits<JSDOMException>())
+        return DeserializationBehavior::LegacyMapToUndefined;
+
+#if ENABLE(WEB_RTC)
+    if (object.inherits<JSRTCCertificate>())
+        return DeserializationBehavior::LegacyMapToEmptyObject;
+#endif
+
+    if (object.inherits<DateInstance>()
+        || object.inherits<BooleanObject>()
+        || object.inherits<StringObject>()
+        || object.inherits<NumberObject>()
+        || object.inherits<BigIntObject>()
+        || object.inherits<RegExpObject>()
+        || object.inherits<ErrorInstance>()
+        || object.inherits<JSMessagePort>()
+        || object.inherits<JSArrayBuffer>()
+        || object.inherits<JSArrayBufferView>()
+        || object.inherits<JSCryptoKey>()
+#if ENABLE(WEBASSEMBLY)
+        || object.inherits<JSWebAssemblyModule>()
+        || object.inherits<JSWebAssemblyMemory>()
+#endif
+        || object.inherits<JSImageBitmap>()
+#if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
+        || object.inherits<JSOffscreenCanvas>()
+#endif
+#if ENABLE(WEB_RTC)
+        || object.inherits<JSRTCDataChannel>()
+        || object.inherits<JSRTCEncodedAudioFrame>()
+        || object.inherits<JSRTCEncodedVideoFrame>()
+#endif
+#if ENABLE(WEB_CODECS)
+        || object.inherits<JSWebCodecsEncodedVideoChunk>()
+        || object.inherits<JSWebCodecsVideoFrame>()
+        || object.inherits<JSWebCodecsEncodedAudioChunk>()
+        || object.inherits<JSWebCodecsAudioData>()
+#endif
+#if ENABLE(MEDIA_STREAM)
+        || object.inherits<JSMediaStreamTrack>()
+#endif
+#if ENABLE(MEDIA_SOURCE_IN_WORKERS)
+        || object.inherits<JSMediaSourceHandle>()
+#endif
+        || object.inherits<JSMap>()
+        || object.inherits<JSSet>()
+        || object.classInfo() == JSFinalObject::info())
+        return DeserializationBehavior::Succeed;
+
+    return DeserializationBehavior::Fail;
 }
 
 } // namespace WebCore

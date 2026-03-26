@@ -440,7 +440,7 @@ void webkitDownloadDecideDestinationWithSuggestedFilename(WebKitDownload* downlo
         return;
     }
 
-    download->priv->decideDestinationCallback = WTFMove(completionHandler);
+    download->priv->decideDestinationCallback = WTF::move(completionHandler);
     gboolean applicationWillDecideDestination = FALSE;
     g_signal_emit(download, signals[DECIDE_DESTINATION], 0, suggestedFilename.data(), &applicationWillDecideDestination);
     if (!applicationWillDecideDestination)
@@ -546,7 +546,7 @@ void webkit_download_set_destination(WebKitDownload* download, const gchar* dest
         download->priv->destination.reset(g_strdup(destination));
 #else
         if (destinationPath)
-            download->priv->destination = WTFMove(destinationPath);
+            download->priv->destination = WTF::move(destinationPath);
         else
             download->priv->destination.reset(g_strdup(destination));
 #endif
@@ -624,7 +624,9 @@ gdouble webkit_download_get_estimated_progress(WebKitDownload* download)
     if (!contentLength)
         return 0;
 
-    return static_cast<gdouble>(priv->currentSize) / static_cast<gdouble>(contentLength);
+    // We cannot trust that the Content-Length will be correct. If current size
+    // exceeds Content-Length, our estimate will just be 1.0.
+    return std::min(static_cast<gdouble>(priv->currentSize) / static_cast<gdouble>(contentLength), 1.0);
 }
 
 /**

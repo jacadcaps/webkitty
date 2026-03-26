@@ -12,6 +12,7 @@
 #include "common/debug.h"
 #include "compiler/translator/Common.h"
 #include "compiler/translator/Diagnostics.h"
+#include "compiler/translator/ParseContext.h"
 
 namespace sh
 {
@@ -36,11 +37,11 @@ static TBehavior getBehavior(const std::string &str)
 
 TDirectiveHandler::TDirectiveHandler(TExtensionBehavior &extBehavior,
                                      TDiagnostics &diagnostics,
-                                     int &shaderVersion,
+                                     TParseContext &context,
                                      sh::GLenum shaderType)
     : mExtensionBehavior(extBehavior),
       mDiagnostics(diagnostics),
-      mShaderVersion(shaderVersion),
+      mContext(context),
       mShaderType(shaderType)
 {}
 
@@ -63,7 +64,7 @@ void TDirectiveHandler::handlePragma(const angle::pp::SourceLocation &loc,
 
         if (name == kInvariant && value == kAll)
         {
-            if (mShaderVersion == 300 && mShaderType == GL_FRAGMENT_SHADER)
+            if (mContext.getShaderVersion() == 300 && mShaderType == GL_FRAGMENT_SHADER)
             {
                 // ESSL 3.00.4 section 4.6.1
                 mDiagnostics.error(
@@ -151,7 +152,8 @@ void TDirectiveHandler::handleExtension(const angle::pp::SourceLocation &loc,
     }
 
     TExtensionBehavior::iterator iter = mExtensionBehavior.find(GetExtensionByName(name.c_str()));
-    if (iter != mExtensionBehavior.end() && CheckExtensionVersion(iter->first, mShaderVersion))
+    if (iter != mExtensionBehavior.end() &&
+        CheckExtensionVersion(iter->first, mContext.getShaderVersion()))
     {
         iter->second = behaviorVal;
         // OVR_multiview is implicitly enabled when OVR_multiview2 is enabled
@@ -269,6 +271,19 @@ void TDirectiveHandler::handleExtension(const angle::pp::SourceLocation &loc,
                 iter->second = behaviorVal;
             }
         }
+        // GL_EXT_fragment_shading_rate_primitive is implicitly enabled when
+        // GL_EXT_fragment_shading_rate are enabled.
+        else if (name == "GL_EXT_fragment_shading_rate")
+        {
+            constexpr char kFragmentShadingRatePrimitiveEXTName[] =
+                "GL_EXT_fragment_shading_rate_primitive";
+            iter =
+                mExtensionBehavior.find(GetExtensionByName(kFragmentShadingRatePrimitiveEXTName));
+            if (iter != mExtensionBehavior.end())
+            {
+                iter->second = behaviorVal;
+            }
+        }
         return;
     }
 
@@ -295,7 +310,7 @@ void TDirectiveHandler::handleVersion(const angle::pp::SourceLocation &loc,
 {
     if (version == 100 || version == 300 || version == 310 || version == 320)
     {
-        mShaderVersion = version;
+        mContext.onShaderVersionDeclared(version);
 
         // Add macros for supported extensions
         for (const auto &iter : mExtensionBehavior)

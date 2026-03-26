@@ -26,10 +26,14 @@
 #pragma once
 
 #include "APIObject.h"
+#include "BrowsingContextGroup.h"
 #include "WebPreferencesDefaultValues.h"
+#include "WebPreferencesDefinitions.h"
 #include "WebURLSchemeHandler.h"
 #include <WebCore/ContentSecurityPolicy.h>
 #include <WebCore/FrameIdentifier.h>
+#include <WebCore/ReferrerPolicy.h>
+#include <WebCore/SecurityOriginData.h>
 #include <WebCore/ShouldRelaxThirdPartyCookieBlocking.h>
 #include <WebCore/Site.h>
 #include <WebCore/WindowFeatures.h>
@@ -40,6 +44,14 @@
 #include <wtf/Markable.h>
 #include <wtf/RobinHoodHashSet.h>
 #include <wtf/text/WTFString.h>
+
+#if PLATFORM(COCOA)
+#include "ClassStructPtr.h"
+#endif
+
+#if ENABLE(DATA_DETECTION)
+#include <WebCore/DataDetectorType.h>
+#endif
 
 #if PLATFORM(IOS_FAMILY)
 OBJC_PROTOCOL(_UIClickInteractionDriving);
@@ -110,6 +122,7 @@ public:
         Ref<WebKit::WebProcessProxy> process;
         Ref<WebKit::BrowsingContextGroup> browsingContextGroup;
         WebCore::FrameIdentifier frameID;
+        WebCore::SecurityOriginData securityOrigin;
         bool operator==(const OpenerInfo&) const;
     };
     const std::optional<OpenerInfo>& openerInfo() const;
@@ -124,6 +137,9 @@ public:
 
     WebCore::SandboxFlags initialSandboxFlags() const { return m_data.initialSandboxFlags; }
     void setInitialSandboxFlags(WebCore::SandboxFlags);
+
+    WebCore::ReferrerPolicy initialReferrerPolicy() const { return m_data.initialReferrerPolicy; }
+    void setInitialReferrerPolicy(WebCore::ReferrerPolicy);
 
     const std::optional<WebCore::WindowFeatures>& windowFeatures() const;
     void setWindowFeatures(WebCore::WindowFeatures&&);
@@ -157,7 +173,7 @@ public:
     void setPreferences(RefPtr<WebKit::WebPreferences>&&);
 
     WebKit::WebPageProxy* relatedPage() const;
-    void setRelatedPage(WeakPtr<WebKit::WebPageProxy>&& relatedPage) { m_data.relatedPage = WTFMove(relatedPage); }
+    void setRelatedPage(WeakPtr<WebKit::WebPageProxy>&& relatedPage) { m_data.relatedPage = WTF::move(relatedPage); }
     RefPtr<WebKit::WebPageProxy> protectedRelatedPage() const;
 
     WebKit::WebPageProxy* pageToCloneSessionStorageFrom() const;
@@ -185,7 +201,7 @@ public:
     void setCanShowWhileLocked(bool canShowWhileLocked) { m_data.canShowWhileLocked = canShowWhileLocked; }
 
     const RetainPtr<_UIClickInteractionDriving>& clickInteractionDriverForTesting() const { return m_data.clickInteractionDriverForTesting; }
-    void setClickInteractionDriverForTesting(RetainPtr<_UIClickInteractionDriving>&& driver) { m_data.clickInteractionDriverForTesting = WTFMove(driver); }
+    void setClickInteractionDriverForTesting(RetainPtr<_UIClickInteractionDriving>&& driver) { m_data.clickInteractionDriverForTesting = WTF::move(driver); }
 
     bool inlineMediaPlaybackRequiresPlaysInlineAttribute() const { return m_data.inlineMediaPlaybackRequiresPlaysInlineAttribute; }
     void setInlineMediaPlaybackRequiresPlaysInlineAttribute(bool requiresAttribute) { m_data.inlineMediaPlaybackRequiresPlaysInlineAttribute = requiresAttribute; }
@@ -248,11 +264,11 @@ public:
     void setOverrideContentSecurityPolicy(const WTF::String& overrideContentSecurityPolicy) { m_data.overrideContentSecurityPolicy = overrideContentSecurityPolicy; }
 
 #if PLATFORM(COCOA)
-    ClassStructPtr attachmentFileWrapperClass() const { return m_data.attachmentFileWrapperClass.get(); }
+    ClassStructPtr attachmentFileWrapperClassSingleton() const { return m_data.attachmentFileWrapperClass.get(); }
     void setAttachmentFileWrapperClass(ClassStructPtr c) { m_data.attachmentFileWrapperClass = c; }
 
     const std::optional<Vector<WTF::String>>& additionalSupportedImageTypes() const { return m_data.additionalSupportedImageTypes; }
-    void setAdditionalSupportedImageTypes(std::optional<Vector<WTF::String>>&& additionalSupportedImageTypes) { m_data.additionalSupportedImageTypes = WTFMove(additionalSupportedImageTypes); }
+    void setAdditionalSupportedImageTypes(std::optional<Vector<WTF::String>>&& additionalSupportedImageTypes) { m_data.additionalSupportedImageTypes = WTF::move(additionalSupportedImageTypes); }
 
     bool clientNavigationsRunAtForegroundPriority() const { return m_data.clientNavigationsRunAtForegroundPriority; }
     void setClientNavigationsRunAtForegroundPriority(bool value) { m_data.clientNavigationsRunAtForegroundPriority = value; }
@@ -272,10 +288,10 @@ public:
     const HashMap<WTF::String, Ref<WebKit::WebURLSchemeHandler>>& urlSchemeHandlers() { return m_data.urlSchemeHandlers; }
 
     const Vector<WTF::String>& corsDisablingPatterns() const { return m_data.corsDisablingPatterns; }
-    void setCORSDisablingPatterns(Vector<WTF::String>&& patterns) { m_data.corsDisablingPatterns = WTFMove(patterns); }
+    void setCORSDisablingPatterns(Vector<WTF::String>&& patterns) { m_data.corsDisablingPatterns = WTF::move(patterns); }
 
     HashSet<WTF::String> maskedURLSchemes() const;
-    void setMaskedURLSchemes(HashSet<WTF::String>&& schemes) { m_data.maskedURLSchemesWasSet = true; m_data.maskedURLSchemes = WTFMove(schemes); }
+    void setMaskedURLSchemes(HashSet<WTF::String>&& schemes) { m_data.maskedURLSchemesWasSet = true; m_data.maskedURLSchemes = WTF::move(schemes); }
 
     bool crossOriginAccessControlCheckEnabled() const { return m_data.crossOriginAccessControlCheckEnabled; }
     void setCrossOriginAccessControlCheckEnabled(bool enabled) { m_data.crossOriginAccessControlCheckEnabled = enabled; }
@@ -287,7 +303,7 @@ public:
     void setLoadsSubresources(bool loads) { m_data.loadsSubresources = loads; }
 
     const std::optional<MemoryCompactLookupOnlyRobinHoodHashSet<WTF::String>>& allowedNetworkHosts() const { return m_data.allowedNetworkHosts; }
-    void setAllowedNetworkHosts(std::optional<MemoryCompactLookupOnlyRobinHoodHashSet<WTF::String>>&& hosts) { m_data.allowedNetworkHosts = WTFMove(hosts); }
+    void setAllowedNetworkHosts(std::optional<MemoryCompactLookupOnlyRobinHoodHashSet<WTF::String>>&& hosts) { m_data.allowedNetworkHosts = WTF::move(hosts); }
 
 #if ENABLE(APP_BOUND_DOMAINS)
     bool ignoresAppBoundDomains() const { return m_data.ignoresAppBoundDomains; }
@@ -345,13 +361,13 @@ public:
 #endif
 
     const WTF::String& groupIdentifier() const { return m_data.groupIdentifier; }
-    void setGroupIdentifier(WTF::String&& identifier) { m_data.groupIdentifier = WTFMove(identifier); }
+    void setGroupIdentifier(WTF::String&& identifier) { m_data.groupIdentifier = WTF::move(identifier); }
 
     const WTF::String& mediaContentTypesRequiringHardwareSupport() const { return m_data.mediaContentTypesRequiringHardwareSupport; }
-    void setMediaContentTypesRequiringHardwareSupport(WTF::String&& types) { m_data.mediaContentTypesRequiringHardwareSupport = WTFMove(types); }
+    void setMediaContentTypesRequiringHardwareSupport(WTF::String&& types) { m_data.mediaContentTypesRequiringHardwareSupport = WTF::move(types); }
 
     const std::optional<WTF::String>& applicationNameForUserAgent() const { return m_data.applicationNameForUserAgent; }
-    void setApplicationNameForUserAgent(std::optional<WTF::String>&& name) { m_data.applicationNameForUserAgent = WTFMove(name); }
+    void setApplicationNameForUserAgent(std::optional<WTF::String>&& name) { m_data.applicationNameForUserAgent = WTF::move(name); }
 
     double sampledPageTopColorMaxDifference() const { return m_data.sampledPageTopColorMaxDifference; }
     void setSampledPageTopColorMaxDifference(double difference) { m_data.sampledPageTopColorMaxDifference = difference; }
@@ -427,7 +443,7 @@ public:
     void setShouldRelaxThirdPartyCookieBlocking(WebCore::ShouldRelaxThirdPartyCookieBlocking value) { m_data.shouldRelaxThirdPartyCookieBlocking = value; }
     WebCore::ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking() const { return m_data.shouldRelaxThirdPartyCookieBlocking; }
 
-    void setAttributedBundleIdentifier(WTF::String&& identifier) { m_data.attributedBundleIdentifier = WTFMove(identifier); }
+    void setAttributedBundleIdentifier(WTF::String&& identifier) { m_data.attributedBundleIdentifier = WTF::move(identifier); }
     const WTF::String& attributedBundleIdentifier() const { return m_data.attributedBundleIdentifier; }
 
 #if HAVE(TOUCH_BAR)
@@ -438,6 +454,8 @@ public:
     bool isLockdownModeExplicitlySet() const;
     bool lockdownModeEnabled() const;
     
+    bool isEnhancedSecurityEnabled() const;
+
     void setAllowTestOnlyIPC(bool enabled) { m_data.allowTestOnlyIPC = enabled; }
     bool allowTestOnlyIPC() const { return m_data.allowTestOnlyIPC; }
 
@@ -452,6 +470,9 @@ public:
 
     void setDelaysWebProcessLaunchUntilFirstLoad(bool);
     bool delaysWebProcessLaunchUntilFirstLoad() const;
+
+    void setAllowPostingLegacySynchronousMessages(bool);
+    bool allowPostingLegacySynchronousMessages() const;
 
     void setContentSecurityPolicyModeForExtension(WebCore::ContentSecurityPolicyModeForExtension mode) { m_data.contentSecurityPolicyModeForExtension = mode; }
     WebCore::ContentSecurityPolicyModeForExtension contentSecurityPolicyModeForExtension() const { return m_data.contentSecurityPolicyModeForExtension; }
@@ -478,7 +499,7 @@ private:
         public:
             LazyInitializedRef() = default;
             void operator=(const LazyInitializedRef& other) { m_value = other.get(); }
-            void operator=(RefPtr<T>&& t) { m_value = WTFMove(t); }
+            void operator=(RefPtr<T>&& t) { m_value = WTF::move(t); }
             T& get() const
             {
                 if (!m_value)
@@ -521,6 +542,7 @@ private:
         WTF::String openedMainFrameName;
         std::optional<WebCore::WindowFeatures> windowFeatures;
         WebCore::SandboxFlags initialSandboxFlags;
+        WebCore::ReferrerPolicy initialReferrerPolicy { WebCore::ReferrerPolicy::EmptyString };
         WeakPtr<WebKit::WebPageProxy> pageToCloneSessionStorageFrom;
         WeakPtr<WebKit::WebPageProxy> alternateWebViewForNavigationGestures;
 
@@ -636,6 +658,8 @@ private:
         bool scrollToTextFragmentMarkingEnabled { true };
         bool showsSystemScreenTimeBlockingView { true };
         bool shouldSendConsoleLogsToUIProcessForTesting { false };
+        bool allowPostingLegacySynchronousMessages { false };
+
 #if PLATFORM(VISION)
 
 #if ENABLE(GAMEPAD)

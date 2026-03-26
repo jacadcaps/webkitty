@@ -37,18 +37,16 @@ namespace WebKit {
 
 Ref<WebPageGroupProxy> WebPageGroupProxy::create(WebPageGroupData&& data)
 {
-    return adoptRef(*new WebPageGroupProxy(WTFMove(data)));
+    return adoptRef(*new WebPageGroupProxy(WTF::move(data)));
 }
 
 WebPageGroupProxy::WebPageGroupProxy(WebPageGroupData&& data)
-    : m_data(WTFMove(data))
+    : m_data(WTF::move(data))
     , m_pageGroup(WebCore::PageGroup::pageGroup(m_data.identifier))
 {
 }
 
-WebPageGroupProxy::~WebPageGroupProxy()
-{
-}
+WebPageGroupProxy::~WebPageGroupProxy() = default;
 
 WebCore::PageGroup* WebPageGroupProxy::corePageGroup() const
 {

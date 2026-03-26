@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "EnhancedSecurity.h"
 #include "FrameInfoData.h"
 #include "NetworkSessionCreationParameters.h"
 #include "WebDeviceOrientationAndMotionAccessController.h"
@@ -43,11 +44,13 @@
 #include <pal/SessionID.h>
 #include <wtf/CheckedRef.h>
 #include <wtf/Function.h>
+#include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
 #include <wtf/OptionSet.h>
 #include <wtf/RefCounted.h>
 #include <wtf/RefCounter.h>
 #include <wtf/RefPtr.h>
+#include <wtf/RetainReleaseSwift.h>
 #include <wtf/UniqueRef.h>
 #include <wtf/WeakHashSet.h>
 #include <wtf/WeakPtr.h>
@@ -55,6 +58,7 @@
 #include <wtf/text/WTFString.h>
 
 #if PLATFORM(COCOA)
+#include "EnhancedSecuritySitesHolder.h"
 #include <pal/spi/cf/CFNetworkSPI.h>
 #include <wtf/OSObjectPtr.h>
 #include <wtf/spi/darwin/XPCSPI.h>
@@ -124,7 +128,8 @@ using RemoveDataTaskCounter = RefCounter<RemoveDataTaskCounterType>;
 
 class WebsiteDataStore : public API::ObjectImpl<API::Object::Type::WebsiteDataStore>, public CanMakeWeakPtr<WebsiteDataStore> {
 public:
-    static Ref<WebsiteDataStore> defaultDataStore();
+    static WebsiteDataStore& defaultDataStore();
+    static Ref<WebsiteDataStore> protectedDefaultDataStore();
     static bool defaultDataStoreExists();
     static void deleteDefaultDataStoreForTesting();
     static RefPtr<WebsiteDataStore> existingDataStoreForIdentifier(const WTF::UUID&);
@@ -178,6 +183,7 @@ public:
 
     void setPrivateClickMeasurementDebugMode(bool);
     void storePrivateClickMeasurement(const WebCore::PrivateClickMeasurement&);
+    void simulatePrivateClickMeasurementConversion(int priority, int triggerData, const URL& sourceURL, const URL& destinationURL);
 
     bool storageSiteValidationEnabled() const { return m_storageSiteValidationEnabled; }
     void setStorageSiteValidationEnabled(bool);
@@ -188,7 +194,9 @@ public:
     void didAllowPrivateTokenUsageByThirdPartyForTesting(bool wasAllowed, URL&& resourceURL);
 
     bool isBlobRegistryPartitioningEnabled() const;
-    bool isOptInCookiePartitioningEnabled() const;
+#if ENABLE(OPT_IN_PARTITIONED_COOKIES)
+    bool computeIsOptInCookiePartitioningEnabled() const;
+#endif
     void propagateSettingUpdates();
 
 #if PLATFORM(IOS_FAMILY)
@@ -201,6 +209,8 @@ public:
     void clearResourceLoadStatisticsInWebProcesses(CompletionHandler<void()>&&);
     void setUserAgentStringQuirkForTesting(const String& domain, const String& userAgentString, CompletionHandler<void()>&&);
     void setPrivateTokenIPCForTesting(bool enabled);
+
+    void fetchDomainsWithUserInteraction(CompletionHandler<void(const HashSet<WebCore::RegistrableDomain>&)>&&);
 
     void fetchData(OptionSet<WebsiteDataType>, OptionSet<WebsiteDataFetchOption>, Function<void(Vector<WebsiteDataRecord>)>&& completionHandler);
     void removeData(OptionSet<WebsiteDataType>, WallTime modifiedSince, Function<void()>&& completionHandler);
@@ -217,6 +227,7 @@ public:
     void clearUserInteraction(const URL&, CompletionHandler<void()>&&);
     void dumpResourceLoadStatistics(CompletionHandler<void(const String&)>&&);
     void logTestingEvent(const String&);
+    void didHaveUserInteractionForSiteIsolation(const URL&);
     void logUserInteraction(const URL&, CompletionHandler<void()>&&);
     void getAllStorageAccessEntries(WebPageProxyIdentifier, CompletionHandler<void(Vector<String>&& domains)>&&);
     void hasHadUserInteraction(const URL&, CompletionHandler<void(bool)>&&);
@@ -264,6 +275,7 @@ public:
     void setCrossSiteLoadWithLinkDecorationForTesting(const URL& fromURL, const URL& toURL, bool wasFiltered, CompletionHandler<void()>&&);
     void resetCrossSiteLoadsWithLinkDecorationForTesting(CompletionHandler<void()>&&);
     void deleteCookiesForTesting(const URL&, bool includeHttpOnlyCookies, CompletionHandler<void()>&&);
+    void hasLocalStorageOrCookies(const URL&, CompletionHandler<void(bool)>&&) const;
     void hasLocalStorageForTesting(const URL&, CompletionHandler<void(bool)>&&) const;
     void hasIsolatedSessionForTesting(const URL&, CompletionHandler<void(bool)>&&) const;
     void setResourceLoadStatisticsShouldDowngradeReferrerForTesting(bool, CompletionHandler<void()>&&);
@@ -346,7 +358,7 @@ public:
     const WebsiteDataStoreConfiguration& configuration() const { return m_configuration.get(); }
 
     WebsiteDataStoreClient& client() { return m_client.get(); }
-    void setClient(UniqueRef<WebsiteDataStoreClient>&& client) { m_client = WTFMove(client); }
+    void setClient(UniqueRef<WebsiteDataStoreClient>&& client) { m_client = WTF::move(client); }
 
     API::HTTPCookieStore& cookieStore();
     Ref<API::HTTPCookieStore> protectedCookieStore();
@@ -373,13 +385,13 @@ public:
     static String defaultWebsiteDataStoreDirectory(const WTF::UUID& identifier);
     static String defaultCookieStorageFile(const String& baseDataDirectory = nullString());
     static String defaultSearchFieldHistoryDirectory(const String& baseDataDirectory = nullString());
+    static String defaultEnhancedSecurityDirectory(const String& baseDataDirectory = nullString());
 #endif
     static String defaultServiceWorkerRegistrationDirectory(const String& baseDataDirectory = nullString());
     static String defaultLocalStorageDirectory(const String& baseDataDirectory = nullString());
     static String defaultResourceLoadStatisticsDirectory(const String& baseDataDirectory = nullString());
     static String defaultNetworkCacheDirectory(const String& baseCacheDirectory = nullString());
     static String defaultAlternativeServicesDirectory(const String& baseCacheDirectory = nullString());
-    static String defaultApplicationCacheDirectory(const String& baseCacheDirectory = nullString());
     static String defaultWebSQLDatabaseDirectory(const String& baseDataDirectory = nullString());
     static String defaultHSTSStorageDirectory(const String& baseCacheDirectory = nullString());
 #if ENABLE(ARKIT_INLINE_PREVIEW)
@@ -517,7 +529,12 @@ public:
     uint64_t cookiesVersion() const { return m_cookiesVersion; }
     void setCookies(Vector<WebCore::Cookie>&&, CompletionHandler<void()>&&);
 
-    void setStorageAccessPermissionForTesting(bool, const String& topFrameDomain, const String& subFrameDomain, CompletionHandler<void()>&&);
+    void setStorageAccessPermissionForTesting(bool, WebPageProxyIdentifier, const String& topFrameDomain, const String& subFrameDomain, CompletionHandler<void()>&&);
+    void clearStorageAccessForTesting(CompletionHandler<void()>&&);
+    void isStorageSuspendedForTesting(CompletionHandler<void(bool)>&&) const;
+
+    void trackEnhancedSecurityForDomain(WebCore::RegistrableDomain&&, EnhancedSecurity);
+    void fetchEnhancedSecurityOnlyDomains(CompletionHandler<void(HashSet<WebCore::RegistrableDomain>&&)>&&);
 
 private:
     enum class ForceReinitialization : bool { No, Yes };
@@ -579,6 +596,16 @@ private:
     HashSet<WebCore::ProcessIdentifier> activeWebProcesses() const;
     void removeDataInNetworkProcess(WebsiteDataStore::ProcessAccessType, OptionSet<WebsiteDataType>, WallTime, CompletionHandler<void()>&&);
 
+    HashSet<WebCore::RegistrableDomain> platformAdditionalDomainsWithUserInteraction() const;
+
+#if PLATFORM(COCOA)
+    EnhancedSecuritySitesHolder& enhancedSecuritySitesHolder();
+#endif
+
+    void removeEnhancedSecuritySites(const Vector<WebCore::SecurityOriginData>&, CompletionHandler<void()>&&);
+    void removeAllEnhancedSecuritySites(CompletionHandler<void()>&&);
+    void fetchAllEnhancedSecuritySites(CompletionHandler<void(HashSet<WebCore::RegistrableDomain>&&)>&&);
+
     const PAL::SessionID m_sessionID;
 
     mutable Lock m_resolveDirectoriesLock;
@@ -598,6 +625,10 @@ private:
     String m_resolvedContainerTemporaryDirectory;
     String m_resolvedCookieStorageDirectory;
 #endif
+
+    std::optional<HashSet<WebCore::RegistrableDomain>> m_domainsWithUserInteractions;
+    Vector<WebCore::RegistrableDomain> m_pendingDomainsWithUserInteractions;
+    Vector<CompletionHandler<void(const HashSet<WebCore::RegistrableDomain>&)>> m_domainsWithUserInteractionsCompletionHandler;
 
     bool m_trackingPreventionDebugMode { false };
     enum class TrackingPreventionEnabled : uint8_t { Default, No, Yes };
@@ -654,9 +685,15 @@ private:
 
     bool m_inspectionForServiceWorkersAllowed { true };
     bool m_isBlobRegistryPartitioningEnabled { false };
-    bool m_isOptInCookiePartitioningEnabled { false };
+#if ENABLE(OPT_IN_PARTITIONED_COOKIES)
+    std::optional<bool> m_cachedIsOptInCookiePartitioningEnabled;
+#endif
 
     HashMap<WebCore::RegistrableDomain, RestrictedOpenerType> m_restrictedOpenerTypesForTesting;
+
+#if PLATFORM(COCOA)
+    const RefPtr<EnhancedSecuritySitesHolder> m_enhancedSecuritySites;
+#endif
 
 #if HAVE(NW_PROXY_CONFIG)
     std::optional<Vector<std::pair<Vector<uint8_t>, std::optional<WTF::UUID>>>> m_proxyConfigData;
@@ -666,8 +703,18 @@ private:
 
     RemoveDataTaskCounter m_removeDataTaskCounter;
     uint64_t m_cookiesVersion { 0 };
-};
+} SWIFT_SHARED_REFERENCE(refDataStore, derefDataStore);
 
+}
+
+inline void refDataStore(WebKit::WebsiteDataStore* WTF_NONNULL obj)
+{
+    WTF::ref(obj);
+}
+
+inline void derefDataStore(WebKit::WebsiteDataStore* WTF_NONNULL obj)
+{
+    WTF::deref(obj);
 }
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebsiteDataStore)

@@ -33,14 +33,15 @@
 #import "WebFrameInternal.h"
 #import <JavaScriptCore/JSLock.h>
 #import <JavaScriptCore/MemoryStatistics.h>
+#import <JavaScriptCore/VM.h>
 #import <WebCore/BackForwardCache.h>
 #import <WebCore/CommonVM.h>
 #import <WebCore/FontCache.h>
-#import <WebCore/GCController.h>
+#import <WebCore/FrameConsoleClient.h>
+#import <WebCore/GarbageCollectionController.h>
 #import <WebCore/GlyphPage.h>
 #import <WebCore/GraphicsContextCG.h>
 #import <WebCore/LocalFrame.h>
-#import <WebCore/PageConsoleClient.h>
 #import <WebCore/PrintContext.h>
 #import <WebCore/RenderTreeAsText.h>
 #import <WebCore/RenderView.h>
@@ -104,17 +105,17 @@ static RetainPtr<NSCountedSet> createNSCountedSet(const HashCountedSet<ASCIILite
 
 + (void)garbageCollectJavaScriptObjects
 {
-    GCController::singleton().garbageCollectNow();
+    GarbageCollectionController::singleton().garbageCollectNow();
 }
 
 + (void)garbageCollectJavaScriptObjectsOnAlternateThreadForDebugging:(BOOL)waitUntilDone
 {
-    GCController::singleton().garbageCollectOnAlternateThreadForDebugging(waitUntilDone);
+    GarbageCollectionController::singleton().garbageCollectOnAlternateThreadForDebugging(waitUntilDone);
 }
 
 + (void)setJavaScriptGarbageCollectorTimerEnabled:(BOOL)enable
 {
-    GCController::singleton().setJavaScriptGarbageCollectorTimerEnabled(enable);
+    GarbageCollectionController::singleton().setJavaScriptGarbageCollectorTimerEnabled(enable);
 }
 
 + (size_t)iconPageURLMappingCount
@@ -160,13 +161,13 @@ static RetainPtr<NSCountedSet> createNSCountedSet(const HashCountedSet<ASCIILite
 + (BOOL)shouldPrintExceptions
 {
     JSLockHolder lock(commonVM());
-    return PageConsoleClient::shouldPrintExceptions();
+    return FrameConsoleClient::shouldPrintExceptions();
 }
 
 + (void)setShouldPrintExceptions:(BOOL)print
 {
     JSLockHolder lock(commonVM());
-    PageConsoleClient::setShouldPrintExceptions(print);
+    FrameConsoleClient::setShouldPrintExceptions(print);
 }
 
 + (void)emptyCache
@@ -177,16 +178,6 @@ static RetainPtr<NSCountedSet> createNSCountedSet(const HashCountedSet<ASCIILite
 + (void)setCacheDisabled:(BOOL)disabled
 {
     [WebCache setDisabled:disabled];
-}
-
-+ (void)startIgnoringWebCoreNodeLeaks
-{
-    WebCore::Node::startIgnoringLeaks();
-}
-
-+ (void)stopIgnoringWebCoreNodeLeaks
-{
-    WebCore::Node::stopIgnoringLeaks();
 }
 
 + (NSDictionary *)memoryStatistics

@@ -157,6 +157,16 @@ void SkPDF::AttributeList::appendName(const char* owner, const char* name, const
     fAttrs->appendObject(std::move(attrDict));
 }
 
+void SkPDF::AttributeList::appendTextString(const char* owner, const char* name, const char* value){
+    if (!fAttrs) {
+        fAttrs = SkPDFMakeArray();
+    }
+    std::unique_ptr<SkPDFDict> attrDict = SkPDFMakeDict();
+    attrDict->insertName("O", owner);
+    attrDict->insertTextString(name, value);
+    fAttrs->appendObject(std::move(attrDict));
+}
+
 void SkPDF::AttributeList::appendFloatArray(const char* owner, const char* name,
                                             const std::vector<float>& value) {
     if (!fAttrs) {
@@ -211,7 +221,17 @@ void SkPDFStructTree::move(SkPDF::StructureElementNode& node,
         for (SkPDFStructElem* parent = structElem->fParent; parent; parent = parent->fParent) {
             ++indent;
         }
-        SkDebugf("%.*s %d %s\n", indent, "            ", node.fNodeId, node.fTypeString.c_str());
+        SkString attrIds;
+        if (!node.fAttributes.fElemIds.empty()) {
+            attrIds.append(" [");
+            for (int attrId : node.fAttributes.fElemIds) {
+                attrIds.appendS32(attrId);
+                attrIds.append(",");
+            }
+            *(attrIds.end() - 1) = ']';
+        }
+        SkDebugf("%.*s %d %s%s\n",
+                 indent, "            ", node.fNodeId, node.fTypeString.c_str(), attrIds.c_str());
     }
 
     structElem->fElemId = node.fNodeId;

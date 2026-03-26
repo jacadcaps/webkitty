@@ -1,4 +1,4 @@
-if (ENABLE_API_TESTS OR ENABLE_LAYOUT_TESTS OR ENABLE_MINIBROWSER)
+if (ENABLE_WPE_LEGACY_API AND (ENABLE_API_TESTS OR ENABLE_LAYOUT_TESTS OR ENABLE_MINIBROWSER))
     add_subdirectory(wpe/backends)
 endif ()
 
@@ -57,12 +57,6 @@ if (ENABLE_COG)
     # conflicting branches without having to delete the repo
 
     # Convert a few options to their Meson equivalents
-    if (USE_SOUP2)
-        set(COG_MESON_SOUP2 enabled)
-    else ()
-        set(COG_MESON_SOUP2 disabled)
-    endif ()
-
     string(TOLOWER "${CMAKE_BUILD_TYPE}" COG_MESON_BUILDTYPE)
     if (COG_MESON_BUILDTYPE STREQUAL "relwithdebinfo")
         set(COG_MESON_BUILDTYPE debugoptimized)

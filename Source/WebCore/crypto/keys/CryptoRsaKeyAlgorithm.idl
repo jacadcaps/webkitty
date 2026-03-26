@@ -26,7 +26,8 @@
 typedef Uint8Array BigInteger;
 
 [
-    JSGenerateToJSObject
+    JSGenerateToJSObject,
+    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary CryptoRsaKeyAlgorithm : CryptoKeyAlgorithm {
     // The length, in bits, of the RSA modulus
     required unsigned long modulusLength;

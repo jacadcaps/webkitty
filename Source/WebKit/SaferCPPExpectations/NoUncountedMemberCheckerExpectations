@@ -1,3 +1,2 @@
-AutomationFrontendDispatchers.h
-Shared/Cocoa/WKObject.h
-WebDriverBidiFrontendDispatchers.h
+[ iOS ] UIProcess/RemoteLayerTree/ios/RemoteLayerTreeDrawingAreaProxyIOS.mm
+[ iOS ] UIProcess/ios/ViewGestureControllerIOS.mm

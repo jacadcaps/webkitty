@@ -26,13 +26,11 @@
 #include "config.h"
 #include "PlatformWebView.h"
 
-#include <WebCore/GUniquePtrGtk.h>
-#include <WebCore/GtkVersioning.h>
+#include <WebKit/GtkVersioning.h>
 #include <WebKit/WKRetainPtr.h>
 #include <WebKit/WKView.h>
 #include <gtk/gtk.h>
 #include <webkit/WebKitWebViewBaseInternal.h>
-#include <wtf/glib/GUniquePtr.h>
 
 namespace TestWebKitAPI {
 

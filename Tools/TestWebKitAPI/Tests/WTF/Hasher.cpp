@@ -243,11 +243,11 @@ struct CheckedObject final : public CanMakeCheckedPtr<CheckedObject> {
 
 TEST(WTF, Hasher_CheckedPtr)
 {
-    CheckedObject test;
-    CheckedObject test2;
+    auto test = makeUniqueRef<CheckedObject>();
+    auto test2 = makeUniqueRef<CheckedObject>();
 
     CheckedPtr<CheckedObject> nullCheckedPtr;
-    CheckedPtr<CheckedObject> nonNullCheckedPtr = &test;
+    CheckedPtr<CheckedObject> nonNullCheckedPtr = test.ptr();
 
     EXPECT_EQ(computeHash(nullCheckedPtr), computeHash(nullCheckedPtr.get()));
     EXPECT_EQ(computeHash(nonNullCheckedPtr), computeHash(nonNullCheckedPtr.get()));
@@ -260,7 +260,7 @@ TEST(WTF, Hasher_CheckedPtr)
     ptrVector.append(nonNullCheckedPtr.get());
     EXPECT_EQ(computeHash(checkedPtrVector), computeHash(ptrVector));
 
-    CheckedPtr<CheckedObject> nonNullCheckedPtr2 = &test2;
+    CheckedPtr<CheckedObject> nonNullCheckedPtr2 = test2.ptr();
 
     checkedPtrVector.append(nonNullCheckedPtr2);
     ptrVector.append(nonNullCheckedPtr2.get());

@@ -27,6 +27,9 @@
 
 #if ENABLE(MEDIA_SOURCE) && USE(AVFOUNDATION)
 
+#include "AudioVideoRenderer.h"
+#include "HTMLMediaElementIdentifier.h"
+#include "MediaPlayerIdentifier.h"
 #include "MediaPlayerPrivate.h"
 #include "SourceBufferPrivateClient.h"
 #include "VideoFrameMetadata.h"
@@ -36,15 +39,12 @@
 #include <wtf/HashMap.h>
 #include <wtf/LoggerHelper.h>
 #include <wtf/MediaTime.h>
-#include <wtf/RefCounted.h>
+#include <wtf/NativePromise.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/WeakPtr.h>
 
 OBJC_CLASS AVAsset;
-OBJC_CLASS AVSampleBufferAudioRenderer;
-OBJC_CLASS AVSampleBufferDisplayLayer;
-OBJC_CLASS AVSampleBufferRenderSynchronizer;
-OBJC_CLASS AVSampleBufferVideoRenderer;
 OBJC_PROTOCOL(WebSampleBufferVideoRendering);
 
 typedef struct OpaqueCMTimebase* CMTimebaseRef;
@@ -55,18 +55,18 @@ typedef struct OpaqueFigVideoTarget *FigVideoTargetRef;
 namespace WebCore {
 
 class AudioTrackPrivate;
+class AudioVideoRenderer;
 class CDMSessionAVContentKeySession;
 class EffectiveRateChangedListener;
 class InbandTextTrackPrivate;
 class MediaSourcePrivateAVFObjC;
-class PixelBufferConformerCV;
+class VideoFrameCV;
 class VideoLayerManagerObjC;
 class VideoMediaSampleRenderer;
 class VideoTrackPrivate;
 
 class MediaPlayerPrivateMediaSourceAVFObjC
-    : public CanMakeWeakPtr<MediaPlayerPrivateMediaSourceAVFObjC>
-    , public RefCounted<MediaPlayerPrivateMediaSourceAVFObjC>
+    : public RefCountedAndCanMakeWeakPtr<MediaPlayerPrivateMediaSourceAVFObjC>
     , public MediaPlayerPrivateInterface
     , private LoggerHelper
 {
@@ -74,7 +74,7 @@ public:
     void ref() const final { RefCounted::ref(); }
     void deref() const final { RefCounted::deref(); }
 
-    explicit MediaPlayerPrivateMediaSourceAVFObjC(MediaPlayer*);
+    explicit MediaPlayerPrivateMediaSourceAVFObjC(MediaPlayer&);
     virtual ~MediaPlayerPrivateMediaSourceAVFObjC();
 
     constexpr MediaPlayerType mediaPlayerType() const final { return MediaPlayerType::AVFObjCMSE; }
@@ -86,10 +86,9 @@ public:
     static void getSupportedTypes(HashSet<String>& types);
     static MediaPlayer::SupportsType supportsTypeAndCodecs(const MediaEngineSupportParameters&);
 
-ALLOW_NEW_API_WITHOUT_GUARDS_BEGIN
-    void addAudioRenderer(AVSampleBufferAudioRenderer*);
-    void removeAudioRenderer(AVSampleBufferAudioRenderer*);
-ALLOW_NEW_API_WITHOUT_GUARDS_END
+    using TrackIdentifier = AudioVideoRenderer::TrackIdentifier;
+    void addAudioTrack(TrackIdentifier);
+    void removeAudioTrack(TrackIdentifier);
 
     void removeAudioTrack(AudioTrackPrivate&);
     void removeVideoTrack(VideoTrackPrivate&);
@@ -101,31 +100,27 @@ ALLOW_NEW_API_WITHOUT_GUARDS_END
     void setNetworkState(MediaPlayer::NetworkState);
 
     void seekInternal();
-    void maybeCompleteSeek();
-    void setLoadingProgresssed(bool flag) { m_loadingProgressed = flag; }
+    void startSeek(const MediaTime&);
+    void cancelPendingSeek();
+    void completeSeek(const MediaTime&);
+    void setLoadingProgresssed(bool);
     void setHasAvailableVideoFrame(bool);
     bool hasAvailableVideoFrame() const override;
-ALLOW_NEW_API_WITHOUT_GUARDS_BEGIN
-    void setHasAvailableAudioSample(AVSampleBufferAudioRenderer*, bool);
-ALLOW_NEW_API_WITHOUT_GUARDS_END
-    bool allRenderersHaveAvailableSamples() const { return m_allRenderersHaveAvailableSamples; }
-    void updateAllRenderersHaveAvailableSamples();
     void durationChanged();
 
     void effectiveRateChanged();
-    void sizeWillChangeAtTime(const MediaTime&, const FloatSize&);
     void setNaturalSize(const FloatSize&);
-    void flushPendingSizeChanges();
-    void characteristicsChanged();
+    void characteristicsFromMediaSourceChanged() final;
 
     MediaTime currentTime() const override;
+    MediaTime currentOrPendingSeekTime() const final { return currentTime(); }
     bool timeIsProgressing() const final;
-    bool hasVideoRenderer() const;
+    MediaTime clampTimeToSensicalValue(const MediaTime&) const;
 
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     RetainPtr<PlatformLayer> createVideoFullscreenLayer() override;
     void setVideoFullscreenLayer(PlatformLayer*, Function<void()>&& completionHandler) override;
-    void setVideoFullscreenFrame(FloatRect) override;
+    void setVideoFullscreenFrame(const FloatRect&) override;
 #endif
 
     void setTextTrackRepresentation(TextTrackRepresentation*) override;
@@ -145,10 +140,6 @@ ALLOW_NEW_API_WITHOUT_GUARDS_END
     void waitingForKeyChanged();
 #endif
 
-    void outputObscuredDueToInsufficientExternalProtectionChanged(bool);
-    void beginSimulatedHDCPError() override { outputObscuredDueToInsufficientExternalProtectionChanged(true); }
-    void endSimulatedHDCPError() override { outputObscuredDueToInsufficientExternalProtectionChanged(false); }
-
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA)
     void keyNeeded(const SharedBuffer&);
 #endif
@@ -160,7 +151,6 @@ ALLOW_NEW_API_WITHOUT_GUARDS_END
     const Vector<ContentType>& mediaContentTypesRequiringHardwareSupport() const;
 
     void needsVideoLayerChanged();
-    void setNeedsPlaceholderImage(bool);
 
 #if ENABLE(LINEAR_MEDIA_PLAYER)
     void setVideoTarget(const PlatformVideoTarget&) final;
@@ -183,13 +173,7 @@ ALLOW_NEW_API_WITHOUT_GUARDS_END
     const Logger& mediaPlayerLogger() { return logger(); }
 #endif
 
-    enum SeekState {
-        Seeking,
-        WaitingForAvailableFame,
-        SeekCompleted,
-    };
-
-    bool supportsLimitedMatroska() const { return m_loadOptions.supportsLimitedMatroska; }
+    bool supportsLimitedMatroska() const;
 
 private:
     // MediaPlayerPrivateInterface
@@ -245,7 +229,7 @@ private:
     bool didLoadingProgress() const override;
 
     RefPtr<NativeImage> nativeImageForCurrentTime() override;
-    bool updateLastPixelBuffer();
+    bool updateLastVideoFrame();
     bool updateLastImage();
     void maybePurgeLastImage();
     void paint(GraphicsContext&, const FloatRect&) override;
@@ -259,10 +243,8 @@ private:
     void notifyActiveSourceBuffersChanged() override;
 
     void setPresentationSize(const IntSize&) final;
-    void setVideoLayerSizeFenced(const FloatSize&, WTF::MachSendRightAnnotated&&) final;
 
-    void updateDisplayLayer();
-    RefPtr<VideoMediaSampleRenderer> layerOrVideoRenderer() const;
+    Ref<AudioVideoRenderer> audioVideoRenderer() const;
 
     RefPtr<MediaSourcePrivateAVFObjC> protectedMediaSourcePrivate() const;
 
@@ -272,8 +254,6 @@ private:
     bool didPassCORSAccessCheck() const override { return true; }
 
     MediaPlayer::MovieLoadType movieLoadType() const override;
-
-    void prepareForRendering() override;
 
     String engineDescription() const override;
 
@@ -290,27 +270,10 @@ private:
     bool wirelessVideoPlaybackDisabled() const override { return false; }
 #endif
 
-    bool performTaskAtTime(Function<void()>&&, const MediaTime&) final;
+    bool performTaskAtTime(Function<void(const MediaTime&)>&&, const MediaTime&) final;
     void audioOutputDeviceChanged() final;
 
-    void ensureLayer();
-    void destroyLayer();
-    void ensureVideoRenderer();
-    void destroyVideoRenderer();
-
-    bool isUsingRenderlessMediaSampleRenderer() const;
-    void ensureRenderlessVideoMediaSampleRenderer();
-    MediaPlayerEnums::NeedsRenderingModeChanged destroyRenderlessVideoMediaSampleRenderer();
-
-    bool shouldEnsureLayerOrVideoRenderer() const;
-    void ensureLayerOrVideoRenderer(MediaPlayerEnums::NeedsRenderingModeChanged);
-    void destroyLayerOrVideoRenderer();
-    Ref<VideoMediaSampleRenderer> createVideoMediaSampleRendererForRendererer(WebSampleBufferVideoRendering *);
-    void configureLayerOrVideoRenderer(WebSampleBufferVideoRendering *);
-
     bool shouldBePlaying() const;
-    void setSynchronizerRate(double, std::optional<MonotonicTime>&& = std::nullopt);
-
     bool setCurrentTimeDidChangeCallback(MediaPlayer::CurrentTimeDidChangeCallback&&) final;
 
     bool supportsPlayAtHostTime() const final { return true; }
@@ -318,14 +281,13 @@ private:
     bool playAtHostTime(const MonotonicTime&) final;
     bool pauseAtHostTime(const MonotonicTime&) final;
 
-    void setVideoFrameMetadataGatheringCallbackIfNeeded(VideoMediaSampleRenderer&);
     void startVideoFrameMetadataGathering() final;
     void stopVideoFrameMetadataGathering() final;
-    std::optional<VideoFrameMetadata> videoFrameMetadata() final { return std::exchange(m_videoFrameMetadata, { }); }
-    void setResourceOwner(const ProcessIdentity& resourceOwner) final { m_resourceOwner = resourceOwner; }
+    std::optional<VideoFrameMetadata> videoFrameMetadata() final;
+
+    void setResourceOwner(const ProcessIdentity&) final;
 
     void checkNewVideoFrameMetadata(MediaTime, double);
-    MediaTime clampTimeToSensicalValue(const MediaTime&) const;
 
     void setShouldDisableHDR(bool) final;
     void setPlatformDynamicRangeLimit(PlatformDynamicRangeLimit) final;
@@ -333,14 +295,20 @@ private:
     void setShouldMaintainAspectRatio(bool) final;
 
 #if HAVE(SPATIAL_TRACKING_LABEL)
-    const String& defaultSpatialTrackingLabel() const final;
+    String defaultSpatialTrackingLabel() const final;
     void setDefaultSpatialTrackingLabel(const String&) final;
-    const String& spatialTrackingLabel() const final;
+    String spatialTrackingLabel() const final;
     void setSpatialTrackingLabel(const String&) final;
     void updateSpatialTrackingLabel();
 #endif
 
     void isInFullscreenOrPictureInPictureChanged(bool) final;
+
+    void readyStateFromMediaSourceChanged() final;
+    void updateStateFromReadyState();
+    void mediaSourceHasRetrievedAllData() final;
+
+    bool supportsProgressMonitoring() const final { return false; }
 
 #if ENABLE(LINEAR_MEDIA_PLAYER)
     bool supportsLinearMediaPlayer() const final { return true; }
@@ -348,112 +316,78 @@ private:
 
     friend class MediaSourcePrivateAVFObjC;
     void bufferedChanged();
+    void stall();
+    void timeChanged();
 
-    enum class AcceleratedVideoMode: uint8_t {
-        Layer = 0,
-        StagedVideoRenderer,
-        VideoRenderer,
-        StagedLayer
-    };
+    void setLayerRequiresFlush();
+    void flush();
+    void flushVideoIfNeeded();
+    void reenqueueMediaForTime(const MediaTime&);
 
-    AcceleratedVideoMode acceleratedVideoMode() const;
-    bool canUseDecompressionSession() const;
-    bool isUsingDecompressionSession() const;
-    bool willUseDecompressionSessionIfNeeded() const;
+    // Remote layer support
+    WebCore::HostingContext hostingContext() const final;
+    void setVideoLayerSizeFenced(const WebCore::FloatSize&, WTF::MachSendRightAnnotated&&) final;
+    std::optional<MediaPlayerIdentifier> identifier() const final { return m_playerIdentifier; }
 
-    std::optional<SeekTarget> m_pendingSeek;
+    static Ref<AudioVideoRenderer> createRenderer(LoggerHelper&, HTMLMediaElementIdentifier, MediaPlayerIdentifier);
 
-    ThreadSafeWeakPtr<MediaPlayer> m_player;
-    WeakPtrFactory<MediaPlayerPrivateMediaSourceAVFObjC> m_sizeChangeObserverWeakPtrFactory;
-    RefPtr<MediaSourcePrivateAVFObjC> m_mediaSourcePrivate;
-    RetainPtr<AVAsset> m_asset;
-    RefPtr<VideoMediaSampleRenderer> m_sampleBufferDisplayLayer;
-    RefPtr<VideoMediaSampleRenderer> m_sampleBufferVideoRenderer;
+    const ThreadSafeWeakPtr<MediaPlayer> m_player;
+    RefPtr<MediaSourcePrivateAVFObjC> m_mediaSourcePrivate; // set on load, immutable after.
 
-    struct AudioRendererProperties {
+    struct AudioTrackProperties {
         bool hasAudibleSample { false };
     };
-ALLOW_NEW_API_WITHOUT_GUARDS_BEGIN
-    HashMap<RetainPtr<CFTypeRef>, AudioRendererProperties> m_sampleBufferAudioRendererMap;
-    const RetainPtr<AVSampleBufferRenderSynchronizer> m_synchronizer;
-ALLOW_NEW_API_WITHOUT_GUARDS_END
-    mutable MediaPlayer::CurrentTimeDidChangeCallback m_currentTimeDidChangeCallback;
-    RetainPtr<id> m_timeChangedObserver;
-    RetainPtr<id> m_timeJumpedObserver;
-    RetainPtr<id> m_gapObserver;
-    RetainPtr<id> m_performTaskObserver;
-    RetainPtr<CVPixelBufferRef> m_lastPixelBuffer;
-    MediaTime m_lastPixelBufferPresentationTimeStamp;
-    RefPtr<NativeImage> m_lastImage;
-    std::unique_ptr<PixelBufferConformerCV> m_rgbConformer;
-    Deque<RetainPtr<id>> m_sizeChangeObservers;
-    Timer m_seekTimer;
+    HashMap<TrackIdentifier, AudioTrackProperties> m_audioTracksMap WTF_GUARDED_BY_CAPABILITY(mainThread);
+    RefPtr<VideoFrame> m_lastVideoFrame WTF_GUARDED_BY_CAPABILITY(mainThread);
+    RefPtr<NativeImage> m_lastImage WTF_GUARDED_BY_CAPABILITY(mainThread);
+
+    // Seeking
+    Timer m_seekTimer WTF_GUARDED_BY_CAPABILITY(mainThread);
+    bool m_seeking  WTF_GUARDED_BY_CAPABILITY(mainThread) { false };
+    std::optional<SeekTarget> m_pendingSeek WTF_GUARDED_BY_CAPABILITY(mainThread);
+    const Ref<NativePromiseRequest> m_rendererSeekRequest WTF_GUARDED_BY_CAPABILITY(mainThread);
+
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA)
     ThreadSafeWeakPtr<CDMSessionAVContentKeySession> m_session;
 #endif
-    MediaPlayer::NetworkState m_networkState;
-    MediaPlayer::ReadyState m_readyState;
-    bool m_readyStateIsWaitingForAvailableFrame { false };
-    MediaTime m_duration { MediaTime::invalidTime() };
-    MediaTime m_lastSeekTime;
-    FloatSize m_naturalSize;
-    double m_rate { 1 };
-    bool m_isPlaying { false };
-    bool m_isSynchronizerSeeking { false };
-    SeekState m_seekState { SeekCompleted };
-    mutable bool m_loadingProgressed { false };
-    bool m_hasAvailableVideoFrame { false };
-    bool m_allRenderersHaveAvailableSamples { false };
-    bool m_visible { false };
-    bool m_flushingActiveSourceBuffersDueToVisibilityChange { false };
-    RetainPtr<CVOpenGLTextureRef> m_lastTexture;
+    MediaPlayer::NetworkState m_networkState WTF_GUARDED_BY_CAPABILITY(mainThread);
+    MediaPlayer::ReadyState m_readyState WTF_GUARDED_BY_CAPABILITY(mainThread) { MediaPlayer::ReadyState::HaveNothing };
+    bool m_readyStateIsWaitingForAvailableFrame WTF_GUARDED_BY_CAPABILITY(mainThread) { false };
+    MediaTime m_duration WTF_GUARDED_BY_CAPABILITY(mainThread) { MediaTime::invalidTime() };
+    MediaTime m_lastSeekTime WTF_GUARDED_BY_CAPABILITY(mainThread);
+    FloatSize m_naturalSize; WTF_GUARDED_BY_CAPABILITY(mainThread)
+    double m_rate WTF_GUARDED_BY_CAPABILITY(mainThread) { 1 };
+    mutable bool m_loadingProgressed WTF_GUARDED_BY_CAPABILITY(mainThread) { false };
+    bool m_hasAvailableVideoFrame WTF_GUARDED_BY_CAPABILITY(mainThread) { false };
+    bool m_allRenderersHaveAvailableSamples WTF_GUARDED_BY_CAPABILITY(mainThread) { false };
+    bool m_visible WTF_GUARDED_BY_CAPABILITY(mainThread) { false };
+    RetainPtr<CVOpenGLTextureRef> m_lastTexture WTF_GUARDED_BY_CAPABILITY(mainThread);
 #if ENABLE(WIRELESS_PLAYBACK_TARGET)
-    RefPtr<MediaPlaybackTarget> m_playbackTarget;
-    bool m_shouldPlayToTarget { false };
+    RefPtr<MediaPlaybackTarget> m_playbackTarget WTF_GUARDED_BY_CAPABILITY(mainThread);
+    bool m_shouldPlayToTarget WTF_GUARDED_BY_CAPABILITY(mainThread) { false };
 #endif
     const Ref<const Logger> m_logger;
     const uint64_t m_logIdentifier;
-    const UniqueRef<VideoLayerManagerObjC> m_videoLayerManager;
-    const Ref<EffectiveRateChangedListener> m_effectiveRateChangedListener;
-    uint64_t m_sampleCount { 0 };
-    RetainPtr<id> m_videoFrameMetadataGatheringObserver;
-    bool m_isGatheringVideoFrameMetadata { false };
-    std::optional<VideoFrameMetadata> m_videoFrameMetadata;
-    uint64_t m_lastConvertedSampleCount { 0 };
+    bool m_isGatheringVideoFrameMetadata WTF_GUARDED_BY_CAPABILITY(mainThread) { false };
+    std::optional<VideoFrameMetadata> m_videoFrameMetadata WTF_GUARDED_BY_CAPABILITY(mainThread);
+    uint64_t m_lastConvertedSampleCount WTF_GUARDED_BY_CAPABILITY(mainThread) { 0 };
     ProcessIdentity m_resourceOwner;
-    bool m_shouldMaintainAspectRatio { true };
-    bool m_needsPlaceholderImage { false };
-    LoadOptions m_loadOptions;
+    LoadOptions m_loadOptions WTF_GUARDED_BY_CAPABILITY(mainThread);
 #if HAVE(SPATIAL_TRACKING_LABEL)
     String m_defaultSpatialTrackingLabel;
     String m_spatialTrackingLabel;
 #endif
-    AcceleratedVideoMode m_acceleratedVideoMode { AcceleratedVideoMode::Layer };
-#if ENABLE(LINEAR_MEDIA_PLAYER)
-    bool m_needNewFrameToProgressStaging { false };
-    bool m_updateDisplayLayerPending { false };
-    RetainPtr<FigVideoTargetRef> m_videoTarget;
-#endif
-};
 
-String convertEnumerationToString(MediaPlayerPrivateMediaSourceAVFObjC::SeekState);
+    bool m_layerRequiresFlush WTF_GUARDED_BY_CAPABILITY(mainThread) { false };
+#if PLATFORM(IOS_FAMILY)
+    bool m_applicationIsActive WTF_GUARDED_BY_CAPABILITY(mainThread) { true };
+#endif
+
+    const MediaPlayerIdentifier m_playerIdentifier;
+    const Ref<AudioVideoRenderer> m_renderer;
+};
 
 }
-
-namespace WTF {
-
-template<typename Type>
-struct LogArgument;
-
-template <>
-struct LogArgument<WebCore::MediaPlayerPrivateMediaSourceAVFObjC::SeekState> {
-    static String toString(const WebCore::MediaPlayerPrivateMediaSourceAVFObjC::SeekState state)
-    {
-        return convertEnumerationToString(state);
-    }
-};
-
-} // namespace WTF
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::MediaPlayerPrivateMediaSourceAVFObjC)
 static bool isType(const WebCore::MediaPlayerPrivateInterface& player) { return player.mediaPlayerType() == WebCore::MediaPlayerType::AVFObjCMSE; }

@@ -35,6 +35,7 @@
 #include "WKLayoutMode.h"
 #include <WebCore/DOMPasteAccess.h>
 #include <WebCore/FocusDirection.h>
+#include <WebCore/HTMLMediaElementIdentifier.h>
 #include <WebCore/KeypressCommand.h>
 #include <WebCore/PlatformPlaybackSessionInterface.h>
 #include <WebCore/ScrollTypes.h>
@@ -59,6 +60,7 @@ using _WKRectEdge = NSUInteger;
 
 OBJC_CLASS NSAccessibilityRemoteUIElement;
 OBJC_CLASS NSImmediateActionGestureRecognizer;
+OBJC_CLASS NSPanGestureRecognizer;
 OBJC_CLASS NSMenu;
 OBJC_CLASS NSPopover;
 OBJC_CLASS NSScrollPocket;
@@ -75,6 +77,7 @@ OBJC_CLASS WKFullScreenWindowController;
 OBJC_CLASS WKImageAnalysisOverlayViewDelegate;
 OBJC_CLASS WKImmediateActionController;
 OBJC_CLASS WKMouseTrackingObserver;
+OBJC_CLASS WKPanGestureController;
 OBJC_CLASS WKRevealItemPresenter;
 OBJC_CLASS _WKWarningView;
 OBJC_CLASS WKShareSheet;
@@ -129,6 +132,8 @@ struct TextRecognitionResult;
 #if HAVE(TRANSLATION_UI_SERVICES) && ENABLE(CONTEXT_MENUS)
 struct TranslationContextMenuInfo;
 #endif
+
+template<typename> class ExceptionOr;
 
 namespace WritingTools {
 enum class ReplacementBehavior : uint8_t;
@@ -185,6 +190,7 @@ using FrameIdentifier = ObjectIdentifier<FrameIdentifierType>;
 
 namespace WebCore {
 struct DragItem;
+struct ResolvedCaptionDisplaySettingsOptions;
 
 #if HAVE(DIGITAL_CREDENTIALS_UI)
 struct DigitalCredentialsRequestData;
@@ -209,6 +215,7 @@ class WebFrameProxy;
 class WebPageProxy;
 class WebProcessPool;
 class WebProcessProxy;
+
 struct WebHitTestResultData;
 
 enum class ContinueUnsafeLoad : bool;
@@ -229,10 +236,12 @@ public:
     ~WebViewImpl();
 
     NSWindow *window();
+    RetainPtr<NSWindow> protectedWindow();
 
     WebPageProxy& page() { return m_page.get(); }
 
     WKWebView *view() const { return m_view.getAutoreleased(); }
+    RetainPtr<WKWebView> protectedView() const { return m_view.get(); };
 
     void processWillSwap();
     void processDidExit();
@@ -401,6 +410,7 @@ public:
 #if ENABLE(FULLSCREEN_API)
     bool hasFullScreenWindowController() const;
     WKFullScreenWindowController *fullScreenWindowController();
+    RetainPtr<WKFullScreenWindowController> protectedFullScreenWindowController();
     void closeFullScreenWindowController();
 #endif
     NSView *fullScreenPlaceholderView();
@@ -460,6 +470,9 @@ public:
     bool isAutomaticTextReplacementEnabled();
     void setAutomaticTextReplacementEnabled(bool);
     void toggleAutomaticTextReplacement();
+    bool isSmartListsEnabled();
+    void setSmartListsEnabled(bool);
+    void toggleSmartLists();
     void uppercaseWord();
     void lowercaseWord();
     void capitalizeWord();
@@ -467,6 +480,8 @@ public:
     void requestCandidatesForSelectionIfNeeded();
 
     void preferencesDidChange();
+
+    void updateNeedsViewFrameInWindowCoordinatesIfNeeded();
 
     void teardownTextIndicatorLayer();
     void startTextIndicatorFadeOut();
@@ -501,13 +516,17 @@ public:
     void accessibilityRegisterUIProcessTokens();
     void updateRemoteAccessibilityRegistration(bool registerProcess);
     id accessibilityFocusedUIElement();
-    NSUInteger accessibilityRemoteChildTokenHash();
-    NSUInteger accessibilityUIProcessLocalTokenHash();
     bool accessibilityIsIgnored() const { return false; }
     id accessibilityHitTest(CGPoint);
     void enableAccessibilityIfNecessary(NSString *attribute = nil);
     id accessibilityAttributeValue(NSString *, id parameter = nil);
     RetainPtr<NSAccessibilityRemoteUIElement> remoteAccessibilityChildIfNotSuspended();
+
+    // Accessibility info for debugging
+    NSUInteger accessibilityRemoteChildTokenHash();
+    NSUInteger accessibilityUIProcessLocalTokenHash();
+    NSArray<NSNumber *> *registeredRemoteAccessibilityPids();
+    bool hasRemoteAccessibilityChild();
 
     void updatePrimaryTrackingAreaOptions(NSTrackingAreaOptions);
 
@@ -620,7 +639,7 @@ public:
     CGFloat totalHeightOfBanners() const { return m_totalHeightOfBanners; }
 
     void doneWithKeyEvent(NSEvent *, bool eventWasHandled);
-    NSArray *validAttributesForMarkedText();
+    NSArray *validAttributesForMarkedTextSingleton();
     void doCommandBySelector(SEL);
     void insertText(id string);
     void insertText(id string, NSRange replacementRange);
@@ -733,6 +752,7 @@ public:
 
     bool beginBackSwipeForTesting();
     bool completeBackSwipeForTesting();
+    bool didCallEndSwipeGestureForTesting() const;
 
     bool useFormSemanticContext() const;
     void semanticContextDidChange();
@@ -801,6 +821,11 @@ public:
     void updateTopScrollPocketCaptureColor();
     void updateTopScrollPocketStyle();
     void updatePrefersSolidColorHardPocket();
+    void setClientImplicitlyRequestedTopScrollPocket();
+#endif
+
+#if ENABLE(VIDEO)
+    void showCaptionDisplaySettings(WebCore::HTMLMediaElementIdentifier, const WebCore::ResolvedCaptionDisplaySettingsOptions&, CompletionHandler<void(Expected<void, WebCore::ExceptionData>&&)>&&);
 #endif
 
 private:
@@ -854,7 +879,8 @@ private:
     void sendToolTipMouseEntered();
 
     void reparentLayerTreeInThumbnailView();
-    void updateThumbnailViewLayer();
+    // Returns true if the thumbnail view consumed the layer.
+    bool updateThumbnailViewLayer();
 
     void setUserInterfaceItemState(NSString *commandName, bool enabled, int state);
 
@@ -898,7 +924,8 @@ private:
 #endif
 
 #if ENABLE(IMAGE_ANALYSIS)
-    CocoaImageAnalyzer *ensureImageAnalyzer();
+    CocoaImageAnalyzer* ensureImageAnalyzer();
+    RetainPtr<CocoaImageAnalyzer> ensureProtectedImageAnalyzer();
     int32_t processImageAnalyzerRequest(CocoaImageAnalyzerRequest *, CompletionHandler<void(RetainPtr<CocoaImageAnalysis>&&, NSError *)>&&);
 #endif
 
@@ -1009,6 +1036,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     RetainPtr<NSData> m_remoteAccessibilityChildToken;
     RetainPtr<NSData> m_remoteAccessibilityTokenGeneratedByUIProcess;
     RetainPtr<NSMutableDictionary> m_remoteAccessibilityFrameCache;
+    HashSet<pid_t> m_registeredRemoteAccessibilityPids;
 
     RefPtr<WebCore::Image> m_promisedImage;
     String m_promisedFilename;
@@ -1060,8 +1088,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 #endif
 
 #if ENABLE(IMAGE_ANALYSIS)
-    RefPtr<WorkQueue> m_imageAnalyzerQueue;
-    RetainPtr<CocoaImageAnalyzer> m_imageAnalyzer;
+    const RefPtr<WorkQueue> m_imageAnalyzerQueue;
+    const RetainPtr<CocoaImageAnalyzer> m_imageAnalyzer;
 #endif
 
 #if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
@@ -1083,11 +1111,14 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 #if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
     RetainPtr<NSScrollPocket> m_topScrollPocket;
     RetainPtr<NSHashTable<NSView *>> m_viewsAboveScrollPocket;
+    bool m_clientImplicitlyRequestedTopScrollPocket { false };
 #endif
 
 #if HAVE(INLINE_PREDICTIONS)
     bool m_inlinePredictionsEnabled { false };
 #endif
+
+    RetainPtr<WKPanGestureController> m_panGestureController;
 };
 
 } // namespace WebKit

@@ -194,6 +194,13 @@ TEST_F(WGSLMetalCompilationTests, Atomics)
 TEST_F(WGSLMetalCompilationTests, Attributes)
 {
     testCompilation(file("attributes.wgsl"_s));
+
+    testCompilation("struct S { @builtin(position) @invariant value : vec4f };"
+        "@vertex fn main() -> S { return S(vec4<f32>()); }"_s,
+        checkLiteral("[[invariant]]"_s));
+
+    testCompilation("@vertex fn main() -> @invariant @builtin(position) vec4<f32> { return vec4<f32>(); }"_s,
+        checkLiteral("[[invariant]]"_s));
 }
 
 TEST_F(WGSLMetalCompilationTests, BindingUIntMax)

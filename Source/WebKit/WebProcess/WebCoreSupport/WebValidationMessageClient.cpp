@@ -31,7 +31,7 @@
 #include "WebPageProxyMessages.h"
 #include <WebCore/Element.h>
 #include <WebCore/LocalFrame.h>
-#include <WebCore/NodeInlines.h>
+#include <WebCore/NodeDocument.h>
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
@@ -66,7 +66,7 @@ void WebValidationMessageClient::showValidationMessage(const Element& anchor, St
 
     m_currentAnchor = anchor;
     m_currentAnchorRect = anchor.boundingBoxInRootViewCoordinates();
-    Ref { *m_page }->send(Messages::WebPageProxy::ShowValidationMessage(m_currentAnchorRect, WTFMove(message)));
+    Ref { *m_page }->send(Messages::WebPageProxy::ShowValidationMessage(m_currentAnchorRect, WTF::move(message)));
 }
 
 void WebValidationMessageClient::hideValidationMessage(const Element& anchor)

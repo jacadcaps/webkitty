@@ -23,7 +23,6 @@ load(
     "flag_set",
     "tool",
     "variable_with_value",
-    "with_feature_set",
 )
 load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
 load(":clang_layering_check.bzl", "make_layering_check_features")
@@ -37,7 +36,6 @@ def _linux_amd64_toolchain_info(ctx):
     features += _make_default_flags()
     features += make_layering_check_features()
     features += _make_diagnostic_flags()
-    features += _make_iwyu_flags()
 
     # https://bazel.build/rules/lib/cc_common#create_cc_toolchain_config_info
     # Note, this rule is defined in Java code, not Starlark
@@ -226,7 +224,7 @@ def _make_default_flags():
                     "-isystem",
                     EXTERNAL_TOOLCHAIN + "/usr/include",
                     "-isystem",
-                    EXTERNAL_TOOLCHAIN + "/lib/clang/15.0.1/include",
+                    EXTERNAL_TOOLCHAIN + "/lib/clang/18/include",
                     "-isystem",
                     EXTERNAL_TOOLCHAIN + "/usr/include/x86_64-linux-gnu",
                     # We do not want clang to search in absolute paths for files. This makes
@@ -278,48 +276,18 @@ def _make_default_flags():
         ],
     )
 
-    # Declare a feature that can be true or false
-    cpp20 = feature(
-        name = "skia_uses_cpp20",
-        enabled = False,
-    )
-
-    # A big fancy if/else branch depending on if the above feature is True or False
-    cpp20_flags = feature(
-        name = "cpp20_flags",
-        enabled = True,
-        flag_sets = [
-            flag_set(
-                actions = [
-                    ACTION_NAMES.cpp_compile,
-                    ACTION_NAMES.cpp_link_executable,
-                    ACTION_NAMES.cpp_link_dynamic_library,
-                    ACTION_NAMES.cpp_link_nodeps_dynamic_library,
+    cpp20_flags = flag_set(
+        actions = [
+            ACTION_NAMES.cpp_compile,
+            ACTION_NAMES.cpp_link_executable,
+            ACTION_NAMES.cpp_link_dynamic_library,
+            ACTION_NAMES.cpp_link_nodeps_dynamic_library,
+        ],
+        flag_groups = [
+            flag_group(
+                flags = [
+                    "-std=c++20",
                 ],
-                flag_groups = [
-                    flag_group(
-                        flags = [
-                            "-std=c++20",
-                        ],
-                    ),
-                ],
-                with_features = [with_feature_set(features = ["skia_uses_cpp20"])],
-            ),
-            flag_set(
-                actions = [
-                    ACTION_NAMES.cpp_compile,
-                    ACTION_NAMES.cpp_link_executable,
-                    ACTION_NAMES.cpp_link_dynamic_library,
-                    ACTION_NAMES.cpp_link_nodeps_dynamic_library,
-                ],
-                flag_groups = [
-                    flag_group(
-                        flags = [
-                            "-std=c++17",
-                        ],
-                    ),
-                ],
-                with_features = [with_feature_set(not_features = ["skia_uses_cpp20"])],
             ),
         ],
     )
@@ -332,10 +300,9 @@ def _make_default_flags():
                 cxx_compile_includes,
                 cpp_compile_flags,
                 link_exe_flags,
+                cpp20_flags,
             ],
         ),
-        cpp20,
-        cpp20_flags,
     ]
 
 def _make_diagnostic_flags():
@@ -402,41 +369,6 @@ def _make_diagnostic_flags():
             enabled = False,
             flag_sets = [
                 link_search_dirs,
-            ],
-        ),
-    ]
-
-def _make_iwyu_flags():
-    """Here we define the flags that signal whether or not to enforce IWYU."""
-
-    # https://bazel.build/docs/cc-toolchain-config-reference#features
-    opt_file_into_iwyu = flag_set(
-        actions = [
-            ACTION_NAMES.c_compile,
-            ACTION_NAMES.cpp_compile,
-        ],
-        flag_groups = [
-            flag_group(
-                flags = [
-                    # This define does not impact compilation, but it acts as a signal to the
-                    # clang_trampoline.sh whether to maybe check the file with include-what-you-use
-                    # A define was chosen because it is ignored by clang and IWYU, but can be
-                    # easily found with bash.
-                    # The clang_trampoline.sh file has a list of allowed subdirectories for which
-                    # IWYU should be enforced, allowing us to slowly opt more and more directories
-                    # in over time.
-                    "-DSKIA_ENFORCE_IWYU",
-                ],
-            ),
-        ],
-    )
-
-    return [
-        feature(
-            name = "skia_enforce_iwyu",
-            enabled = False,
-            flag_sets = [
-                opt_file_into_iwyu,
             ],
         ),
     ]

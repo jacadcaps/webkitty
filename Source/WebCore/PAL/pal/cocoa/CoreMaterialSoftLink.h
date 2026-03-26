@@ -25,6 +25,12 @@
 
 #pragma once
 
+// FIXME: Remove the `__has_feature(modules)` condition when possible.
+#if !__has_feature(modules)
+
+#include <wtf/Compiler.h>
+#include <wtf/Platform.h>
+
 #if HAVE(CORE_MATERIAL)
 
 #import <pal/spi/cocoa/CoreMaterialSPI.h>
@@ -60,6 +66,8 @@ SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMaterial, MTCoreMaterialVisualStyleSepara
 
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, CoreMaterial, MTVisualStylingCreateDictionaryRepresentation, NSDictionary *, (MTCoreMaterialRecipe recipe, MTCoreMaterialVisualStyleCategory category, MTCoreMaterialVisualStyle style, NSDictionary *options), (recipe, category, style, options))
 
-SPECIALIZE_OBJC_TYPE_TRAITS(MTMaterialLayer, PAL::getMTMaterialLayerClass())
+SPECIALIZE_OBJC_TYPE_TRAITS(MTMaterialLayer, PAL::getMTMaterialLayerClassSingleton())
 
 #endif // HAVE(CORE_MATERIAL)
+
+#endif // !__has_feature(modules)

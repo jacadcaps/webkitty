@@ -123,7 +123,7 @@ private:
     // Message handlers
     void wheelEvent(WebCore::PageIdentifier, const WebWheelEvent&, WebCore::RectEdges<WebCore::RubberBandingBehavior> rubberBandableEdges);
 #if ENABLE(MOMENTUM_EVENT_DISPATCHER)
-    void setScrollingAccelerationCurve(WebCore::PageIdentifier, std::optional<ScrollingAccelerationCurve>);
+    void setScrollingAccelerationCurve(WebCore::PageIdentifier, std::optional<ScrollingAccelerationCurve>&&);
 #endif
 #if ENABLE(IOS_TOUCH_EVENTS)
     void touchEvent(WebCore::PageIdentifier, WebCore::FrameIdentifier, const WebTouchEvent&, CompletionHandler<void(bool, std::optional<RemoteWebTouchEvent>)>&&);
@@ -173,7 +173,7 @@ private:
 
 #if ENABLE(ASYNC_SCROLLING) && ENABLE(SCROLLING_THREAD)
     Lock m_scrollingTreesLock;
-    HashMap<WebCore::PageIdentifier, RefPtr<WebCore::ThreadedScrollingTree>> m_scrollingTrees WTF_GUARDED_BY_LOCK(m_scrollingTreesLock);
+    HashMap<WebCore::PageIdentifier, Ref<WebCore::ThreadedScrollingTree>> m_scrollingTrees WTF_GUARDED_BY_LOCK(m_scrollingTreesLock);
 #endif
     std::unique_ptr<WebCore::WheelEventDeltaFilter> m_recentWheelEventDeltaFilter;
 #if ENABLE(IOS_TOUCH_EVENTS)

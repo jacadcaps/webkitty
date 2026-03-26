@@ -55,7 +55,6 @@
 #include "WebCoreOpaqueRootInlines.h"
 #include "markup.h"
 #include <stdio.h>
-#include <wtf/RefCountedLeakCounter.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/MakeString.h>
@@ -65,25 +64,19 @@ namespace WebCore {
 
 using namespace HTMLNames;
 
-DEFINE_DEBUG_ONLY_GLOBAL(WTF::RefCountedLeakCounter, rangeCounter, ("Range"));
-
 enum ContentsProcessDirection { ProcessContentsForward, ProcessContentsBackward };
 
 static ExceptionOr<void> processNodes(Range::ActionType, Vector<Ref<Node>>&, Node* oldContainer, RefPtr<Node> newContainer);
 static ExceptionOr<RefPtr<Node>> processContentsBetweenOffsets(Range::ActionType, RefPtr<DocumentFragment>, RefPtr<Node> container, unsigned startOffset, unsigned endOffset);
 static ExceptionOr<RefPtr<Node>> processAncestorsAndTheirSiblings(Range::ActionType, Node* container, ContentsProcessDirection, ExceptionOr<RefPtr<Node>>&& passedClonedContainer, Node* commonRoot);
 
-WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(Range);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Range);
 
 inline Range::Range(Document& ownerDocument)
     : m_ownerDocument(ownerDocument)
     , m_start(ownerDocument)
     , m_end(ownerDocument)
 {
-#ifndef NDEBUG
-    rangeCounter.increment();
-#endif
-
     protectedOwnerDocument()->attachRange(*this);
 }
 
@@ -96,10 +89,6 @@ Range::~Range()
 {
     ASSERT(!m_isAssociatedWithSelection);
     protectedOwnerDocument()->detachRange(*this);
-
-#ifndef NDEBUG
-    rangeCounter.decrement();
-#endif
 }
 
 Ref<Document> Range::protectedOwnerDocument()
@@ -133,7 +122,7 @@ void Range::updateDocument()
         return;
     ASSERT(!m_isAssociatedWithSelection);
     protectedOwnerDocument()->detachRange(*this);
-    m_ownerDocument = WTFMove(document);
+    m_ownerDocument = WTF::move(document);
     protectedOwnerDocument()->attachRange(*this);
 }
 
@@ -143,7 +132,7 @@ ExceptionOr<void> Range::setStart(Ref<Node>&& container, unsigned offset)
     if (childNode.hasException())
         return childNode.releaseException();
 
-    m_start.set(WTFMove(container), offset, childNode.releaseReturnValue());
+    m_start.set(WTF::move(container), offset, childNode.releaseReturnValue());
     if (!is_lteq(treeOrder(makeBoundaryPoint(m_start), makeBoundaryPoint(m_end))))
         m_end = m_start;
     updateAssociatedSelection();
@@ -158,7 +147,7 @@ ExceptionOr<void> Range::setEnd(Ref<Node>&& container, unsigned offset)
     if (childNode.hasException())
         return childNode.releaseException();
 
-    m_end.set(WTFMove(container), offset, childNode.releaseReturnValue());
+    m_end.set(WTF::move(container), offset, childNode.releaseReturnValue());
     if (!is_lteq(treeOrder(makeBoundaryPoint(m_start), makeBoundaryPoint(m_end))))
         m_start = m_end;
     updateAssociatedSelection();
@@ -392,7 +381,7 @@ ExceptionOr<RefPtr<DocumentFragment>> Range::processContents(ActionType action)
         RefPtr<Node> leftContents;
         if (&originalStart.container() != commonRoot && commonRoot->contains(originalStart.container())) {
             auto firstResult = processContentsBetweenOffsets(action, nullptr, originalStart.protectedContainer().ptr(), originalStart.offset(), originalStart.container().length());
-            auto secondResult = processAncestorsAndTheirSiblings(action, originalStart.protectedContainer().ptr(), ProcessContentsForward, WTFMove(firstResult), commonRoot.get());
+            auto secondResult = processAncestorsAndTheirSiblings(action, originalStart.protectedContainer().ptr(), ProcessContentsForward, WTF::move(firstResult), commonRoot.get());
             // FIXME: A bit peculiar that we silently ignore the exception here, but we do have at least some regression tests that rely on this behavior.
             if (!secondResult.hasException())
                 leftContents = secondResult.releaseReturnValue();
@@ -401,7 +390,7 @@ ExceptionOr<RefPtr<DocumentFragment>> Range::processContents(ActionType action)
         RefPtr<Node> rightContents;
         if (&endContainer() != commonRoot && commonRoot->contains(originalEnd.container())) {
             auto firstResult = processContentsBetweenOffsets(action, nullptr, originalEnd.protectedContainer().ptr(), 0, originalEnd.offset());
-            auto secondResult = processAncestorsAndTheirSiblings(action, originalEnd.protectedContainer().ptr(), ProcessContentsBackward, WTFMove(firstResult), commonRoot.get());
+            auto secondResult = processAncestorsAndTheirSiblings(action, originalEnd.protectedContainer().ptr(), ProcessContentsBackward, WTF::move(firstResult), commonRoot.get());
             // FIXME: A bit peculiar that we silently ignore the exception here, but we do have at least some regression tests that rely on this behavior.
             if (!secondResult.hasException())
                 rightContents = secondResult.releaseReturnValue();
@@ -506,7 +495,7 @@ static ExceptionOr<RefPtr<Node>> processContentsBetweenOffsets(Range::ActionType
                 if (appendResult.hasException())
                     return appendResult.releaseException();
             } else
-                result = WTFMove(characters);
+                result = WTF::move(characters);
         }
         if (action == Range::Extract || action == Range::Delete) {
             auto deleteResult = dataNode.deleteData(startOffset, endOffset - startOffset);
@@ -528,11 +517,11 @@ static ExceptionOr<RefPtr<Node>> processContentsBetweenOffsets(Range::ActionType
                 if (appendResult.hasException())
                     return appendResult.releaseException();
             } else
-                result = WTFMove(processingInstruction);
+                result = WTF::move(processingInstruction);
         }
         if (action == Range::Extract || action == Range::Delete) {
             auto data = makeStringByRemoving(instruction.data(), startOffset, endOffset - startOffset);
-            instruction.setData(WTFMove(data));
+            instruction.setData(WTF::move(data));
         }
         break;
     }
@@ -597,7 +586,7 @@ static ExceptionOr<void> processNodes(Range::ActionType action, Vector<Ref<Node>
 ExceptionOr<RefPtr<Node>> processAncestorsAndTheirSiblings(Range::ActionType action, Node* container, ContentsProcessDirection direction, ExceptionOr<RefPtr<Node>>&& passedClonedContainer, Node* commonRoot)
 {
     if (passedClonedContainer.hasException())
-        return WTFMove(passedClonedContainer);
+        return WTF::move(passedClonedContainer);
 
     RefPtr clonedContainer = passedClonedContainer.releaseReturnValue();
 
@@ -618,7 +607,7 @@ ExceptionOr<RefPtr<Node>> processAncestorsAndTheirSiblings(Range::ActionType act
                 if (result.hasException())
                     return result.releaseException();
             }
-            clonedContainer = WTFMove(clonedAncestor);
+            clonedContainer = WTF::move(clonedAncestor);
         }
 
         // Copy siblings of an ancestor of start/end containers
@@ -727,7 +716,7 @@ ExceptionOr<void> Range::insertNode(Ref<Node>&& node)
     else
         ++newOffset;
 
-    auto insertResult = parent->insertBefore(node, WTFMove(referenceNode));
+    auto insertResult = parent->insertBefore(node, WTF::move(referenceNode));
     if (insertResult.hasException())
         return insertResult.releaseException();
 
@@ -754,7 +743,7 @@ String Range::toString() const
 ExceptionOr<Ref<DocumentFragment>> Range::createContextualFragment(Variant<RefPtr<TrustedHTML>, String>&& markup)
 {
     Node& node = startContainer();
-    auto stringValueHolder = trustedTypeCompliantString(*node.document().scriptExecutionContext(), WTFMove(markup), "Range createContextualFragment"_s);
+    auto stringValueHolder = trustedTypeCompliantString(node.document().contextDocument(), WTF::move(markup), "Range createContextualFragment"_s);
 
     if (stringValueHolder.hasException())
         return stringValueHolder.releaseException();
@@ -1123,9 +1112,9 @@ Ref<DOMRect> Range::boundingClientRect(const SimpleRange& simpleRange)
 static void setBothEndpoints(Range& range, const SimpleRange& value)
 {
     Ref startContainer = value.start.container;
-    range.setStart(WTFMove(startContainer), value.start.offset);
+    range.setStart(WTF::move(startContainer), value.start.offset);
     Ref endContainer = value.end.container;
-    range.setEnd(WTFMove(endContainer), value.end.offset);
+    range.setEnd(WTF::move(endContainer), value.end.offset);
 }
 
 void Range::updateFromSelection(const SimpleRange& value)

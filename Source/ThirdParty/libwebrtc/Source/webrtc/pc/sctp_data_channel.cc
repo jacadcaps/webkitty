@@ -45,9 +45,9 @@ namespace webrtc {
 
 namespace {
 
-static size_t kMaxQueuedReceivedDataBytes = 16 * 1024 * 1024;
+size_t kMaxQueuedReceivedDataBytes = 16 * 1024 * 1024;
 
-static std::atomic<int> g_unique_id{0};
+std::atomic<int> g_unique_id{0};
 
 int GenerateUniqueId() {
   return ++g_unique_id;
@@ -84,8 +84,11 @@ BYPASS_PROXY_METHOD2(void,
 END_PROXY_MAP(DataChannel)
 }  // namespace
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 InternalDataChannelInit::InternalDataChannelInit(const DataChannelInit& base)
     : DataChannelInit(base), open_handshake_role(kOpener) {
+#pragma clang diagnostic pop
   // If the channel is externally negotiated, do not send the OPEN message.
   if (base.negotiated) {
     open_handshake_role = kNone;
@@ -681,9 +684,15 @@ void SctpDataChannel::OnBufferedAmountLow() {
 
 DataChannelStats SctpDataChannel::GetStats() const {
   RTC_DCHECK_RUN_ON(network_thread_);
-  DataChannelStats stats{internal_id_,        id(),         label(),
-                         protocol(),          state(),      messages_sent(),
-                         messages_received(), bytes_sent(), bytes_received()};
+  DataChannelStats stats{.internal_id = internal_id_,
+                         .id = id(),
+                         .label = label(),
+                         .protocol = protocol(),
+                         .state = state(),
+                         .messages_sent = messages_sent(),
+                         .messages_received = messages_received(),
+                         .bytes_sent = bytes_sent(),
+                         .bytes_received = bytes_received()};
   return stats;
 }
 
@@ -730,7 +739,7 @@ void SctpDataChannel::OnDataReceived(DataMessageType type,
   if (state_ == kOpen && observer_) {
     ++messages_received_;
     bytes_received_ += buffer->size();
-    observer_->OnMessage(*buffer.get());
+    observer_->OnMessage(*buffer);
   } else {
     if (queued_received_data_.byte_count() + payload.size() >
         kMaxQueuedReceivedDataBytes) {

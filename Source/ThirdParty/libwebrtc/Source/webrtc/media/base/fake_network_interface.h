@@ -18,9 +18,9 @@
 #include <utility>
 #include <vector>
 
+#include "api/environment/environment.h"
 #include "api/task_queue/pending_task_safety_flag.h"
 #include "api/task_queue/task_queue_base.h"
-#include "api/units/timestamp.h"
 #include "media/base/media_channel.h"
 #include "modules/rtp_rtcp/source/rtp_packet_received.h"
 #include "modules/rtp_rtcp/source/rtp_util.h"
@@ -34,15 +34,15 @@
 #include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/thread.h"
 #include "rtc_base/thread_annotations.h"
-#include "rtc_base/time_utils.h"
 
 namespace webrtc {
 
 // Fake NetworkInterface that sends/receives RTP/RTCP packets.
 class FakeNetworkInterface : public MediaChannelNetworkInterface {
  public:
-  FakeNetworkInterface()
-      : thread_(Thread::Current()),
+  explicit FakeNetworkInterface(const Environment& env)
+      : env_(env),
+        thread_(Thread::Current()),
         dest_(NULL),
         conf_(false),
         sendbuf_size_(-1),
@@ -125,12 +125,12 @@ class FakeNetworkInterface : public MediaChannelNetworkInterface {
   virtual bool SendPacket(CopyOnWriteBuffer* packet,
                           const AsyncSocketPacketOptions& options)
       RTC_LOCKS_EXCLUDED(mutex_) {
-    if (!webrtc::IsRtpPacket(*packet)) {
+    if (!IsRtpPacket(*packet)) {
       return false;
     }
 
     MutexLock lock(&mutex_);
-    sent_ssrcs_[webrtc::ParseRtpSsrc(*packet)]++;
+    sent_ssrcs_[ParseRtpSsrc(*packet)]++;
     options_ = options;
 
     rtp_packets_.push_back(*packet);
@@ -176,7 +176,7 @@ class FakeNetworkInterface : public MediaChannelNetworkInterface {
       if (dest_) {
         RtpPacketReceived parsed_packet;
         if (parsed_packet.Parse(packet)) {
-          parsed_packet.set_arrival_time(Timestamp::Micros(TimeMicros()));
+          parsed_packet.set_arrival_time(env_.clock().CurrentTime());
           dest_->OnPacketReceived(std::move(parsed_packet));
         } else {
           RTC_DCHECK_NOTREACHED();
@@ -188,7 +188,7 @@ class FakeNetworkInterface : public MediaChannelNetworkInterface {
  private:
   void SetRtpSsrc(uint32_t ssrc, CopyOnWriteBuffer& buffer) {
     RTC_CHECK_GE(buffer.size(), 12);
-    webrtc::SetBE32(buffer.MutableData() + 8, ssrc);
+    SetBE32(buffer.MutableData() + 8, ssrc);
   }
 
   void GetNumRtpBytesAndPackets(uint32_t ssrc, int* bytes, int* packets) {
@@ -199,7 +199,7 @@ class FakeNetworkInterface : public MediaChannelNetworkInterface {
       *packets = 0;
     }
     for (size_t i = 0; i < rtp_packets_.size(); ++i) {
-      if (ssrc == webrtc::ParseRtpSsrc(rtp_packets_[i])) {
+      if (ssrc == ParseRtpSsrc(rtp_packets_[i])) {
         if (bytes) {
           *bytes += static_cast<int>(rtp_packets_[i].size());
         }
@@ -210,6 +210,7 @@ class FakeNetworkInterface : public MediaChannelNetworkInterface {
     }
   }
 
+  const Environment env_;
   TaskQueueBase* thread_;
   MediaReceiveChannelInterface* dest_;
   bool conf_;
@@ -233,12 +234,5 @@ class FakeNetworkInterface : public MediaChannelNetworkInterface {
 
 }  //  namespace webrtc
 
-// Re-export symbols from the webrtc namespace for backwards compatibility.
-// TODO(bugs.webrtc.org/4222596): Remove once all references are updated.
-#ifdef WEBRTC_ALLOW_DEPRECATED_NAMESPACES
-namespace cricket {
-using ::webrtc::FakeNetworkInterface;
-}  // namespace cricket
-#endif  // WEBRTC_ALLOW_DEPRECATED_NAMESPACES
 
 #endif  // MEDIA_BASE_FAKE_NETWORK_INTERFACE_H_

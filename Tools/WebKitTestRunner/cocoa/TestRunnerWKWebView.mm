@@ -28,7 +28,6 @@
 
 #import "PlatformViewHelpers.h"
 #import "TestController.h"
-#import "WebKitTestRunnerDraggingInfo.h"
 #import <WebKit/WKUIDelegatePrivate.h>
 #import <WebKit/WKWebViewPrivateForTesting.h>
 #import <WebKit/_WKFormInputSession.h>
@@ -37,6 +36,15 @@
 #import <wtf/RetainPtr.h>
 #import <wtf/SoftLinking.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
+#import <wtf/darwin/DispatchExtras.h>
+
+#if ENABLE(MODEL_ELEMENT_IMMERSIVE)
+#import <WebKit/_WKImmersiveEnvironmentDelegate.h>
+#endif
+
+#if PLATFORM(MAC)
+#import "WebKitTestRunnerDraggingInfo.h"
+#endif
 
 #if PLATFORM(IOS_FAMILY)
 #import "UIKitSPIForTesting.h"
@@ -68,15 +76,23 @@ struct CustomMenuActionInfo {
 #if PLATFORM(IOS_FAMILY)
     , UIGestureRecognizerDelegate
 #endif
+#if ENABLE(MODEL_ELEMENT_IMMERSIVE)
+    , _WKImmersiveEnvironmentDelegate
+#endif
 > {
     RetainPtr<NSNumber> _stableStateOverride;
     BOOL _isInteractingWithFormControl;
     BOOL _scrollingUpdatesDisabled;
     RetainPtr<NSArray<NSString *>> _allowedMenuActions;
+#if PLATFORM(MAC)
+    int _draggingSequenceNumber;
+    RetainPtr<WebKitTestRunnerDraggingInfo> _currentDraggingInfo;
+#endif
 #if PLATFORM(IOS_FAMILY)
     RetainPtr<UITapGestureRecognizer> _windowTapGestureRecognizer;
     BlockPtr<void()> _windowTapRecognizedCallback;
     UIInterfaceOrientationMask _supportedInterfaceOrientations;
+    BOOL _didCallEnsurePositionInformationIsUpToDate;
 #endif
 }
 
@@ -101,8 +117,38 @@ IGNORE_WARNINGS_BEGIN("deprecated-implementations")
 - (void)dragImage:(NSImage *)anImage at:(NSPoint)viewLocation offset:(NSSize)initialOffset event:(NSEvent *)event pasteboard:(NSPasteboard *)pboard source:(id)sourceObj slideBack:(BOOL)slideFlag
 IGNORE_WARNINGS_END
 {
-    auto draggingInfo = adoptNS([[WebKitTestRunnerDraggingInfo alloc] initWithImage:anImage offset:initialOffset pasteboard:pboard source:sourceObj]);
+    ++_draggingSequenceNumber;
+    RetainPtr draggingInfo = adoptNS([[WebKitTestRunnerDraggingInfo alloc] initWithImage:anImage offset:initialOffset pasteboard:pboard source:sourceObj sequenceNumber:_draggingSequenceNumber]);
+    _currentDraggingInfo = draggingInfo;
+    [self draggingEntered:draggingInfo.get()];
     [self draggingUpdated:draggingInfo.get()];
+}
+
+- (void)mouseDown:(NSEvent *)event
+{
+    if (_currentDraggingInfo) {
+        NSLog(@"[WKWebViewMac mouseDown:] with unexpected _currentDraggingInfo, missing mouseUp?");
+        _currentDraggingInfo = nil;
+    }
+    [super mouseDown:event];
+}
+
+- (void)mouseUp:(NSEvent *)event
+{
+    if (RetainPtr<WebKitTestRunnerDraggingInfo> draggingInfo = _currentDraggingInfo) {
+        [self prepareForDragOperation:draggingInfo.get()];
+        [self performDragOperation:draggingInfo.get()];
+        _currentDraggingInfo = nil;
+    } else
+        [super mouseUp:event];
+}
+
+- (void)mouseDragged:(NSEvent *)event
+{
+    if (RetainPtr<WebKitTestRunnerDraggingInfo> draggingInfo = _currentDraggingInfo)
+        [self draggingUpdated:draggingInfo.get()];
+    else
+        [super mouseDragged:event];
 }
 #endif
 
@@ -129,6 +175,10 @@ IGNORE_WARNINGS_END
         self._inputDelegate = self;
         self.focusStartsInputSessionPolicy = _WKFocusStartsInputSessionPolicyAuto;
         self.supportedInterfaceOrientations = UIInterfaceOrientationMaskAll;
+        self.traitOverrides.displayScale = 2.0f;
+#endif
+#if ENABLE(MODEL_ELEMENT_IMMERSIVE)
+        self._immersiveEnvironmentDelegate = self;
 #endif
     }
     return self;
@@ -224,6 +274,7 @@ IGNORE_WARNINGS_END
     self.willStartInputSessionCallback = nil;
     self.willPresentPopoverCallback = nil;
     self.didDismissPopoverCallback = nil;
+    self.didPresentViewControllerCallback = nil;
     self.didEndScrollingCallback = nil;
     self.rotationDidEndCallback = nil;
     self.windowTapRecognizedCallback = nil;
@@ -256,6 +307,11 @@ IGNORE_WARNINGS_END
 
     if (self.didEndFormControlInteractionCallback)
         self.didEndFormControlInteractionCallback();
+}
+
+- (void)didEnsurePositionInformationIsUpToDate
+{
+    _didCallEnsurePositionInformationIsUpToDate = YES;
 }
 
 - (BOOL)isInteractingWithFormControl
@@ -304,7 +360,7 @@ IGNORE_WARNINGS_END
     ASSERT(!self.zoomToScaleCompletionHandler);
 
     if (self.scrollView.zoomScale == scale) {
-        dispatch_async(dispatch_get_main_queue(), ^{
+        dispatch_async(mainDispatchQueueSingleton(), ^{
             completionHandler();
         });
         return;
@@ -558,6 +614,9 @@ static bool isQuickboardViewController(UIViewController *viewController)
 
 - (void)_didPresentViewController:(UIViewController *)viewController
 {
+    if (self.didPresentViewControllerCallback)
+        self.didPresentViewControllerCallback();
+
     if (isQuickboardViewController(viewController))
         [self _invokeShowKeyboardCallbackIfNecessary];
 }
@@ -658,12 +717,49 @@ static bool isQuickboardViewController(UIViewController *viewController)
 
     [UIView performWithoutAnimation:^{
         for (id<UIInteraction> interaction in self.contentView.interactions) {
-            if ([interaction isKindOfClass:getUIEditMenuInteractionClass()])
+            if ([interaction isKindOfClass:getUIEditMenuInteractionClassSingleton()])
                 [(UIEditMenuInteraction *)interaction dismissMenu];
         }
     }];
 }
 
 #endif // HAVE(UI_EDIT_MENU_INTERACTION)
+
+#if PLATFORM(IOS_FAMILY)
+
+- (BOOL)didCallEnsurePositionInformationIsUpToDateSinceLastCheck
+{
+    const auto hasUpdated = _didCallEnsurePositionInformationIsUpToDate;
+    _didCallEnsurePositionInformationIsUpToDate = NO;
+    return hasUpdated;
+}
+
+- (void)clearEnsurePositionInformationIsUpToDateTracking
+{
+    _didCallEnsurePositionInformationIsUpToDate = NO;
+}
+
+#endif // PLATFORM(IOS_FAMILY)
+
+#if ENABLE(MODEL_ELEMENT_IMMERSIVE)
+
+#pragma mark - _WKImmersiveEnvironmentDelegate
+
+- (void)webView:(WKWebView *)webView allowImmersiveEnvironmentFromURL:(NSURL *)url completion:(void (^)(bool))completion
+{
+    completion(self.shouldAcceptImmersiveEnvironmentRequests);
+}
+
+- (void)webView:(WKWebView *)webView presentImmersiveEnvironment:(UIView *)environmentView completion:(void (^)(NSError * _Nullable))completion
+{
+    completion(nil);
+}
+
+- (void)webView:(WKWebView *)webView dismissImmersiveEnvironment:(void (^)())completion
+{
+    completion();
+}
+
+#endif
 
 @end

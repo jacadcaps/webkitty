@@ -9,6 +9,7 @@
 
 #include "include/core/SkPaint.h"
 #include "include/core/SkPath.h"
+#include "include/core/SkPathBuilder.h"
 #include "include/core/SkPathMeasure.h"
 #include "include/core/SkPoint.h"
 #include "include/core/SkRect.h"
@@ -20,8 +21,6 @@
 #include "include/private/base/SkFloatingPoint.h"
 #include "include/private/base/SkTo.h"
 #include "src/core/SkPathEffectBase.h"
-#include "src/core/SkPathEnums.h"
-#include "src/core/SkPathPriv.h"
 #include "src/core/SkPointPriv.h"
 
 #include <algorithm>
@@ -168,16 +167,16 @@ static bool clip_line(SkPoint pts[2], const SkRect& bounds, SkScalar intervalLen
 }
 
 // Handles only lines and rects.
-// If cull_path() returns true, dstPath is the new smaller path,
-// otherwise dstPath may have been changed but you should ignore it.
+// If cull_path() returns true, builder is the new smaller path,
+// otherwise builder may have been changed but you should ignore it.
 static bool cull_path(const SkPath& srcPath, const SkStrokeRec& rec,
-                      const SkRect* cullRect, SkScalar intervalLength, SkPath* dstPath) {
+                      const SkRect* cullRect, SkScalar intervalLength, SkPathBuilder* builder) {
     if (!cullRect) {
         SkPoint pts[2];
         if (srcPath.isLine(pts) && pts[0] == pts[1]) {
             adjust_zero_length_line(pts);
-            dstPath->moveTo(pts[0]);
-            dstPath->lineTo(pts[1]);
+            builder->moveTo(pts[0]);
+            builder->lineTo(pts[1]);
             return true;
         }
         return false;
@@ -191,8 +190,8 @@ static bool cull_path(const SkPath& srcPath, const SkStrokeRec& rec,
         SkPoint pts[2];
         if (srcPath.isLine(pts)) {
             if (clip_line(pts, bounds, intervalLength, 0)) {
-                dstPath->moveTo(pts[0]);
-                dstPath->lineTo(pts[1]);
+                builder->moveTo(pts[0]);
+                builder->lineTo(pts[1]);
                 return true;
             }
             return false;
@@ -203,30 +202,31 @@ static bool cull_path(const SkPath& srcPath, const SkStrokeRec& rec,
         // We'll break the rect into four lines, culling each separately.
         SkPath::Iter iter(srcPath, false);
 
-        SkPoint pts[4];  // Rects are all moveTo and lineTo, so we'll only use pts[0] and pts[1].
-        SkAssertResult(SkPath::kMove_Verb == iter.next(pts));
+        std::optional<SkPath::IterRec> it = iter.next();
+        SkASSERT(it.has_value() && it->fVerb == SkPathVerb::kMove);
 
         double accum = 0;  // Sum of unculled edge lengths to keep the phase correct.
                            // Intentionally a double to minimize the risk of overflow and drift.
-        while (iter.next(pts) == SkPath::kLine_Verb) {
+        while ((it = iter.next()) && (it->fVerb == SkPathVerb::kLine)) {
             // Notice this vector v and accum work with the original unclipped length.
-            SkVector v = pts[1] - pts[0];
+            SkVector v = it->fPoints[1] - it->fPoints[0];
 
+            SkPoint pts[2] = {it->fPoints[0], it->fPoints[1]};
             if (clip_line(pts, bounds, intervalLength, std::fmod(accum, intervalLength))) {
                 // pts[0] may have just been changed by clip_line().
                 // If that's not where we ended the previous lineTo(), we need to moveTo() there.
-                SkPoint last;
-                if (!dstPath->getLastPt(&last) || last != pts[0]) {
-                    dstPath->moveTo(pts[0]);
+                auto maybeLast = builder->getLastPt();
+                if (!maybeLast || *maybeLast != pts[0]) {
+                    builder->moveTo(pts[0]);
                 }
-                dstPath->lineTo(pts[1]);
+                builder->lineTo(pts[1]);
             }
 
             // We either just traveled v.fX horizontally or v.fY vertically.
             SkASSERT(v.fX == 0 || v.fY == 0);
             accum += SkScalarAbs(v.fX + v.fY);
         }
-        return !dstPath->isEmpty();
+        return !builder->isEmpty();
     }
 
     return false;
@@ -234,7 +234,7 @@ static bool cull_path(const SkPath& srcPath, const SkStrokeRec& rec,
 
 class SpecialLineRec {
 public:
-    bool init(const SkPath& src, SkPath* dst, SkStrokeRec* rec,
+    bool init(const SkPath& src, SkPathBuilder* dst, SkStrokeRec* rec,
               int intervalCount, SkScalar intervalLength) {
         if (rec->isHairlineStyle() || !src.isLine(fPts)) {
             return false;
@@ -277,7 +277,7 @@ public:
         return true;
     }
 
-    void addSegment(SkScalar d0, SkScalar d1, SkPath* path) const {
+    void addSegment(SkScalar d0, SkScalar d1, SkPathBuilder* path) const {
         SkASSERT(d0 <= fPathLength);
         // clamp the segment to our length
         if (d1 > fPathLength) {
@@ -295,7 +295,7 @@ public:
         pts[2].set(x1 - fNormal.fX, y1 - fNormal.fY);   // lineTo
         pts[3].set(x0 - fNormal.fX, y0 - fNormal.fY);   // lineTo
 
-        path->addPoly(pts, false);
+        path->addPolygon(pts, false);
     }
 
 private:
@@ -306,11 +306,15 @@ private:
 };
 
 
-bool SkDashPath::InternalFilter(SkPath* dst, const SkPath& src, SkStrokeRec* rec,
+bool SkDashPath::InternalFilter(SkPathBuilder* dst, const SkPath& src, SkStrokeRec* rec,
                                 const SkRect* cullRect, SkSpan<const SkScalar> aIntervals,
                                 SkScalar initialDashLength, int32_t initialDashIndex,
                                 SkScalar intervalLength, SkScalar startPhase,
                                 StrokeRecApplication strokeRecApplication) {
+    SkSpan<const SkPoint> srcPts = src.points();
+    if (srcPts.empty()) {
+        return true;
+    }
     const size_t count = aIntervals.size();
     // we must always have an even number of intervals
     SkASSERT(is_even(count));
@@ -323,13 +327,13 @@ bool SkDashPath::InternalFilter(SkPath* dst, const SkPath& src, SkStrokeRec* rec
 
     const SkScalar* intervals = aIntervals.data();
     SkScalar        dashCount = 0;
-    int             segCount = 0;
 
+    SkPathBuilder builder;
     SkPath cullPathStorage;
     const SkPath* srcPtr = &src;
-    if (cull_path(src, *rec, cullRect, intervalLength, &cullPathStorage)) {
+    if (cull_path(src, *rec, cullRect, intervalLength, &builder)) {
         // if rect is closed, starts in a dash, and ends in a dash, add the initial join
-        // potentially a better fix is described here: bug.skia.org/7445
+        // potentially a better fix is described here: skbug.com/40038693
         if (src.isRect(nullptr) && src.isLastContourClosed() && is_even(initialDashIndex)) {
             SkScalar pathLength = SkPathMeasure(src, false, rec->getResScale()).getLength();
             SkScalar endPhase = SkScalarMod(pathLength + startPhase, intervalLength);
@@ -348,31 +352,35 @@ bool SkDashPath::InternalFilter(SkPath* dst, const SkPath& src, SkStrokeRec* rec
             }
             // if dash ends inside "on", or ends at beginning of "off"
             if (is_even(index) == (endPhase > 0)) {
-                SkPoint midPoint = src.getPoint(0);
+                SkPoint midPoint = srcPts.front();
                 // get vector at end of rect
                 int last = src.countPoints() - 1;
-                while (midPoint == src.getPoint(last)) {
+                while (midPoint == srcPts[last]) {
                     --last;
                     SkASSERT(last >= 0);
                 }
                 // get vector at start of rect
                 int next = 1;
-                while (midPoint == src.getPoint(next)) {
+                while (midPoint == srcPts[next]) {
                     ++next;
                     SkASSERT(next < last);
                 }
-                SkVector v = midPoint - src.getPoint(last);
+                SkVector v = midPoint - srcPts[last];
                 const SkScalar kTinyOffset = SK_ScalarNearlyZero;
                 // scale vector to make start of tiny right angle
                 v *= kTinyOffset;
-                cullPathStorage.moveTo(midPoint - v);
-                cullPathStorage.lineTo(midPoint);
-                v = midPoint - src.getPoint(next);
+                builder.moveTo(midPoint - v);
+                builder.lineTo(midPoint);
+                v = midPoint - srcPts[next];
                 // scale vector to make end of tiny right angle
                 v *= kTinyOffset;
-                cullPathStorage.lineTo(midPoint - v);
+                builder.lineTo(midPoint - v);
             }
         }
+
+        // If PathMeasure took a SkPathRaw, we could pass it the raw from src or the builder,
+        // and not need to first 'detach' a path from the builder.
+        cullPathStorage = builder.detach();
         srcPtr = &cullPathStorage;
     }
 
@@ -412,7 +420,6 @@ bool SkDashPath::InternalFilter(SkPath* dst, const SkPath& src, SkStrokeRec* rec
             addedSegment = false;
             if (is_even(index) && !skipFirstSegment) {
                 addedSegment = true;
-                ++segCount;
 
                 if (specialLine) {
                     lineRec.addSegment(SkDoubleToScalar(distance),
@@ -444,19 +451,13 @@ bool SkDashPath::InternalFilter(SkPath* dst, const SkPath& src, SkStrokeRec* rec
         if (meas.isClosed() && is_even(initialDashIndex) &&
             initialDashLength >= 0) {
             meas.getSegment(0, initialDashLength, dst, !addedSegment);
-            ++segCount;
         }
     } while (meas.nextContour());
-
-    // TODO: do we still need this?
-    if (segCount > 1) {
-        SkPathPriv::SetConvexity(*dst, SkPathConvexity::kConcave);
-    }
 
     return true;
 }
 
-bool SkDashPath::FilterDashPath(SkPath* dst, const SkPath& src, SkStrokeRec* rec,
+bool SkDashPath::FilterDashPath(SkPathBuilder* dst, const SkPath& src, SkStrokeRec* rec,
                                 const SkRect* cullRect, const SkPathEffectBase::DashInfo& info) {
     if (!ValidDashPath(info.fPhase, info.fIntervals)) {
         return false;

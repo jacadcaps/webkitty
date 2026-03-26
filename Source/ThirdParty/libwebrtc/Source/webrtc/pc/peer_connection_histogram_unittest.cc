@@ -12,29 +12,31 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
+#include "absl/strings/str_format.h"
+#include "absl/strings/string_view.h"
+#include "api/create_modular_peer_connection_factory.h"
 #include "api/jsep.h"
-#include "api/jsep_session_description.h"
 #include "api/peer_connection_interface.h"
 #include "api/rtc_error.h"
 #include "api/scoped_refptr.h"
 #include "api/test/mock_async_dns_resolver.h"
 #include "api/test/rtc_error_matchers.h"
 #include "api/units/time_delta.h"
+#include "api/webrtc_sdp.h"
 #include "pc/peer_connection.h"
 #include "pc/peer_connection_wrapper.h"
-#include "pc/sdp_utils.h"
 #include "pc/test/enable_fake_media.h"
 #include "pc/test/mock_peer_connection_observers.h"
 #include "pc/usage_pattern.h"
-#include "pc/webrtc_sdp.h"
-#include "rtc_base/arraysize.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/fake_mdns_responder.h"
 #include "rtc_base/fake_network.h"
 #include "rtc_base/gunit.h"
+#include "rtc_base/ip_address.h"
 #include "rtc_base/network.h"
 #include "rtc_base/socket_address.h"
 #include "rtc_base/thread.h"
@@ -45,17 +47,38 @@
 #include "test/wait_until.h"
 
 namespace webrtc {
+namespace {
 
+using ::testing::NiceMock;
 using RTCConfiguration = PeerConnectionInterface::RTCConfiguration;
 using RTCOfferAnswerOptions = PeerConnectionInterface::RTCOfferAnswerOptions;
-using ::testing::NiceMock;
 
-static const char kUsagePatternMetric[] = "WebRTC.PeerConnection.UsagePattern";
-static constexpr TimeDelta kDefaultTimeout = TimeDelta::Millis(10000);
-static const SocketAddress kLocalAddrs[2] = {SocketAddress("1.1.1.1", 0),
-                                             SocketAddress("2.2.2.2", 0)};
-static const SocketAddress kPrivateLocalAddress("10.1.1.1", 0);
-static const SocketAddress kPrivateIpv6LocalAddress("fd12:3456:789a:1::1", 0);
+class PeerConnectionWrapperForUsageHistogramTest;
+typedef PeerConnectionWrapperForUsageHistogramTest* RawWrapperPtr;
+
+constexpr const char kBasicRemoteDescription[] = R"(v=0
+o=- 0 0 IN IP4 127.0.0.1
+s=-
+t=0 0
+m=audio 9 UDP/TLS/RTP/SAVPF 101
+c=IN IP4 0.0.0.0
+a=ice-ufrag:fooUfrag
+a=ice-pwd:someRemotePasswordGeneratedString
+a=fingerprint:sha-256 0A:B1:C2:D3:E4:F5:06:07:08:09:0A:0B:0C:0D:0E:0F:10:11:12:13:14:15:16:17:18:19:1A:1B:1C:1D:1E:1F
+a=candidate:1 1 UDP 2130706431 %s 57892 typ host generation 0
+a=setup:active
+a=mid:0
+a=sendrecv
+a=rtcp-mux
+a=rtpmap:101 fake_audio_codec/8000
+)";
+
+constexpr char kUsagePatternMetric[] = "WebRTC.PeerConnection.UsagePattern";
+constexpr TimeDelta kDefaultTimeout = TimeDelta::Millis(10000);
+const SocketAddress kLocalAddrs[2] = {SocketAddress("1.1.1.1", 0),
+                                      SocketAddress("2.2.2.2", 0)};
+const SocketAddress kPrivateLocalAddress("10.1.1.1", 0);
+const SocketAddress kPrivateIpv6LocalAddress("fd12:3456:789a:1::1", 0);
 
 int MakeUsageFingerprint(std::set<UsageEvent> events) {
   int signature = 0;
@@ -65,13 +88,9 @@ int MakeUsageFingerprint(std::set<UsageEvent> events) {
   return signature;
 }
 
-class PeerConnectionWrapperForUsageHistogramTest;
-
-typedef PeerConnectionWrapperForUsageHistogramTest* RawWrapperPtr;
-
 class ObserverForUsageHistogramTest : public MockPeerConnectionObserver {
  public:
-  void OnIceCandidate(const IceCandidateInterface* candidate) override;
+  void OnIceCandidate(const IceCandidate* candidate) override;
 
   void OnInterestingUsage(int usage_pattern) override {
     interesting_usage_detected_ = usage_pattern;
@@ -127,10 +146,9 @@ class PeerConnectionWrapperForUsageHistogramTest
     return static_cast<ObserverForUsageHistogramTest*>(observer())
         ->HaveDataChannel();
   }
-  void BufferIceCandidate(const IceCandidateInterface* candidate) {
-    std::string sdp;
-    EXPECT_TRUE(candidate->ToString(&sdp));
-    std::unique_ptr<IceCandidateInterface> candidate_copy(CreateIceCandidate(
+  void BufferIceCandidate(const IceCandidate* candidate) {
+    std::string sdp = candidate->ToString();
+    std::unique_ptr<IceCandidate> candidate_copy(CreateIceCandidate(
         candidate->sdp_mid(), candidate->sdp_mline_index(), sdp, nullptr));
     buffered_candidates_.push_back(std::move(candidate_copy));
   }
@@ -168,12 +186,12 @@ class PeerConnectionWrapperForUsageHistogramTest
   }
 
   bool GenerateOfferAndCollectCandidates() {
-    auto offer = CreateOffer(RTCOfferAnswerOptions());
+    std::unique_ptr<SessionDescriptionInterface> offer =
+        CreateOffer(RTCOfferAnswerOptions());
     if (!offer) {
       return false;
     }
-    bool set_local_offer =
-        SetLocalDescription(CloneSessionDescription(offer.get()));
+    bool set_local_offer = SetLocalDescription(offer->Clone());
     EXPECT_TRUE(set_local_offer);
     if (!set_local_offer) {
       return false;
@@ -190,12 +208,12 @@ class PeerConnectionWrapperForUsageHistogramTest
 
  private:
   // Candidates that have been sent but not yet configured
-  std::vector<std::unique_ptr<IceCandidateInterface>> buffered_candidates_;
+  std::vector<std::unique_ptr<IceCandidate>> buffered_candidates_;
 };
 
 // Buffers candidates until we add them via AddBufferedIceCandidates.
 void ObserverForUsageHistogramTest::OnIceCandidate(
-    const IceCandidateInterface* candidate) {
+    const IceCandidate* candidate) {
   // If target is not set, ignore. This happens in one-ended unit tests.
   if (candidate_target_) {
     this->candidate_target_->BufferIceCandidate(candidate);
@@ -315,7 +333,7 @@ class PeerConnectionUsageHistogramTest : public ::testing::Test {
   }
 
   SocketAddress NextLocalAddress() {
-    RTC_DCHECK(next_local_address_ < (int)arraysize(kLocalAddrs));
+    RTC_DCHECK_LT(next_local_address_, std::ssize(kLocalAddrs));
     return kLocalAddrs[next_local_address_++];
   }
 
@@ -583,6 +601,58 @@ TEST_F(PeerConnectionUsageHistogramTest, FingerprintWithPrivateIpv6Callee) {
       1, metrics::NumEvents(kUsagePatternMetric, expected_fingerprint_callee));
 }
 
+struct IPAddressTypeTestConfig {
+  absl::string_view address;
+  IPAddressType address_type;
+} const kAllCandidateIPAddressTypeTestConfigs[] = {
+    {.address = "127.0.0.1", .address_type = IPAddressType::kLoopback},
+    {.address = "::1", .address_type = IPAddressType::kLoopback},
+    {.address = "localhost", .address_type = IPAddressType::kLoopback},
+    {.address = "10.0.0.3", .address_type = IPAddressType::kPrivate},
+    {.address = "FE80::3", .address_type = IPAddressType::kPrivate},
+    {.address = "1.1.1.1", .address_type = IPAddressType::kPublic},
+    {.address = "2001:4860:4860::8888", .address_type = IPAddressType::kPublic},
+};
+
+// Used by the test framework to print the param value for parameterized tests.
+std::string PrintToString(const IPAddressTypeTestConfig& param) {
+  return std::string(param.address);
+}
+
+class PeerConnectionCandidateIPAddressTypeHistogramTest
+    : public PeerConnectionUsageHistogramTest,
+      public ::testing::WithParamInterface<IPAddressTypeTestConfig> {};
+
+// Tests that the correct IPAddressType is logged when adding candidates.
+TEST_P(PeerConnectionCandidateIPAddressTypeHistogramTest,
+       CandidateAddressType) {
+  auto caller = CreatePeerConnection();
+
+  caller->AddAudioTrack("audio");
+  ASSERT_TRUE(caller->SetLocalDescription(caller->CreateOffer()));
+
+  // Set the remote description which includes a candidate using the IP Address
+  // from the test's params.
+  EXPECT_TRUE(caller->SetRemoteDescription(CreateSessionDescription(
+      SdpType::kAnswer,
+      absl::StrFormat(kBasicRemoteDescription, GetParam().address))));
+
+  ASSERT_THAT(
+      WaitUntil([&] { return caller->ice_gathering_state(); },
+                ::testing::Eq(PeerConnectionInterface::kIceGatheringComplete)),
+      IsRtcOk());
+  ASSERT_TRUE(caller->observer()->candidate_gathered());
+
+  auto samples = metrics::Samples("WebRTC.PeerConnection.CandidateAddressType");
+  ASSERT_EQ(samples.size(), 1u);
+  EXPECT_EQ(samples[static_cast<int>(GetParam().address_type)], 1);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    All,
+    PeerConnectionCandidateIPAddressTypeHistogramTest,
+    ::testing::ValuesIn(kAllCandidateIPAddressTypeTestConfigs));
+
 #ifndef WEBRTC_ANDROID
 #ifdef WEBRTC_HAVE_SCTP
 // Test that the usage pattern bits for adding remote (private IPv6) candidates
@@ -619,14 +689,13 @@ TEST_F(PeerConnectionUsageHistogramTest,
   ASSERT_TRUE(cur_offer);
   std::string sdp_with_candidates_str;
   cur_offer->ToString(&sdp_with_candidates_str);
-  auto offer = std::make_unique<JsepSessionDescription>(SdpType::kOffer);
-  ASSERT_TRUE(SdpDeserialize(sdp_with_candidates_str, offer.get(),
-                             nullptr /* error */));
+  std::unique_ptr<SessionDescriptionInterface> offer =
+      SdpDeserialize(SdpType::kOffer, sdp_with_candidates_str);
   ASSERT_TRUE(callee->SetRemoteDescription(std::move(offer)));
 
   // By default, the Answer created does not contain ICE candidates.
-  auto answer = callee->CreateAnswer();
-  callee->SetLocalDescription(CloneSessionDescription(answer.get()));
+  std::unique_ptr<SessionDescriptionInterface> answer = callee->CreateAnswer();
+  callee->SetLocalDescription(answer->Clone());
   caller->SetRemoteDescription(std::move(answer));
   EXPECT_THAT(
       WaitUntil([&] { return caller->IsConnected(); }, ::testing::IsTrue()),
@@ -737,4 +806,5 @@ TEST_F(PeerConnectionUsageHistogramTest,
 #endif
 #endif
 
+}  // namespace
 }  // namespace webrtc

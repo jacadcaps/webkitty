@@ -31,7 +31,6 @@
 #include "MessageReceiver.h"
 #include <WebCore/BoxExtents.h>
 #include <WebCore/FrameIdentifier.h>
-#include <WebCore/HTMLMediaElement.h>
 #include <WebCore/HTMLMediaElementEnums.h>
 #include <WebCore/ProcessIdentifier.h>
 #include <wtf/CheckedRef.h>
@@ -86,6 +85,8 @@ public:
 
     void ref() const final { RefCounted::ref(); }
     void deref() const final { RefCounted::deref(); }
+
+    WebFullScreenManagerProxyClient* client() { return m_client.get(); }
 
     std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess(const IPC::Connection&) const;
 

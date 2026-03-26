@@ -57,7 +57,7 @@ class RemoteShaderModule final : public IPC::StreamMessageReceiver {
 public:
     static Ref<RemoteShaderModule> create(WebCore::WebGPU::ShaderModule& shaderModule, WebGPU::ObjectHeap& objectHeap, Ref<IPC::StreamServerConnection>&& streamConnection, RemoteGPU& gpu, WebGPUIdentifier identifier)
     {
-        return adoptRef(*new RemoteShaderModule(shaderModule, objectHeap, WTFMove(streamConnection), gpu, identifier));
+        return adoptRef(*new RemoteShaderModule(shaderModule, objectHeap, WTF::move(streamConnection), gpu, identifier));
     }
 
     virtual ~RemoteShaderModule();

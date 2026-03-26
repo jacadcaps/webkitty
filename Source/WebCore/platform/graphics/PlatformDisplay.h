@@ -74,7 +74,10 @@ public:
 #if USE(GBM)
         GBM,
 #endif
-#if PLATFORM(GTK)
+#if OS(ANDROID)
+        Android,
+#endif
+#if PLATFORM(GTK) || OS(ANDROID)
         Default,
 #endif
     };
@@ -91,11 +94,11 @@ public:
 
     EGLImage createEGLImage(EGLContext, EGLenum target, EGLClientBuffer, const Vector<EGLAttrib>&) const;
     bool destroyEGLImage(EGLImage) const;
-#if USE(GBM)
-    const Vector<GLDisplay::DMABufFormat>& dmabufFormats();
-#if USE(GSTREAMER)
-    const Vector<GLDisplay::DMABufFormat>& dmabufFormatsForVideo();
+#if USE(GBM) || OS(ANDROID)
+    const Vector<GLDisplay::BufferFormat>& bufferFormats();
 #endif
+#if USE(GBM) && USE(GSTREAMER)
+    const Vector<GLDisplay::BufferFormat>& bufferFormatsForVideo();
 #endif
 
 #if ENABLE(WEBGL)
@@ -111,7 +114,7 @@ public:
 
 #if USE(SKIA)
     GLContext* skiaGLContext();
-    GrDirectContext* skiaGrContext();
+    GrDirectContext* skiaGrContext() const;
     unsigned msaaSampleCount() const;
 #endif
 

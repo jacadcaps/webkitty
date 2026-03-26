@@ -24,14 +24,8 @@ import errno
 from webkitpy.common.host import Host
 from webkitpy.port import configuration_options, platform_options, factory
 from webkitcorepy.string_utils import decode
-
-if sys.platform.startswith('linux'):
-    import os
-    top_level_directory = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..'))
-    sys.path.insert(0, os.path.join(top_level_directory, 'Tools', 'flatpak'))
-
-    import flatpakutils
-    flatpakutils.run_in_sandbox_if_available(sys.argv)
+from webkitpy.port.linux_container_sdk_utils import maybe_use_container_sdk_root_dir
+maybe_use_container_sdk_root_dir()
 
 def system_has_ipv6():
     if not socket.has_ipv6:

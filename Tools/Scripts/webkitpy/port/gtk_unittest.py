@@ -79,10 +79,10 @@ class GtkPortTest(port_testcase.PortTestCase):
             self.assertTrue(mb_env_var in mock_env)
 
     def test_default_timeout_ms(self):
-        self.assertEqual(self.make_port(options=MockOptions(configuration='Release')).default_timeout_ms(), 15000)
-        self.assertEqual(self.make_port(options=MockOptions(configuration='Debug')).default_timeout_ms(), 30000)
-        self.assertEqual(self.make_port(options=MockOptions(configuration='Release', leaks=True, wrapper="valgrind")).default_timeout_ms(), 150000)
-        self.assertEqual(self.make_port(options=MockOptions(configuration='Debug', leaks=True, wrapper="valgrind")).default_timeout_ms(), 300000)
+        self.assertEqual(self.make_port(options=MockOptions(configuration='Release')).default_timeout_ms(), 30000)
+        self.assertEqual(self.make_port(options=MockOptions(configuration='Debug')).default_timeout_ms(), 60000)
+        self.assertEqual(self.make_port(options=MockOptions(configuration='Release', leaks=True, wrapper="valgrind")).default_timeout_ms(), 300000)
+        self.assertEqual(self.make_port(options=MockOptions(configuration='Debug', leaks=True, wrapper="valgrind")).default_timeout_ms(), 600000)
 
     def test_get_crash_log(self):
         # This function tested in linux_get_crash_log_unittest.py
@@ -90,12 +90,17 @@ class GtkPortTest(port_testcase.PortTestCase):
 
     def test_default_upload_configuration(self):
         port = self.make_port()
+        port.host.filesystem.write_text_file(
+            '/mock-checkout/Source/cmake/OptionsGTK.cmake',
+            'SET_PROJECT_VERSION(2 51 4)\n'
+        )
         configuration = port.configuration_for_upload()
         self.assertEqual(configuration['architecture'], port.architecture())
         self.assertEqual(configuration['is_simulator'], False)
         self.assertEqual(configuration['platform'], 'GTK')
         self.assertEqual(configuration['style'], 'release')
         self.assertEqual(configuration['version_name'], 'Xvfb')
+        self.assertEqual(configuration['version'], '2.51')
 
     def test_gtk4_expectations_binary_only(self):
         port = self.make_port()
@@ -107,8 +112,7 @@ class GtkPortTest(port_testcase.PortTestCase):
                               ['/mock-checkout/LayoutTests/TestExpectations',
                                '/mock-checkout/LayoutTests/platform/wk2/TestExpectations',
                                '/mock-checkout/LayoutTests/platform/glib/TestExpectations',
-                               '/mock-checkout/LayoutTests/platform/gtk/TestExpectations',
-                               '/mock-checkout/LayoutTests/platform/gtk4/TestExpectations'])
+                               '/mock-checkout/LayoutTests/platform/gtk/TestExpectations'])
 
     def test_gtk3_expectations_binary_only(self):
         port = self.make_port()
@@ -121,7 +125,8 @@ class GtkPortTest(port_testcase.PortTestCase):
                               ['/mock-checkout/LayoutTests/TestExpectations',
                                '/mock-checkout/LayoutTests/platform/wk2/TestExpectations',
                                '/mock-checkout/LayoutTests/platform/glib/TestExpectations',
-                               '/mock-checkout/LayoutTests/platform/gtk/TestExpectations'])
+                               '/mock-checkout/LayoutTests/platform/gtk/TestExpectations',
+                               '/mock-checkout/LayoutTests/platform/gtk3/TestExpectations'])
 
     def test_gtk_expectations_both_binaries(self):
         port = self.make_port()
@@ -136,7 +141,7 @@ class GtkPortTest(port_testcase.PortTestCase):
                                '/mock-checkout/LayoutTests/platform/wk2/TestExpectations',
                                '/mock-checkout/LayoutTests/platform/glib/TestExpectations',
                                '/mock-checkout/LayoutTests/platform/gtk/TestExpectations'])
-            self.assertEqual(captured.root.log.getvalue(), 'Multiple WebKit2GTK libraries found. Skipping GTK4 detection.\n')
+            self.assertEqual(captured.root.log.getvalue(), 'Multiple WebKit2GTK libraries found. Skipping GTK3 detection.\n')
 
     def test_setup_environ_for_test_gstreamer_prefix(self):
         environment_user = {}

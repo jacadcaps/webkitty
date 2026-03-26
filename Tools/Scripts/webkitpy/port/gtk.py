@@ -81,14 +81,10 @@ class GtkPort(GLibPort):
         self._copy_values_from_environ_with_prefix(environment, 'GSK_')
 
         # Configure the software libgl renderer if jhbuild ready and we test inside a virtualized window system
-        if self._driver_class() in [XvfbDriver, WestonDriver] and (self._should_use_jhbuild() or self._is_flatpak()):
-            if self._should_use_jhbuild():
-                llvmpipe_libgl_path = self.host.executive.run_command(self._jhbuild_wrapper + ['printenv', 'LLVMPIPE_LIBGL_PATH'],
-                                                                    ignore_errors=True).strip()
-                dri_libgl_path = os.path.join(llvmpipe_libgl_path, "dri")
-            else:  # in flatpak
-                llvmpipe_libgl_path = "/usr/lib/{}-linux-gnu/".format(os.uname().machine)
-                dri_libgl_path = os.path.join(llvmpipe_libgl_path, "GL", "lib", "dri")
+        if self._driver_class() in [XvfbDriver, WestonDriver] and self._should_use_jhbuild():
+            llvmpipe_libgl_path = self.host.executive.run_command(self._jhbuild_wrapper + ['printenv', 'LLVMPIPE_LIBGL_PATH'],
+                                                                  ignore_errors=True).strip()
+            dri_libgl_path = os.path.join(llvmpipe_libgl_path, "dri")
 
             if os.path.exists(os.path.join(llvmpipe_libgl_path, "libGL.so")) and os.path.exists(os.path.join(dri_libgl_path, "swrast_dri.so")):
                 # Make sure va-api support gets disabled because it's incompatible with Mesa's softGL driver.
@@ -97,10 +93,8 @@ class GtkPort(GLibPort):
                 environment['LIBGL_ALWAYS_SOFTWARE'] = "1"
                 environment['LIBGL_DRIVERS_PATH'] = dri_libgl_path
             else:
-                _log.warning("Can't find Gallium llvmpipe driver. Try to run update-webkitgtk-libs or update-webkit-flatpak")
+                _log.warning("Can't find Gallium llvmpipe driver. Try to run update-webkitgtk-libs")
 
-        # Gtk uses hybrid painting mode by default (preferring GPU) -- for deterministic tests we always want to use the GPU for Gtk.
-        environment['WEBKIT_SKIA_CPU_PAINTING_THREADS'] = '0'
         return environment
 
     def _generate_all_test_configurations(self):
@@ -122,8 +116,8 @@ class GtkPort(GLibPort):
     def _search_paths(self):
         search_paths = []
 
-        if self._is_gtk4_build():
-            search_paths.append(self.port_name + "4")
+        if self._is_gtk3_build():
+            search_paths.append(self.port_name + "3")
 
         if self._driver_class() in [WaylandDriver, WestonDriver]:
             search_paths.append(self.port_name + "-wayland")
@@ -197,16 +191,16 @@ class GtkPort(GLibPort):
         return self._executive.run_command(command + args, cwd=self.webkit_base(), stdout=None, return_stderr=False, decode_output=False, env=env, pass_fds=pass_fds)
 
     @memoized
-    def _is_gtk4_build(self):
+    def _is_gtk3_build(self):
         try:
             libdir = self._build_path('lib')
             candidates = self._filesystem.glob(os.path.join(libdir, 'libwebkit*gtk-*.so'))
             if not candidates:
                 return False
             if len(candidates) > 1:
-                _log.warning("Multiple WebKit2GTK libraries found. Skipping GTK4 detection.")
+                _log.warning("Multiple WebKit2GTK libraries found. Skipping GTK3 detection.")
                 return False
-            return os.path.basename(candidates[0]) == 'libwebkitgtk-6.0.so'
+            return os.path.basename(candidates[0]) == 'libwebkit2gtk-4.0.so'
 
         except (webkitpy.common.system.executive.ScriptError, IOError, OSError):
             return False

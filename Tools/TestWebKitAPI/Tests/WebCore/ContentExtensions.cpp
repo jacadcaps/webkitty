@@ -143,12 +143,12 @@ public:
         CompiledContentExtensionData extensionData;
         InMemoryContentExtensionCompilationClient client(extensionData);
         auto parsedRules = ContentExtensions::parseRuleList(filter, WebCore::ContentExtensions::CSSSelectorsAllowed::Yes);
-        auto compilerError = ContentExtensions::compileRuleList(client, WTFMove(filter), WTFMove(parsedRules.value()));
+        auto compilerError = ContentExtensions::compileRuleList(client, WTF::move(filter), WTF::move(parsedRules.value()));
 
         // Compiling should always succeed here. We have other tests for compile failures.
         EXPECT_FALSE(compilerError);
 
-        return adoptRef(*new InMemoryCompiledContentExtension(WTFMove(extensionData)));
+        return adoptRef(*new InMemoryCompiledContentExtension(WTF::move(extensionData)));
     }
 
     const CompiledContentExtensionData& data() { return m_data; };
@@ -160,7 +160,7 @@ private:
     std::span<const uint8_t> frameURLFiltersBytecode() const final { return m_data.frameURLFilters.span(); }
 
     InMemoryCompiledContentExtension(CompiledContentExtensionData&& data)
-        : m_data(WTFMove(data))
+        : m_data(WTF::move(data))
     { }
 
     CompiledContentExtensionData m_data;
@@ -171,12 +171,12 @@ static std::pair<Vector<WebCore::ContentExtensions::Action>, Vector<String>> all
     Vector<ContentExtensions::Action> actions;
     Vector<String> identifiersApplyingStylesheets;
     for (auto&& actionsFromContentRuleList : backend.actionsForResourceLoad(info)) {
-        for (auto&& action : WTFMove(actionsFromContentRuleList.actions))
-            actions.append(WTFMove(action));
+        for (auto&& action : WTF::move(actionsFromContentRuleList.actions))
+            actions.append(WTF::move(action));
         if (!actionsFromContentRuleList.sawIgnorePreviousRules)
             identifiersApplyingStylesheets.append(actionsFromContentRuleList.contentRuleListIdentifier);
     }
-    return { WTFMove(actions), WTFMove(identifiersApplyingStylesheets) };
+    return { WTF::move(actions), WTF::move(identifiersApplyingStylesheets) };
 }
 
 #define testRequest(...) testRequestImpl(__LINE__, __VA_ARGS__)
@@ -216,9 +216,9 @@ static ResourceLoadInfo requestInTopAndFrameURLs(ASCIILiteral url, ASCIILiteral 
 ContentExtensions::ContentExtensionsBackend makeBackend(String&& json)
 {
     WebCore::initializeCommonAtomStrings();
-    auto extension = InMemoryCompiledContentExtension::create(WTFMove(json));
+    auto extension = InMemoryCompiledContentExtension::create(WTF::move(json));
     ContentExtensions::ContentExtensionsBackend backend;
-    backend.addContentExtension("testFilter"_s, WTFMove(extension), { });
+    backend.addContentExtension("testFilter"_s, WTF::move(extension), { });
     return backend;
 }
 
@@ -226,7 +226,7 @@ static Vector<ContentExtensions::NFA> createNFAs(ContentExtensions::CombinedURLF
 {
     Vector<ContentExtensions::NFA> nfas;
     combinedURLFilters.processNFAs(std::numeric_limits<size_t>::max(), [&](ContentExtensions::NFA&& nfa) {
-        nfas.append(WTFMove(nfa));
+        nfas.append(WTF::move(nfa));
         return true;
     });
     return nfas;
@@ -575,7 +575,7 @@ TEST_F(ContentExtensionTest, SearchSuffixesWithIdenticalActionAreMerged)
     EXPECT_EQ(1ul, nfas.size());
     EXPECT_EQ(12ul, nfas.first().nodes.size());
 
-    ContentExtensions::DFA dfa = *ContentExtensions::NFAToDFA::convert(WTFMove(nfas.first()));
+    ContentExtensions::DFA dfa = *ContentExtensions::NFAToDFA::convert(WTF::move(nfas.first()));
     Vector<ContentExtensions::DFABytecode> bytecode;
     ContentExtensions::DFABytecodeCompiler compiler(dfa, bytecode);
     compiler.compile();
@@ -601,7 +601,7 @@ TEST_F(ContentExtensionTest, SearchSuffixesWithDistinguishableActionAreNotMerged
     EXPECT_EQ(1ul, nfas.size());
     EXPECT_EQ(17ul, nfas.first().nodes.size());
 
-    ContentExtensions::DFA dfa = *ContentExtensions::NFAToDFA::convert(WTFMove(nfas.first()));
+    ContentExtensions::DFA dfa = *ContentExtensions::NFAToDFA::convert(WTF::move(nfas.first()));
     Vector<ContentExtensions::DFABytecode> bytecode;
     ContentExtensions::DFABytecodeCompiler compiler(dfa, bytecode);
     compiler.compile();
@@ -866,8 +866,8 @@ TEST_F(ContentExtensionTest, MultipleExtensions)
     auto extension1 = InMemoryCompiledContentExtension::create("[{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\"block_load\"}}]"_s);
     auto extension2 = InMemoryCompiledContentExtension::create("[{\"action\":{\"type\":\"block-cookies\"},\"trigger\":{\"url-filter\":\"block_cookies\"}}]"_s);
     ContentExtensions::ContentExtensionsBackend backend;
-    backend.addContentExtension("testFilter1"_s, WTFMove(extension1), { });
-    backend.addContentExtension("testFilter2"_s, WTFMove(extension2), { });
+    backend.addContentExtension("testFilter1"_s, WTF::move(extension1), { });
+    backend.addContentExtension("testFilter2"_s, WTF::move(extension2), { });
     
     testRequest(backend, mainDocumentRequest("http://webkit.org"_s), { }, 2);
     testRequest(backend, mainDocumentRequest("http://webkit.org/block_load.html"_s), { variantIndex<ContentExtensions::BlockLoadAction> }, 2);
@@ -880,8 +880,8 @@ TEST_F(ContentExtensionTest, MultipleExtensions)
     auto ignoreExtension2 = InMemoryCompiledContentExtension::create("[{\"action\":{\"type\":\"block-cookies\"},\"trigger\":{\"url-filter\":\"block_cookies\"}},"
         "{\"action\":{\"type\":\"ignore-previous-rules\"},\"trigger\":{\"url-filter\":\"ignore2\"}}]"_s);
     ContentExtensions::ContentExtensionsBackend backendWithIgnore;
-    backendWithIgnore.addContentExtension("testFilter1"_s, WTFMove(ignoreExtension1), { });
-    backendWithIgnore.addContentExtension("testFilter2"_s, WTFMove(ignoreExtension2), { });
+    backendWithIgnore.addContentExtension("testFilter1"_s, WTF::move(ignoreExtension1), { });
+    backendWithIgnore.addContentExtension("testFilter2"_s, WTF::move(ignoreExtension2), { });
 
     testRequest(backendWithIgnore, mainDocumentRequest("http://webkit.org"_s), { }, 2);
     testRequest(backendWithIgnore, mainDocumentRequest("http://webkit.org/block_load/ignore1.html"_s), { }, 1);
@@ -1121,7 +1121,7 @@ TEST_F(ContentExtensionTest, UselessTermsMatchingEverythingAreEliminated)
     EXPECT_EQ(1ul, nfas.size());
     EXPECT_EQ(7ul, nfas.first().nodes.size());
 
-    ContentExtensions::DFA dfa = *ContentExtensions::NFAToDFA::convert(WTFMove(nfas.first()));
+    ContentExtensions::DFA dfa = *ContentExtensions::NFAToDFA::convert(WTF::move(nfas.first()));
     Vector<ContentExtensions::DFABytecode> bytecode;
     ContentExtensions::DFABytecodeCompiler compiler(dfa, bytecode);
     compiler.compile();
@@ -1283,14 +1283,14 @@ TEST_F(ContentExtensionTest, LargeJumps)
     
     Vector<ContentExtensions::NFA> nfas;
     combinedURLFilters.processNFAs(std::numeric_limits<size_t>::max(), [&](ContentExtensions::NFA&& nfa) {
-        nfas.append(WTFMove(nfa));
+        nfas.append(WTF::move(nfa));
         return true;
     });
     EXPECT_EQ(nfas.size(), 1ull);
     
     Vector<ContentExtensions::DFA> dfas;
-    for (auto&& nfa : WTFMove(nfas))
-        dfas.append(*ContentExtensions::NFAToDFA::convert(WTFMove(nfa)));
+    for (auto&& nfa : WTF::move(nfas))
+        dfas.append(*ContentExtensions::NFAToDFA::convert(WTF::move(nfa)));
     EXPECT_EQ(dfas.size(), 1ull);
     
     Vector<ContentExtensions::DFABytecode> combinedBytecode;
@@ -1403,7 +1403,7 @@ void checkCompilerError(String&& json, std::error_code expectedError)
     auto parsedRules = ContentExtensions::parseRuleList(json, WebCore::ContentExtensions::CSSSelectorsAllowed::Yes);
     std::error_code compilerError;
     if (parsedRules.has_value())
-        compilerError = ContentExtensions::compileRuleList(client, WTFMove(json), WTFMove(parsedRules.value()));
+        compilerError = ContentExtensions::compileRuleList(client, WTF::move(json), WTF::move(parsedRules.value()));
     else
         compilerError = parsedRules.error();
     EXPECT_EQ(compilerError.value(), expectedError.value());
@@ -1473,7 +1473,7 @@ TEST_F(ContentExtensionTest, MatchesEverything)
     testRequest(backend6, subResourceRequest("http://example.com/"_s, "http://example.com/"_s, ResourceType::Script), { });
     testRequest(backend6, subResourceRequest("http://example.com/ignore"_s, "http://example.com/"_s, ResourceType::Script), { });
 }
-    
+
 TEST_F(ContentExtensionTest, InvalidJSON)
 {
     checkCompilerError("["_s, ContentExtensionError::JSONInvalid);
@@ -1530,8 +1530,8 @@ TEST_F(ContentExtensionTest, InvalidJSON)
         rules.append("{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\"a\"}},"_s);
     String rules150000 = makeString(rules.toString(), "{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\"a\"}}]"_s);
     String rules150001 = makeString(rules.toString(), "{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\"a\"}},{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\"a\"}}]"_s);
-    checkCompilerError(WTFMove(rules150000), { });
-    checkCompilerError(WTFMove(rules150001), ContentExtensionError::JSONTooManyRules);
+    checkCompilerError(WTF::move(rules150000), { });
+    checkCompilerError(WTF::move(rules150001), ContentExtensionError::JSONTooManyRules);
 
     checkCompilerError("[{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\".*\",\"request-method\":\"foo\"}}]"_s, ContentExtensionError::JSONInvalidRequestMethod);
     checkCompilerError("[{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\".*\",\"request-method\":null}}]"_s, ContentExtensionError::JSONInvalidRequestMethod);
@@ -1622,6 +1622,12 @@ TEST_F(ContentExtensionTest, InvalidJSON)
     checkCompilerError("[{\"action\":{\"type\":\"modify-headers\",\"priority\":2,\"request-headers\":[{\"operation\":\"invalid\",\"header\":\"testheader\"}]},\"trigger\":{\"url-filter\":\"webkit.org\"}}]"_s, ContentExtensionError::JSONModifyHeadersInvalidOperation);
     checkCompilerError("[{\"action\":{\"type\":\"modify-headers\",\"priority\":\"\",\"request-headers\":[{\"operation\":\"remove\",\"header\":\"testheader\"}]},\"trigger\":{\"url-filter\":\"webkit.org\"}}]"_s, ContentExtensionError::JSONModifyHeadersInvalidPriority);
     checkCompilerError("[{\"action\":{\"type\":\"modify-headers\",\"priority\":-1,\"request-headers\":[{\"operation\":\"remove\",\"header\":\"testheader\"}]},\"trigger\":{\"url-filter\":\"webkit.org\"}}]"_s, ContentExtensionError::JSONModifyHeadersInvalidPriority);
+
+    checkCompilerError("[{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\".*\"},\"_identifier\":\"foo\"}]"_s, ContentExtensionError::JSONInvalidRuleIdentifier);
+    checkCompilerError("[{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\".*\"},\"_identifier\":null}]"_s, ContentExtensionError::JSONInvalidRuleIdentifier);
+    checkCompilerError("[{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\".*\"},\"_identifier\":false}]"_s, ContentExtensionError::JSONInvalidRuleIdentifier);
+    checkCompilerError("[{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\".*\"},\"_identifier\":[]}]"_s, ContentExtensionError::JSONInvalidRuleIdentifier);
+    checkCompilerError("[{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\".*\"},\"_identifier\":{}}]"_s, ContentExtensionError::JSONInvalidRuleIdentifier);
 }
 
 TEST_F(ContentExtensionTest, StrictPrefixSeparatedMachines1)
@@ -1735,14 +1741,14 @@ TEST_F(ContentExtensionTest, SplittingLargeNFAs)
         
         Vector<ContentExtensions::NFA> nfas;
         combinedURLFilters.processNFAs(i, [&](ContentExtensions::NFA&& nfa) {
-            nfas.append(WTFMove(nfa));
+            nfas.append(WTF::move(nfa));
             return true;
         });
         EXPECT_EQ(nfas.size(), expectedNFACounts[i]);
         
         Vector<ContentExtensions::DFA> dfas;
-        for (auto& nfa : WTFMove(nfas))
-            dfas.append(*ContentExtensions::NFAToDFA::convert(WTFMove(nfa)));
+        for (auto& nfa : WTF::move(nfas))
+            dfas.append(*ContentExtensions::NFAToDFA::convert(WTF::move(nfa)));
         
         Vector<ContentExtensions::DFABytecode> combinedBytecode;
         for (const auto& dfa : dfas) {
@@ -3173,8 +3179,8 @@ TEST_F(ContentExtensionTest, UnlessFrameURL)
 TEST_F(ContentExtensionTest, RegexSubstitution)
 {
     auto transformURL = [] (String&& regexSubstitution, String&& regexFilter, String&& originalURL, const char* expectedTransformedURL) {
-        WebCore::ContentExtensions::RedirectAction::RegexSubstitutionAction action { WTFMove(regexSubstitution), WTFMove(regexFilter) };
-        URL url(WTFMove(originalURL));
+        WebCore::ContentExtensions::RedirectAction::RegexSubstitutionAction action { WTF::move(regexSubstitution), WTF::move(regexFilter) };
+        URL url(WTF::move(originalURL));
         action.applyToURL(url);
         EXPECT_STREQ(url.string().utf8().data(), expectedTransformedURL);
     };
@@ -3422,6 +3428,97 @@ TEST_F(ContentExtensionTest, IgnoreFollowingRules)
     testRequest(backend, mainDocumentRequest("https://www.webkit.org/"_s), { variantIndex<ContentExtensions::BlockLoadAction> });
     testRequest(backend, mainDocumentRequest("https://www.apple.com/"_s), { variantIndex<ContentExtensions::BlockLoadAction>, variantIndex<ContentExtensions::BlockLoadAction> });
     testRequest(backend, mainDocumentRequest("https://www.w3.org/"_s), { variantIndex<ContentExtensions::BlockLoadAction> });
+}
+
+TEST_F(ContentExtensionTest, ReportIdentifierAction)
+{
+    // Different identifiers
+    auto backend = makeBackend("["_s
+        "{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\"https://www.example.com/first\"},\"_identifier\":1,\"_rulesetIdentifier\":\"Test Ruleset 1\"},"_s
+        "{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\"https://www.example.com/second\"},\"_identifier\":2,\"_rulesetIdentifier\":\"Test Ruleset 2\"}"_s
+    "]"_s);
+
+    ASSERT_TRUE(actionsEqual(allActionsForResourceLoad(backend, mainDocumentRequest("https://www.example.com/first"_s)), Vector<Action>::from(Action { ContentExtensions::BlockLoadAction() }, Action { ContentExtensions::ReportIdentifierAction { "Test Ruleset 1"_s, 1 } })));
+    ASSERT_TRUE(actionsEqual(allActionsForResourceLoad(backend, mainDocumentRequest("https://www.example.com/second"_s)), Vector<Action>::from(Action { ContentExtensions::BlockLoadAction() }, Action { ContentExtensions::ReportIdentifierAction { "Test Ruleset 2"_s, 2 } })));
+
+    // Different action types and identifiers
+    backend = makeBackend("["_s
+        "{\"action\":{\"type\":\"block-cookies\"},\"trigger\":{\"url-filter\":\"cookies\"},\"_identifier\":1,\"_rulesetIdentifier\":\"Test Ruleset\"},"_s
+        "{\"action\":{\"type\":\"css-display-none\",\"selector\":\".hidden\"},\"trigger\":{\"url-filter\":\"css\"},\"_identifier\":2,\"_rulesetIdentifier\":\"Test Ruleset\"},"_s
+        "{\"action\":{\"type\":\"notify\",\"notification\":\"test\"},\"trigger\":{\"url-filter\":\"notify\"},\"_identifier\":3,\"_rulesetIdentifier\":\"Test Ruleset\"}"_s
+    "]"_s);
+
+    ASSERT_TRUE(actionsEqual(allActionsForResourceLoad(backend, mainDocumentRequest("https://example.com/cookies"_s)), Vector<Action>::from(Action { ContentExtensions::BlockCookiesAction() }, Action { ContentExtensions::ReportIdentifierAction { "Test Ruleset"_s, 1 } })));
+    ASSERT_TRUE(actionsEqual(allActionsForResourceLoad(backend, mainDocumentRequest("https://example.com/css"_s)), Vector<Action>::from(Action { ContentExtensions::ReportIdentifierAction { "Test Ruleset"_s, 2 } }, Action { ContentExtensions::CSSDisplayNoneSelectorAction { { ".hidden"_s } } })));
+    ASSERT_TRUE(actionsEqual(allActionsForResourceLoad(backend, mainDocumentRequest("https://example.com/notify"_s)), Vector<Action>::from(Action { ContentExtensions::NotifyAction { { "test"_s } } }, Action { ContentExtensions::ReportIdentifierAction { "Test Ruleset"_s, 3 } })));
+
+    // With and without identifiers
+    backend = makeBackend("["_s
+        "{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\"with-id\"},\"_identifier\":1},"_s
+        "{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\"without-id\"}}"_s
+    "]"_s);
+
+    ASSERT_TRUE(actionsEqual(allActionsForResourceLoad(backend, mainDocumentRequest("https://example.com/with-id"_s)), Vector<Action>::from(Action { ContentExtensions::BlockLoadAction() }, Action { ContentExtensions::ReportIdentifierAction { ""_s, 1 } })));
+    ASSERT_TRUE(actionsEqual(allActionsForResourceLoad(backend, mainDocumentRequest("https://example.com/without-id"_s)), Vector<Action>::from(Action { ContentExtensions::BlockLoadAction() })));
+
+    // Multiple matches with one request
+    backend = makeBackend("["_s
+        "{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\"test\"},\"_identifier\":1,\"_rulesetIdentifier\":\"Test Ruleset\"},"_s
+        "{\"action\":{\"type\":\"block-cookies\"},\"trigger\":{\"url-filter\":\"multi\"},\"_identifier\":2,\"_rulesetIdentifier\":\"Test Ruleset\"},"_s
+        "{\"action\":{\"type\":\"css-display-none\",\"selector\":\".ad\"},\"trigger\":{\"url-filter\":\"multi\"},\"_identifier\":3,\"_rulesetIdentifier\":\"Test Ruleset\"}"_s
+    "]"_s);
+
+    ASSERT_TRUE(actionsEqual(allActionsForResourceLoad(backend, mainDocumentRequest("https://example.com/multi-test"_s)), Vector<Action>::from(Action { ContentExtensions::BlockLoadAction() }, Action { ContentExtensions::ReportIdentifierAction { "Test Ruleset"_s, 1 } }, Action { ContentExtensions::BlockCookiesAction() }, Action { ContentExtensions::ReportIdentifierAction { "Test Ruleset"_s, 2 } }, Action { ContentExtensions::ReportIdentifierAction { "Test Ruleset"_s, 3 } }, Action { ContentExtensions::CSSDisplayNoneSelectorAction { { ".ad"_s } } })));
+
+    // With conditions
+    backend = makeBackend("["_s
+        "{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\"ads\",\"if-domain\":[\"example.com\"]},\"_identifier\":1,\"_rulesetIdentifier\":\"Test Ruleset\"},"_s
+        "{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\"ads\",\"unless-domain\":[\"trusted.com\"]},\"_identifier\":2,\"_rulesetIdentifier\":\"Test Ruleset\"}"_s
+    "]"_s);
+
+    ASSERT_TRUE(actionsEqual(allActionsForResourceLoad(backend, subResourceRequest("https://cdn.com/ads.js"_s, "https://example.com/"_s)),
+        Vector<Action>::from(Action { ContentExtensions::BlockLoadAction() }, Action { ContentExtensions::ReportIdentifierAction { "Test Ruleset"_s, 1 } }, Action { ContentExtensions::BlockLoadAction() }, Action { ContentExtensions::ReportIdentifierAction { "Test Ruleset"_s, 2 } })));
+    ASSERT_TRUE(actionsEqual(allActionsForResourceLoad(backend, subResourceRequest("https://cdn.com/ads.js"_s, "https://other.com/"_s)), Vector<Action>::from(Action { ContentExtensions::BlockLoadAction() }, Action { ContentExtensions::ReportIdentifierAction { "Test Ruleset"_s, 2 } })));
+    ASSERT_TRUE(actionsEqual(allActionsForResourceLoad(backend, subResourceRequest("https://cdn.com/ads.js"_s, "https://trusted.com/"_s)), Vector<Action>()));
+
+    // With resource types
+    backend = makeBackend("["_s
+        "{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\"track\",\"resource-type\":[\"script\"]},\"_identifier\":1,\"_rulesetIdentifier\":\"Test Ruleset\"},"_s
+        "{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\"track\",\"resource-type\":[\"image\"]},\"_identifier\":2,\"_rulesetIdentifier\":\"Test Ruleset\"}"_s
+    "]"_s);
+
+    ASSERT_TRUE(actionsEqual(allActionsForResourceLoad(backend, mainDocumentRequest("https://example.com/track.js"_s, ResourceType::Script)), Vector<Action>::from(Action { ContentExtensions::BlockLoadAction() }, Action { ContentExtensions::ReportIdentifierAction { "Test Ruleset"_s, 1 } })));
+    ASSERT_TRUE(actionsEqual(allActionsForResourceLoad(backend, mainDocumentRequest("https://example.com/track.png"_s, ResourceType::Image)), Vector<Action>::from(Action { ContentExtensions::BlockLoadAction() }, Action { ContentExtensions::ReportIdentifierAction { "Test Ruleset"_s, 2 } })));
+    ASSERT_TRUE(actionsEqual(allActionsForResourceLoad(backend, mainDocumentRequest("https://example.com/track.html"_s)), Vector<Action>()));
+
+    // With ignore rules
+    backend = makeBackend("["_s
+        "{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\"block-me\"},\"_identifier\":1,\"_rulesetIdentifier\":\"Test Ruleset\"},"_s
+        "{\"action\":{\"type\":\"ignore-previous-rules\"},\"trigger\":{\"url-filter\":\"ignore-previous\"}},"_s
+        "{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\"block-me\"},\"_identifier\":2,\"_rulesetIdentifier\":\"Test Ruleset\"}"_s
+    "]"_s);
+
+    ASSERT_TRUE(actionsEqual(allActionsForResourceLoad(backend, mainDocumentRequest("https://example.com/block-me"_s)), Vector<Action>::from(Action { ContentExtensions::BlockLoadAction() }, Action { ContentExtensions::ReportIdentifierAction { "Test Ruleset"_s, 1 } }, Action { ContentExtensions::BlockLoadAction() }, Action { ContentExtensions::ReportIdentifierAction { "Test Ruleset"_s, 2 } })));
+    ASSERT_TRUE(actionsEqual(allActionsForResourceLoad(backend, mainDocumentRequest("https://example.com/ignore-previous-block-me"_s)),
+        Vector<Action>::from(Action { ContentExtensions::BlockLoadAction() }, Action { ContentExtensions::ReportIdentifierAction { "Test Ruleset"_s, 2 } }), true));
+
+    // With load types
+    backend = makeBackend("["_s
+        "{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\"analytics\",\"load-type\":[\"third-party\"]},\"_identifier\":1,\"_rulesetIdentifier\":\"Test Ruleset\"},"_s
+        "{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\"analytics\",\"load-type\":[\"first-party\"]},\"_identifier\":2,\"_rulesetIdentifier\":\"Test Ruleset\"}"_s
+    "]"_s);
+
+    ASSERT_TRUE(actionsEqual(allActionsForResourceLoad(backend, subResourceRequest("https://analytics.com/track.js"_s, "https://example.com/"_s)), Vector<Action>::from(Action { ContentExtensions::BlockLoadAction() }, Action { ContentExtensions::ReportIdentifierAction { "Test Ruleset"_s, 1 } })));
+    ASSERT_TRUE(actionsEqual(allActionsForResourceLoad(backend, mainDocumentRequest("https://example.com/analytics"_s)), Vector<Action>::from(Action { ContentExtensions::BlockLoadAction() }, Action { ContentExtensions::ReportIdentifierAction { "Test Ruleset"_s, 2 } })));
+
+    // With complex regex
+    backend = makeBackend("["_s
+        "{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\"^https://[a-z]+\\\\.ads\\\\.com/\"},\"_identifier\":1,\"_rulesetIdentifier\":\"Test Ruleset\"},"_s
+        "{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\"\\\\.jpg\\\\?.*tracking\"},\"_identifier\":2,\"_rulesetIdentifier\":\"Test Ruleset\"}"_s
+    "]"_s);
+
+    ASSERT_TRUE(actionsEqual(allActionsForResourceLoad(backend, mainDocumentRequest("https://cdn.ads.com/banner"_s)), Vector<Action>::from(Action { ContentExtensions::BlockLoadAction() }, Action { ContentExtensions::ReportIdentifierAction { "Test Ruleset"_s, 1 } })));
+    ASSERT_TRUE(actionsEqual(allActionsForResourceLoad(backend, mainDocumentRequest("https://example.com/image.jpg?tracking=123"_s)), Vector<Action>::from(Action { ContentExtensions::BlockLoadAction() }, Action { ContentExtensions::ReportIdentifierAction { "Test Ruleset"_s, 2 } })));
 }
 
 } // namespace TestWebKitAPI

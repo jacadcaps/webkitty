@@ -13,6 +13,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -23,8 +24,9 @@
 #include "api/array_view.h"
 #include "api/crypto/crypto_options.h"
 #include "api/dtls_transport_interface.h"
+#include "api/environment/environment.h"
+#include "api/field_trials_view.h"
 #include "api/rtc_error.h"
-#include "api/rtc_event_log/rtc_event_log.h"
 #include "api/scoped_refptr.h"
 #include "api/sequence_checker.h"
 #include "api/task_queue/pending_task_safety_flag.h"
@@ -54,16 +56,24 @@ namespace webrtc {
 // the bottom and a StreamInterface on the top.
 class StreamInterfaceChannel : public StreamInterface {
  public:
-  explicit StreamInterfaceChannel(webrtc::IceTransportInternal* ice_transport);
+  explicit StreamInterfaceChannel(IceTransportInternal* ice_transport);
 
   void SetDtlsStunPiggybackController(
-      webrtc::DtlsStunPiggybackController* dtls_stun_piggyback_controller);
+      DtlsStunPiggybackController* dtls_stun_piggyback_controller);
 
   StreamInterfaceChannel(const StreamInterfaceChannel&) = delete;
   StreamInterfaceChannel& operator=(const StreamInterfaceChannel&) = delete;
 
   // Push in a packet; this gets pulled out from Read().
   bool OnPacketReceived(const char* data, size_t size);
+
+  // Sets the options for the next packet to be written to ice_transport,
+  // corresponding to the next Write() call. Safe since BoringSSL guarantees
+  // that "In DTLS ... a single call to |SSL_write| only ever writes a single
+  // record in a single packet" - see comment on SSL_write in
+  // third_party/boringssl/src/include/openssl/ssl.h.
+  void SetNextPacketOptions(const AsyncSocketPacketOptions& options);
+  void ClearNextPacketOptions();
 
   // Implementations of StreamInterface
   StreamState GetState() const override;
@@ -78,11 +88,13 @@ class StreamInterfaceChannel : public StreamInterface {
   bool Flush() override;
 
  private:
-  webrtc::IceTransportInternal* const ice_transport_;  // owned by DtlsTransport
-  webrtc::DtlsStunPiggybackController* dtls_stun_piggyback_controller_ =
+  IceTransportInternal* const ice_transport_;  // owned by DtlsTransport
+  DtlsStunPiggybackController* dtls_stun_piggyback_controller_ =
       nullptr;  // owned by DtlsTransport
   StreamState state_ RTC_GUARDED_BY(callback_sequence_);
-  webrtc::BufferQueue packets_ RTC_GUARDED_BY(callback_sequence_);
+  BufferQueue packets_ RTC_GUARDED_BY(callback_sequence_);
+  std::optional<AsyncSocketPacketOptions> next_packet_options_
+      RTC_GUARDED_BY(callback_sequence_);
 };
 
 // This class provides a DTLS SSLStreamAdapter inside a TransportChannel-style
@@ -113,21 +125,25 @@ class StreamInterfaceChannel : public StreamInterface {
 //
 // This class is not thread safe; all methods must be called on the same thread
 // as the constructor.
-class DtlsTransportInternalImpl : public webrtc::DtlsTransportInternal {
+class DtlsTransportInternalImpl : public DtlsTransportInternal {
  public:
+  // For testing purposes only.
+  using SslStreamFactory = std::function<std::unique_ptr<SSLStreamAdapter>(
+      std::unique_ptr<StreamInterface>,
+      absl::AnyInvocable<void(SSLHandshakeError)> handshake_error_callback,
+      const FieldTrialsView* field_trials)>;
+
   // `ice_transport` is the ICE transport this DTLS transport is wrapping.  It
   // must outlive this DTLS transport.
   //
   // `crypto_options` are the options used for the DTLS handshake. This affects
   // whether GCM crypto suites are negotiated.
-  //
-  // `event_log` is an optional RtcEventLog for logging state changes. It should
-  // outlive the DtlsTransport.
   DtlsTransportInternalImpl(
-      webrtc::IceTransportInternal* ice_transport,
-      const webrtc::CryptoOptions& crypto_options,
-      webrtc::RtcEventLog* event_log,
-      webrtc::SSLProtocolVersion max_version = webrtc::SSL_PROTOCOL_DTLS_12);
+      const Environment& env,
+      IceTransportInternal* ice_transport,
+      const CryptoOptions& crypto_options,
+      SSLProtocolVersion max_version = SSL_PROTOCOL_DTLS_12,
+      SslStreamFactory ssl_stream_factory = nullptr);
 
   ~DtlsTransportInternalImpl() override;
 
@@ -135,7 +151,7 @@ class DtlsTransportInternalImpl : public webrtc::DtlsTransportInternal {
   DtlsTransportInternalImpl& operator=(const DtlsTransportInternalImpl&) =
       delete;
 
-  webrtc::DtlsTransportState dtls_state() const override;
+  DtlsTransportState dtls_state() const override;
   const std::string& transport_name() const override;
   int component() const override;
 
@@ -151,8 +167,8 @@ class DtlsTransportInternalImpl : public webrtc::DtlsTransportInternal {
   // being "active" or not (acting as a passthrough if not active), just require
   // this certificate on construction or "Start".
   bool SetLocalCertificate(
-      const scoped_refptr<webrtc::RTCCertificate>& certificate) override;
-  scoped_refptr<webrtc::RTCCertificate> GetLocalCertificate() const override;
+      const scoped_refptr<RTCCertificate>& certificate) override;
+  scoped_refptr<RTCCertificate> GetLocalCertificate() const override;
 
   // SetRemoteFingerprint must be called after SetLocalCertificate, and any
   // other methods like SetDtlsRole. It's what triggers the actual DTLS setup.
@@ -162,11 +178,10 @@ class DtlsTransportInternalImpl : public webrtc::DtlsTransportInternal {
                             size_t digest_len) override;
 
   // SetRemoteParameters must be called after SetLocalCertificate.
-  webrtc::RTCError SetRemoteParameters(
-      absl::string_view digest_alg,
-      const uint8_t* digest,
-      size_t digest_len,
-      std::optional<webrtc::SSLRole> role) override;
+  RTCError SetRemoteParameters(absl::string_view digest_alg,
+                               const uint8_t* digest,
+                               size_t digest_len,
+                               std::optional<SSLRole> role) override;
 
   // Called to send a packet (via DTLS, if turned on).
   int SendPacket(const char* data,
@@ -174,7 +189,7 @@ class DtlsTransportInternalImpl : public webrtc::DtlsTransportInternal {
                  const AsyncSocketPacketOptions& options,
                  int flags) override;
 
-  bool GetOption(webrtc::Socket::Option opt, int* value) override;
+  bool GetOption(Socket::Option opt, int* value) override;
 
   // Find out which TLS version was negotiated
   bool GetSslVersionBytes(int* version) const override;
@@ -190,8 +205,8 @@ class DtlsTransportInternalImpl : public webrtc::DtlsTransportInternal {
   // If not applicable, it returns zero.
   uint16_t GetSslPeerSignatureAlgorithm() const override;
 
-  bool GetDtlsRole(webrtc::SSLRole* role) const override;
-  bool SetDtlsRole(webrtc::SSLRole role) override;
+  bool GetDtlsRole(SSLRole* role) const override;
+  bool SetDtlsRole(SSLRole role) override;
 
   // Find out which DTLS cipher was negotiated
   bool GetSslCipherSuite(int* cipher) const override;
@@ -200,7 +215,7 @@ class DtlsTransportInternalImpl : public webrtc::DtlsTransportInternal {
   // Once DTLS has been established, this method retrieves the certificate
   // chain in use by the remote peer, for use in external identity
   // verification.
-  std::unique_ptr<webrtc::SSLCertChain> GetRemoteSSLCertChain() const override;
+  std::unique_ptr<SSLCertChain> GetRemoteSSLCertChain() const override;
 
   // Once DTLS has established (i.e., this ice_transport is writable), this
   // method extracts the keys negotiated during the DTLS handshake, for use in
@@ -208,7 +223,7 @@ class DtlsTransportInternalImpl : public webrtc::DtlsTransportInternal {
   bool ExportSrtpKeyingMaterial(
       ZeroOnFreeBuffer<uint8_t>& keying_material) override;
 
-  webrtc::IceTransportInternal* ice_transport() override;
+  IceTransportInternal* ice_transport() override;
 
   // For informational purposes. Tells if the DTLS handshake has finished.
   // This may be true even if writable() is false, if the remote fingerprint
@@ -220,9 +235,9 @@ class DtlsTransportInternalImpl : public webrtc::DtlsTransportInternal {
 
   int GetError() override;
 
-  std::optional<webrtc::NetworkRoute> network_route() const override;
+  std::optional<NetworkRoute> network_route() const override;
 
-  int SetOption(webrtc::Socket::Option opt, int value) override;
+  int SetOption(Socket::Option opt, int value) override;
 
   std::string ToString() const {
     const absl::string_view RECEIVING_ABBREV[2] = {"_", "R"};
@@ -247,48 +262,49 @@ class DtlsTransportInternalImpl : public webrtc::DtlsTransportInternal {
  private:
   void ConnectToIceTransport();
 
-  void OnWritableState(webrtc::PacketTransportInternal* transport);
-  void OnReadPacket(webrtc::PacketTransportInternal* transport,
+  void OnWritableState(PacketTransportInternal* transport);
+  void OnReadPacket(PacketTransportInternal* transport,
                     const ReceivedIpPacket& packet,
                     bool piggybacked);
-  void OnSentPacket(webrtc::PacketTransportInternal* transport,
+  void OnSentPacket(PacketTransportInternal* transport,
                     const SentPacketInfo& sent_packet);
-  void OnReadyToSend(webrtc::PacketTransportInternal* transport);
-  void OnReceivingState(webrtc::PacketTransportInternal* transport);
+  void OnReadyToSend(PacketTransportInternal* transport);
+  void OnReceivingState(PacketTransportInternal* transport);
   void OnDtlsEvent(int sig, int err);
-  void OnNetworkRouteChanged(std::optional<webrtc::NetworkRoute> network_route);
+  void OnNetworkRouteChanged(std::optional<NetworkRoute> network_route);
   bool SetupDtls();
   void MaybeStartDtls();
   bool HandleDtlsPacket(ArrayView<const uint8_t> payload);
-  void OnDtlsHandshakeError(webrtc::SSLHandshakeError error);
+  void OnDtlsHandshakeError(SSLHandshakeError error);
   void ConfigureHandshakeTimeout();
 
   void set_receiving(bool receiving);
   void set_writable(bool writable);
   // Sets the DTLS state, signaling if necessary.
-  void set_dtls_state(webrtc::DtlsTransportState state);
+  void set_dtls_state(DtlsTransportState state);
   void SetPiggybackDtlsDataCallback(
-      absl::AnyInvocable<void(webrtc::PacketTransportInternal* transport,
-                              const webrtc::ReceivedIpPacket& packet)>
-          callback);
+      absl::AnyInvocable<void(PacketTransportInternal* transport,
+                              const ReceivedIpPacket& packet)> callback);
   void PeriodicRetransmitDtlsPacketUntilDtlsConnected();
 
-  RTC_NO_UNIQUE_ADDRESS webrtc::SequenceChecker thread_checker_;
+  SslStreamFactory ssl_stream_factory_;
+  const Environment env_;
+  RTC_NO_UNIQUE_ADDRESS SequenceChecker thread_checker_;
 
   const int component_;
-  webrtc::DtlsTransportState dtls_state_ = webrtc::DtlsTransportState::kNew;
+  DtlsTransportState dtls_state_ = DtlsTransportState::kNew;
   // Underlying ice_transport, not owned by this class.
-  webrtc::IceTransportInternal* const ice_transport_;
-  std::unique_ptr<webrtc::SSLStreamAdapter> dtls_;  // The DTLS stream
+  IceTransportInternal* const ice_transport_;
+  std::unique_ptr<SSLStreamAdapter> dtls_;  // The DTLS stream
   StreamInterfaceChannel*
       downward_;  // Wrapper for ice_transport_, owned by dtls_.
   const std::vector<int> srtp_ciphers_;  // SRTP ciphers to use with DTLS.
   // Cipher groups used for DTLS handshake to establish ephemeral key.
   const std::vector<uint16_t> ephemeral_key_exchange_cipher_groups_;
   bool dtls_active_ = false;
-  scoped_refptr<webrtc::RTCCertificate> local_certificate_;
-  std::optional<webrtc::SSLRole> dtls_role_;
-  const webrtc::SSLProtocolVersion ssl_max_version_;
+  scoped_refptr<RTCCertificate> local_certificate_;
+  std::optional<SSLRole> dtls_role_;
+  const SSLProtocolVersion ssl_max_version_;
   Buffer remote_fingerprint_value_;
   std::string remote_fingerprint_algorithm_;
 
@@ -306,18 +322,15 @@ class DtlsTransportInternalImpl : public webrtc::DtlsTransportInternal {
   // of the stack.
   bool ice_has_been_writable_ = false;
 
-  webrtc::RtcEventLog* const event_log_;
-
   // Initialized in constructor based on WebRTC-IceHandshakeDtls,
   // (so that we return PIGGYBACK_ACK to client if we get STUN_BINDING_REQUEST
   // directly). Maybe disabled in SetupDtls has been called.
   bool dtls_in_stun_ = false;
 
   // A controller for piggybacking DTLS in STUN.
-  webrtc::DtlsStunPiggybackController dtls_stun_piggyback_controller_;
+  DtlsStunPiggybackController dtls_stun_piggyback_controller_;
 
-  absl::AnyInvocable<void(webrtc::PacketTransportInternal*,
-                          const webrtc::ReceivedIpPacket&)>
+  absl::AnyInvocable<void(PacketTransportInternal*, const ReceivedIpPacket&)>
       piggybacked_dtls_callback_;
 
   // When ICE get writable during dtls piggybacked handshake
@@ -325,18 +338,10 @@ class DtlsTransportInternalImpl : public webrtc::DtlsTransportInternal {
   // in boringssl (that is work in progress). Therefore
   // DtlsTransportInternalImpl has a "hack" to periodically retransmit.
   bool pending_periodic_retransmit_dtls_packet_ = false;
-  webrtc::ScopedTaskSafetyDetached safety_flag_;
+  ScopedTaskSafetyDetached safety_flag_;
 };
 
 }  // namespace webrtc
 
-// Re-export symbols from the webrtc namespace for backwards compatibility.
-// TODO(bugs.webrtc.org/4222596): Remove once all references are updated.
-#ifdef WEBRTC_ALLOW_DEPRECATED_NAMESPACES
-namespace cricket {
-using DtlsTransport = ::webrtc::DtlsTransportInternalImpl;
-using ::webrtc::StreamInterfaceChannel;
-}  // namespace cricket
-#endif  // WEBRTC_ALLOW_DEPRECATED_NAMESPACES
 
 #endif  // P2P_DTLS_DTLS_TRANSPORT_H_

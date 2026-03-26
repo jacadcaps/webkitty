@@ -20,10 +20,10 @@
 
 #pragma once
 
-#include "JSDOMWrapper.h"
 #include "JSNode.h"
 #include "TestDOMJIT.h"
 #include <JavaScriptCore/DOMJITGetterSetter.h>
+#include <WebCore/JSDOMWrapper.h>
 
 namespace WebCore {
 
@@ -34,7 +34,7 @@ public:
     static JSTestDOMJIT* create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestDOMJIT>&& impl)
     {
         SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
-        JSTestDOMJIT* ptr = new (NotNull, JSC::allocateCell<JSTestDOMJIT>(vm)) JSTestDOMJIT(structure, *globalObject, WTFMove(impl));
+        JSTestDOMJIT* ptr = new (NotNull, JSC::allocateCell<JSTestDOMJIT>(vm)) JSTestDOMJIT(structure, *globalObject, WTF::move(impl));
         ptr->finishCreation(vm);
         return ptr;
     }
@@ -71,6 +71,9 @@ protected:
     DECLARE_DEFAULT_FINISH_CREATION;
 };
 
+JSC::JSValue toJS(JSC::JSGlobalObject*, JSDOMGlobalObject*, TestDOMJIT&);
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject*, Ref<TestDOMJIT>&&);
+ALWAYS_INLINE JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestDOMJIT& impl) { return toJSNewlyCreated(lexicalGlobalObject, globalObject, Ref { impl }); }
 
 // DOM JIT Attributes
 

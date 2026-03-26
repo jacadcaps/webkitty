@@ -25,11 +25,9 @@
 
 #pragma once
 
-#include "NodeInfo.h"
+#include "JSHandleInfo.h"
 #include "Protected.h"
-#include "WKRetainPtr.h"
 #include <JavaScriptCore/APICast.h>
-#include <JavaScriptCore/Strong.h>
 #include <WebCore/SerializedNode.h>
 #include <optional>
 #include <wtf/HashMap.h>
@@ -37,8 +35,6 @@
 
 #if PLATFORM(COCOA)
 #include <wtf/RetainPtr.h>
-OBJC_CLASS NSMutableArray;
-OBJC_CLASS NSMutableDictionary;
 #endif
 
 #if USE(GLIB)
@@ -47,31 +43,45 @@ typedef struct _GVariant GVariant;
 typedef struct _JSCValue JSCValue;
 #endif
 
+namespace WebCore {
+struct SerializedNode;
+}
+
 namespace API {
-class Array;
-class Dictionary;
 class Object;
 }
 
 namespace WebKit {
 
+struct JSHandleInfo;
 struct JSObjectIDType;
 using JSObjectID = ObjectIdentifier<JSObjectIDType>;
 
 class JavaScriptEvaluationResult {
 public:
     enum class EmptyType : bool { Undefined, Null };
-    using Value = Variant<EmptyType, bool, double, String, Seconds, Vector<JSObjectID>, HashMap<JSObjectID, JSObjectID>, NodeInfo, UniqueRef<WebCore::SerializedNode>>;
+    using ObjectMap = HashMap<JSObjectID, JSObjectID>;
+    using Value = Variant<
+        EmptyType,
+        bool,
+        double,
+        String,
+        Seconds,
+        Vector<JSObjectID>,
+        ObjectMap,
+        UniqueRef<JSHandleInfo>,
+        UniqueRef<WebCore::SerializedNode>
+    >;
+    using Map = HashMap<JSObjectID, Value>;
 
-    JavaScriptEvaluationResult(JSObjectID, HashMap<JSObjectID, Value>&&);
-    static std::optional<JavaScriptEvaluationResult> extract(JSGlobalContextRef, JSValueRef);
+    JavaScriptEvaluationResult(JSObjectID, Map&&);
 
     JavaScriptEvaluationResult(JavaScriptEvaluationResult&&);
     JavaScriptEvaluationResult& operator=(JavaScriptEvaluationResult&&);
     ~JavaScriptEvaluationResult();
 
     JSObjectID root() const { return m_root; }
-    const HashMap<JSObjectID, Value>& map() const { return m_map; }
+    const Map& map() const { return m_map; }
 
     String toString() const;
 
@@ -85,58 +95,32 @@ public:
     GRefPtr<JSCValue> toJSC();
 #endif
 
-    WKRetainPtr<WKTypeRef> toWK();
-    RefPtr<API::Object> toAPI();
-
+    static std::optional<JavaScriptEvaluationResult> extract(JSGlobalContextRef, JSValueRef);
     Protected<JSValueRef> toJS(JSGlobalContextRef);
 
+    static std::optional<JavaScriptEvaluationResult> extract(API::Object*);
+    RefPtr<API::Object> toAPI();
+
 private:
-    JavaScriptEvaluationResult(JSGlobalContextRef, JSValueRef);
+    static JavaScriptEvaluationResult jsUndefined();
+
+#if PLATFORM(COCOA)
+    class ObjCExtractor;
+    class ObjCInserter;
+#endif
 
 #if USE(GLIB)
-    explicit JavaScriptEvaluationResult(GVariant*);
-    Value toValue(GVariant*);
-    JSObjectID addObjectToMap(GVariant*);
+    class GLibExtractor;
+    // GLib uses JS for insertion.
 #endif
 
-#if PLATFORM(COCOA)
-    JavaScriptEvaluationResult(id);
-    RetainPtr<id> toID(Value&&);
-    Value toValue(id);
-    JSObjectID addObjectToMap(id);
-#endif
+    class JSExtractor;
+    class JSInserter;
 
-    RefPtr<API::Object> toAPI(Value&&);
-    JSValueRef toJS(JSGlobalContextRef, Value&&);
+    class APIExtractor;
+    class APIInserter;
 
-    Value toValue(JSGlobalContextRef, JSValueRef);
-    JSObjectID addObjectToMap(JSGlobalContextRef, JSValueRef);
-
-#if PLATFORM(COCOA)
-    // Used for deserializing from IPC to ObjC
-    Vector<std::pair<HashMap<JSObjectID, JSObjectID>, RetainPtr<NSMutableDictionary>>> m_nsDictionaries;
-    Vector<std::pair<Vector<JSObjectID>, RetainPtr<NSMutableArray>>> m_nsArrays;
-
-    HashMap<JSObjectID, RetainPtr<id>> m_instantiatedNSObjects;
-    HashMap<RetainPtr<id>, JSObjectID> m_objectsInMap;
-#endif
-
-    // Used for deserializing from IPC to WKTypeRef
-    HashMap<JSObjectID, RefPtr<API::Object>> m_instantiatedObjects;
-    Vector<std::pair<HashMap<JSObjectID, JSObjectID>, Ref<API::Dictionary>>> m_dictionaries;
-    Vector<std::pair<Vector<JSObjectID>, Ref<API::Array>>> m_arrays;
-
-    // Used for serializing to IPC
-    HashMap<Protected<JSValueRef>, JSObjectID> m_jsObjectsInMap;
-    std::optional<JSObjectID> m_nullObjectID;
-
-    // Used for deserializing from IPC to JS
-    HashMap<JSObjectID, Protected<JSValueRef>> m_instantiatedJSObjects;
-    Vector<std::pair<HashMap<JSObjectID, JSObjectID>, Protected<JSObjectRef>>> m_jsDictionaries;
-    Vector<std::pair<Vector<JSObjectID>, Protected<JSValueRef>>> m_jsArrays;
-
-    // IPC representation
-    HashMap<JSObjectID, Value> m_map;
+    Map m_map;
     JSObjectID m_root;
 };
 

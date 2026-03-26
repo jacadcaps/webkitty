@@ -33,6 +33,7 @@
 #include "Timer.h"
 #include <wtf/ApproximateTime.h>
 #include <wtf/MainThread.h>
+#include <wtf/SystemTracing.h>
 #include <wtf/TZoneMallocInlines.h>
 
 #if PLATFORM(IOS_FAMILY)
@@ -70,7 +71,7 @@ void ThreadTimers::setSharedTimer(SharedTimer* sharedTimer)
     m_sharedTimer = sharedTimer;
     
     if (sharedTimer) {
-        sharedTimer->setFiredFunction([] { threadGlobalData().threadTimers().sharedTimerFiredInternal(); });
+        sharedTimer->setFiredFunction([] { threadGlobalDataSingleton().threadTimers().sharedTimerFiredInternal(); });
         updateSharedTimer();
     }
 }
@@ -108,6 +109,8 @@ void ThreadTimers::sharedTimerFiredInternal()
     // Do a re-entrancy check.
     if (m_firingTimers)
         return;
+
+    TraceScope threadTimersScope { ThreadTimersStart, ThreadTimersEnd };
     m_firingTimers = true;
     m_pendingSharedTimerFireTime = MonotonicTime { };
 
@@ -115,7 +118,7 @@ void ThreadTimers::sharedTimerFiredInternal()
     auto timeToQuit = ApproximateTime::now() + maxDurationOfFiringTimers;
 
     while (!m_timerHeap.isEmpty()) {
-        Ref<ThreadTimerHeapItem> item = *m_timerHeap.first();
+        Ref item = m_timerHeap.first();
         ASSERT(item->hasTimer());
         if (!item->hasTimer()) {
             TimerBase::heapDeleteNullMin(m_timerHeap);
@@ -130,7 +133,10 @@ void ThreadTimers::sharedTimerFiredInternal()
         timer.setNextFireTime(interval ? fireTime + interval : MonotonicTime { });
 
         // Once the timer has been fired, it may be deleted, so do nothing else with it after this point.
-        item->timer().fired();
+        {
+            TraceScope timerFiredScope { TimerFiredStart, TimerFiredEnd };
+            item->timer().fired();
+        }
 
         // Catch the case where the timer asked timers to fire in a nested event loop, or we are over time limit.
         if (!m_firingTimers || timeToQuit < ApproximateTime::now())

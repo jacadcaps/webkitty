@@ -33,7 +33,6 @@
 #include <WebCore/HTTPParsers.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/ResourceResponse.h>
-#include <WebCore/SoupVersioning.h>
 #include <WebCore/ThreadableWebSocketChannel.h>
 #include <wtf/RunLoop.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -44,20 +43,18 @@
 
 namespace WebKit {
 
-static inline bool isConnectionError(GError* error, SoupMessage* message)
+static inline bool isConnectionError(GError* error)
 {
-#if USE(SOUP2)
-    return g_error_matches(error, SOUP_WEBSOCKET_ERROR, SOUP_WEBSOCKET_ERROR_NOT_WEBSOCKET)
-        && message
-        && (message->status_code == SOUP_STATUS_CANT_CONNECT || message->status_code == SOUP_STATUS_CANT_CONNECT_PROXY);
-#else
-    UNUSED_PARAM(message);
     // If not a SOUP_WEBSOCKET_ERROR_NOT_WEBSOCKET, then it's a connection error.
     return error && !g_error_matches(error, SOUP_WEBSOCKET_ERROR, SOUP_WEBSOCKET_ERROR_NOT_WEBSOCKET);
-#endif
 }
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(WebSocketTask);
+
+Ref<WebSocketTask> WebSocketTask::create(NetworkSocketChannel& channel, const WebCore::ResourceRequest& request, SoupSession* session, SoupMessage* msg, const String& protocol)
+{
+    return adoptRef(*new WebSocketTask(channel, request, session, msg, protocol));
+}
 
 WebSocketTask::WebSocketTask(NetworkSocketChannel& channel, const WebCore::ResourceRequest& request, SoupSession* session, SoupMessage* msg, const String& protocol)
     : m_channel(channel)
@@ -66,23 +63,16 @@ WebSocketTask::WebSocketTask(NetworkSocketChannel& channel, const WebCore::Resou
     , m_cancellable(adoptGRef(g_cancellable_new()))
     , m_delayFailTimer(RunLoop::mainSingleton(), "WebSocketTask::DelayFailTimer"_s, this, &WebSocketTask::delayFailTimerFired)
 {
-    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK/WPE port
     auto protocolList = protocol.split(',');
     GUniquePtr<char*> protocols;
     if (!protocolList.isEmpty()) {
         protocols.reset(static_cast<char**>(g_new0(char*, protocolList.size() + 1)));
+        auto protocolsSpan = unsafeMakeSpan(protocols.get(), protocolList.size());
         unsigned i = 0;
         for (auto& subprotocol : protocolList)
-            protocols.get()[i++] = g_strdup(subprotocol.trim(isASCIIWhitespaceWithoutFF<char16_t>).utf8().data());
+            protocolsSpan[i++] = g_strdup(subprotocol.trim(isASCIIWhitespaceWithoutFF<char16_t>).utf8().data());
     }
-    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-#if USE(SOUP2)
-    // Ensure a new connection is used for WebSockets.
-    // FIXME: this is done by libsoup since 2.69.1 and 2.68.4, so it can be removed when bumping the libsoup requirement.
-    // See https://bugs.webkit.org/show_bug.cgi?id=203404
-    soup_message_set_flags(msg, static_cast<SoupMessageFlags>(soup_message_get_flags(msg) | SOUP_MESSAGE_NEW_CONNECTION));
-#else
     {
         // No need to subscribe to the "request-certificate" signal, just set the client certificate upfront.
         auto protectionSpace = WebCore::AuthenticationChallenge::protectionSpaceForClientCertificate(WebCore::soupURIToURL(soup_message_get_uri(msg)));
@@ -97,7 +87,6 @@ WebSocketTask::WebSocketTask(NetworkSocketChannel& channel, const WebCore::Resou
         soup_message_tls_client_certificate_password_request_complete(msg);
         return TRUE;
     }), this);
-#endif
 
     soup_session_websocket_connect_async(session, msg, nullptr, protocols.get(), RunLoopSourcePriority::AsyncIONetwork, m_cancellable.get(),
         [] (GObject* session, GAsyncResult* result, gpointer userData) {
@@ -106,20 +95,20 @@ WebSocketTask::WebSocketTask(NetworkSocketChannel& channel, const WebCore::Resou
             if (g_error_matches(error.get(), G_IO_ERROR, G_IO_ERROR_CANCELLED))
                 return;
             auto* task = static_cast<WebSocketTask*>(userData);
-            if (isConnectionError(error.get(), task->m_handshakeMessage.get())) {
+            if (isConnectionError(error.get())) {
                 task->m_delayErrorMessage = String::fromUTF8(error->message);
                 task->m_delayFailTimer.startOneShot(NetworkProcess::randomClosedPortDelay());
                 return;
             }
             if (connection)
-                task->didConnect(WTFMove(connection));
+                task->didConnect(WTF::move(connection));
             else
                 task->didFail(String::fromUTF8(error->message));
         }, this);
 
     g_signal_connect(msg, "starting", G_CALLBACK(+[](SoupMessage* msg, WebSocketTask* task) {
         task->m_request.updateFromSoupMessageHeaders(soup_message_get_request_headers(msg));
-        task->protectedChannel()->didSendHandshakeRequest(WTFMove(task->m_request));
+        task->protectedChannel()->didSendHandshakeRequest(WTF::move(task->m_request));
     }), this);
 }
 
@@ -131,14 +120,13 @@ WebSocketTask::~WebSocketTask()
     cancel();
 }
 
-Ref<NetworkSocketChannel> WebSocketTask::protectedChannel() const
+RefPtr<NetworkSocketChannel> WebSocketTask::protectedChannel() const
 {
     return m_channel.get();
 }
 
 String WebSocketTask::acceptedExtensions() const
 {
-#if SOUP_CHECK_VERSION(2, 67, 90)
     StringBuilder result;
     GList* extensions = soup_websocket_connection_get_extensions(m_connection.get());
     for (auto* it = extensions; it; it = g_list_next(it)) {
@@ -153,29 +141,24 @@ String WebSocketTask::acceptedExtensions() const
             result.append(String::fromUTF8(params.get()));
     }
     return result.toStringPreserveCapacity();
-#else
-    return { };
-#endif
 }
 
 void WebSocketTask::didConnect(GRefPtr<SoupWebsocketConnection>&& connection)
 {
-    m_connection = WTFMove(connection);
+    m_connection = WTF::move(connection);
 
-#if SOUP_CHECK_VERSION(2, 56, 0)
     // Use the same maximum payload length as WebKit internal implementation for backwards compatibility.
     static const uint64_t maxPayloadLength = UINT64_C(0x7FFFFFFFFFFFFFFF);
     soup_websocket_connection_set_max_incoming_payload_size(m_connection.get(), maxPayloadLength);
-#endif
 
     g_signal_connect_swapped(m_connection.get(), "message", reinterpret_cast<GCallback>(didReceiveMessageCallback), this);
     g_signal_connect_swapped(m_connection.get(), "error", reinterpret_cast<GCallback>(didReceiveErrorCallback), this);
     g_signal_connect_swapped(m_connection.get(), "closed", reinterpret_cast<GCallback>(didCloseCallback), this);
 
-    Ref channel = m_channel.get();
-    channel->didConnect(String::fromLatin1(soup_websocket_connection_get_protocol(m_connection.get())), acceptedExtensions());
-
-    channel->didReceiveHandshakeResponse(m_handshakeMessage.get());
+    if (RefPtr channel = m_channel.get()) {
+        channel->didConnect(String::fromLatin1(soup_websocket_connection_get_protocol(m_connection.get())), acceptedExtensions());
+        channel->didReceiveHandshakeResponse(m_handshakeMessage.get());
+    }
     g_signal_handlers_disconnect_by_data(m_handshakeMessage.get(), this);
     m_handshakeMessage = nullptr;
 }
@@ -209,14 +192,17 @@ void WebSocketTask::didFail(String&& errorMessage)
     if (m_receivedDidFail)
         return;
 
-    Ref channel = m_channel.get();
+    RefPtr channel = m_channel.get();
+    if (!channel)
+        return;
+
     m_receivedDidFail = true;
     if (m_handshakeMessage) {
         channel->didReceiveHandshakeResponse(m_handshakeMessage.get());
         g_signal_handlers_disconnect_by_data(m_handshakeMessage.get(), this);
         m_handshakeMessage = nullptr;
     }
-    channel->didReceiveMessageError(WTFMove(errorMessage));
+    channel->didReceiveMessageError(WTF::move(errorMessage));
     if (!m_connection) {
         didClose(SOUP_WEBSOCKET_CLOSE_ABNORMAL, { });
         return;
@@ -248,13 +234,9 @@ void WebSocketTask::didClose(unsigned short code, const String& reason)
 void WebSocketTask::sendString(std::span<const uint8_t> utf8, CompletionHandler<void()>&& callback)
 {
     if (m_connection && soup_websocket_connection_get_state(m_connection.get()) == SOUP_WEBSOCKET_STATE_OPEN) {
-#if SOUP_CHECK_VERSION(2, 67, 3)
         // Soup is going to copy the data immediately, so we can use g_bytes_new_static() here to avoid more data copies.
         GRefPtr<GBytes> bytes = adoptGRef(g_bytes_new_static(utf8.data(), utf8.size()));
         soup_websocket_connection_send_message(m_connection.get(), SOUP_WEBSOCKET_DATA_TEXT, bytes.get());
-#else
-        soup_websocket_connection_send_text(m_connection.get(), CString(utf8).data());
-#endif
     }
     callback();
 }
@@ -277,10 +259,8 @@ void WebSocketTask::close(int32_t code, const String& reason)
         return;
     }
 
-#if SOUP_CHECK_VERSION(2, 67, 90)
     if (code == WebCore::ThreadableWebSocketChannel::CloseEventCodeNotSpecified)
         code = SOUP_WEBSOCKET_CLOSE_NO_STATUS;
-#endif
 
     if (soup_websocket_connection_get_state(m_connection.get()) == SOUP_WEBSOCKET_STATE_OPEN)
         soup_websocket_connection_close(m_connection.get(), code, reason.utf8().data());
@@ -302,7 +282,7 @@ void WebSocketTask::resume()
 
 void WebSocketTask::delayFailTimerFired()
 {
-    didFail(WTFMove(m_delayErrorMessage));
+    didFail(WTF::move(m_delayErrorMessage));
 }
 
 } // namespace WebKit

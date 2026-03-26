@@ -60,7 +60,7 @@ CheckedUint32 ShareableBitmapConfiguration::calculateBytesPerRow(const IntSize& 
 std::unique_ptr<GraphicsContext> ShareableBitmap::createGraphicsContext()
 {
     ref();
-    SkSurfaceProps properties = { 0, FontRenderOptions::singleton().subpixelOrder() };
+    SkSurfaceProps properties = FontRenderOptions::singleton().createSurfaceProps();
     auto surface = SkSurfaces::WrapPixels(m_configuration.imageInfo(), mutableSpan().data(), bytesPerRow(), [](void*, void* context) {
         static_cast<ShareableBitmap*>(context)->deref();
     }, this, &properties);
@@ -69,7 +69,7 @@ std::unique_ptr<GraphicsContext> ShareableBitmap::createGraphicsContext()
     if (!canvas)
         return nullptr;
 
-    return makeUnique<GraphicsContextSkia>(*canvas, RenderingMode::Unaccelerated, RenderingPurpose::ShareableSnapshot, [surface = WTFMove(surface)] { });
+    return makeUnique<GraphicsContextSkia>(*canvas, RenderingMode::Unaccelerated, RenderingPurpose::ShareableSnapshot, [surface = WTF::move(surface)] { });
 }
 
 void ShareableBitmap::paint(GraphicsContext& context, const IntPoint& dstPoint, const IntRect& srcRect)

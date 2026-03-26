@@ -8,7 +8,13 @@
 //   shader variables.
 //
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include "common/CompiledShaderState.h"
+
+#include <cstring>
 
 #include "common/BinaryStream.h"
 #include "common/utilities.h"
@@ -98,6 +104,7 @@ void WriteShaderVar(gl::BinaryOutputStream *stream, const sh::ShaderVariable &va
     stream->writeBool(var.texelFetchStaticUse);
     stream->writeInt(var.getFlattenedOffsetInParentArrays());
     stream->writeInt(var.id);
+    stream->writeBool(var.isFloat16);
 }
 
 void LoadShaderVar(gl::BinaryInputStream *stream, sh::ShaderVariable *var)
@@ -136,6 +143,7 @@ void LoadShaderVar(gl::BinaryInputStream *stream, sh::ShaderVariable *var)
     var->texelFetchStaticUse = stream->readBool();
     var->setParentArrayIndex(stream->readInt<int>());
     var->id = stream->readInt<uint32_t>();
+    var->isFloat16 = stream->readBool();
 }
 
 void WriteShInterfaceBlock(gl::BinaryOutputStream *stream, const sh::InterfaceBlock &block)
@@ -180,9 +188,60 @@ void LoadShInterfaceBlock(gl::BinaryInputStream *stream, sh::InterfaceBlock *blo
     }
 }
 
+std::string JoinShaderSources(GLsizei count, const char *const *string, const GLint *length)
+{
+    // Fast path for the most common case.
+    if (count == 1)
+    {
+        if (length == nullptr || length[0] < 0)
+        {
+            return std::string(string[0]);
+        }
+        else
+        {
+            return std::string(string[0], static_cast<size_t>(length[0]));
+        }
+    }
+
+    // Start with totalLength of 1 to reserve space for the null terminator
+    size_t totalLength = 1;
+
+    // First pass, calculate the total length of the joined string
+    for (GLsizei i = 0; i < count; ++i)
+    {
+        if (length == nullptr || length[i] < 0)
+        {
+            totalLength += std::strlen(string[i]);
+        }
+        else
+        {
+            totalLength += static_cast<size_t>(length[i]);
+        }
+    }
+
+    // Second pass, allocate the string and concatenate each shader source
+    // fragment
+    std::string joinedString;
+    joinedString.reserve(totalLength);
+    for (GLsizei i = 0; i < count; ++i)
+    {
+        if (length == nullptr || length[i] < 0)
+        {
+            joinedString.append(string[i]);
+        }
+        else
+        {
+            joinedString.append(string[i], static_cast<size_t>(length[i]));
+        }
+    }
+
+    return joinedString;
+}
+
 CompiledShaderState::CompiledShaderState(gl::ShaderType type)
     : shaderType(type),
       shaderVersion(100),
+      translatedSource(std::make_shared<std::string>()),
       numViews(-1),
       geometryShaderInputPrimitiveType(gl::PrimitiveMode::Triangles),
       geometryShaderOutputPrimitiveType(gl::PrimitiveMode::Triangles),
@@ -199,16 +258,23 @@ CompiledShaderState::CompiledShaderState(gl::ShaderType type)
 
 CompiledShaderState::~CompiledShaderState() {}
 
-void CompiledShaderState::buildCompiledShaderState(const ShHandle compilerHandle,
-                                                   const bool isBinaryOutput)
+void CompiledShaderState::buildPassthroughCompiledShaderState(
+    std::shared_ptr<const std::string> inputShaderSource)
 {
-    if (isBinaryOutput)
+    translatedSource = inputShaderSource;
+}
+
+void CompiledShaderState::buildCompiledShaderState(const ShHandle compilerHandle,
+                                                   ShShaderOutput outputType)
+{
+    switch (outputType)
     {
-        compiledBinary = sh::GetObjectBinaryBlob(compilerHandle);
-    }
-    else
-    {
-        translatedSource = sh::GetObjectCode(compilerHandle);
+        case SH_SPIRV_VULKAN_OUTPUT:
+            compiledBinary = sh::GetObjectBinaryBlob(compilerHandle);
+            break;
+        default:
+            translatedSource = std::make_shared<std::string>(sh::GetObjectCode(compilerHandle));
+            break;
     }
 
     // Gather the shader information
@@ -467,7 +533,7 @@ void CompiledShaderState::serialize(gl::BinaryOutputStream &stream) const
             UNREACHABLE();
     }
 
-    stream.writeString(translatedSource);
+    stream.writeString(*translatedSource);
     stream.writeVector(compiledBinary);
 }
 
@@ -653,7 +719,11 @@ void CompiledShaderState::deserialize(gl::BinaryInputStream &stream)
             UNREACHABLE();
     }
 
-    stream.readString(&translatedSource);
+    {
+        std::string src;
+        stream.readString(&src);
+        translatedSource = std::make_shared<std::string>(std::move(src));
+    }
     stream.readVector(&compiledBinary);
 }
 }  // namespace gl

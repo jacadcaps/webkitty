@@ -41,7 +41,6 @@ class UIScriptController;
 
 class UIScriptContextDelegate {
 public:
-    UIScriptContextDelegate() = default;
     virtual ~UIScriptContextDelegate() = default;
 
     virtual void uiScriptDidComplete(const String& result, unsigned callbackID) = 0;
@@ -69,6 +68,7 @@ typedef enum  {
     CallbackTypeDidShowContactPicker,
     CallbackTypeDidHideContactPicker,
     CallbackTypeWillStartInputSession,
+    CallbackTypeDidPresentViewController,
     CallbackTypeNonPersistent = firstNonPersistentCallbackID
 } CallbackType;
 
@@ -76,7 +76,7 @@ class UIScriptContext : public RefCounted<UIScriptContext>, public CanMakeWeakPt
 public:
     using UIScriptControllerFactory = Ref<UIScriptController> (*)(UIScriptContext&);
 
-    static Ref<UIScriptContext> create(UIScriptContextDelegate& delegate, UIScriptControllerFactory factory) { return adoptRef(*new UIScriptContext(delegate, WTFMove(factory))); }
+    static Ref<UIScriptContext> create(UIScriptContextDelegate& delegate, UIScriptControllerFactory factory) { return adoptRef(*new UIScriptContext(delegate, WTF::move(factory))); }
 
     ~UIScriptContext();
 

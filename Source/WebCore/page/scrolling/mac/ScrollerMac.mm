@@ -28,6 +28,7 @@
 
 #if PLATFORM(MAC)
 
+#import "ColorCocoa.h"
 #import "FloatPoint.h"
 #import "IntRect.h"
 #import "NSScrollerImpDetails.h"
@@ -36,6 +37,7 @@
 #import "ScrollerPairMac.h"
 #import "ScrollingTreeScrollingNode.h"
 #import <QuartzCore/CALayer.h>
+#import <QuartzCore/QuartzCore.h>
 #import <pal/spi/mac/NSScrollerImpSPI.h>
 #import <wtf/BlockObjCExceptions.h>
 
@@ -100,22 +102,7 @@ enum class FeatureToAnimate {
     else
         currentValue = progress;
 
-    RetainPtr scrollerImp = _scroller->scrollerImp();
-
-    switch (_featureToAnimate) {
-    case FeatureToAnimate::KnobAlpha:
-        [scrollerImp.get() setKnobAlpha:currentValue];
-        break;
-    case FeatureToAnimate::TrackAlpha:
-        [scrollerImp.get() setTrackAlpha:currentValue];
-        break;
-    case FeatureToAnimate::UIStateTransition:
-        [scrollerImp.get() setUiStateTransitionProgress:currentValue];
-        break;
-    case FeatureToAnimate::ExpansionTransition:
-        [scrollerImp.get() setExpansionTransitionProgress:currentValue];
-        break;
-    }
+    CheckedPtr { _scroller }->updateProgress(_featureToAnimate, currentValue);
 }
 
 - (void)invalidate
@@ -182,7 +169,7 @@ enum class FeatureToAnimate {
     if (!_scroller)
         return NSZeroPoint;
 
-    ASSERT_UNUSED(scrollerImp, scrollerImp == _scroller->scrollerImp());
+    ASSERT(_scroller->isScrollerFor(scrollerImp));
 
     return CheckedPtr { _scroller }->lastKnownMousePositionInScrollbar();
 }
@@ -220,10 +207,10 @@ enum class FeatureToAnimate {
         scrollbarPartAnimation = nil;
     }
 
-    RetainPtr scrollerImp = _scroller->scrollerImp();
-    CGFloat currentAlpha = featureToAnimate == FeatureToAnimate::KnobAlpha ? [scrollerImp.get() knobAlpha] : [scrollerImp.get() trackAlpha];
+    CheckedPtr scroller = _scroller;
+    CGFloat currentAlpha = featureToAnimate == FeatureToAnimate::KnobAlpha ? scroller->knobAlpha() : scroller->trackAlpha();
 
-    scrollbarPartAnimation = adoptNS([[WebScrollbarPartAnimationMac alloc] initWithScroller:_scroller.get()
+    scrollbarPartAnimation = adoptNS([[WebScrollbarPartAnimationMac alloc] initWithScroller:scroller.get()
         featureToAnimate:featureToAnimate
         animateFrom:currentAlpha
         animateTo:newAlpha
@@ -236,7 +223,7 @@ enum class FeatureToAnimate {
     if (!_scroller)
         return;
 
-    ASSERT_UNUSED(scrollerImp, scrollerImp == _scroller->scrollerImp());
+    ASSERT(_scroller->isScrollerFor(scrollerImp));
     CheckedPtr { _scroller }->visibilityChanged(newKnobAlpha > 0);
     [self setUpAlphaAnimation:_knobAlphaAnimation featureToAnimate:FeatureToAnimate::KnobAlpha animateAlphaTo:newKnobAlpha duration:duration];
 }
@@ -246,7 +233,7 @@ enum class FeatureToAnimate {
     if (!_scroller)
         return;
 
-    ASSERT_UNUSED(scrollerImp, scrollerImp == _scroller->scrollerImp());
+    ASSERT(_scroller->isScrollerFor(scrollerImp));
     [self setUpAlphaAnimation:_trackAlphaAnimation featureToAnimate:FeatureToAnimate::TrackAlpha animateAlphaTo:newTrackAlpha duration:duration];
 }
 
@@ -255,7 +242,7 @@ enum class FeatureToAnimate {
     if (!_scroller)
         return;
 
-    ASSERT(scrollerImp == _scroller->scrollerImp());
+    ASSERT(_scroller->isScrollerFor(scrollerImp));
 
     // UIStateTransition always animates to 1. In case an animation is in progress this avoids a hard transition.
     [scrollerImp setUiStateTransitionProgress:1 - [scrollerImp uiStateTransitionProgress]];
@@ -280,7 +267,7 @@ enum class FeatureToAnimate {
     if (!_scroller)
         return;
 
-    ASSERT(scrollerImp == _scroller->scrollerImp());
+    ASSERT(_scroller->isScrollerFor(scrollerImp));
 
     // ExpansionTransition always animates to 1. In case an animation is in progress this avoids a hard transition.
     [scrollerImp setExpansionTransitionProgress:1 - [scrollerImp expansionTransitionProgress]];
@@ -333,15 +320,24 @@ ScrollerMac::~ScrollerMac()
 
 void ScrollerMac::attach()
 {
+    Locker locker { m_scrollerImpLock };
+
+    [CATransaction lock];
+
     RefPtr pair = m_pair.get();
+
     [m_scrollerImpDelegate invalidate];
     m_scrollerImpDelegate = adoptNS([[WebScrollerImpDelegateMac alloc] initWithScroller:this]);
     setScrollerImp([NSScrollerImp scrollerImpWithStyle:nsScrollerStyle(pair->scrollbarStyle()) controlSize:nsControlSizeFromScrollbarWidth(pair->scrollbarWidthStyle()) horizontal:m_orientation == ScrollbarOrientation::Horizontal replacingScrollerImp:nil]);
     [m_scrollerImp setDelegate:m_scrollerImpDelegate.get()];
+
+    [CATransaction unlock];
 }
 
 void ScrollerMac::detach()
 {
+    Locker locker { m_scrollerImpLock };
+
     [m_scrollerImpDelegate invalidate];
     [m_scrollerImp setDelegate:nil];
 }
@@ -351,6 +347,7 @@ void ScrollerMac::setHostLayer(CALayer *layer)
     if (m_hostLayer == layer)
         return;
 
+    Locker locker { m_scrollerImpLock };
     m_hostLayer = layer;
 
     [m_scrollerImp setLayer:layer];
@@ -360,6 +357,10 @@ void ScrollerMac::setHostLayer(CALayer *layer)
 
 void ScrollerMac::setHiddenByStyle(NativeScrollbarVisibility visibility)
 {
+    Locker locker { m_scrollerImpLock };
+
+    [CATransaction lock];
+
     m_isHiddenByStyle = visibility != NativeScrollbarVisibility::Visible;
     if (m_isHiddenByStyle) {
         detach();
@@ -370,10 +371,14 @@ void ScrollerMac::setHiddenByStyle(NativeScrollbarVisibility visibility)
         updateValues();
     }
     updatePairScrollerImps();
+
+    [CATransaction unlock];
 }
 
 void ScrollerMac::updateValues()
 {
+    Locker locker { m_scrollerImpLock };
+
     RefPtr pair = m_pair.get();
     auto values = pair->valuesForOrientation(m_orientation);
 
@@ -384,12 +389,19 @@ void ScrollerMac::updateValues()
     [m_scrollerImp setDoubleValue:values.value];
     [m_scrollerImp setPresentationValue:values.value];
     [m_scrollerImp setKnobProportion:values.proportion];
-
+#if HAVE(APPKIT_SCROLLBAR_COLOR_SPI)
+    [m_scrollerImp setTrackColor:m_trackColor.get()];
+    [m_scrollerImp setKnobColor:m_thumbColor.get()];
+#endif
     END_BLOCK_OBJC_EXCEPTIONS
 }
 
 void ScrollerMac::updateScrollbarStyle()
 {
+    Locker locker { m_scrollerImpLock };
+
+    [CATransaction lock];
+
     RefPtr pair = m_pair.get();
     setScrollerImp([NSScrollerImp scrollerImpWithStyle:nsScrollerStyle(pair->scrollbarStyle()) controlSize:nsControlSizeFromScrollbarWidth(pair->scrollbarWidthStyle()) horizontal:m_orientation == ScrollbarOrientation::Horizontal replacingScrollerImp:nil]);
     [m_scrollerImp setDelegate:m_scrollerImpDelegate.get()];
@@ -398,6 +410,8 @@ void ScrollerMac::updateScrollbarStyle()
 
     updatePairScrollerImps();
     updateValues();
+
+    [CATransaction unlock];
 }
 
 void ScrollerMac::updatePairScrollerImps()
@@ -415,7 +429,7 @@ void ScrollerMac::mouseEnteredScrollbar()
     RefPtr pair = m_pair.get();
     RetainPtr protectedScrollerImp = m_scrollerImp;
     RetainPtr protectedPair = pair->scrollerImpPair();
-    pair->ensureOnMainThreadWithProtectedThis([pair, protectedScrollerImp = WTFMove(protectedScrollerImp), protectedPair = WTFMove(protectedPair)](auto&) {
+    pair->ensureOnMainThreadWithProtectedThis([pair, protectedScrollerImp = WTF::move(protectedScrollerImp), protectedPair = WTF::move(protectedPair)](auto&) {
         // At this time, only legacy scrollbars needs to send notifications here.
         if (pair->scrollbarStyle() != WebCore::ScrollbarStyle::AlwaysVisible)
             return;
@@ -432,7 +446,7 @@ void ScrollerMac::mouseExitedScrollbar()
     RefPtr pair = m_pair.get();
     RetainPtr protectedScrollerImp = m_scrollerImp;
     RetainPtr protectedPair = pair->scrollerImpPair();
-    pair->ensureOnMainThreadWithProtectedThis([pair, protectedScrollerImp = WTFMove(protectedScrollerImp), protectedPair = WTFMove(protectedPair)](auto&) {
+    pair->ensureOnMainThreadWithProtectedThis([pair, protectedScrollerImp = WTF::move(protectedScrollerImp), protectedPair = WTF::move(protectedPair)](auto&) {
         // At this time, only legacy scrollbars needs to send notifications here.
         if (pair->scrollbarStyle() != WebCore::ScrollbarStyle::AlwaysVisible)
             return;
@@ -478,6 +492,8 @@ void ScrollerMac::updateMinimumKnobLength(int minimumKnobLength)
 
 void ScrollerMac::setScrollerImp(NSScrollerImp *imp)
 {
+    Locker locker { m_scrollerImpLock };
+
     if (m_isHiddenByStyle && imp)
         return;
     m_scrollerImp = imp;
@@ -486,6 +502,8 @@ void ScrollerMac::setScrollerImp(NSScrollerImp *imp)
 
 void ScrollerMac::setScrollbarLayoutDirection(UserInterfaceLayoutDirection scrollbarLayoutDirection)
 {
+    Locker locker { m_scrollerImpLock };
+
     if (m_scrollbarLayoutDirection == scrollbarLayoutDirection)
         return;
 
@@ -496,11 +514,88 @@ void ScrollerMac::setScrollbarLayoutDirection(UserInterfaceLayoutDirection scrol
 
 void ScrollerMac::setNeedsDisplay()
 {
+    Locker locker { m_scrollerImpLock };
+
     [m_scrollerImp setNeedsDisplay:YES];
+}
+
+void ScrollerMac::scrollbarColorChanged(const std::optional<ScrollbarColor>& scrollbarColor)
+{
+    if (scrollbarColor) {
+        m_trackColor = cocoaColor(scrollbarColor->trackColor);
+        m_thumbColor = cocoaColor(scrollbarColor->thumbColor);
+    } else {
+        m_trackColor = nullptr;
+        m_thumbColor = nullptr;
+    }
+    updateValues();
+}
+
+RetainPtr<NSScrollerImp> ScrollerMac::takeScrollerImp()
+{
+    Locker locker { m_scrollerImpLock };
+
+    return std::exchange(m_scrollerImp, { });
+}
+
+void ScrollerMac::setUsePresentationValue(bool inMomentumPhase)
+{
+    Locker locker { m_scrollerImpLock };
+
+    [m_scrollerImp setUsePresentationValue:inMomentumPhase];
+}
+
+void ScrollerMac::updateProgress(FeatureToAnimate featureToAnimate, double currentValue)
+{
+    // CATransaction lock should be held when this function is called
+    switch (featureToAnimate) {
+    case FeatureToAnimate::KnobAlpha:
+        [m_scrollerImp setKnobAlpha:currentValue];
+        break;
+    case FeatureToAnimate::TrackAlpha:
+        [m_scrollerImp setTrackAlpha:currentValue];
+        break;
+    case FeatureToAnimate::UIStateTransition:
+        [m_scrollerImp setUiStateTransitionProgress:currentValue];
+        break;
+    case FeatureToAnimate::ExpansionTransition:
+        [m_scrollerImp setExpansionTransitionProgress:currentValue];
+        break;
+    }
+}
+
+bool ScrollerMac::isScrollerFor(NSScrollerImp* scrollerImp)
+{
+    Locker locker { m_scrollerImpLock };
+
+    return m_scrollerImp == scrollerImp;
+}
+
+double ScrollerMac::knobAlpha()
+{
+    Locker locker { m_scrollerImpLock };
+
+    return [m_scrollerImp knobAlpha];
+}
+
+double ScrollerMac::trackAlpha()
+{
+    Locker locker { m_scrollerImpLock };
+
+    return [m_scrollerImp trackAlpha];
+}
+
+bool ScrollerMac::hasScrollerImp()
+{
+    Locker locker { m_scrollerImpLock };
+
+    return (bool)m_scrollerImp;
 }
 
 String ScrollerMac::scrollbarState() const
 {
+    Locker locker { m_scrollerImpLock };
+
     if (!m_hostLayer || !m_scrollerImp)
         return "none"_s;
 
@@ -526,6 +621,17 @@ String ScrollerMac::scrollbarState() const
     if ([m_scrollerImp controlSize] != NSControlSizeRegular)
         result.append(",thin"_s);
 
+#if HAVE(APPKIT_SCROLLBAR_COLOR_SPI)
+    if ([m_scrollerImp trackColor] != nil) {
+        result.append(",trackColor:"_s);
+        result.append(colorFromCocoaColor([m_scrollerImp trackColor]).debugDescription());
+    }
+
+    if ([m_scrollerImp knobColor] != nil) {
+        result.append(",knobColor:"_s);
+        result.append(colorFromCocoaColor([m_scrollerImp knobColor]).debugDescription());
+    }
+#endif
     return result.toString();
 }
 

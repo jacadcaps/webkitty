@@ -25,24 +25,30 @@ import tempfile
 from pathlib import Path
 from unittest import TestCase
 
-from .allow import AllowList, AllowedSPI, PermanentlyAllowedReason
+from .allow import AllowList, AllowedSPI, AllowedReason
 
 Toml = b'''
-[key1."rdar://123456789"]
-symbols = ["_TemporarilyAllowedSymbol"]
-selectors = ["_initWithTemporarilyAllowedData:"]
+[[temporary-usage]]
+request = "rdar://123456789"
+cleanup = "rdar://123456790"
+symbols = ["TemporarilyAllowedSymbol"]
+selectors = [{ name = "_initWithTemporarilyAllowedData:", class = "?" }]
 classes = ["NSTemporarilyAllowed"]
 
-[key2.not-web-essential]
-symbols = ["_Permanent1", "_Permanent2"]
+[[not-web-essential]]
+request = "rdar://234567890"
+symbols = ["Permanent1", "Permanent2"]
 requires = ["ENABLE_FOO", "!ENABLE_BAR"]
 '''
 
-A1 = AllowedSPI(key='key1', bug='rdar://123456789',
+A1 = AllowedSPI(reason=AllowedReason.TEMPORARY_USAGE,
+                bugs=AllowedSPI.Bugs(request='rdar://123456789',
+                                     cleanup='rdar://123456790'),
                 symbols=['_TemporarilyAllowedSymbol'],
-                selectors=['_initWithTemporarilyAllowedData:'],
+                selectors=[AllowedSPI.Selector('_initWithTemporarilyAllowedData:', None)],
                 classes=['NSTemporarilyAllowed'])
-A2 = AllowedSPI(key='key2', bug=PermanentlyAllowedReason.NOT_WEB_ESSENTIAL,
+A2 = AllowedSPI(reason=AllowedReason.NOT_WEB_ESSENTIAL,
+                bugs=AllowedSPI.Bugs(request='rdar://234567890', cleanup=None),
                 symbols=['_Permanent1', '_Permanent2'],
                 selectors=[], classes=[], requires=['ENABLE_FOO', '!ENABLE_BAR'])
 
@@ -67,53 +73,69 @@ class TestAllowList(TestCase):
 
     def test_allowed_reasons(self):
         # It supports the permanent exception categories:
-        AllowList.from_dict({'key1': {'legacy': {'classes': ['Foo']}}})
-        AllowList.from_dict({'key1': {'not-web-essential':
-                                      {'classes': ['Foo']}}})
-        AllowList.from_dict({'key1': {'equivalent-api': {'classes': ['Foo']}}})
+        AllowList.from_dict({'legacy': [{'request': 'rdar://1',
+                                         'classes': ['Foo']}]})
+        AllowList.from_dict({'not-web-essential': [{'request': 'rdar://2',
+                                                    'classes': ['Foo']}]})
+        AllowList.from_dict({'equivalent-api': [{'request': 'rdar://3',
+                                                 'classes': ['Foo']}]})
 
         # It supports temporary exceptions from bugzilla URLs:
-        AllowList.from_dict({'key1':
-                             {'https://bugs.webkit.org/show_bug.cgi?id=12345':
-                              {'classes': ['Foo']}}})
-        AllowList.from_dict({'key1': {'https://webkit.org/b/12345':
-                                      {'classes': ['Foo']}}})
+        AllowList.from_dict({'temporary-usage': [
+            {'request': 'https://bugs.webkit.org/show_bug.cgi?id=12345',
+             'cleanup': 'https://bugs.webkit.org/show_bug.cgi?id=12345',
+             'classes': ['Foo']}
+        ]})
+        AllowList.from_dict({'temporary-usage': [
+            {'request': 'https://webkit.org/b/12345',
+             'cleanup': 'https://webkit.org/b/12346',
+             'classes': ['Foo']}
+        ]})
 
         # It rejects made up category names:
         with self.assertRaisesRegex(ValueError, 'category-that-doesnt-exist'):
-            AllowList.from_dict({'key1': {'category-that-doesnt-exist':
-                                          {'classes': ['Foo']}}})
+            AllowList.from_dict({'category-that-doesnt-exist': [{'classes':
+                                                                 ['Foo']}]})
 
     def test_no_repetition(self):
         with self.assertRaisesRegex(ValueError, 'already mentioned in '
-                                    'allowlist at "key1"."rdar://1"'):
-            AllowList.from_dict(
-                {'key1': {'rdar://1': {'classes': ['Foo']}},
-                 'key2': {'rdar://2': {'classes': ['Foo']}}}
-            )
+                                    'allowlist at "rdar://1"'):
+            AllowList.from_dict({'temporary-usage': [
+                {'request': 'rdar://1', 'cleanup': 'rdar://2',
+                 'classes': ['Foo']},
+                {'request': 'rdar://3', 'cleanup': 'rdar://4',
+                 'classes': ['Foo']}
+            ]})
 
     def test_repetition_allowed_with_requires(self):
-        AllowList.from_dict(
-            {'key1': {'rdar://1': {'classes': ['Foo'], 'requires': ['A']}},
-             'key2': {'rdar://2': {'classes': ['Foo'], 'requires': ['B']}}}
-        )
+        AllowList.from_dict({'temporary-usage': [
+            {'request': 'rdar://1', 'cleanup': 'rdar://2',
+             'classes': ['Foo'], 'requires': ['A']},
+            {'request': 'rdar://3', 'cleanup': 'rdar://4',
+             'classes': ['Foo'], 'requires': ['B']}
+        ]})
 
     def test_repeated_requirements(self):
-        AllowList.from_dict(
-            {'key1': {'rdar://1': {'classes': ['Foo'], 'requires': ['A', 'B']}},
-             'key2': {'rdar://2': {'classes': ['Bar'], 'requires': ['A', 'B']}}}
-        )
+        AllowList.from_dict({'temporary-usage': [
+            {'request': 'rdar://1', 'cleanup': 'rdar://2',
+             'classes': ['Foo'], 'requires': ['A', 'B']},
+            {'request': 'rdar://3', 'cleanup': 'rdar://4',
+             'classes': ['Bar'], 'requires': ['A', 'B']}
+        ]})
         with self.assertRaisesRegex(ValueError, 'already mentioned in '
-                                    'allowlist at "key1"."rdar://1"'):
-            AllowList.from_dict(
-                {'key1': {'rdar://1': {'classes': ['Foo'],
-                                       'requires': ['A', 'B', 'A']}}}
-            )
+                                    'allowlist at "rdar://1"'):
+            AllowList.from_dict({'temporary-usage': [
+                {'request': 'rdar://1',
+                 'cleanup': 'rdar://2',
+                 'classes': ['Foo'],
+                 'requires': ['A', 'B', 'A']}
+            ]})
 
 
     def test_no_string(self):
         with self.assertRaisesRegex(ValueError, '"Foo" in allowlist is a '
                                     'string, expected a list'):
-            AllowList.from_dict(
-                {'key1': {'rdar://1': {'classes': 'Foo'}}},
-            )
+            AllowList.from_dict({'temporary-usage': [
+                {'request': 'rdar://1', 'cleanup': 'rdar://2',
+                 'classes': 'Foo'},
+            ]})

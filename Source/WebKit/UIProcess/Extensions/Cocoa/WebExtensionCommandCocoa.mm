@@ -37,6 +37,7 @@
 #import "WebExtensionContext.h"
 #import "WebExtensionMenuItem.h"
 #import <wtf/BlockPtr.h>
+#import <wtf/darwin/DispatchExtras.h>
 #import <wtf/text/StringBuilder.h>
 
 #if USE(APPKIT)
@@ -91,7 +92,7 @@ void WebExtensionCommand::dispatchChangedEventSoonIfNeeded()
 
     m_oldShortcut = shortcutString();
 
-    dispatch_async(dispatch_get_main_queue(), makeBlockPtr([this, protectedThis = Ref { *this }]() {
+    dispatch_async(mainDispatchQueueSingleton(), makeBlockPtr([this, protectedThis = Ref { *this }]() {
         RefPtr context = extensionContext();
         if (!context)
             return;
@@ -112,9 +113,7 @@ bool WebExtensionCommand::setActivationKey(String activationKey, SuppressEvents 
     if (activationKey.length() > 1)
         return false;
 
-    static NSCharacterSet *notAllowedCharacterSet;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
+    static NSCharacterSet *notAllowedCharacterSet = [] {
         auto *allowedCharacterSet = [NSMutableCharacterSet alphanumericCharacterSet];
         // F1-F12.
         [allowedCharacterSet addCharactersInRange:NSMakeRange(0xF704, 12)];
@@ -126,8 +125,8 @@ bool WebExtensionCommand::setActivationKey(String activationKey, SuppressEvents 
         [allowedCharacterSet addCharactersInRange:NSMakeRange(0xF700, 4)];
         [allowedCharacterSet addCharactersInString:@",. "];
 
-        notAllowedCharacterSet = allowedCharacterSet.invertedSet;
-    });
+        return allowedCharacterSet.invertedSet;
+    }();
 
     if ([activationKey.createNSString() rangeOfCharacterFromSet:notAllowedCharacterSet].location != NSNotFound)
         return false;

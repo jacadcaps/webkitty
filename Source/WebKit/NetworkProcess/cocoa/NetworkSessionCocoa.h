@@ -71,15 +71,19 @@ struct SessionWrapper : public CanMakeWeakPtr<SessionWrapper>, public CanMakeChe
     RetainPtr<WKNetworkSessionDelegate> delegate;
     HashMap<NetworkDataTaskCocoa::TaskIdentifier, ThreadSafeWeakPtr<NetworkDataTaskCocoa>> dataTaskMap;
     HashMap<NetworkDataTaskCocoa::TaskIdentifier, DownloadID> downloadMap;
-    HashMap<NetworkDataTaskCocoa::TaskIdentifier, WeakPtr<WebSocketTask>> webSocketDataTaskMap;
+    HashMap<NetworkDataTaskCocoa::TaskIdentifier, ThreadSafeWeakPtr<WebSocketTask>> webSocketDataTaskMap;
 };
 
 struct IsolatedSession {
     WTF_MAKE_TZONE_ALLOCATED(IsolatedSession);
 public:
-    CheckedRef<SessionWrapper> checkedSessionWithCredentialStorage() { return sessionWithCredentialStorage; }
+    IsolatedSession()
+        : sessionWithCredentialStorage(makeUniqueRef<SessionWrapper>())
+    { }
 
-    SessionWrapper sessionWithCredentialStorage;
+    CheckedRef<SessionWrapper> checkedSessionWithCredentialStorage() { return sessionWithCredentialStorage.get(); }
+
+    UniqueRef<SessionWrapper> sessionWithCredentialStorage;
     WallTime lastUsed;
 };
 
@@ -97,15 +101,18 @@ public:
 
     std::unique_ptr<IsolatedSession> appBoundSession;
 
-    CheckedRef<SessionWrapper> checkedSessionWithCredentialStorage() { return sessionWithCredentialStorage; }
-    CheckedRef<SessionWrapper> checkedEphemeralStatelessSession() { return ephemeralStatelessSession; }
+    CheckedRef<SessionWrapper> checkedSessionWithCredentialStorage() { return sessionWithCredentialStorage.get(); }
+    CheckedRef<SessionWrapper> checkedEphemeralStatelessSession() { return ephemeralStatelessSession.get(); }
 
-    SessionWrapper sessionWithCredentialStorage;
-    SessionWrapper ephemeralStatelessSession;
+    UniqueRef<SessionWrapper> sessionWithCredentialStorage;
+    UniqueRef<SessionWrapper> ephemeralStatelessSession;
 
 private:
 
-    SessionSet() = default;
+    SessionSet()
+        : sessionWithCredentialStorage(makeUniqueRef<SessionWrapper>())
+        , ephemeralStatelessSession(makeUniqueRef<SessionWrapper>())
+    { }
 };
 
 class NetworkSessionCocoa final : public NetworkSession {
@@ -191,7 +198,7 @@ private:
     void deleteAlternativeServicesForHostNames(const Vector<String>&) override;
     void clearAlternativeServices(WallTime) override;
 
-    std::unique_ptr<WebSocketTask> createWebSocketTask(WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, NetworkSocketChannel&, const WebCore::ResourceRequest&, const String& protocol, const WebCore::ClientOrigin&, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections>, WebCore::StoredCredentialsPolicy) final;
+    RefPtr<WebSocketTask> createWebSocketTask(WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, NetworkSocketChannel&, const WebCore::ResourceRequest&, const String& protocol, const WebCore::ClientOrigin&, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections>, WebCore::StoredCredentialsPolicy) final;
     void addWebSocketTask(WebPageProxyIdentifier, WebSocketTask&) final;
     void removeWebSocketTask(SessionSet&, WebSocketTask&) final;
 

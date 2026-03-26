@@ -28,6 +28,7 @@
 
 #import "Logging.h"
 #import <wtf/cocoa/Entitlements.h>
+#import <wtf/darwin/DispatchExtras.h>
 #import <wtf/spi/darwin/XPCSPI.h>
 #import <wtf/text/ASCIILiteral.h>
 
@@ -41,9 +42,10 @@ void XPCEndpointClient::setEndpoint(xpc_endpoint_t endpoint)
         if (m_connection)
             return;
 
-        m_connection = adoptOSObject(xpc_connection_create_from_endpoint(endpoint));
+        // FIXME: This is a false positive. <rdar://164843889>
+        SUPPRESS_RETAINPTR_CTOR_ADOPT m_connection = adoptXPCObject(xpc_connection_create_from_endpoint(endpoint));
 
-        xpc_connection_set_target_queue(m_connection.get(), dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0));
+        xpc_connection_set_target_queue(m_connection.get(), globalDispatchQueueSingleton(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0));
         xpc_connection_set_event_handler(m_connection.get(), ^(xpc_object_t message) {
             xpc_type_t type = xpc_get_type(message);
             if (type == XPC_TYPE_ERROR) {
@@ -56,7 +58,7 @@ void XPCEndpointClient::setEndpoint(xpc_endpoint_t endpoint)
             if (type != XPC_TYPE_DICTIONARY)
                 return;
 
-            RetainPtr connection = xpc_dictionary_get_remote_connection(message);
+            XPCObjectPtr<xpc_connection_t> connection = xpc_dictionary_get_remote_connection(message);
             if (!connection)
                 return;
 #if USE(APPLE_INTERNAL_SDK)
@@ -75,7 +77,7 @@ void XPCEndpointClient::setEndpoint(xpc_endpoint_t endpoint)
     didConnect();
 }
 
-OSObjectPtr<xpc_connection_t> XPCEndpointClient::connection()
+XPCObjectPtr<xpc_connection_t> XPCEndpointClient::connection()
 {
     Locker locker { m_connectionLock };
     return m_connection;

@@ -39,6 +39,7 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <ImageIO/ImageIO.h>
 #include <WebCore/ShareableBitmap.h>
+#include <wtf/CompletionHandler.h>
 #include <wtf/FileHandle.h>
 #include <wtf/FileSystem.h>
 #include <wtf/cf/VectorCF.h>
@@ -98,10 +99,16 @@ static String transcodeImage(const String& path, const String& destinationUTI, c
 
 Vector<String> findImagesForTranscoding(const Vector<String>& paths, const Vector<String>& allowedMIMETypes)
 {
+    bool allowAllImages = allowedMIMETypes.contains("image/*"_s);
+
     bool needsTranscoding = false;
     auto transcodingPaths = paths.map([&](auto& path) {
-        // Append a path of the image which needs transcoding. Otherwise append a null string.
-        if (!allowedMIMETypes.contains(WebCore::MIMETypeRegistry::mimeTypeForPath(path))) {
+        auto mimeType = WebCore::MIMETypeRegistry::mimeTypeForPath(path);
+
+        if (allowAllImages && mimeType.startsWith("image/"_s))
+            return nullString();
+
+        if (!allowedMIMETypes.contains(mimeType)) {
             needsTranscoding = true;
             return path;
         }
@@ -159,7 +166,7 @@ Expected<std::pair<String, Vector<IntSize>>, ImageDecodingError> utiAndAvailable
     for (size_t index = 0; index < frameCount; ++index)
         sizes.append(imageDecoder->frameSizeAtIndex(index));
 
-    return std::make_pair(WTFMove(uti), WTFMove(sizes));
+    return std::make_pair(WTF::move(uti), WTF::move(sizes));
 }
 
 static RefPtr<NativeImage> tryCreateNativeImageFromBitmapImageData(std::span<const uint8_t> data, std::optional<FloatSize> preferredSize)
@@ -188,16 +195,16 @@ static RefPtr<NativeImage> tryCreateNativeImageFromBitmapImageData(std::span<con
     if (!image)
         return nullptr;
 
-    return NativeImage::create(WTFMove(image));
+    return NativeImage::create(WTF::move(image));
 }
 
 static void tryCreateNativeImageFromData(std::span<const uint8_t> data, std::optional<FloatSize> preferredSize, CompletionHandler<void(RefPtr<NativeImage>&&)>&& completionHandler)
 {
     if (RefPtr nativeImage = tryCreateNativeImageFromBitmapImageData(data, preferredSize)) {
-        completionHandler(WTFMove(nativeImage));
+        completionHandler(WTF::move(nativeImage));
         return;
     }
-    SVGImage::tryCreateFromData(data, [completionHandler = WTFMove(completionHandler)](auto svgImage) mutable {
+    SVGImage::tryCreateFromData(data, [completionHandler = WTF::move(completionHandler)](auto svgImage) mutable {
         if (!svgImage) {
             completionHandler(nullptr);
             return;
@@ -225,14 +232,14 @@ static Vector<Ref<ShareableBitmap>> createBitmapsFromNativeImage(NativeImage& im
 
 static RefPtr<NativeImage> createNativeImageFromSVGImage(SVGImage& image, const IntSize& size)
 {
-    RefPtr buffer = ImageBuffer::create(size, RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1, DestinationColorSpace::SRGB(), ImageBufferPixelFormat::BGRA8);
+    RefPtr buffer = ImageBuffer::create(size, RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
     if (!buffer)
         return nullptr;
 
     Ref svgImageContainer = SVGImageForContainer::create(&image, size, 1, { });
     buffer->context().drawImage(svgImageContainer.get(), FloatPoint::zero());
 
-    return ImageBuffer::sinkIntoNativeImage(WTFMove(buffer));
+    return ImageBuffer::sinkIntoNativeImage(WTF::move(buffer));
 }
 
 static Vector<Ref<ShareableBitmap>> createBitmapsFromSVGImage(SVGImage& image, std::span<const unsigned> lengths)
@@ -261,7 +268,7 @@ void createBitmapsFromImageData(std::span<const uint8_t> data, std::span<const u
         return;
     }
 
-    SVGImage::tryCreateFromData(data, [lengthsVector = Vector<unsigned> { lengths }, completionHandler = WTFMove(completionHandler)](auto svgImage) mutable {
+    SVGImage::tryCreateFromData(data, [lengthsVector = Vector<unsigned> { lengths }, completionHandler = WTF::move(completionHandler)](auto svgImage) mutable {
         if (!svgImage) {
             completionHandler({ });
             return;
@@ -282,7 +289,7 @@ RefPtr<SharedBuffer> createIconDataFromBitmaps(Vector<Ref<ShareableBitmap>>&& bi
     RetainPtr destination = adoptCF(CGImageDestinationCreateWithData(destinationData.get(), cfUTI.get(), bitmaps.size(), nullptr));
 
     for (Ref bitmap : bitmaps) {
-        RetainPtr cgImage = bitmap->makeCGImageCopy();
+        RetainPtr cgImage = bitmap->createPlatformImage();
         if (!cgImage) {
             RELEASE_LOG_ERROR(Images, "createIconDataFromBitmaps: Fails to create CGImage with size { %d , %d }", bitmap->size().width(), bitmap->size().height());
             return nullptr;
@@ -300,7 +307,7 @@ RefPtr<SharedBuffer> createIconDataFromBitmaps(Vector<Ref<ShareableBitmap>>&& bi
 // FIXME: This does not implement preferredSize for SVG at the moment as there are no callers that pass preferredSize.
 void decodeImageWithSize(std::span<const uint8_t> data, std::optional<FloatSize> preferredSize, CompletionHandler<void(RefPtr<ShareableBitmap>&&)>&& completionHandler)
 {
-    tryCreateNativeImageFromData(data, preferredSize, [completionHandler = WTFMove(completionHandler)](auto nativeImage) mutable {
+    tryCreateNativeImageFromData(data, preferredSize, [completionHandler = WTF::move(completionHandler)](auto nativeImage) mutable {
         if (!nativeImage) {
             completionHandler(nullptr);
             return;
@@ -322,7 +329,7 @@ void decodeImageWithSize(std::span<const uint8_t> data, std::optional<FloatSize>
 
         FloatRect rect { { }, nativeImage->size() };
         context->drawNativeImage(*nativeImage, rect, rect, { CompositeOperator::Copy });
-        completionHandler(WTFMove(bitmap));
+        completionHandler(WTF::move(bitmap));
     });
 }
 

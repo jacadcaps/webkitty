@@ -27,6 +27,7 @@
 #import "WebPopupMenu.h"
 
 #import "PlatformPopupMenuData.h"
+#import <CoreText/CoreText.h>
 #import <WebCore/LocalFrame.h>
 #import <WebCore/LocalFrameView.h>
 #import <WebCore/PopupMenuClient.h>
@@ -37,23 +38,18 @@ using namespace WebCore;
 void WebPopupMenu::setUpPlatformData(const IntRect&, PlatformPopupMenuData& data)
 {
 #if USE(APPKIT)
-    // FIXME: font will be nil here for custom fonts, we should fix that.
-    RetainPtr font = m_popupClient->menuStyle().font().primaryFont()->getCTFont();
-    if (!font)
-        return;
+    CheckedPtr popupClient = m_popupClient;
+    std::optional<InstalledFont> font = popupClient->menuStyle().checkedFont()->primaryFont()->toSerializableInstalledFont();
+    if (!font) {
+        double pointSize = popupClient->menuStyle().checkedFont()->primaryFont()->platformData().size();
+        font = Font::create(FontPlatformData(bridge_cast([NSFont menuFontOfSize:pointSize]), pointSize))->toSerializableInstalledFont();
+    }
+    ASSERT(font);
 
-    RetainPtr fontDescriptor = adoptCF(CTFontCopyFontDescriptor(font.get()));
-    if (!fontDescriptor)
-        return;
-
-    RetainPtr attributes = adoptCF(CTFontDescriptorCopyAttributes(fontDescriptor.get()));
-    if (!attributes)
-        return;
-    
-    data.fontInfo.fontAttributeDictionary = attributes.get();
-    data.shouldPopOver = m_popupClient->shouldPopOver();
-    data.hideArrows = !m_popupClient->menuStyle().hasDefaultAppearance();
-    data.menuSize = m_popupClient->menuStyle().menuSize();
+    data.font = *font;
+    data.shouldPopOver = popupClient->shouldPopOver();
+    data.hideArrows = !popupClient->menuStyle().hasDefaultAppearance();
+    data.menuSize = popupClient->menuStyle().menuSize();
 #else
     UNUSED_PARAM(data);
 #endif

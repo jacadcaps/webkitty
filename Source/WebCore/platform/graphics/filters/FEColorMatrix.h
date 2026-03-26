@@ -22,7 +22,7 @@
 
 #pragma once
 
-#include "FilterEffect.h"
+#include <WebCore/FilterEffect.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
@@ -60,7 +60,7 @@ private:
 
     bool resultIsAlphaImage(std::span<const Ref<FilterImage>> inputs) const override;
 
-    OptionSet<FilterRenderingMode> supportedFilterRenderingModes() const override;
+    OptionSet<FilterRenderingMode> supportedFilterRenderingModes(OptionSet<FilterRenderingMode> preferredFilterRenderingModes) const override;
 
     std::unique_ptr<FilterEffectApplier> createAcceleratedApplier() const override;
     std::unique_ptr<FilterEffectApplier> createSoftwareApplier() const override;

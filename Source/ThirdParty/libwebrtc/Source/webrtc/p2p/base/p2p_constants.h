@@ -11,9 +11,10 @@
 #ifndef P2P_BASE_P2P_CONSTANTS_H_
 #define P2P_BASE_P2P_CONSTANTS_H_
 
-#include <stddef.h>
-#include <stdint.h>
+#include <cstddef>
+#include <cstdint>
 
+#include "api/units/time_delta.h"
 #include "rtc_base/system/rtc_export.h"
 
 namespace webrtc {
@@ -23,12 +24,16 @@ namespace webrtc {
 // names (since Gingle has no content names).  But when we receive a
 // Jingle call, the content name can be anything, so don't rely on
 // these values being the same as the ones received.
+// Note: these were used in the deprecated "plan-b".
+[[deprecated("plan-b")]]
 extern const char CN_AUDIO[];
+[[deprecated("plan-b")]]
 extern const char CN_VIDEO[];
+[[deprecated("plan-b")]]
 extern const char CN_DATA[];
+[[deprecated("plan-b")]]
 extern const char CN_OTHER[];
 
-// GN stands for group name
 extern const char GROUP_TYPE_BUNDLE[];
 
 RTC_EXPORT extern const int ICE_UFRAG_LENGTH;
@@ -51,65 +56,72 @@ extern const char CONNECTIONROLE_HOLDCONN_STR[];
 // RFC 6762, the .local pseudo-top-level domain used for mDNS names.
 extern const char LOCAL_TLD[];
 
-// Constants for time intervals are in milliseconds unless otherwise stated.
-//
 // Most of the following constants are the default values of IceConfig
 // paramters. See IceConfig for detailed definition.
 //
-// Default value of IceConfig.receiving_timeout.
-extern const int RECEIVING_TIMEOUT;
 // Default value IceConfig.ice_check_min_interval.
-extern const int MIN_CHECK_RECEIVING_INTERVAL;
+inline constexpr TimeDelta kMinCheckReceivingInterval = TimeDelta::Millis(50);
+// Default value of IceConfig.receiving_timeout.
+inline constexpr TimeDelta kReceivingTimeout = kMinCheckReceivingInterval * 50;
 // The next two ping intervals are at the ICE transport level.
 //
-// STRONG_PING_INTERVAL is applied when the selected connection is both
+// kStrongPingInterval is applied when the selected connection is both
 // writable and receiving.
 //
 // Default value of IceConfig.ice_check_interval_strong_connectivity.
-extern const int STRONG_PING_INTERVAL;
-// WEAK_PING_INTERVAL is applied when the selected connection is either
+inline constexpr TimeDelta kStrongPingInterval = TimeDelta::Millis(480);
+// kWeakPingInterval is applied when the selected connection is either
 // not writable or not receiving.
 //
 // Defaul value of IceConfig.ice_check_interval_weak_connectivity.
-extern const int WEAK_PING_INTERVAL;
+inline constexpr TimeDelta kWeakPingInterval = TimeDelta::Millis(48);
 // The next two ping intervals are at the candidate pair level.
 //
 // Writable candidate pairs are pinged at a slower rate once they are stabilized
 // and the channel is strongly connected.
-extern const int STRONG_AND_STABLE_WRITABLE_CONNECTION_PING_INTERVAL;
+inline constexpr TimeDelta kStrongAndStableWritableConnectionPingInterval =
+    TimeDelta::Millis(2'500);
 // Writable candidate pairs are pinged at a faster rate while the connections
 // are stabilizing or the channel is weak.
-extern const int WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL;
+inline constexpr TimeDelta kWeakOrStabilizingWritableConnectionPingInterval =
+    TimeDelta::Millis(900);
 // Default value of IceConfig.backup_connection_ping_interval
-extern const int BACKUP_CONNECTION_PING_INTERVAL;
+inline constexpr TimeDelta kBackupConnectionPingInterval =
+    TimeDelta::Seconds(25);
 // Defualt value of IceConfig.receiving_switching_delay.
-extern const int RECEIVING_SWITCHING_DELAY;
+inline constexpr TimeDelta kReceivingSwitchingDelay = TimeDelta::Seconds(1);
 // Default value of IceConfig.regather_on_failed_networks_interval.
-extern const int REGATHER_ON_FAILED_NETWORKS_INTERVAL;
+inline constexpr TimeDelta kRegatherOnFailedNetworksInterval =
+    TimeDelta::Seconds(5 * 60);
 // Default vaule of IceConfig.ice_unwritable_timeout.
-extern const int CONNECTION_WRITE_CONNECT_TIMEOUT;
+inline constexpr TimeDelta kConnectionWriteConnectTimeout =
+    TimeDelta::Seconds(5);
 // Default vaule of IceConfig.ice_unwritable_min_checks.
-extern const uint32_t CONNECTION_WRITE_CONNECT_FAILURES;
+inline constexpr int kConnectionWriteConnectFailures = 5;  // 5 pings
 // Default value of IceConfig.ice_inactive_timeout;
-extern const int CONNECTION_WRITE_TIMEOUT;
+inline constexpr TimeDelta kConnectionWriteTimeout = TimeDelta::Seconds(15);
 // Default value of IceConfig.stun_keepalive_interval;
-extern const int STUN_KEEPALIVE_INTERVAL;
+inline constexpr TimeDelta kStunKeepaliveInterval = TimeDelta::Seconds(10);
 
-static const int MIN_PINGS_AT_WEAK_PING_INTERVAL = 3;
+inline constexpr int kMinPingsAtWeakPingInterval = 3;
 
 // The following constants are used at the candidate pair level to determine the
 // state of a candidate pair.
 //
 // The timeout duration when a connection does not receive anything.
-extern const int WEAK_CONNECTION_RECEIVE_TIMEOUT;
+inline constexpr TimeDelta kWeakConnectionReceiveTimeout =
+    TimeDelta::Millis(2'500);
 // A connection will be declared dead if it has not received anything for this
 // long.
-extern const int DEAD_CONNECTION_RECEIVE_TIMEOUT;
+inline constexpr TimeDelta kDeadConnectionReceiveTimeout =
+    TimeDelta::Seconds(30);
 // This is the length of time that we wait for a ping response to come back.
-extern const int CONNECTION_RESPONSE_TIMEOUT;
+// There is no harm to keep this value high other than a small amount
+// of increased memory, but in some networks (2G), we observe up to 60s RTTs.
+inline constexpr TimeDelta kConnectionResponseTimeout = TimeDelta::Seconds(60);
 // The minimum time we will wait before destroying a connection after creating
 // it.
-extern const int MIN_CONNECTION_LIFETIME;
+inline constexpr TimeDelta kMinConnectionLifetime = TimeDelta::Seconds(10);
 
 // The type preference MUST be an integer from 0 to 126 inclusive.
 // https://datatracker.ietf.org/doc/html/rfc5245#section-4.1.2.1
@@ -128,57 +140,5 @@ const int kMaxTurnUsernameLength = 509;  // RFC 8489 section 14.3
 
 }  //  namespace webrtc
 
-// Re-export symbols from the webrtc namespace for backwards compatibility.
-// TODO(bugs.webrtc.org/4222596): Remove once all references are updated.
-#ifdef WEBRTC_ALLOW_DEPRECATED_NAMESPACES
-namespace cricket {
-using ::webrtc::BACKUP_CONNECTION_PING_INTERVAL;
-using ::webrtc::CN_AUDIO;
-using ::webrtc::CN_DATA;
-using ::webrtc::CN_OTHER;
-using ::webrtc::CN_VIDEO;
-using ::webrtc::CONNECTION_RESPONSE_TIMEOUT;
-using ::webrtc::CONNECTION_WRITE_CONNECT_FAILURES;
-using ::webrtc::CONNECTION_WRITE_CONNECT_TIMEOUT;
-using ::webrtc::CONNECTION_WRITE_TIMEOUT;
-using ::webrtc::CONNECTIONROLE_ACTIVE_STR;
-using ::webrtc::CONNECTIONROLE_ACTPASS_STR;
-using ::webrtc::CONNECTIONROLE_HOLDCONN_STR;
-using ::webrtc::CONNECTIONROLE_PASSIVE_STR;
-using ::webrtc::DEAD_CONNECTION_RECEIVE_TIMEOUT;
-using ::webrtc::GROUP_TYPE_BUNDLE;
-using ::webrtc::ICE_CANDIDATE_COMPONENT_DEFAULT;
-using ::webrtc::ICE_CANDIDATE_COMPONENT_RTCP;
-using ::webrtc::ICE_CANDIDATE_COMPONENT_RTP;
-using ::webrtc::ICE_PWD_LENGTH;
-using ::webrtc::ICE_PWD_MAX_LENGTH;
-using ::webrtc::ICE_PWD_MIN_LENGTH;
-using ::webrtc::ICE_TYPE_PREFERENCE_HOST;
-using ::webrtc::ICE_TYPE_PREFERENCE_HOST_TCP;
-using ::webrtc::ICE_TYPE_PREFERENCE_PRFLX;
-using ::webrtc::ICE_TYPE_PREFERENCE_PRFLX_TCP;
-using ::webrtc::ICE_TYPE_PREFERENCE_RELAY_TCP;
-using ::webrtc::ICE_TYPE_PREFERENCE_RELAY_TLS;
-using ::webrtc::ICE_TYPE_PREFERENCE_RELAY_UDP;
-using ::webrtc::ICE_TYPE_PREFERENCE_SRFLX;
-using ::webrtc::ICE_UFRAG_LENGTH;
-using ::webrtc::ICE_UFRAG_MAX_LENGTH;
-using ::webrtc::ICE_UFRAG_MIN_LENGTH;
-using ::webrtc::IcePriorityValue;
-using ::webrtc::LOCAL_TLD;
-using ::webrtc::MIN_CHECK_RECEIVING_INTERVAL;
-using ::webrtc::MIN_CONNECTION_LIFETIME;
-using ::webrtc::MIN_PINGS_AT_WEAK_PING_INTERVAL;
-using ::webrtc::RECEIVING_SWITCHING_DELAY;
-using ::webrtc::RECEIVING_TIMEOUT;
-using ::webrtc::REGATHER_ON_FAILED_NETWORKS_INTERVAL;
-using ::webrtc::STRONG_AND_STABLE_WRITABLE_CONNECTION_PING_INTERVAL;
-using ::webrtc::STRONG_PING_INTERVAL;
-using ::webrtc::STUN_KEEPALIVE_INTERVAL;
-using ::webrtc::WEAK_CONNECTION_RECEIVE_TIMEOUT;
-using ::webrtc::WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL;
-using ::webrtc::WEAK_PING_INTERVAL;
-}  // namespace cricket
-#endif  // WEBRTC_ALLOW_DEPRECATED_NAMESPACES
 
 #endif  // P2P_BASE_P2P_CONSTANTS_H_

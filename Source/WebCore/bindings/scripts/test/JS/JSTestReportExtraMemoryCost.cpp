@@ -119,7 +119,7 @@ void JSTestReportExtraMemoryCostPrototype::finishCreation(VM& vm)
 const ClassInfo JSTestReportExtraMemoryCost::s_info = { "TestReportExtraMemoryCost"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestReportExtraMemoryCost) };
 
 JSTestReportExtraMemoryCost::JSTestReportExtraMemoryCost(Structure* structure, JSDOMGlobalObject& globalObject, Ref<TestReportExtraMemoryCost>&& impl)
-    : JSDOMWrapper<TestReportExtraMemoryCost>(structure, globalObject, WTFMove(impl))
+    : JSDOMWrapper<TestReportExtraMemoryCost>(structure, globalObject, WTF::move(impl))
 {
 }
 
@@ -152,7 +152,7 @@ JSValue JSTestReportExtraMemoryCost::getConstructor(VM& vm, const JSGlobalObject
 
 void JSTestReportExtraMemoryCost::destroy(JSC::JSCell* cell)
 {
-    JSTestReportExtraMemoryCost* thisObject = static_cast<JSTestReportExtraMemoryCost*>(cell);
+    SUPPRESS_MEMORY_UNSAFE_CAST JSTestReportExtraMemoryCost* thisObject = static_cast<JSTestReportExtraMemoryCost*>(cell);
     thisObject->JSTestReportExtraMemoryCost::~JSTestReportExtraMemoryCost();
 }
 
@@ -212,7 +212,7 @@ bool JSTestReportExtraMemoryCostOwner::isReachableFromOpaqueRoots(JSC::Handle<JS
 
 void JSTestReportExtraMemoryCostOwner::finalize(JSC::Handle<JSC::Unknown> handle, void* context)
 {
-    auto* jsTestReportExtraMemoryCost = static_cast<JSTestReportExtraMemoryCost*>(handle.slot()->asCell());
+    SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestReportExtraMemoryCost = static_cast<JSTestReportExtraMemoryCost*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
     uncacheWrapper(world, jsTestReportExtraMemoryCost->protectedWrapped().ptr(), jsTestReportExtraMemoryCost);
 }
@@ -226,7 +226,7 @@ extern "C" { extern void (*const __identifier("??_7TestReportExtraMemoryCost@Web
 extern "C" { extern void* _ZTVN7WebCore25TestReportExtraMemoryCostE[]; }
 #endif
 template<std::same_as<TestReportExtraMemoryCost> T>
-static inline void verifyVTable(TestReportExtraMemoryCost* ptr) 
+static inline void verifyVTable(TestReportExtraMemoryCost* ptr)
 {
     if constexpr (std::is_polymorphic_v<T>) {
         const void* actualVTablePointer = getVTablePointer<T>(ptr);
@@ -246,12 +246,13 @@ static inline void verifyVTable(TestReportExtraMemoryCost* ptr)
 #endif
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestReportExtraMemoryCost>&& impl)
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<TestReportExtraMemoryCost>&& impl)
 {
+    UNUSED_PARAM(lexicalGlobalObject);
 #if ENABLE(BINDING_INTEGRITY)
     verifyVTable<TestReportExtraMemoryCost>(impl.ptr());
 #endif
-    return createWrapper<TestReportExtraMemoryCost>(globalObject, WTFMove(impl));
+    return createWrapper<TestReportExtraMemoryCost>(globalObject, WTF::move(impl));
 }
 
 JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestReportExtraMemoryCost& impl)

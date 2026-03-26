@@ -25,7 +25,7 @@
 
 #pragma once
 
-#if USE(COORDINATED_GRAPHICS) && USE(SKIA)
+#if USE(SKIA)
 #include "GraphicsContextSkia.h"
 
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
@@ -41,7 +41,7 @@ namespace WebCore {
 
 class SkiaRecordingResult final : public ThreadSafeRefCounted<SkiaRecordingResult, WTF::DestructionThread::Main> {
 public:
-    virtual ~SkiaRecordingResult();
+    ~SkiaRecordingResult();
     static Ref<SkiaRecordingResult> create(sk_sp<SkPicture>&&, SkiaImageToFenceMap&&, const IntRect& recordRect, RenderingMode, bool contentsOpaque, float contentsScale);
 
     void waitForFenceIfNeeded(const SkImage&);
@@ -67,4 +67,4 @@ private:
 
 } // namespace WebCore
 
-#endif // USE(COORDINATED_GRAPHICS) && USE(SKIA)
+#endif // USE(SKIA)

@@ -99,7 +99,7 @@ template<> struct DefaultHash<MoveOnly> {
     static constexpr bool hasHashInValue = true; // This is not correct, but for debugging of RobinHoodHashSet.
 };
 
-template<> class StringTypeAdapter<MoveOnly, void> {
+template<> class StringTypeAdapter<MoveOnly> {
 public:
     StringTypeAdapter(const MoveOnly& moveOnly)
         : m_moveOnly { moveOnly }

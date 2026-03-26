@@ -41,6 +41,7 @@
 #import <wtf/MachSendRight.h>
 #import <wtf/MainThread.h>
 #import <wtf/MonotonicTime.h>
+#import <wtf/darwin/DispatchExtras.h>
 
 #if ENABLE(ARKIT_INLINE_PREVIEW_IOS)
 #import "APIUIClient.h"
@@ -110,7 +111,7 @@ void ModelElementController::takeModelElementFullscreen(ModelIdentifier modelIde
             return;
         }
 
-        dispatch_async(dispatch_get_main_queue(), ^{
+        dispatch_async(mainDispatchQueueSingleton(), ^{
             remoteViewController.modalPresentationStyle = UIModalPresentationOverFullScreen;
             remoteViewController.view.backgroundColor = UIColor.clearColor;
 
@@ -122,7 +123,7 @@ void ModelElementController::takeModelElementFullscreen(ModelIdentifier modelIde
             }];
 
             [preview observeDismissFullscreenWithCompletionHandler:^(CAFenceHandle *dismissFenceHandle, NSDictionary *payload, NSError *dismissError) {
-                dispatch_async(dispatch_get_main_queue(), ^{
+                dispatch_async(mainDispatchQueueSingleton(), ^{
                     if (dismissError || !dismissFenceHandle) {
                         LOG(ModelElement, "Unable to get fence handle when dismissing fullscreen instance: %@", [dismissError localizedDescription]);
                         [dismissFenceHandle invalidate];
@@ -158,7 +159,7 @@ ASVInlinePreview * ModelElementController::previewForModelIdentifier(ModelIdenti
     if (!webPageProxy || !webPageProxy->protectedPreferences()->modelElementEnabled())
         return nullptr;
 
-    return m_inlinePreviews.get(modelIdentifier.uuid).get();
+    return m_inlinePreviews.get(modelIdentifier.uuid);
 }
 
 void ModelElementController::modelElementCreateRemotePreview(String uuid, WebCore::FloatSize size, CompletionHandler<void(Expected<std::pair<String, uint32_t>, WebCore::ResourceError>)>&& completionHandler)
@@ -180,16 +181,16 @@ void ModelElementController::modelElementCreateRemotePreview(String uuid, WebCor
     else
         iterator->value = preview;
 
-    auto handler = CompletionHandlerWithFinalizer<void(Expected<std::pair<String, uint32_t>, WebCore::ResourceError>)>(WTFMove(completionHandler), [] (Function<void(Expected<std::pair<String, uint32_t>, WebCore::ResourceError>)>& completionHandler) {
+    auto handler = CompletionHandlerWithFinalizer<void(Expected<std::pair<String, uint32_t>, WebCore::ResourceError>)>(WTF::move(completionHandler), [] (Function<void(Expected<std::pair<String, uint32_t>, WebCore::ResourceError>)>& completionHandler) {
         completionHandler(makeUnexpected(WebCore::ResourceError { WebCore::ResourceError::Type::General }));
     });
 
     RELEASE_ASSERT(isMainRunLoop());
-    [preview setupRemoteConnectionWithCompletionHandler:makeBlockPtr([weakThis = WeakPtr { *this }, preview, uuid = WTFMove(uuid), handler = WTFMove(handler)] (NSError *contextError) mutable {
+    [preview setupRemoteConnectionWithCompletionHandler:makeBlockPtr([weakThis = WeakPtr { *this }, preview, uuid = WTF::move(uuid), handler = WTF::move(handler)] (NSError *contextError) mutable {
         if (contextError) {
             LOG(ModelElement, "Unable to create remote connection for uuid %s: %@.", uuid.utf8().data(), contextError.localizedDescription);
 
-            callOnMainRunLoop([weakThis = WTFMove(weakThis), handler = WTFMove(handler), error = WebCore::ResourceError { contextError }] () mutable {
+            callOnMainRunLoop([weakThis = WTF::move(weakThis), handler = WTF::move(handler), error = WebCore::ResourceError { contextError }] () mutable {
                 if (!weakThis)
                     return;
 
@@ -201,7 +202,7 @@ void ModelElementController::modelElementCreateRemotePreview(String uuid, WebCor
         LOG(ModelElement, "Established remote connection with UUID %s.", uuid.utf8().data());
 
         auto contextId = [preview contextId];
-        callOnMainRunLoop([weakThis = WTFMove(weakThis), uuid = WTFMove(uuid), handler = WTFMove(handler), contextId] () mutable {
+        callOnMainRunLoop([weakThis = WTF::move(weakThis), uuid = WTF::move(uuid), handler = WTF::move(handler), contextId] () mutable {
             if (!weakThis)
                 return;
 
@@ -224,7 +225,7 @@ void ModelElementController::modelElementLoadRemotePreview(String uuid, URL file
         return;
     }
 
-    auto handler = CompletionHandlerWithFinalizer<void(std::optional<WebCore::ResourceError>&&)>(WTFMove(completionHandler), [](Function<void(std::optional<WebCore::ResourceError>&&)>& completionHandler) {
+    auto handler = CompletionHandlerWithFinalizer<void(std::optional<WebCore::ResourceError>&&)>(WTF::move(completionHandler), [](Function<void(std::optional<WebCore::ResourceError>&&)>& completionHandler) {
         completionHandler(WebCore::ResourceError { WebCore::ResourceError::Type::General });
     });
 
@@ -234,13 +235,13 @@ void ModelElementController::modelElementLoadRemotePreview(String uuid, URL file
 #if PLATFORM(MAC)
         preview, // FIXME: Remove when rdar://143993062 is fixed.
 #endif
-        uuid = WTFMove(uuid),
-        handler = WTFMove(handler)
+        uuid = WTF::move(uuid),
+        handler = WTF::move(handler)
     ] (NSError *loadError) mutable {
         if (loadError) {
             LOG(ModelElement, "Unable to load file for uuid %s: %@.", uuid.utf8().data(), loadError.localizedDescription);
 
-            callOnMainRunLoop([weakThis = WTFMove(weakThis), handler = WTFMove(handler), error = WebCore::ResourceError { loadError }] () mutable {
+            callOnMainRunLoop([weakThis = WTF::move(weakThis), handler = WTF::move(handler), error = WebCore::ResourceError { loadError }] () mutable {
                 if (!weakThis)
                     return;
 
@@ -251,7 +252,7 @@ void ModelElementController::modelElementLoadRemotePreview(String uuid, URL file
 
         LOG(ModelElement, "Loaded file with UUID %s.", uuid.utf8().data());
 
-        callOnMainRunLoop([weakThis = WTFMove(weakThis), handler = WTFMove(handler)] () mutable {
+        callOnMainRunLoop([weakThis = WTF::move(weakThis), handler = WTF::move(handler)] () mutable {
             if (!weakThis)
                 return;
 
@@ -296,14 +297,14 @@ void ModelElementController::modelElementSizeDidChange(const String& uuid, WebCo
         return;
     }
 
-    auto handler = CompletionHandlerWithFinalizer<void(Expected<MachSendRight, WebCore::ResourceError>)>(WTFMove(completionHandler), [] (Function<void(Expected<MachSendRight, WebCore::ResourceError>)>& completionHandler) {
+    auto handler = CompletionHandlerWithFinalizer<void(Expected<MachSendRight, WebCore::ResourceError>)>(WTF::move(completionHandler), [] (Function<void(Expected<MachSendRight, WebCore::ResourceError>)>& completionHandler) {
         completionHandler(makeUnexpected(WebCore::ResourceError { WebCore::ResourceError::Type::General }));
     });
 
-    [preview updateFrame:CGRectMake(0, 0, size.width(), size.height()) completionHandler:makeBlockPtr([weakThis = WeakPtr { *this }, handler = WTFMove(handler), uuid] (CAFenceHandle *fenceHandle, NSError *error) mutable {
+    [preview updateFrame:CGRectMake(0, 0, size.width(), size.height()) completionHandler:makeBlockPtr([weakThis = WeakPtr { *this }, handler = WTF::move(handler), uuid] (CAFenceHandle *fenceHandle, NSError *error) mutable {
         if (error) {
             LOG(ModelElement, "Unable to update frame: %@.", error.localizedDescription);
-            callOnMainRunLoop([weakThis = WTFMove(weakThis), handler = WTFMove(handler), error = WebCore::ResourceError { error }] () mutable {
+            callOnMainRunLoop([weakThis = WTF::move(weakThis), handler = WTF::move(handler), error = WebCore::ResourceError { error }] () mutable {
                 if (!weakThis)
                     return;
                 handler(makeUnexpected(error));
@@ -313,15 +314,16 @@ void ModelElementController::modelElementSizeDidChange(const String& uuid, WebCo
         }
 
         RetainPtr strongFenceHandle = fenceHandle;
-        callOnMainRunLoop([weakThis = WTFMove(weakThis), handler = WTFMove(handler), uuid, strongFenceHandle = WTFMove(strongFenceHandle)] () mutable {
+        callOnMainRunLoop([weakThis = WTF::move(weakThis), handler = WTF::move(handler), uuid, strongFenceHandle = WTF::move(strongFenceHandle)] () mutable {
             if (!weakThis) {
                 [strongFenceHandle invalidate];
                 return;
             }
 
-            auto fenceSendRight = MachSendRight::adopt([strongFenceHandle copyPort]);
+            // FIXME: This is a safer cpp false positive.
+            SUPPRESS_RETAINPTR_CTOR_ADOPT auto fenceSendRight = MachSendRight::adopt([strongFenceHandle copyPort]);
             [strongFenceHandle invalidate];
-            handler(WTFMove(fenceSendRight));
+            handler(WTF::move(fenceSendRight));
         });
     }).get()];
 }
@@ -354,16 +356,16 @@ void ModelElementController::getCameraForModelElement(ModelIdentifier modelIdent
     }
 
 #if ENABLE(ARKIT_INLINE_PREVIEW_CAMERA_TRANSFORM)
-    [preview getCameraTransform:makeBlockPtr([weakThis = WeakPtr { *this }, completionHandler = WTFMove(completionHandler)] (simd_float3 cameraTransform, NSError *error) mutable {
+    [preview getCameraTransform:makeBlockPtr([weakThis = WeakPtr { *this }, completionHandler = WTF::move(completionHandler)] (simd_float3 cameraTransform, NSError *error) mutable {
         if (error) {
-            callOnMainRunLoop([weakThis = WTFMove(weakThis), completionHandler = WTFMove(completionHandler)] () mutable {
+            callOnMainRunLoop([weakThis = WTF::move(weakThis), completionHandler = WTF::move(completionHandler)] () mutable {
                 if (weakThis)
                     completionHandler(makeUnexpected(WebCore::ResourceError { WebCore::ResourceError::Type::General }));
             });
             return;
         }
 
-        callOnMainRunLoop([cameraTransform, weakThis = WTFMove(weakThis), completionHandler = WTFMove(completionHandler)] () mutable {
+        callOnMainRunLoop([cameraTransform, weakThis = WTF::move(weakThis), completionHandler = WTF::move(completionHandler)] () mutable {
             if (weakThis)
                 completionHandler(WebCore::HTMLModelElementCamera { cameraTransform.x, cameraTransform.y, cameraTransform.z });
         });
@@ -422,8 +424,8 @@ void ModelElementController::setAnimationIsPlayingForModelElement(ModelIdentifie
     }
 
 #if ENABLE(ARKIT_INLINE_PREVIEW_ANIMATIONS_CONTROL)
-    [preview setIsPlaying:isPlaying reply:makeBlockPtr([weakThis = WeakPtr { *this }, completionHandler = WTFMove(completionHandler)] (BOOL, NSError *error) mutable {
-        callOnMainRunLoop([success = !error, weakThis = WTFMove(weakThis), completionHandler = WTFMove(completionHandler)] () mutable {
+    [preview setIsPlaying:isPlaying reply:makeBlockPtr([weakThis = WeakPtr { *this }, completionHandler = WTF::move(completionHandler)] (BOOL, NSError *error) mutable {
+        callOnMainRunLoop([success = !error, weakThis = WTF::move(weakThis), completionHandler = WTF::move(completionHandler)] () mutable {
             if (weakThis)
                 completionHandler(success);
         });

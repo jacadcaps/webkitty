@@ -25,22 +25,22 @@
  */
 
 #import "config.h"
-#import "AccessibilityObject.h"
+#import "AccessibilityObjectInlines.h"
 
 #if PLATFORM(COCOA)
 
-#import "AXObjectCache.h"
+#import "AXObjectCacheInlines.h"
 #import "TextIterator.h"
 #import "WebAccessibilityObjectWrapperBase.h"
 #import <wtf/cocoa/TypeCastsCocoa.h>
 
 namespace WebCore {
 
-OptionSet<SpeakAs> AccessibilityObject::speakAs() const
+Style::SpeakAs AccessibilityObject::speakAs() const
 {
     if (auto* style = this->style())
         return style->speakAs();
-    return { };
+    return CSS::Keyword::Normal { };
 }
 
 FloatPoint AccessibilityObject::screenRelativePosition() const
@@ -61,7 +61,7 @@ AXTextMarkerRange AccessibilityObject::textMarkerRangeForNSRange(const NSRange& 
     if (range.location + range.length > text().length())
         return { };
 
-    if (auto* cache = axObjectCache()) {
+    if (CheckedPtr cache = axObjectCache()) {
         auto start = cache->characterOffsetForIndex(range.location, this);
         auto end = cache->characterOffsetForIndex(range.location + range.length, this);
         return cache->rangeForUnorderedCharacterOffsets(start, end);
@@ -146,8 +146,8 @@ RetainPtr<NSArray> AccessibilityObject::contentForRange(const SimpleRange& range
                 [result addObject:attrString.get()];
         } else {
             if (RefPtr replacedNode = it.node()) {
-                auto* cache = axObjectCache();
-                if (RefPtr object = cache ? cache->getOrCreate(replacedNode->renderer()) : nullptr)
+                CheckedPtr cache = axObjectCache();
+                if (RefPtr object = cache ? cache->getOrCreate(*replacedNode) : nullptr)
                     addObjectWrapperToArray(*object, result.get());
             }
         }
@@ -189,22 +189,22 @@ RetainPtr<NSAttributedString> AccessibilityObject::attributedStringForRange(cons
 
 RetainPtr<CTFontRef> fontFrom(const RenderStyle& style)
 {
-    return style.fontCascade().primaryFont()->getCTFont();
+    return style.fontCascade().primaryFont()->ctFont();
 }
 
 Color textColorFrom(const RenderStyle& style)
 {
-    return style.visitedDependentColor(CSSPropertyColor);
+    return style.visitedDependentColor();
 }
 
 Color backgroundColorFrom(const RenderStyle& style)
 {
-    return style.visitedDependentColor(CSSPropertyBackgroundColor);
+    return style.visitedDependentBackgroundColor();
 }
 
 RetainPtr<CTFontRef> AccessibilityObject::font() const
 {
-    const auto* style = this->style();
+    const CheckedPtr style = this->style();
     return style ? fontFrom(*style) : nil;
 }
 
@@ -219,31 +219,31 @@ FontOrientation AccessibilityObject::fontOrientation() const
 
 Color AccessibilityObject::textColor() const
 {
-    const auto* style = this->style();
+    const CheckedPtr style = this->style();
     return style ? textColorFrom(*style) : Color();
 }
 
 Color AccessibilityObject::backgroundColor() const
 {
-    const auto* style = this->style();
+    const CheckedPtr style = this->style();
     return style ? backgroundColorFrom(*style) : Color();
 }
 
 bool AccessibilityObject::isSubscript() const
 {
-    const auto* style = this->style();
+    const CheckedPtr style = this->style();
     return style && WTF::holdsAlternative<CSS::Keyword::Sub>(style->verticalAlign());
 }
 
 bool AccessibilityObject::isSuperscript() const
 {
-    const auto* style = this->style();
+    const CheckedPtr style = this->style();
     return style && WTF::holdsAlternative<CSS::Keyword::Super>(style->verticalAlign());
 }
 
 bool AccessibilityObject::hasTextShadow() const
 {
-    const auto* style = this->style();
+    const CheckedPtr style = this->style();
     return style && style->hasTextShadow();
 }
 

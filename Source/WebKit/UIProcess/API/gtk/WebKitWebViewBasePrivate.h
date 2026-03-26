@@ -28,6 +28,8 @@
 #pragma once
 
 #include "APIPageConfiguration.h"
+#include "GRefPtrGtk.h"
+#include "GUniquePtrGtk.h"
 #include "InputMethodState.h"
 #include "RendererBufferDescription.h"
 #include "SameDocumentNavigationType.h"
@@ -40,9 +42,8 @@
 #include "WebKitWebViewBase.h"
 #include "WebKitWebViewBaseInternal.h"
 #include "WebPageProxy.h"
+#include <WebCore/Cursor.h>
 #include <WebCore/DragActions.h>
-#include <WebCore/GRefPtrGtk.h>
-#include <WebCore/GUniquePtrGtk.h>
 #include <WebCore/SelectionData.h>
 #include <WebCore/ShareableBitmap.h>
 
@@ -145,3 +146,4 @@ void webkitWebViewBaseSetPlugID(WebKitWebViewBase*, const String&);
 #endif
 
 WebKit::RendererBufferDescription webkitWebViewBaseGetRendererBufferDescription(WebKitWebViewBase*);
+void webkitWebViewBaseSetCursor(WebKitWebViewBase*, const WebCore::Cursor&);

@@ -64,15 +64,7 @@ class GDBCrashLogGenerator(object):
             stdout = (b'ERROR: The gdb process exited with non-zero return code %s\n\n' % str(proc.returncode).encode('utf8', 'ignore')) + stdout
         return (stdout.decode('utf8', 'ignore'), errors)
 
-    def _get_tmp_file_name(self, coredumpctl, filename):
-        if coredumpctl[0] == 'flatpak-spawn':
-            return "/run/host/" + filename
-
-        return filename
-
     def _get_trace_from_systemd(self, coredumpctl, pid):
-        if os.path.isfile("/.flatpak-info"):
-            return self._get_trace_from_flatpak()
 
         # Letting up to 5 seconds for the backtrace to be generated on the systemd side
         for try_number in range(5):
@@ -99,32 +91,9 @@ class GDBCrashLogGenerator(object):
                         temp_file.name], return_exit_code=True):
                     continue
 
-                return self._get_gdb_output(self._get_tmp_file_name(coredumpctl, temp_file.name))
+                return self._get_gdb_output(temp_file.name)
 
         return '', []
-
-    def _get_trace_from_flatpak(self):
-        if self.newer_than:
-            coredump_since = "--gdb-stack-trace=@%f" % self.newer_than
-        else:
-            coredump_since = "--gdb-stack-trace"
-        webkit_flatpak_path = self._webkit_finder.path_to_script('webkit-flatpak')
-        cmd = ['flatpak-spawn', '--host']
-
-        # Forward WEBKIT_FLATPAK_USER_DIR so webkit-flatpak can use the same flatpak
-        # install as the current one.
-        user_dir = os.environ.get('WEBKIT_FLATPAK_USER_DIR')
-        if user_dir:
-            cmd.append("--env=WEBKIT_FLATPAK_USER_DIR=%s" % user_dir)
-
-        cmd.extend([webkit_flatpak_path, '--%s' % self._port_name,
-                    "--%s" % self._configuration.lower(), "--verbose", coredump_since])
-
-        proc = self._executive.popen(cmd, stdin=None, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        crash_log, stderr = proc.communicate()
-        crash_log = string_utils.decode(crash_log, errors='ignore')
-        errors = string_utils.decode(stderr or '<empty>', errors='ignore').splitlines()
-        return crash_log, errors
 
     def generate_crash_log(self, stdout, stderr):
         pid_representation = str(self.pid or '<unknown>')
@@ -140,7 +109,7 @@ class GDBCrashLogGenerator(object):
             return filename.find(self.name) > -1
 
         # Poor man which, ignore any failure.
-        for coredumpctl in [['coredumpctl'], ['flatpak-spawn', '--host', 'coredumpctl'], []]:
+        for coredumpctl in [['coredumpctl'], []]:
             try:
                 if not self._executive.run_command(coredumpctl, return_exit_code=True):
                     break

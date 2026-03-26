@@ -90,7 +90,7 @@ public:
     DownloadID downloadID() const { return m_downloadID; }
     PAL::SessionID sessionID() const { return m_sessionID; }
 
-    void setSandboxExtension(RefPtr<SandboxExtension>&& sandboxExtension) { m_sandboxExtension = WTFMove(sandboxExtension); }
+    void setSandboxExtension(RefPtr<SandboxExtension>&& sandboxExtension) { m_sandboxExtension = WTF::move(sandboxExtension); }
     void didReceiveChallenge(const WebCore::AuthenticationChallenge&, ChallengeCompletionHandler&&);
     void didCreateDestination(const String& path);
     void didReceiveData(uint64_t bytesWritten, uint64_t totalBytesWritten, uint64_t totalBytesExpectedToWrite);
@@ -130,7 +130,7 @@ private:
     DownloadID m_downloadID;
     const Ref<DownloadManager::Client> m_client;
 
-    Vector<RefPtr<WebCore::BlobDataFileReference>> m_blobFileReferences;
+    Vector<Ref<WebCore::BlobDataFileReference>> m_blobFileReferences;
     RefPtr<SandboxExtension> m_sandboxExtension;
 
     const RefPtr<NetworkDataTask> m_download;

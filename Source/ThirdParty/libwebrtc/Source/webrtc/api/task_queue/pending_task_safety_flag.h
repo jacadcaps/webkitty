@@ -40,7 +40,7 @@ namespace webrtc {
 //
 // class ExampleClass {
 // ....
-//    webrtc::scoped_refptr<PendingTaskSafetyFlag> flag = safety_flag_;
+//    scoped_refptr<PendingTaskSafetyFlag> flag = safety_flag_;
 //    my_task_queue_->PostTask(
 //        [flag = std::move(flag), this] {
 //          // Now running on the main thread.
@@ -168,6 +168,17 @@ inline absl::AnyInvocable<void() &&> SafeTask(
   return [flag = std::move(flag), task = std::move(task)]() mutable {
     if (flag->alive()) {
       std::move(task)();
+    }
+  };
+}
+
+// Safely execute an Invocable that can be used multiple times.
+inline absl::AnyInvocable<void()> SafeInvocable(
+    scoped_refptr<PendingTaskSafetyFlag> flag,
+    absl::AnyInvocable<void()> task) {
+  return [flag = std::move(flag), task = std::move(task)]() mutable {
+    if (flag->alive()) {
+      task();
     }
   };
 }

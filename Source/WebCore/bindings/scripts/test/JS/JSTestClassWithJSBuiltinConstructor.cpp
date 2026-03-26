@@ -125,7 +125,7 @@ void JSTestClassWithJSBuiltinConstructorPrototype::finishCreation(VM& vm)
 const ClassInfo JSTestClassWithJSBuiltinConstructor::s_info = { "TestClassWithJSBuiltinConstructor"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestClassWithJSBuiltinConstructor) };
 
 JSTestClassWithJSBuiltinConstructor::JSTestClassWithJSBuiltinConstructor(Structure* structure, JSDOMGlobalObject& globalObject, Ref<TestClassWithJSBuiltinConstructor>&& impl)
-    : JSDOMWrapper<TestClassWithJSBuiltinConstructor>(structure, globalObject, WTFMove(impl))
+    : JSDOMWrapper<TestClassWithJSBuiltinConstructor>(structure, globalObject, WTF::move(impl))
 {
 }
 
@@ -150,7 +150,7 @@ JSValue JSTestClassWithJSBuiltinConstructor::getConstructor(VM& vm, const JSGlob
 
 void JSTestClassWithJSBuiltinConstructor::destroy(JSC::JSCell* cell)
 {
-    JSTestClassWithJSBuiltinConstructor* thisObject = static_cast<JSTestClassWithJSBuiltinConstructor*>(cell);
+    SUPPRESS_MEMORY_UNSAFE_CAST JSTestClassWithJSBuiltinConstructor* thisObject = static_cast<JSTestClassWithJSBuiltinConstructor*>(cell);
     thisObject->JSTestClassWithJSBuiltinConstructor::~JSTestClassWithJSBuiltinConstructor();
 }
 
@@ -193,7 +193,7 @@ bool JSTestClassWithJSBuiltinConstructorOwner::isReachableFromOpaqueRoots(JSC::H
 
 void JSTestClassWithJSBuiltinConstructorOwner::finalize(JSC::Handle<JSC::Unknown> handle, void* context)
 {
-    auto* jsTestClassWithJSBuiltinConstructor = static_cast<JSTestClassWithJSBuiltinConstructor*>(handle.slot()->asCell());
+    SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestClassWithJSBuiltinConstructor = static_cast<JSTestClassWithJSBuiltinConstructor*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
     uncacheWrapper(world, jsTestClassWithJSBuiltinConstructor->protectedWrapped().ptr(), jsTestClassWithJSBuiltinConstructor);
 }
@@ -207,7 +207,7 @@ extern "C" { extern void (*const __identifier("??_7TestClassWithJSBuiltinConstru
 extern "C" { extern void* _ZTVN7WebCore33TestClassWithJSBuiltinConstructorE[]; }
 #endif
 template<std::same_as<TestClassWithJSBuiltinConstructor> T>
-static inline void verifyVTable(TestClassWithJSBuiltinConstructor* ptr) 
+static inline void verifyVTable(TestClassWithJSBuiltinConstructor* ptr)
 {
     if constexpr (std::is_polymorphic_v<T>) {
         const void* actualVTablePointer = getVTablePointer<T>(ptr);
@@ -227,12 +227,13 @@ static inline void verifyVTable(TestClassWithJSBuiltinConstructor* ptr)
 #endif
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestClassWithJSBuiltinConstructor>&& impl)
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<TestClassWithJSBuiltinConstructor>&& impl)
 {
+    UNUSED_PARAM(lexicalGlobalObject);
 #if ENABLE(BINDING_INTEGRITY)
     verifyVTable<TestClassWithJSBuiltinConstructor>(impl.ptr());
 #endif
-    return createWrapper<TestClassWithJSBuiltinConstructor>(globalObject, WTFMove(impl));
+    return createWrapper<TestClassWithJSBuiltinConstructor>(globalObject, WTF::move(impl));
 }
 
 JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestClassWithJSBuiltinConstructor& impl)

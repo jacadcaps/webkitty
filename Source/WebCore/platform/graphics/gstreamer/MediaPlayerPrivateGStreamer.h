@@ -118,7 +118,7 @@ class MediaPlayerPrivateGStreamer
 {
     WTF_MAKE_TZONE_ALLOCATED(MediaPlayerPrivateGStreamer);
 public:
-    MediaPlayerPrivateGStreamer(MediaPlayer*);
+    MediaPlayerPrivateGStreamer(MediaPlayer&);
     virtual ~MediaPlayerPrivateGStreamer();
 
     constexpr MediaPlayerType mediaPlayerType() const override { return MediaPlayerType::GStreamer; }
@@ -184,7 +184,7 @@ public:
     unsigned decodedFrameCount() const final;
     unsigned droppedFrameCount() const final;
     void acceleratedRenderingStateChanged() final;
-    bool performTaskAtTime(Function<void()>&&, const MediaTime&) override;
+    bool performTaskAtTime(Function<void(const MediaTime&)>&&, const MediaTime&) override;
     void isLoopingChanged() final;
     void audioOutputDeviceChanged() final;
 
@@ -206,6 +206,9 @@ public:
 
     RefPtr<VideoFrame> videoFrameForCurrentTime() override;
 
+    virtual void mirrorEnabledVideoTrackIfNeeded(const VideoTrackPrivateGStreamer&) { }
+
+    // Used for the non-MSE case.
     void updateEnabledVideoTrack();
     void updateEnabledAudioTrack();
     void playbin3SendSelectStreamsIfAppropriate();
@@ -217,6 +220,7 @@ public:
     bool handleNeedContextMessage(GstMessage*);
 
     void handleStreamCollectionMessage(GstMessage*);
+    void handleSyncErrorMessage(GstMessage*);
     void handleMessage(GstMessage*);
 
     void triggerRepaint(GRefPtr<GstSample>&&);
@@ -245,7 +249,7 @@ public:
 
     void setQuirkState(const GStreamerQuirk* owner, std::unique_ptr<GStreamerQuirkBase::GStreamerQuirkState>&& state)
     {
-        m_quirkStates.set(owner, WTFMove(state));
+        m_quirkStates.set(owner, WTF::move(state));
     }
 
     GStreamerQuirkBase::GStreamerQuirkState* quirkState(const GStreamerQuirk* owner)
@@ -259,6 +263,8 @@ public:
 
     bool requiresVideoSinkCapsNotifications() const;
     void videoSinkCapsChanged(GstPad*);
+
+    void elementIdChanged(const String&) const final;
 
 protected:
     enum MainThreadNotification {
@@ -357,6 +363,8 @@ protected:
     bool isPipelineWaitingPreroll(GstState current, GstState pending, GstStateChangeReturn) const;
     bool isPipelineWaitingPreroll() const;
 
+    void didEnd();
+
     Ref<MainThreadNotifier<MainThreadNotification>> m_notifier;
     ThreadSafeWeakPtr<MediaPlayer> m_player;
     String m_referrer;
@@ -441,6 +449,15 @@ protected:
 
     std::optional<GstVideoDecoderPlatform> m_videoDecoderPlatform;
     bool m_ignoreErrors { false };
+    Atomic<unsigned> m_queuedSyncErrors { 0 };
+
+    TrackIDHashMap<Ref<AudioTrackPrivateGStreamer>> m_audioTracks;
+    TrackIDHashMap<Ref<VideoTrackPrivateGStreamer>> m_videoTracks;
+    TrackIDHashMap<Ref<InbandTextTrackPrivateGStreamer>> m_textTracks;
+    RefPtr<InbandMetadataTextTrackPrivateGStreamer> m_chaptersTrack;
+#if USE(GSTREAMER_MPEGTS)
+    TrackIDHashMap<RefPtr<InbandMetadataTextTrackPrivateGStreamer>> m_metadataTracks;
+#endif
 
     String errorMessage() const override { return m_errorMessage; }
 
@@ -448,6 +465,9 @@ protected:
     uint64_t decodedVideoFramesCount() const { return m_decodedVideoFrames; }
 
     bool updateVideoSinkStatistics();
+
+    uint64_t m_framesReceived { 0 };
+    uint64_t m_decodedKeyFrames { 0 };
 
 private:
     class TaskAtMediaTimeScheduler {
@@ -459,7 +479,7 @@ private:
         void setTask(Function<void()>&& task, const MediaTime& targetTime, PlaybackDirection playbackDirection)
         {
             m_targetTime = targetTime;
-            m_task = WTFMove(task);
+            m_task = WTF::move(task);
             m_playbackDirection = playbackDirection;
         }
         std::optional<Function<void()>> checkTaskForScheduling(const MediaTime& currentTime)
@@ -469,7 +489,7 @@ private:
                 || (m_playbackDirection == Backward && currentTime > m_targetTime))
                 return std::optional<Function<void()>>();
             m_targetTime = MediaTime::invalidTime();
-            return WTFMove(m_task);
+            return WTF::move(m_task);
         }
     private:
         MediaTime m_targetTime = MediaTime::invalidTime();
@@ -485,7 +505,6 @@ private:
     bool isMuted() const;
     void commitLoad();
     void fillTimerFired();
-    void didEnd();
     void setPlaybackFlags(bool isMediaStream);
     void recalculateDurationIfNeeded() const; // It's called from other const methods.
 
@@ -625,13 +644,6 @@ private:
 #endif
     GRefPtr<GstElement> m_downloadBuffer;
 
-    TrackIDHashMap<Ref<AudioTrackPrivateGStreamer>> m_audioTracks;
-    TrackIDHashMap<Ref<VideoTrackPrivateGStreamer>> m_videoTracks;
-    TrackIDHashMap<Ref<InbandTextTrackPrivateGStreamer>> m_textTracks;
-    RefPtr<InbandMetadataTextTrackPrivateGStreamer> m_chaptersTrack;
-#if USE(GSTREAMER_MPEGTS)
-    TrackIDHashMap<RefPtr<InbandMetadataTextTrackPrivateGStreamer>> m_metadataTracks;
-#endif
     virtual bool isMediaSource() const { return false; }
 
     uint64_t m_httpResponseTotalSize { 0 };
@@ -641,11 +653,20 @@ private:
     uint64_t m_totalVideoFrames { 0 };
     uint64_t m_droppedVideoFrames { 0 };
     uint64_t m_decodedVideoFrames { 0 };
+    double m_averageFrameRate { 0 };
+
+    // https://www.w3.org/TR/webrtc-stats/#dom-rtcinboundrtpstreamstats-totaldecodetime
+    MediaTime m_totalVideoDecodeTime { MediaTime::zeroTime() };
 
     DataMutex<TaskAtMediaTimeScheduler> m_TaskAtMediaTimeSchedulerDataMutex;
 
 private:
     std::optional<VideoFrameMetadata> videoFrameMetadata() final;
+#if ENABLE(MEDIA_STREAM)
+    std::pair<String, GRefPtr<GstDevice>> resolveAudioOutputDevice(const String& deviceId);
+#endif
+    bool applyAudioSinkDevice(GstElement* audioSink, const GRefPtr<GstDevice>&, const String& deviceId);
+
     uint64_t m_sampleCount { 0 };
     uint64_t m_lastVideoFrameMetadataSampleCount { 0 };
     mutable PlatformTimeRanges m_buffered;
@@ -670,6 +691,7 @@ private:
     // Specific to MediaStream playback.
     MediaTime m_startTime;
     std::optional<MediaTime> m_pausedTime;
+    String m_videoDecoderName;
 
     void setupCodecProbe(GstElement*);
     Lock m_codecsLock;

@@ -28,7 +28,7 @@ void SetupReplayContextShared(void)
     glBindTexture(GL_TEXTURE_2D, gTextureMap[2]);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, 9728);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, 9728);
-    glTexImage2D(GL_TEXTURE_2D, 0, 6407, 2, 2, 0, GL_RGB, GL_UNSIGNED_BYTE, (const GLubyte *)&gBinaryData[624]);
+    glTexImage2D(GL_TEXTURE_2D, 0, 6407, 2, 2, 0, GL_RGB, GL_UNSIGNED_BYTE, (const GLubyte *)GetBinaryData(624));
     CreateProgram(5);
     CreateProgram(6);
     CreateProgram(8);
@@ -45,8 +45,8 @@ void SetupReplayContextShared(void)
     glLinkProgram(gShaderProgramMap[8]);
     UpdateUniformLocation(8, "s_texture", 0, 1);
     glUseProgram(gShaderProgramMap[8]);
-    UpdateCurrentProgram(8);
-    glUniform1iv(gUniformLocations[gCurrentProgram][0], 1, (const GLint *)&gBinaryData[640]);
+    UpdateCurrentProgramPerContext(8);
+    glUniform1iv(gUniformLocations[gCurrentProgramPerContext[gCurrentContext]][0], 1, (const GLint *)GetBinaryData(640));
     glDeleteShader(gShaderProgramMap[11]);
     glDeleteShader(gShaderProgramMap[12]);
     CreateShader(GL_FRAGMENT_SHADER, 2);
@@ -78,8 +78,8 @@ void SetupReplayContextSharedInactive(void)
     glLinkProgram(gShaderProgramMap[3]);
     UpdateUniformLocation(3, "s_texture", 0, 1);
     glUseProgram(gShaderProgramMap[3]);
-    UpdateCurrentProgram(3);
-    glUniform1iv(gUniformLocations[gCurrentProgram][0], 1, (const GLint *)&gBinaryData[656]);
+    UpdateCurrentProgramPerContext(3);
+    glUniform1iv(gUniformLocations[gCurrentProgramPerContext[gCurrentContext]][0], 1, (const GLint *)GetBinaryData(656));
     glDeleteShader(gShaderProgramMap[11]);
     glDeleteShader(gShaderProgramMap[12]);
     CreateShader(GL_VERTEX_SHADER, 1);

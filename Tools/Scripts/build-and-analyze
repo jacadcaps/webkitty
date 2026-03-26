@@ -178,6 +178,8 @@ def main(args):
         make_command.extend(['GCC_PREPROCESSOR_ADDITIONS={}'.format(args.preprocessor_additions)])
     if args.scheme:
         make_command.extend(['SCHEME={}'.format(args.scheme)])
+    if args.toolchains:
+        make_command.extend(["""ARGS='TOOLCHAINS="{}"'""".format(args.toolchains)])
 
     commands = [
         [set_webkit_config_path, '--{}'.format(args.configuration)],
@@ -209,6 +211,9 @@ def parse_args():
     parser.add_argument('--analyzer-path', dest='analyzer_path',
                         type=str, default=None,
                         help='Override path to clang static analyzer in scan-build and set CC/CPLUSPLUS for Xcode.')
+    parser.add_argument('--toolchains',
+                        type=str, default=None,
+                        help='Override Xcode toolchain.')
     parser.add_argument('--disable-checkers', dest='disable_checkers',
                         help='Disable specific checkers listed.')
     parser.add_argument('--disable-default-checkers', dest='disable_default_checkers',

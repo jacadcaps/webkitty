@@ -25,10 +25,11 @@
 
 #pragma once
 
-#include "ScriptExecutionContextIdentifier.h"
+#include <WebCore/ScriptExecutionContextIdentifier.h>
 #include <optional>
 #include <pal/SessionID.h>
 #include <wtf/MonotonicTime.h>
+#include <wtf/Platform.h>
 #include <wtf/URL.h>
 #include <wtf/UUID.h>
 #include <wtf/text/WTFString.h>
@@ -46,6 +47,7 @@ struct NotificationData {
 #if PLATFORM(COCOA)
     WEBCORE_EXPORT static std::optional<NotificationData> fromDictionary(NSDictionary *dictionaryRepresentation);
     WEBCORE_EXPORT NSDictionary *dictionaryRepresentation() const;
+    WEBCORE_EXPORT RetainPtr<NSDictionary> protectedDictionaryRepresentation() const;
 #endif
 
     bool isPersistent() const { return !serviceWorkerRegistrationURL.isNull(); }

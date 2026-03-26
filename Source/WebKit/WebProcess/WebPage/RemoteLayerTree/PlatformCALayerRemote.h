@@ -37,13 +37,14 @@
 
 namespace WebCore {
 class LayerPool;
-#if ENABLE(THREADED_ANIMATION_RESOLUTION)
+#if ENABLE(THREADED_ANIMATIONS)
 class AcceleratedEffect;
 struct AcceleratedEffectValues;
 #endif
 #if ENABLE(MODEL_PROCESS)
 class ModelContext;
 #endif
+enum class GraphicsLayerCustomAppearance : bool;
 }
 
 namespace WebKit {
@@ -101,7 +102,7 @@ public:
     void animationStarted(const String& key, MonotonicTime beginTime) override;
     void animationEnded(const String& key) override;
 
-#if ENABLE(THREADED_ANIMATION_RESOLUTION)
+#if ENABLE(THREADED_ANIMATIONS)
     void clearAcceleratedEffectsAndBaseValues() override;
     void setAcceleratedEffectsAndBaseValues(const WebCore::AcceleratedEffects&, const WebCore::AcceleratedEffectValues&) override;
 #endif
@@ -198,6 +199,9 @@ public:
     float cornerRadius() const override;
     void setCornerRadius(float) override;
 
+    WebCore::Path shadowPath() const override;
+    void setShadowPath(const WebCore::Path&) override;
+
     void setAntialiasesEdges(bool) override;
 
     WebCore::MediaPlayerVideoGravity videoGravity() const override;
@@ -213,8 +217,8 @@ public:
     WebCore::WindRule shapeWindRule() const override;
     void setShapeWindRule(WebCore::WindRule) override;
 
-    WebCore::GraphicsLayer::CustomAppearance customAppearance() const override;
-    void updateCustomAppearance(WebCore::GraphicsLayer::CustomAppearance) override;
+    WebCore::GraphicsLayerCustomAppearance customAppearance() const override;
+    void updateCustomAppearance(WebCore::GraphicsLayerCustomAppearance) override;
 
     void setEventRegion(const WebCore::EventRegion&) override;
 
@@ -268,7 +272,8 @@ public:
 
     void moveToContext(RemoteLayerTreeContext&);
     RemoteLayerTreeContext* context() const { return m_context.get(); }
-    
+    RefPtr<RemoteLayerTreeContext> protectedContext() const { return m_context.get(); }
+
     void markFrontBufferVolatileForTesting() override;
     virtual void populateCreationProperties(RemoteLayerTreeTransaction::LayerCreationProperties&, const RemoteLayerTreeContext&, WebCore::PlatformCALayer::LayerType);
 
@@ -309,7 +314,7 @@ private:
     LayerProperties m_properties;
     WebCore::PlatformCALayerList m_children;
     WeakPtr<PlatformCALayerRemote> m_superlayer;
-    HashMap<String, RefPtr<WebCore::PlatformCAAnimation>> m_animations;
+    HashMap<String, Ref<WebCore::PlatformCAAnimation>> m_animations;
 
     bool m_acceleratesDrawing { false };
     WeakPtr<RemoteLayerTreeContext> m_context;

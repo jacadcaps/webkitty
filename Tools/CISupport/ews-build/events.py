@@ -1,4 +1,4 @@
-# Copyright (C) 2019-2024 Apple Inc. All rights reserved.
+# Copyright (C) 2019-2025 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -28,7 +28,6 @@ import re
 import time
 import twisted
 
-from base64 import b64encode
 from buildbot.process.results import SUCCESS, FAILURE, CANCELLED, WARNINGS, SKIPPED, EXCEPTION, RETRY
 from buildbot.util import httpclientservice, service
 from buildbot.www.hooks.github import GitHubEventHandler
@@ -46,7 +45,7 @@ custom_suffix = get_custom_suffix()
 
 class Events(service.BuildbotService):
 
-    EVENT_SERVER_ENDPOINT = f'https://ews.webkit{custom_suffix}.org/results/'
+    EVENT_SERVER_ENDPOINT = load_password('EVENT_SERVER_ENDPOINT', default=f'https://ews.webkit{custom_suffix}.org/results/')
     MAX_GITHUB_DESCRIPTION = 140
     STEPS_TO_REPORT = [
         'analyze-api-tests-results', 'analyze-compile-webkit-results', 'analyze-jsc-tests-results',
@@ -62,9 +61,10 @@ class Events(service.BuildbotService):
         'build-webkit-org-unit-tests', 'buildbot-check-config', 'buildbot-check-config-for-build-webkit', 'buildbot-check-config-for-ews',
         'ews-unit-tests', 'resultsdbpy-unit-tests',
         'upload-built-product', 'upload-test-results',
-        'apply-watch-list', 'bindings-tests', 'check-webkit-style',
+        'bindings-tests', 'check-webkit-style',
         'webkitperl-tests', 're-run-webkitperl-tests', 'webkitpy-tests'
     ]
+    QUEUES_TO_SKIP_REPORTING = ['__Janitor', 'Safe-Merge-Queue']
 
     def __init__(self, master_hostname, type_prefix='', name='Events'):
         """
@@ -98,13 +98,11 @@ class Events(service.BuildbotService):
         if len(data['description']) > self.MAX_GITHUB_DESCRIPTION:
             data['description'] = '{}...'.format(data['description'][:self.MAX_GITHUB_DESCRIPTION - 3])
 
-        auth_header = b64encode('{}:{}'.format(username, access_token).encode('utf-8')).decode('utf-8')
-
         TwistedAdditions.request(
             url=GitHub.commit_status_url(sha, repository),
             type=b'POST',
             headers={
-                'Authorization': ['Basic {}'.format(auth_header)],
+                'Authorization': [f'Bearer {access_token}'],
                 'User-Agent': ['python-twisted/{}'.format(twisted.__version__)],
                 'Accept': ['application/vnd.github.v3+json'],
                 'Content-Type': ['application/json'],
@@ -115,7 +113,7 @@ class Events(service.BuildbotService):
         if not (build and 'properties' in build):
             return ''
 
-        return build.get('properties').get('buildername')[0]
+        return build.get('properties').get('buildername', [''])[0]
 
     def extractProperty(self, build, property_name):
         if not (build and 'properties' in build and property_name in build['properties']):
@@ -128,8 +126,15 @@ class Events(service.BuildbotService):
         if not build.get('properties'):
             build['properties'] = yield self.master.db.builds.getBuildProperties(build.get('buildid'))
 
+        if self.getBuilderName(build) in self.QUEUES_TO_SKIP_REPORTING:
+            return
+
         builder = yield self.master.db.builders.getBuilder(build.get('builderid'))
-        builder_display_name = builder.get('description')
+        # Handle both buildbot 2.x (dict) and 4.x (model object)
+        if isinstance(builder, dict):
+            builder_display_name = builder.get('description', '')
+        else:
+            builder_display_name = builder.description
 
         data = {
             "type": self.type_prefix + "build",
@@ -182,11 +187,16 @@ class Events(service.BuildbotService):
     def buildFinished(self, key, build):
         if not build.get('properties'):
             build['properties'] = yield self.master.db.builds.getBuildProperties(build.get('buildid'))
-        if not build.get('steps'):
-            build['steps'] = yield self.master.db.steps.getSteps(build.get('buildid'))
+
+        if self.getBuilderName(build) in self.QUEUES_TO_SKIP_REPORTING:
+            return
 
         builder = yield self.master.db.builders.getBuilder(build.get('builderid'))
-        build['description'] = builder.get('description', '?')
+        # Handle both buildbot 2.x (dict) and 4.x (model object)
+        if isinstance(builder, dict):
+            build['description'] = builder.get('description', '?')
+        else:
+            build['description'] = builder.description
 
         if self.extractProperty(build, 'github.number') and (custom_suffix == ''):
             self.buildFinishedGitHub(build)
@@ -207,8 +217,7 @@ class Events(service.BuildbotService):
             "complete_at": build.get('complete_at'),
             "state_string": build.get('state_string'),
             "builder_name": self.getBuilderName(build),
-            "builder_display_name": builder.get('description'),
-            "steps": build.get('steps'),
+            "builder_display_name": builder.get('description', '') if isinstance(builder, dict) else builder.description,
         }
 
         self.sendDataToEWS(data)
@@ -449,7 +458,6 @@ class GitHubEventHandlerNoEdits(GitHubEventHandler):
             return defer.returnValue([])
 
         username, access_token = GitHub.credentials()
-        auth_header = b64encode('{}:{}'.format(username, access_token).encode('utf-8')).decode('utf-8')
 
         response = yield TwistedAdditions.request(
             url="{}/repos/{}/commits".format(self.github_api_endpoint, repo),
@@ -459,7 +467,7 @@ class GitHubEventHandlerNoEdits(GitHubEventHandler):
                 per_page=100,
                 sha=head,
             ), headers=dict(
-                Authorization=['Basic {}'.format(auth_header)],
+                Authorization=[f'Bearer {access_token}'],
                 Accept=['application/vnd.github.v3+json'],
             ), logger=log.msg,
         )
@@ -481,7 +489,6 @@ class GitHubEventHandlerNoEdits(GitHubEventHandler):
         NUM_PAGE_LIMIT = 30  # GitHub stops returning files in a PR after 3000 files
 
         username, access_token = GitHub.credentials()
-        auth_header = b64encode('{}:{}'.format(username, access_token).encode('utf-8')).decode('utf-8')
 
         page = 1
         files = []
@@ -493,7 +500,7 @@ class GitHubEventHandlerNoEdits(GitHubEventHandler):
                     per_page=PER_PAGE_LIMIT,
                     page=page,
                 ), headers=dict(
-                    Authorization=['Basic {}'.format(auth_header)],
+                    Authorization=[f'Bearer {access_token}'],
                     Accept=['application/vnd.github.v3+json'],
                 ), logger=log.msg,
             )

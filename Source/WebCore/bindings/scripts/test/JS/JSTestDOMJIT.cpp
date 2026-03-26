@@ -576,7 +576,7 @@ void JSTestDOMJITPrototype::finishCreation(VM& vm)
 const ClassInfo JSTestDOMJIT::s_info = { "TestDOMJIT"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestDOMJIT) };
 
 JSTestDOMJIT::JSTestDOMJIT(Structure* structure, JSDOMGlobalObject& globalObject, Ref<TestDOMJIT>&& impl)
-    : JSNode(structure, globalObject, WTFMove(impl))
+    : JSNode(structure, globalObject, WTF::move(impl))
 {
 }
 
@@ -1101,7 +1101,7 @@ JSC_DEFINE_JIT_OPERATION(jsTestDOMJITPrototypeFunction_getAttributeWithoutTypeCh
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = castedThis->wrapped();
     auto name = DOMJIT::DirectConverter<IDLDOMString>::directConvert(*lexicalGlobalObject, encodedName);
     OPERATION_RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
-    OPERATION_RETURN(throwScope, JSValue::encode(toJS<IDLNullable<IDLDOMString>>(*lexicalGlobalObject, throwScope, impl.getAttribute(WTFMove(name)))));
+    OPERATION_RETURN(throwScope, JSValue::encode(toJS<IDLNullable<IDLDOMString>>(*lexicalGlobalObject, throwScope, impl.getAttribute(WTF::move(name)))));
 }
 
 static inline JSC::EncodedJSValue jsTestDOMJITPrototypeFunction_itemBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSTestDOMJIT>::ClassParameter castedThis)
@@ -1144,7 +1144,7 @@ JSC_DEFINE_JIT_OPERATION(jsTestDOMJITPrototypeFunction_itemWithoutTypeCheck, JSC
     OPERATION_RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
     auto y = DOMJIT::DirectConverter<IDLUnsignedShort>::directConvert(*lexicalGlobalObject, encodedY);
     OPERATION_RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
-    OPERATION_RETURN(throwScope, JSValue::encode(toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, impl.item(WTFMove(x), WTFMove(y)))));
+    OPERATION_RETURN(throwScope, JSValue::encode(toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, impl.item(WTF::move(x), WTF::move(y)))));
 }
 
 static inline JSC::EncodedJSValue jsTestDOMJITPrototypeFunction_hasAttributeBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSTestDOMJIT>::ClassParameter castedThis)
@@ -1210,7 +1210,7 @@ JSC_DEFINE_JIT_OPERATION(jsTestDOMJITPrototypeFunction_getElementByIdWithoutType
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = castedThis->wrapped();
     auto elementId = DOMJIT::DirectConverter<IDLRequiresExistingAtomStringAdaptor<IDLDOMString>>::directConvert(*lexicalGlobalObject, encodedElementId);
     OPERATION_RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
-    OPERATION_RETURN(throwScope, JSValue::encode(toJS<IDLInterface<Element>>(*lexicalGlobalObject, *castedThis->globalObject(), throwScope, impl.getElementById(WTFMove(elementId)))));
+    OPERATION_RETURN(throwScope, JSValue::encode(toJS<IDLInterface<Element>>(*lexicalGlobalObject, *castedThis->globalObject(), throwScope, impl.getElementById(WTF::move(elementId)))));
 }
 
 static inline JSC::EncodedJSValue jsTestDOMJITPrototypeFunction_getElementsByNameBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSTestDOMJIT>::ClassParameter castedThis)
@@ -1247,7 +1247,7 @@ JSC_DEFINE_JIT_OPERATION(jsTestDOMJITPrototypeFunction_getElementsByNameWithoutT
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = castedThis->wrapped();
     auto elementName = DOMJIT::DirectConverter<IDLAtomStringAdaptor<IDLDOMString>>::directConvert(*lexicalGlobalObject, encodedElementName);
     OPERATION_RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
-    OPERATION_RETURN(throwScope, JSValue::encode(toJS<IDLInterface<NodeList>>(*lexicalGlobalObject, *castedThis->globalObject(), throwScope, impl.getElementsByName(WTFMove(elementName)))));
+    OPERATION_RETURN(throwScope, JSValue::encode(toJS<IDLInterface<NodeList>>(*lexicalGlobalObject, *castedThis->globalObject(), throwScope, impl.getElementsByName(WTF::move(elementName)))));
 }
 
 JSC::GCClient::IsoSubspace* JSTestDOMJIT::subspaceForImpl(JSC::VM& vm)
@@ -1267,6 +1267,49 @@ void JSTestDOMJIT::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
     if (RefPtr context = thisObject->scriptExecutionContext())
         analyzer.setLabelForCell(cell, makeString("url "_s, context->url().string()));
     Base::analyzeHeap(cell, analyzer);
+}
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+#if ENABLE(BINDING_INTEGRITY)
+#if PLATFORM(WIN)
+#pragma warning(disable: 4483)
+extern "C" { extern void (*const __identifier("??_7TestDOMJIT@WebCore@@6B@")[])(); }
+#else
+extern "C" { extern void* _ZTVN7WebCore10TestDOMJITE[]; }
+#endif
+template<std::same_as<TestDOMJIT> T>
+static inline void verifyVTable(TestDOMJIT* ptr)
+{
+    if constexpr (std::is_polymorphic_v<T>) {
+        const void* actualVTablePointer = getVTablePointer<T>(ptr);
+#if PLATFORM(WIN)
+        void* expectedVTablePointer = __identifier("??_7TestDOMJIT@WebCore@@6B@");
+#else
+        void* expectedVTablePointer = &_ZTVN7WebCore10TestDOMJITE[2];
+#endif
+
+        // If you hit this assertion you either have a use after free bug, or
+        // TestDOMJIT has subclasses. If TestDOMJIT has subclasses that get passed
+        // to toJS() we currently require TestDOMJIT you to opt out of binding hardening
+        // by adding the SkipVTableValidation attribute to the interface IDL definition
+        RELEASE_ASSERT(actualVTablePointer == expectedVTablePointer);
+    }
+}
+#endif
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<TestDOMJIT>&& impl)
+{
+    UNUSED_PARAM(lexicalGlobalObject);
+#if ENABLE(BINDING_INTEGRITY)
+    verifyVTable<TestDOMJIT>(impl.ptr());
+#endif
+    return createWrapper<TestDOMJIT>(globalObject, WTF::move(impl));
+}
+
+JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestDOMJIT& impl)
+{
+    return wrap(lexicalGlobalObject, globalObject, impl);
 }
 
 

@@ -66,6 +66,15 @@ static unsigned globalKeyboardUpdateForChangedSelectionCount = 0;
 
 @end
 
+#if HAVE(MOUSE_DEVICE_OBSERVATION)
+
+@interface WKMouseDeviceObserver
++ (WKMouseDeviceObserver *)sharedInstance;
+- (void)_setHasMouseDeviceForTesting:(BOOL)hasMouseDevice;
+@end
+
+#endif
+
 #if HAVE(UI_WINDOW_SCENE_GEOMETRY_PREFERENCES)
 
 @interface WindowDidRotateObserver : NSObject
@@ -170,7 +179,6 @@ void TestController::platformInitialize(const Options& options)
     cocoaPlatformInitialize(options);
 
     [UIApplication sharedApplication].idleTimerDisabled = YES;
-    [[UIScreen mainScreen] _setScale:2.0];
 
     auto center = CFNotificationCenterGetLocalCenter();
     CFNotificationCenterAddObserver(center, this, handleKeyboardWillHideNotification, (CFStringRef)UIKeyboardWillHideNotification, nullptr, CFNotificationSuspensionBehaviorDeliverImmediately);
@@ -204,6 +212,11 @@ void TestController::platformDestroy()
     CFNotificationCenterRemoveObserver(center, this, (CFStringRef)UIMenuControllerWillHideMenuNotification, nullptr);
     CFNotificationCenterRemoveObserver(center, this, (CFStringRef)UIMenuControllerDidHideMenuNotification, nullptr);
     ALLOW_DEPRECATED_DECLARATIONS_END
+
+#if !ENABLE(DNS_SERVER_FOR_TESTING_IN_NETWORKING_PROCESS)
+    if (auto resolverConfig = m_resolverConfig)
+        nw_resolver_config_unpublish(resolverConfig.get());
+#endif
 }
 
 void TestController::initializeInjectedBundlePath()
@@ -307,13 +320,12 @@ bool TestController::platformResetStateToConsistentValues(const TestOptions& opt
     [UIKeyboardImpl.activeInstance setCorrectionLearningAllowed:NO];
     [pasteboardConsistencyEnforcer() clearPasteboard];
     [[UIApplication sharedApplication] _cancelAllTouches];
-    [[UIScreen mainScreen] _setScale:2.0];
     [[HIDEventGenerator sharedHIDEventGenerator] resetActiveModifiers];
 
     restorePortraitOrientationIfNeeded();
 
     // Ensures that only the UCB is on-screen when showing the keyboard, if the hardware keyboard is attached.
-    TIPreferencesController *textInputPreferences = [getTIPreferencesControllerClass() sharedPreferencesController];
+    TIPreferencesController *textInputPreferences = [getTIPreferencesControllerClassSingleton() sharedPreferencesController];
     if (!textInputPreferences.automaticMinimizationEnabled)
         textInputPreferences.automaticMinimizationEnabled = YES;
 
@@ -384,6 +396,10 @@ bool TestController::platformResetStateToConsistentValues(const TestOptions& opt
 
 #if HAVE(UIFINDINTERACTION)
         webView.findInteractionEnabled = options.findInteractionEnabled();
+#endif
+
+#if ENABLE(MODEL_ELEMENT_IMMERSIVE)
+        webView.shouldAcceptImmersiveEnvironmentRequests = options.shouldAcceptImmersiveEnvironmentRequests();
 #endif
 
         UIScrollView *scrollView = webView.scrollView;
@@ -616,6 +632,25 @@ void TestController::unlockScreenOrientation()
     [UIView performWithoutAnimation:^{
         [webView.window.rootViewController setNeedsUpdateOfSupportedInterfaceOrientations];
     }];
+}
+#endif
+
+#if PLATFORM(IOS_FAMILY)
+void TestController::setHasMouseDeviceForTesting(bool hasMouseDevice)
+{
+#if HAVE(MOUSE_DEVICE_OBSERVATION)
+    [[NSClassFromString(@"WKMouseDeviceObserver") sharedInstance] _setHasMouseDeviceForTesting:hasMouseDevice];
+#else
+    UNUSED_PARAM(hasMouseDevice);
+#endif
+}
+#endif
+
+#if ENABLE(MODEL_ELEMENT_IMMERSIVE)
+void TestController::exitImmersive()
+{
+    TestRunnerWKWebView *webView = mainWebView()->platformView();
+    [webView _exitImmersive];
 }
 #endif
 

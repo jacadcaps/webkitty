@@ -38,7 +38,7 @@
 #include <WebCore/WebGPUXRSubImage.h>
 #include <wtf/TZoneMalloc.h>
 
-#define MESSAGE_CHECK(assertion) MESSAGE_CHECK_OPTIONAL_CONNECTION_BASE(assertion, connection())
+#define MESSAGE_CHECK(assertion) MESSAGE_CHECK_BASE(assertion, m_streamConnection)
 
 namespace WebKit {
 
@@ -47,7 +47,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteXRSubImage);
 RemoteXRSubImage::RemoteXRSubImage(GPUConnectionToWebProcess& gpuConnectionToWebProcess, WebCore::WebGPU::XRSubImage& xrSubImage, WebGPU::ObjectHeap& objectHeap, Ref<IPC::StreamServerConnection>&& streamConnection, RemoteGPU& gpu, WebGPUIdentifier identifier)
     : m_backing(xrSubImage)
     , m_objectHeap(objectHeap)
-    , m_streamConnection(WTFMove(streamConnection))
+    , m_streamConnection(WTF::move(streamConnection))
     , m_gpuConnectionToWebProcess(gpuConnectionToWebProcess)
     , m_identifier(identifier)
     , m_gpu(gpu)
@@ -70,14 +70,6 @@ Ref<WebCore::WebGPU::XRSubImage> RemoteXRSubImage::protectedBacking()
 Ref<RemoteGPU> RemoteXRSubImage::protectedGPU() const
 {
     return m_gpu.get();
-}
-
-RefPtr<IPC::Connection> RemoteXRSubImage::connection() const
-{
-    RefPtr connection = protectedGPU()->gpuConnectionToWebProcess();
-    if (!connection)
-        return nullptr;
-    return &connection->connection();
 }
 
 void RemoteXRSubImage::destruct()

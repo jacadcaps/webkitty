@@ -38,8 +38,8 @@
 #import "WebExtensionAPITabs.h"
 #import "WebExtensionMessageSenderParameters.h"
 #import "WebFrame.h"
-#import <WebCore/DocumentInlines.h>
-#import <WebCore/LocalFrame.h>
+#import <WebCore/Document.h>
+#import <WebCore/LocalFrameInlines.h>
 #import <objc/runtime.h>
 
 #if PLATFORM(IOS_FAMILY)
@@ -50,12 +50,8 @@ namespace WebKit {
 
 static NSString *classToClassString(Class classType, bool plural = false)
 {
-    static NSMapTable<Class, NSString *> *classTypeToSingularClassString;
-    static NSMapTable<Class, NSString *> *classTypeToPluralClassString;
-
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        classTypeToSingularClassString = [NSMapTable strongToStrongObjectsMapTable];
+    static NSMapTable<Class, NSString *> *classTypeToSingularClassString = [] {
+        auto *classTypeToSingularClassString = [NSMapTable strongToStrongObjectsMapTable];
         [classTypeToSingularClassString setObject:@"a boolean" forKey:@YES.class];
         [classTypeToSingularClassString setObject:@"a number" forKey:NSNumber.class];
         [classTypeToSingularClassString setObject:@"a string" forKey:NSString.class];
@@ -63,8 +59,10 @@ static NSString *classToClassString(Class classType, bool plural = false)
         [classTypeToSingularClassString setObject:@"null" forKey:NSNull.class];
         [classTypeToSingularClassString setObject:@"an array" forKey:NSArray.class];
         [classTypeToSingularClassString setObject:@"an object" forKey:NSDictionary.class];
-
-        classTypeToPluralClassString = [NSMapTable strongToStrongObjectsMapTable];
+        return classTypeToSingularClassString;
+    }();
+    static NSMapTable<Class, NSString *> *classTypeToPluralClassString = [] {
+        auto *classTypeToPluralClassString = [NSMapTable strongToStrongObjectsMapTable];
         [classTypeToPluralClassString setObject:@"booleans" forKey:@YES.class];
         [classTypeToPluralClassString setObject:@"numbers" forKey:NSNumber.class];
         [classTypeToPluralClassString setObject:@"strings" forKey:NSString.class];
@@ -72,7 +70,8 @@ static NSString *classToClassString(Class classType, bool plural = false)
         [classTypeToPluralClassString setObject:@"null values" forKey:NSNull.class];
         [classTypeToPluralClassString setObject:@"arrays" forKey:NSArray.class];
         [classTypeToPluralClassString setObject:@"objects" forKey:NSDictionary.class];
-    });
+        return classTypeToPluralClassString;
+    }();
 
     NSMapTable<Class, NSString *> *classTypeToClassString = plural ? classTypeToPluralClassString : classTypeToSingularClassString;
 
@@ -100,13 +99,13 @@ static NSString *valueToTypeString(NSObject *value, bool plural = false)
         if (scriptValue.isUndefined)
             return plural ? @"undefined values" : @"undefined";
 
-        if (scriptValue._isRegularExpression)
+        if (isRegularExpression(scriptValue.context.JSGlobalContextRef, scriptValue.JSValueRef))
             return plural ? @"regular expressions" : @"a regular expression";
 
-        if (scriptValue._isThenable)
+        if (isThenable(scriptValue.context.JSGlobalContextRef, scriptValue.JSValueRef))
             return plural ? @"promises" : @"a promise";
 
-        if (scriptValue._isFunction)
+        if (isFunction(scriptValue.context.JSGlobalContextRef, scriptValue.JSValueRef))
             return plural ? @"functions" : @"a function";
     }
 
@@ -314,11 +313,6 @@ bool validateObject(NSObject *object, NSString *sourceKey, id expectedValueType,
         *outExceptionString = toErrorString(nullString(), sourceKey, errorString).createNSString().autorelease();
 
     return !errorString;
-}
-
-JSObjectRef toJSError(JSContextRef context, NSString *callingAPIName, NSString *sourceKey, NSString *underlyingErrorString)
-{
-    return toJSError(context, toErrorString(callingAPIName, sourceKey, underlyingErrorString).createNSString().get());
 }
 
 JSObjectRef toJSRejectedPromise(JSContextRef context, NSString *callingAPIName, NSString *sourceKey, NSString *underlyingErrorString)

@@ -1180,3 +1180,40 @@ TEST(WKHTTPCookieStore, SetCookies)
     TestWebKitAPI::Util::run(&done);
     done = false;
 }
+
+#if ENABLE(OPT_IN_PARTITIONED_COOKIES)
+TEST(WKHTTPCookieStore, PartitionedCookieShouldNotHavePartitionProperty)
+{
+    using namespace TestWebKitAPI;
+
+    TestWebKitAPI::HTTPServer server({
+        { "/"_s, { { { "Content-Type"_s, "text/html"_s }, { "Set-Cookie"_s, "test=value;Secure;SameSite=None;Partitioned"_s } }, ""_s } }
+    }, TestWebKitAPI::HTTPServer::Protocol::HttpsProxy);
+
+    auto storeConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] initNonPersistentConfiguration]);
+    [storeConfiguration setHTTPSProxy:[NSURL URLWithString:[NSString stringWithFormat:@"https://127.0.0.1:%d/", server.port()]]];
+    auto viewConfiguration = adoptNS([WKWebViewConfiguration new]);
+    [viewConfiguration setWebsiteDataStore:adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:storeConfiguration.get()]).get()];
+
+    auto delegate = adoptNS([TestNavigationDelegate new]);
+    [delegate allowAnyTLSCertificate];
+
+    auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectZero configuration:viewConfiguration.get()]);
+    [webView setNavigationDelegate:delegate.get()];
+
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://example.com/"]]];
+    [delegate waitForDidFinishNavigation];
+
+    __block bool gotCookieCallback { false };
+    [viewConfiguration.get().websiteDataStore.httpCookieStore getAllCookies:^(NSArray<NSHTTPCookie *> *cookies) {
+        EXPECT_EQ(cookies.count, 1u);
+        EXPECT_WK_STREQ(cookies[0].name, @"test");
+        EXPECT_WK_STREQ(cookies[0].value, @"value");
+        EXPECT_WK_STREQ(cookies[0].properties[NSHTTPCookieName], @"test");
+        EXPECT_WK_STREQ(cookies[0].properties[NSHTTPCookieValue], @"value");
+        EXPECT_NULL(cookies[0].properties[@"StoragePartition"]);
+        gotCookieCallback = true;
+    }];
+    Util::run(&gotCookieCallback);
+}
+#endif

@@ -8,9 +8,8 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include <stdio.h>
-
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <map>
@@ -599,7 +598,7 @@ class RtpReplayer final {
     int64_t replay_start_ms = -1;
     int num_packets = 0;
     std::map<uint32_t, int> unknown_packets;
-    Event event(/*manual_reset=*/false, /*initially_signalled=*/false);
+    Event event(/*manual_reset=*/false, /*initially_signaled=*/false);
     uint32_t start_timestamp = absl::GetFlag(FLAGS_start_timestamp);
     uint32_t stop_timestamp = absl::GetFlag(FLAGS_stop_timestamp);
 
@@ -645,19 +644,20 @@ class RtpReplayer final {
       worker_thread_->PostTask([&]() {
         if (IsRtcpPacket(packet_buffer)) {
           call_->Receiver()->DeliverRtcpPacket(std::move(packet_buffer));
-        }
-        RtpPacketReceived received_packet(&extensions,
-                                          Timestamp::Millis(CurrentTimeMs()));
-        if (!received_packet.Parse(std::move(packet_buffer))) {
-          result = Result::kParsingFailed;
         } else {
-          call_->Receiver()->DeliverRtpPacket(
-              MediaType::VIDEO, received_packet,
-              [&result](const RtpPacketReceived& parsed_packet) -> bool {
-                result = Result::kUnknownSsrc;
-                // No point in trying to demux again.
-                return false;
-              });
+          RtpPacketReceived received_packet(&extensions,
+                                            Timestamp::Millis(CurrentTimeMs()));
+          if (!received_packet.Parse(std::move(packet_buffer))) {
+            result = Result::kParsingFailed;
+          } else {
+            call_->Receiver()->DeliverRtpPacket(
+                MediaType::VIDEO, received_packet,
+                [&result](const RtpPacketReceived& parsed_packet) -> bool {
+                  result = Result::kUnknownSsrc;
+                  // No point in trying to demux again.
+                  return false;
+                });
+          }
         }
         event.Set();
       });

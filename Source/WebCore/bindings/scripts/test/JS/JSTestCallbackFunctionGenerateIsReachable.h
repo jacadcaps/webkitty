@@ -23,7 +23,7 @@
 #include "IDLTypes.h"
 #include "JSCallbackData.h"
 #include "TestCallbackFunctionGenerateIsReachable.h"
-#include "WebCoreOpaqueRootInlines.h"
+#include "WebCoreOpaqueRoot.h"
 #include <wtf/Forward.h>
 
 namespace WebCore {

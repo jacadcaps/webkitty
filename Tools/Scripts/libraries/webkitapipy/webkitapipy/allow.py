@@ -27,10 +27,10 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from enum import Enum
-from typing import Any
+from typing import Any, NamedTuple, Optional, Union
 
 if sys.version_info < (3, 11):
-    from webkitapipy._vendor import tomli
+    from webkitapipy._vendor import tomli as tomllib
 else:
     import tomllib
 
@@ -44,17 +44,33 @@ else:
 
 @dataclass
 class AllowedSPI:
-    key: str
-    bug: str | PermanentlyAllowedReason
+    reason: AllowedReason
+    bugs: Bugs
 
     symbols: list[str]
-    selectors: list[str]
+    selectors: list[Selector]
     classes: list[str]
     requires: list[str] = field(default_factory=list)
+    allow_unused: bool = False
+
+    class Selector(NamedTuple):
+        name: str
+        class_: Optional[str]
+
+    class Bugs(NamedTuple):
+        request: Optional[str]
+        cleanup: Optional[str]
 
 
-class PermanentlyAllowedReason(StrEnum):
+class AllowedReason(StrEnum):
     LEGACY = 'legacy'
+
+    # For SPI that we intend to replace with API before the next release.
+    TEMPORARY_USAGE = 'temporary-usage'
+
+    # For pre-adopting new API before it is available in the SDK. There should
+    # be no active `staging` entries when WebKit ships.
+    STAGING = 'staging'
 
     # For SPI implementing non-essential web engine features that a browser
     # vendor would either not use or provide their own implementation.
@@ -71,24 +87,52 @@ class AllowList:
     @classmethod
     def from_dict(cls, doc: dict[str, Any]) -> AllowList:
         entries = []
-        seen_syms: dict[str, AllowedSPI] = {}
-        seen_sels: dict[str, AllowedSPI] = {}
-        seen_clss: dict[str, AllowedSPI] = {}
-        for key in doc:
-            for bug, entry in doc[key].items():
-                if bug.startswith('rdar://') or \
-                        bug.startswith('https://bugs.webkit.org') or \
-                        bug.startswith('https://webkit.org/b/'):
-                    pass
-                else:
-                    bug = PermanentlyAllowedReason(bug)
+        seen_syms: dict[Union[str, AllowedSPI.Selector], AllowedSPI] = {}
+        seen_sels: dict[Union[str, AllowedSPI.Selector], AllowedSPI] = {}
+        seen_clss: dict[Union[str, AllowedSPI.Selector], AllowedSPI] = {}
+        for reason in AllowedReason:
+            for entry in doc.pop(reason.value, []):
+                clss = entry.pop('classes', [])
+                reqs = entry.pop('requires', [])
+                sels = []
+                for sel in entry.pop('selectors', []):
+                    receiver = sel.get('class')
+                    sels.append(AllowedSPI.Selector(sel['name'],
+                                                    None if receiver == '?' else receiver))
+                # Symbols use C-style name mangling rules (implicit leading
+                # underscore), so that the names of C symbols in allowlists
+                # match their spelling in code. Internally, symbols are tracked
+                # in their raw form.
+                syms = []
+                for sym in entry.pop('symbols', []):
+                    syms.append(f'_{sym}')
 
-                syms = entry.get('symbols', [])
-                sels = entry.get('selectors', [])
-                clss = entry.get('classes', [])
-                reqs = entry.get('requires', [])
-                allow = AllowedSPI(key=key, bug=bug, symbols=syms,
-                                   selectors=sels, classes=clss, requires=reqs)
+                bugs = AllowedSPI.Bugs(entry.pop('request', None),
+                                       entry.pop('cleanup', None))
+                allow_unused = bool(entry.pop('allow-unused', False))
+                allow = AllowedSPI(reason=reason, bugs=bugs, symbols=syms,
+                                   selectors=sels, classes=clss, requires=reqs,
+                                   allow_unused=allow_unused)
+
+                if reason == AllowedReason.TEMPORARY_USAGE:
+                    if not bugs.cleanup:
+                        # Typically a temporary-use entry should have *both* a
+                        # request and cleanup bug, but in some cases the
+                        # temporary usage does not require new API to resolve.
+                        # For example, using SPI to work around a bug in an
+                        # underlying framework.
+                        raise ValueError('Allowlist entries marked '
+                                         'temporary-usage must have a '
+                                         f'"cleanup" bug: {allow}')
+                elif reason not in (AllowedReason.LEGACY,
+                                    AllowedReason.STAGING):
+                    if not bugs.request:
+                        raise ValueError('Allowlist entries must have a '
+                                         f'"request" bug: {allow}')
+
+                if entry:
+                    raise ValueError('Unrecognized items in allowlist entry: '
+                                     f'{entry}')
 
                 # Validate that each section is a list (not a string, to avoid
                 # treating each character as a separate declaration), and that
@@ -106,17 +150,23 @@ class AllowList:
                                          'string, expected a list')
                     for item in items:
                         if (prev := prevs.get(item)) and prev.requires == reqs:
-                            raise ValueError(f'"{item}" already mentioned in '
-                                             f'allowlist at "{prev.key}".'
-                                             f'"{prev.bug}"')
+                            raise ValueError(f'"{item}" in "{bugs.request}" '
+                                             'already mentioned in allowlist '
+                                             f'at "{prev.bugs.request}".')
                         prevs[item] = allow
                 entries.append(allow)
+        if doc:
+            raise ValueError(f'Unrecognized items in allowlist: {doc.keys()}')
         return cls(entries)
 
     @classmethod
     def from_file(cls, config_file: Path) -> AllowList:
-        if sys.version_info < (3, 11):
-            doc = tomli.load(config_file.open('rb'))
-        else:
+        try:
             doc = tomllib.load(config_file.open('rb'))
+        except tomllib.TOMLDecodeError as error:
+            if sys.version_info < (3, 11):
+                raise ValueError(f'{config_file}: error: decode failed') from error
+            else:
+                error.add_note(f'{config_file}: error: decode failed"')
+                raise
         return cls.from_dict(doc)

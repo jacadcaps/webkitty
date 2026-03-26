@@ -41,12 +41,12 @@
 #import "WebPreferenceKeysPrivate.h"
 #import "WebPreferencesDefinitions.h"
 #import <JavaScriptCore/InitializeThreading.h>
-#import <WebCore/ApplicationCacheStorage.h>
 #import <WebCore/AudioSession.h>
 #import <WebCore/MediaPlayerEnums.h>
 #import <WebCore/NetworkStorageSession.h>
 #import <WebCore/Settings.h>
 #import <WebCore/WebCoreJITOperations.h>
+#import <WebCore/WebCoreMainThread.h>
 #import <pal/spi/cf/CFNetworkSPI.h>
 #import <pal/text/TextEncodingRegistry.h>
 #import <wtf/BlockPtr.h>
@@ -57,6 +57,7 @@
 #import <wtf/RunLoop.h>
 #import <wtf/RuntimeApplicationChecks.h>
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
+#import <wtf/darwin/DispatchOSObject.h>
 
 using namespace WebCore;
 
@@ -200,13 +201,13 @@ struct WebPreferencesPrivate
 public:
     WebPreferencesPrivate()
 #if PLATFORM(IOS_FAMILY)
-        : readWriteQueue { adoptNS(dispatch_queue_create("com.apple.WebPreferences.ReadWriteQueue", DISPATCH_QUEUE_CONCURRENT)) }
+        : readWriteQueue { adoptOSObject(dispatch_queue_create("com.apple.WebPreferences.ReadWriteQueue", DISPATCH_QUEUE_CONCURRENT)) }
 #endif
     {
     }
 
 #if PLATFORM(IOS_FAMILY)
-    RetainPtr<dispatch_queue_t> readWriteQueue;
+    OSObjectPtr<dispatch_queue_t> readWriteQueue;
 #endif
     RetainPtr<NSMutableDictionary> values;
     RetainPtr<NSString> identifier;
@@ -384,13 +385,9 @@ public:
 // if we ever have more than one WebPreferences object, this would move to init
 + (void)initialize
 {
-#if PLATFORM(MAC)
-    JSC::initialize();
-    WTF::initializeMainThread();
-    WebCore::populateJITOperations();
-#endif
+    WebCore::initializeMainThreadIfNeeded();
 
-    NSDictionary *dict = [NSDictionary dictionaryWithObjectsAndKeys:
+    RetainPtr dict = [NSDictionary dictionaryWithObjectsAndKeys:
         INITIALIZE_DEFAULT_PREFERENCES_DICTIONARY_FROM_GENERATED_PREFERENCES
 
         @NO, WebKitUserStyleSheetEnabledPreferenceKey,
@@ -401,7 +398,7 @@ public:
         @NO, WebKitPrivateBrowsingEnabledPreferenceKey,
         @(cacheModelForMainBundle([[NSBundle mainBundle] bundleIdentifier])), WebKitCacheModelPreferenceKey,
         @YES, WebKitZoomsTextOnlyPreferenceKey,
-        [NSNumber numberWithLongLong:ApplicationCacheStorage::noQuota()], WebKitApplicationCacheTotalQuota,
+        @0, WebKitApplicationCacheTotalQuota,
 
         // FIXME: Are these relevent to WebKitLegacy? If not, we should remove them.
         @NO, WebKitResourceLoadStatisticsEnabledPreferenceKey,
@@ -431,7 +428,7 @@ public:
     // This value shouldn't ever change, which is assumed in the initialization of WebKitPDFDisplayModePreferenceKey above
     ASSERT(kPDFDisplaySinglePageContinuous == 1);
 #endif
-    [[NSUserDefaults standardUserDefaults] registerDefaults:dict];
+    [[NSUserDefaults standardUserDefaults] registerDefaults:dict.get()];
 }
 
 - (void)dealloc
@@ -495,13 +492,13 @@ public:
     if (![value isKindOfClass:[NSArray class]])
         return nil;
 
-    NSArray *array = (NSArray *)value;
-    for (id object in array) {
+    RetainPtr array = (NSArray *)value;
+    for (id object in array.get()) {
         if (![object isKindOfClass:[NSString class]])
             return nil;
     }
 
-    return (NSArray<NSString *> *)array;
+    return (NSArray<NSString *> *)array.autorelease();
 }
 
 - (void)_setStringArrayValueForKey:(NSArray<NSString *> *)value forKey:(NSString *)key

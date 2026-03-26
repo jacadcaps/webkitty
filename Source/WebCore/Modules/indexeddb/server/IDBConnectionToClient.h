@@ -25,10 +25,11 @@
 
 #pragma once
 
-#include "IDBConnectionToClientDelegate.h"
+#include <WebCore/IDBConnectionToClientDelegate.h>
 #include <wtf/HashSet.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
+#include <wtf/WeakHashSet.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -87,7 +88,7 @@ private:
     IDBConnectionToClient(IDBConnectionToClientDelegate&);
     
     CheckedPtr<IDBConnectionToClientDelegate> m_delegate;
-    HashSet<UniqueIDBDatabaseConnection*> m_databaseConnections;
+    WeakHashSet<UniqueIDBDatabaseConnection> m_databaseConnections;
     bool m_isClosed { false };
 };
 

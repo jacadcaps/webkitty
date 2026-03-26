@@ -33,6 +33,7 @@
 #import "WebPluginPackage.h"
 #import <JavaScriptCore/InitializeThreading.h>
 #import <WebCore/WebCoreJITOperations.h>
+#import <WebCore/WebCoreMainThread.h>
 #import <algorithm>
 #import <mach-o/arch.h>
 #import <mach-o/fat.h>
@@ -58,11 +59,7 @@ static constexpr auto QuickTimeCocoaPluginIdentifier = "com.apple.quicktime.webp
 
 + (void)initialize
 {
-#if !PLATFORM(IOS_FAMILY)
-    JSC::initialize();
-    WTF::initializeMainThread();
-    WebCore::populateJITOperations();
-#endif
+    WebCore::initializeMainThreadIfNeeded();
 }
 
 + (WebBasePluginPackage *)pluginWithPath:(NSString *)pluginPath
@@ -113,11 +110,11 @@ static constexpr auto QuickTimeCocoaPluginIdentifier = "com.apple.quicktime.webp
 
 - (id)_objectForInfoDictionaryKey:(NSString *)key
 {
-    CFDictionaryRef bundleInfoDictionary = CFBundleGetInfoDictionary(cfBundle.get());
+    RetainPtr bundleInfoDictionary = CFBundleGetInfoDictionary(cfBundle.get());
     if (!bundleInfoDictionary)
         return nil;
 
-    return (__bridge id)CFDictionaryGetValue(bundleInfoDictionary, (__bridge CFStringRef)key);
+    return (__bridge id)CFDictionaryGetValue(bundleInfoDictionary.get(), (__bridge CFStringRef)key);
 }
 
 - (BOOL)getPluginInfoFromPLists
@@ -158,17 +155,17 @@ static constexpr auto QuickTimeCocoaPluginIdentifier = "com.apple.quicktime.webp
         pluginInfo.mimes.append(mimeClassInfo);
     }
 
-    NSString *filename = [path.createNSString() lastPathComponent];
-    pluginInfo.file = filename;
+    RetainPtr filename = [path.createNSString() lastPathComponent];
+    pluginInfo.file = filename.get();
 
     NSString *theName = [self _objectForInfoDictionaryKey:WebPluginNameKey];
     if (!theName)
-        theName = filename;
+        theName = filename.get();
     pluginInfo.name = theName;
 
     NSString *description = [self _objectForInfoDictionaryKey:WebPluginDescriptionKey];
     if (!description)
-        description = filename;
+        description = filename.get();
     pluginInfo.desc = description;
 
     pluginInfo.isApplicationPlugin = false;
@@ -369,11 +366,11 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (String)bundleVersion
 {
-    auto infoDictionary = CFBundleGetInfoDictionary(cfBundle.get());
+    RetainPtr infoDictionary = CFBundleGetInfoDictionary(cfBundle.get());
     if (!infoDictionary)
         return String();
 
-    return dynamic_cf_cast<CFStringRef>(CFDictionaryGetValue(infoDictionary, kCFBundleVersionKey));
+    return dynamic_cf_cast<CFStringRef>(CFDictionaryGetValue(infoDictionary.get(), kCFBundleVersionKey));
 }
 
 @end

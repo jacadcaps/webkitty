@@ -45,7 +45,7 @@ std::unique_ptr<SandboxExtensionImpl> SandboxExtensionImpl::create(const char* p
 }
 
 SandboxExtensionImpl::SandboxExtensionImpl(std::span<const uint8_t> serializedFormat)
-    : m_token { serializedFormat }
+    : m_token { byteCast<Latin1Character>(serializedFormat) }
 {
     ASSERT(!serializedFormat.empty());
 }
@@ -56,7 +56,7 @@ SandboxExtensionImpl::~SandboxExtensionImpl()
         secureMemsetSpan(m_token.mutableSpan(), 0);
 }
 
-bool WARN_UNUSED_RETURN SandboxExtensionImpl::consume()
+[[nodiscard]] bool SandboxExtensionImpl::consume()
 {
     m_handle = sandbox_extension_consume(m_token.data());
 #if PLATFORM(IOS_FAMILY_SIMULATOR)
@@ -187,10 +187,12 @@ auto SandboxExtension::createHandleWithoutResolvingPath(StringView path, Type ty
 
     handle.m_sandboxExtension = SandboxExtensionImpl::create(path.utf8().data(), type, std::nullopt, Flags::DoNotCanonicalize);
     if (!handle.m_sandboxExtension) {
-        RELEASE_LOG_ERROR(Sandbox, "Could not create a sandbox extension for '%s'", path.utf8().data());
+        RELEASE_LOG_ERROR(Sandbox, "Could not create a sandbox extension for '%{private}s'", path.utf8().data());
         return std::nullopt;
     }
-    return WTFMove(handle);
+
+    RELEASE_LOG(Sandbox, "Successfully created a sandbox extension for '%{private}s'", path.utf8().data());
+    return WTF::move(handle);
 }
 
 auto SandboxExtension::createHandle(StringView path, Type type) -> std::optional<Handle>
@@ -202,7 +204,7 @@ template<typename Collection, typename Function> static Vector<SandboxExtension:
 {
     return WTF::compactMap(resources, [&](auto& resource) -> std::optional<SandboxExtension::Handle> {
         if (auto handle = createFunction(resource))
-            return WTFMove(*handle);
+            return WTF::move(*handle);
         return std::nullopt;
     });
 }
@@ -256,7 +258,7 @@ auto SandboxExtension::createHandleForTemporaryFile(StringView prefix, Type type
         WTFLogAlways("Could not create a sandbox extension for temporary file '%s'", pathString.utf8().data());
         return std::nullopt;
     }
-    return { { WTFMove(handle), WTFMove(pathString) } };
+    return { { WTF::move(handle), WTF::move(pathString) } };
 }
 
 auto SandboxExtension::createHandleForGenericExtension(ASCIILiteral extensionClass) -> std::optional<Handle>
@@ -270,14 +272,14 @@ auto SandboxExtension::createHandleForGenericExtension(ASCIILiteral extensionCla
         return std::nullopt;
     }
     
-    return WTFMove(handle);
+    return WTF::move(handle);
 }
 
 auto SandboxExtension::createHandleForMachBootstrapExtension() -> Handle
 {
     auto handle = SandboxExtension::createHandleForGenericExtension("com.apple.webkit.mach-bootstrap"_s);
     if (handle)
-        return WTFMove(*handle);
+        return WTF::move(*handle);
     return Handle();
 }
 
@@ -292,7 +294,7 @@ auto SandboxExtension::createHandleForMachLookup(ASCIILiteral service, std::opti
         return std::nullopt;
     }
     
-    return WTFMove(handle);
+    return WTF::move(handle);
 }
 
 auto SandboxExtension::createHandlesForMachLookup(std::span<const ASCIILiteral> services, std::optional<audit_token_t> auditToken, MachBootstrapOptions machBootstrapOptions, OptionSet<Flags> flags) -> Vector<Handle>
@@ -322,11 +324,12 @@ auto SandboxExtension::createHandleForReadByAuditToken(StringView path, audit_to
 
     handle.m_sandboxExtension = SandboxExtensionImpl::create(path.utf8().data(), Type::ReadByProcess, auditToken);
     if (!handle.m_sandboxExtension) {
-        RELEASE_LOG_ERROR(Sandbox, "Could not create a sandbox extension for '%s'", path.utf8().data());
+        RELEASE_LOG_ERROR(Sandbox, "Could not create a sandbox extension for '%{private}s'", path.utf8().data());
         return std::nullopt;
     }
     
-    return WTFMove(handle);
+    RELEASE_LOG(Sandbox, "Successfully created sandbox extension for '%{private}s'", path.utf8().data());
+    return WTF::move(handle);
 }
 
 auto SandboxExtension::createHandleForIOKitClassExtension(ASCIILiteral ioKitClass, std::optional<audit_token_t> auditToken, OptionSet<Flags> flags) -> std::optional<Handle>
@@ -340,7 +343,7 @@ auto SandboxExtension::createHandleForIOKitClassExtension(ASCIILiteral ioKitClas
         return std::nullopt;
     }
 
-    return WTFMove(handle);
+    return WTF::move(handle);
 }
 
 auto SandboxExtension::createHandlesForIOKitClassExtensions(std::span<const ASCIILiteral> iokitClasses, std::optional<audit_token_t> auditToken, OptionSet<Flags> flags) -> Vector<Handle>
@@ -353,7 +356,7 @@ auto SandboxExtension::createHandlesForIOKitClassExtensions(std::span<const ASCI
 }
 
 SandboxExtension::SandboxExtension(const Handle& handle)
-    : m_sandboxExtension(WTFMove(handle.m_sandboxExtension))
+    : m_sandboxExtension(WTF::move(handle.m_sandboxExtension))
 {
 }
 

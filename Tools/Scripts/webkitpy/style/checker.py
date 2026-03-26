@@ -152,13 +152,7 @@ _PATH_RULES_SPECIFIER = [
      ["-readability/naming"]),
 
     ([
-        # The WPEQtViewBackend class needs to enforce a certain include order to the gbm.h/epoxy constraints.
-        os.path.join('Source', 'WebKit', 'UIProcess', 'API', 'wpe', 'qt5', 'WPEQtViewBackend.h')],
-     ["-build/include_order"]),
-
-    ([
         # The WPEQtViewLoadRequest class uses Qt naming conventions (d_ptr).
-        os.path.join('Source', 'WebKit', 'UIProcess', 'API', 'wpe', 'qt5', 'WPEQtViewLoadRequest.h'),
         os.path.join('Source', 'WebKit', 'UIProcess', 'API', 'wpe', 'qt6', 'WPEQtViewLoadRequest.h'),
 
         # The WPEQtView class uses Qt naming conventions (d_ptr).
@@ -169,7 +163,6 @@ _PATH_RULES_SPECIFIER = [
         # The WPEQtView class can't rely on the readability/parameter_name rule,
         # because omitting parameter names for QML signals leads to runtime
         # errors.
-        os.path.join('Source', 'WebKit', 'UIProcess', 'API', 'wpe', 'qt5', 'WPEQtView.h'),
         os.path.join('Source', 'WebKit', 'UIProcess', 'API', 'wpe', 'qt6', 'WPEQtView.h')],
      ["-readability/parameter_name", "-readability/naming/acronym"]),
 
@@ -195,9 +188,7 @@ _PATH_RULES_SPECIFIER = [
     ([
         # The WPE QT wrapper lib is not part of Webkit and therefore don't need to statically
         # link the WTF framework. Instead it uses the standard alloc mechanism.
-        os.path.join('Source', 'WebKit', 'UIProcess', 'API', 'wpe', 'qt5'),
         os.path.join('Source', 'WebKit', 'UIProcess', 'API', 'wpe', 'qt6'),
-        os.path.join('Tools', 'MiniBrowser', 'wpe', 'qt5', 'main.cpp'),
         os.path.join('Tools', 'MiniBrowser', 'wpe', 'qt6', 'main.cpp')],
      ["-runtime/wtf_make_unique", "-readability/naming/underscores", "-readability/naming/acronym"]),
 
@@ -241,6 +232,7 @@ _PATH_RULES_SPECIFIER = [
      ["-readability/naming/underscores",
       "-safercpp/atoi",
       "-safercpp/printf",
+      "-security/printf",
       "-runtime/lock_guard",
       "-runtime/wtf_make_unique",
       "-runtime/wtf_move"]),
@@ -291,6 +283,12 @@ _PATH_RULES_SPECIFIER = [
     ([
       # These files define GObjects, which implies some definitions of
       # variables and functions containing underscores.
+      os.path.join('Source', 'WebCore', 'Modules', 'mediastream', 'gstreamer', 'GStreamerIceAgent.cpp'),
+      os.path.join('Source', 'WebCore', 'Modules', 'mediastream', 'gstreamer', 'GStreamerIceAgent.h'),
+      os.path.join('Source', 'WebCore', 'Modules', 'mediastream', 'gstreamer', 'GStreamerIceStream.cpp'),
+      os.path.join('Source', 'WebCore', 'Modules', 'mediastream', 'gstreamer', 'GStreamerIceStream.h'),
+      os.path.join('Source', 'WebCore', 'Modules', 'mediastream', 'gstreamer', 'GStreamerIceTransport.cpp'),
+      os.path.join('Source', 'WebCore', 'Modules', 'mediastream', 'gstreamer', 'GStreamerIceTransport.h'),
       os.path.join('Source', 'WebCore', 'platform', 'graphics', 'gstreamer', 'GStreamerSinksWorkarounds.cpp'),
       os.path.join('Source', 'WebCore', 'platform', 'graphics', 'gstreamer', 'GStreamerSinksWorkarounds.h'),
       os.path.join('Source', 'WebCore', 'platform', 'graphics', 'gstreamer', 'GLVideoSinkGStreamer.cpp'),
@@ -329,7 +327,8 @@ _PATH_RULES_SPECIFIER = [
       os.path.join('Source', 'WebCore', 'platform', 'network', 'soup', 'WebKitAutoconfigProxyResolver.h'),
       os.path.join('Source', 'WebCore', 'platform', 'network', 'soup', 'WebKitFormDataInputStream.cpp'),
       os.path.join('Source', 'WebCore', 'platform', 'network', 'soup', 'WebKitFormDataInputStream.h'),
-      os.path.join('Source', 'WebKit', 'NetworkProcess', 'soup', 'WebKitDirectoryInputStream.h')],
+      os.path.join('Source', 'WebKit', 'NetworkProcess', 'soup', 'WebKitDirectoryInputStream.h'),
+      os.path.join('Source', 'WebKit', 'Shared', 'glib', 'WebKitContextMenuGAction.cpp')],
      ["-readability/naming",
       "-readability/enum_casing"]),
     ([
@@ -373,10 +372,17 @@ _PATH_RULES_SPECIFIER = [
     ([
       # Source/bmalloc/libpas/src/ is first-party code, but largely operates
       # as an separate codebase, with a few different style rules.
+      # It also does not have access to any of WTF's safe-cpp wrappers,
+      # e.g. memsetSpan.
       os.path.join('Source', 'bmalloc', 'libpas', 'src')],
      ["-readability/naming/underscores",
+      "-readability/parameter_name",
       "-whitespace/declaration",
-      "-whitespace/indent"]),
+      "-whitespace/indent",
+      "-safercpp/printf",
+      "-safercpp/memset",
+      "-safercpp/memcpy",
+      "-safercpp/strncmp",]),
 
     ([
       # There is no way to avoid the symbols __jit_debug_register_code
@@ -435,6 +441,9 @@ _PATH_RULES_SPECIFIER = [
       "-runtime/wtf_move",
       "-whitespace"]),
 
+    ([  # Ignore whitespace issues in third party library esprima.js
+     os.path.join('Source', 'WebInspectorUI', 'UserInterface', 'External', 'Esprima', 'esprima.js')],
+     ["-whitespace/tab"]),
 ]
 
 
@@ -538,11 +547,11 @@ _SKIPPED_FILES_WITH_WARNING = [
     os.path.join('Source', 'WebKit', 'WebProcess', 'InjectedBundle', 'API', 'gtk', 'DOM'),
 
     os.path.join('Source', 'JavaScriptCore', 'API', 'glib', 'jsc.h'),
-    os.path.join('Source', 'WebCore', 'platform', 'gtk', 'GtkVersioning.h'),
     os.path.join('Source', 'WebCore', 'platform', 'graphics', 'gbm', 'GBMVersioning.h'),
     os.path.join('Source', 'WebKit', 'UIProcess', 'API', 'gtk', 'webkit2.h'),
     os.path.join('Source', 'WebKit', 'UIProcess', 'API', 'gtk', 'webkit.h'),
     os.path.join('Source', 'WebKit', 'UIProcess', 'API', 'wpe', 'webkit.h'),
+    os.path.join('Source', 'WebKit', 'UIProcess', 'gtk', 'GtkVersioning.h'),
     os.path.join('Source', 'WebKit', 'WPEPlatform', 'wpe', 'wpe-platform.h'),
     os.path.join('Source', 'WebKit', 'WPEPlatform', 'wpe', 'drm', 'wpe-drm.h'),
     os.path.join('Source', 'WebKit', 'WPEPlatform', 'wpe', 'headless', 'wpe-headless.h'),
@@ -1251,7 +1260,10 @@ class StyleProcessor(ProcessorBase):
 
         _log.debug("Using class: " + checker.__class__.__name__)
 
-        checker.check(lines)
+        current_error_count = self.error_count
+        output = checker.check(lines)
+        if isinstance(checker, SwiftChecker) and self.error_count > current_error_count:
+            _log.info("These errors can be fixed using swift format --in-place \"%s\"" % file_path)
 
     def do_association_check(self, files, cwd, host=Host()):
         _log.debug("Running TestExpectations linter")

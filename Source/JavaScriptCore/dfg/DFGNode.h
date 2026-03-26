@@ -29,7 +29,7 @@
 
 #include "B3SparseCollection.h"
 #include "BasicBlockLocation.h"
-#include "CheckPrivateBrandVariant.h"
+#include "CheckPrivateBrandStatus.h"
 #include "CodeBlock.h"
 #include "DFGAdjacencyList.h"
 #include "DFGArithMode.h"
@@ -323,7 +323,7 @@ enum class BucketOwnerType : uint32_t {
 // Node represents a single operation in the data flow graph.
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(DFGNode);
 struct Node {
-    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(DFGNode, DFGNode);
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(Node, DFGNode);
 public:
     static const char HashSetTemplateInstantiationString[];
     
@@ -693,6 +693,7 @@ public:
         children.setChild3(children.child2());
         children.setChild2(base);
         children.setChild1(storage);
+        children.child1().setUseKind(KnownStorageUse);
         m_op = PutByOffset;
     }
     
@@ -727,17 +728,22 @@ public:
         children.setChild1(index);
     }
 
-    void convertToPhantomNewArrayWithConstantSize()
+    void convertToPhantomNewArrayWithButterfly()
     {
-        ASSERT(m_op == NewArrayWithConstantSize);
-        m_op = PhantomNewArrayWithConstantSize;
-        m_flags &= ~NodeHasVarArgs;
-        m_flags |= NodeMustGenerate;
-        // No need to clear the infos, as the indexing type and array
-        // size are still required for materialization when an OSR exit occurs.
-        children = AdjacencyList();
+        ASSERT(m_op == NewArrayWithButterfly);
+        setOpAndDefaultFlags(PhantomNewArrayWithButterfly);
+        // OpInfo/children shouldn't change and are needed for OSR exit.
+        ASSERT(child1().useKind() == Int32Use);
     }
     
+    void convertToPhantomNewButterflyWithSize()
+    {
+        ASSERT(m_op == NewButterflyWithSize);
+        setOpAndDefaultFlags(PhantomNewButterflyWithSize);
+        // OpInfo/children shouldn't change and are needed for OSR exit.
+        ASSERT(child1().useKind() == Int32Use);
+    }
+
     void convertToPhantomNewObject()
     {
         ASSERT(m_op == NewObject);
@@ -916,7 +922,7 @@ public:
 
     void convertToNewArrayBuffer(FrozenValue* immutableButterfly);
     void convertToNewArrayWithSize();
-    void convertToNewArrayWithConstantSize(Graph&, uint32_t);
+    void convertToNewArrayWithButterfly(Graph&, Node* butterfly);
     void convertToNewArrayWithSizeAndStructure(Graph&, RegisteredStructure);
 
     void convertToNewBoundFunction(FrozenValue*);
@@ -1454,32 +1460,16 @@ public:
         return newArrayBufferData().vectorLengthHint;
     }
 
-    unsigned hasNewArraySize()
-    {
-        switch (op()) {
-        case NewArrayWithConstantSize:
-        case PhantomNewArrayWithConstantSize:
-        case MaterializeNewArrayWithConstantSize:
-            return true;
-        default:
-            return false;
-        }
-    }
-
-    unsigned newArraySize()
-    {
-        ASSERT(hasNewArraySize());
-        return op() == MaterializeNewArrayWithConstantSize ? objectMaterializationData().m_newArraySize : m_opInfo2.as<unsigned>();
-    }
-
     bool hasIndexingType()
     {
         switch (op()) {
         case NewArray:
         case NewArrayWithSize:
-        case NewArrayWithConstantSize:
-        case PhantomNewArrayWithConstantSize:
-        case MaterializeNewArrayWithConstantSize:
+        case NewArrayWithButterfly:
+        case NewButterflyWithSize:
+        case PhantomNewArrayWithButterfly:
+        case PhantomNewButterflyWithSize:
+        case MaterializeNewArrayWithButterfly:
         case NewArrayBuffer:
         case PhantomNewArrayBuffer:
         case NewArrayWithSpecies:
@@ -1670,7 +1660,7 @@ public:
 
     JSType queriedType()
     {
-        static_assert(std::is_same<uint8_t, std::underlying_type<JSType>::type>::value, "Ensure that uint8_t is the underlying type for JSType.");
+        static_assert(std::same_as<uint8_t, std::underlying_type_t<JSType>>);
         return static_cast<JSType>(m_opInfo.as<uint32_t>());
     }
 
@@ -2079,6 +2069,7 @@ public:
         case CallForwardVarargs:
         case TailCallForwardVarargsInlinedCaller:
         case CallWasm:
+        case TailCallInlinedCallerWasm:
         case CallCustomAccessorGetter:
         case GetByOffset:
         case MultiGetByOffset:
@@ -2191,6 +2182,7 @@ public:
         case DirectConstruct:
         case DirectTailCallInlinedCaller:
         case CallWasm:
+        case TailCallInlinedCallerWasm:
         case RegExpExecNonGlobalOrSticky:
         case RegExpMatchFastGlobal:
         case RegExpTestInline:
@@ -2266,7 +2258,7 @@ public:
         case GetByValMegamorphic:
         case PutByValDirect:
         case PutByVal:
-        case PutByValAlias:
+        case PutByValDirectResolved:
         case PutByValMegamorphic:
         case AtomicsAdd:
         case AtomicsAnd:
@@ -2304,7 +2296,7 @@ public:
         case EnumeratorPutByVal:
         case PutByValDirect:
         case PutByVal:
-        case PutByValAlias:
+        case PutByValDirectResolved:
         case PutByValMegamorphic:
             return 3;
         case AtomicsAdd:
@@ -2512,7 +2504,7 @@ public:
     {
         switch (op()) {
         case MaterializeNewObject:
-        case MaterializeNewArrayWithConstantSize:
+        case MaterializeNewArrayWithButterfly:
         case MaterializeNewInternalFieldObject:
         case MaterializeCreateActivation:
             return true;
@@ -2600,7 +2592,8 @@ public:
     bool isPhantomAllocation()
     {
         switch (op()) {
-        case PhantomNewArrayWithConstantSize:
+        case PhantomNewArrayWithButterfly:
+        case PhantomNewButterflyWithSize:
         case PhantomNewObject:
         case PhantomDirectArguments:
         case PhantomCreateRest:
@@ -2659,7 +2652,7 @@ public:
         case InByValMegamorphic:
         case PutByValDirect:
         case PutByVal:
-        case PutByValAlias:
+        case PutByValDirectResolved:
         case PutByValMegamorphic:
         case EnumeratorPutByVal:
         case GetByVal:
@@ -2761,7 +2754,7 @@ public:
         case PutByIdMegamorphic:
         case PutByIdWithThis:
         case PutByVal:
-        case PutByValAlias:
+        case PutByValDirectResolved:
         case PutByValMegamorphic:
         case PutByValDirect:
         case PutByValWithThis:
@@ -2790,7 +2783,7 @@ public:
         case PutByIdMegamorphic:
         case PutByIdWithThis:
         case PutByVal:
-        case PutByValAlias:
+        case PutByValDirectResolved:
         case PutByValMegamorphic:
         case PutByValDirect:
         case EnumeratorPutByVal:
@@ -3003,7 +2996,7 @@ public:
     
     bool isBinaryUseKind(UseKind left, UseKind right)
     {
-        return child1().useKind() == left && child2().useKind() == right;
+        return !hasVarArgs() && child1() && child1().useKind() == left && child2() && child2().useKind() == right;
     }
     
     bool isBinaryUseKind(UseKind useKind)
@@ -3252,6 +3245,11 @@ public:
     bool shouldSpeculateProxyObject()
     {
         return isProxyObjectSpeculation(prediction());
+    }
+
+    bool shouldSpeculateSetObject()
+    {
+        return isSetObjectSpeculation(prediction());
     }
 
     bool shouldSpeculateGlobalProxy()
@@ -3930,23 +3928,27 @@ private:
             u.int64 = std::bit_cast<uint64_t>(newArrayBufferData);
             return *this;
         }
-        template <typename T>
-        ALWAYS_INLINE auto as() const -> typename std::enable_if<std::is_pointer<T>::value && !std::is_const<typename std::remove_pointer<T>::type>::value, T>::type
+        template<typename T>
+            requires (std::is_pointer_v<T> && !std::is_const_v<std::remove_pointer_t<T>>)
+        ALWAYS_INLINE T as() const
         {
             return static_cast<T>(u.pointer);
         }
-        template <typename T>
-        ALWAYS_INLINE auto as() const -> typename std::enable_if<std::is_pointer<T>::value && std::is_const<typename std::remove_pointer<T>::type>::value, T>::type
+        template<typename T>
+            requires (std::is_pointer_v<T> && std::is_const_v<std::remove_pointer_t<T>>)
+        ALWAYS_INLINE T as() const
         {
             return static_cast<T>(u.constPointer);
         }
-        template <typename T>
-        ALWAYS_INLINE auto as() const -> typename std::enable_if<(std::is_integral<T>::value || std::is_enum<T>::value) && sizeof(T) <= 4, T>::type
+        template<typename T>
+            requires ((std::integral<T> || std::is_enum_v<T>) && sizeof(T) <= 4)
+        ALWAYS_INLINE T as() const
         {
             return static_cast<T>(u.int32);
         }
-        template <typename T>
-        ALWAYS_INLINE auto as() const -> typename std::enable_if<(std::is_integral<T>::value || std::is_enum<T>::value) && sizeof(T) == 8, T>::type
+        template<typename T>
+            requires ((std::integral<T> || std::is_enum_v<T>) && sizeof(T) == 8)
+        ALWAYS_INLINE T as() const
         {
             return static_cast<T>(u.int64);
         }
@@ -4019,7 +4021,7 @@ CString nodeMapDump(const T& nodeMap, DumpContext* context = nullptr)
         typename T::const_iterator iter = nodeMap.begin();
         iter != nodeMap.end(); ++iter)
         keys.append(iter->key);
-    std::sort(keys.begin(), keys.end(), NodeComparator());
+    std::ranges::sort(keys, NodeComparator());
     StringPrintStream out;
     CommaPrinter comma;
     for(unsigned i = 0; i < keys.size(); ++i)
@@ -4030,9 +4032,8 @@ CString nodeMapDump(const T& nodeMap, DumpContext* context = nullptr)
 template<typename T>
 CString nodeValuePairListDump(const T& nodeValuePairList, DumpContext* context = nullptr)
 {
-    using V = typename T::ValueType;
     T sortedList = nodeValuePairList;
-    std::sort(sortedList.begin(), sortedList.end(), [](const V& a, const V& b) {
+    std::ranges::sort(sortedList, [](const auto& a, const auto& b) {
         return NodeComparator()(a.node, b.node);
     });
 

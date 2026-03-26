@@ -49,9 +49,11 @@
 #import <objc/runtime.h>
 #import <pal/avfoundation/MediaTimeAVFoundation.h>
 #import <pal/spi/cocoa/AVFoundationSPI.h>
+#import <wtf/NeverDestroyed.h>
 #import <wtf/Scope.h>
 #import <wtf/WorkQueue.h>
-#include <wtf/cocoa/VectorCocoa.h>
+#import <wtf/cocoa/VectorCocoa.h>
+#import <wtf/darwin/DispatchExtras.h>
 
 #import "CoreVideoSoftLink.h"
 #import <pal/cocoa/AVFoundationSoftLink.h>
@@ -101,14 +103,20 @@ using namespace WebCore;
 
 namespace WebCore {
 
+static IntSize toIntSize(const CMVideoDimensions& dimensions)
+{
+    return { dimensions.width, dimensions.height };
+}
+
+static CMVideoDimensions toCMVideoDimensions(const IntSize& size)
+{
+    return { size.width(), size.height() };
+}
+
 static dispatch_queue_t globaVideoCaptureSerialQueue()
 {
-    static dispatch_queue_t globalQueue;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        globalQueue = dispatch_queue_create_with_target("WebCoreAVVideoCaptureSource video capture queue", DISPATCH_QUEUE_SERIAL, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0));
-    });
-    return globalQueue;
+    static NeverDestroyed<OSObjectPtr<dispatch_queue_t>> globalQueue = adoptOSObject(dispatch_queue_create_with_target("WebCoreAVVideoCaptureSource video capture queue", DISPATCH_QUEUE_SERIAL, globalDispatchQueueSingleton(DISPATCH_QUEUE_PRIORITY_HIGH, 0)));
+    return globalQueue.get().get();
 }
 
 static FillLightMode toFillLightMode(AVCaptureTorchMode mode)
@@ -221,11 +229,11 @@ void AVVideoCaptureSource::setUseAVCaptureDeviceRotationCoordinatorAPI(bool valu
 
 CaptureSourceOrError AVVideoCaptureSource::create(const CaptureDevice& device, MediaDeviceHashSalts&& hashSalts, const MediaConstraints* constraints, std::optional<PageIdentifier> pageIdentifier)
 {
-    auto *avDevice = [PAL::getAVCaptureDeviceClass() deviceWithUniqueID:device.persistentId().createNSString().get()];
+    RetainPtr avDevice = [PAL::getAVCaptureDeviceClassSingleton() deviceWithUniqueID:device.persistentId().createNSString().get()];
     if (!avDevice)
         return CaptureSourceOrError({ "No AVVideoCaptureSource device"_s , MediaAccessDenialReason::PermissionDenied });
 
-    Ref<RealtimeMediaSource> source = adoptRef(*new AVVideoCaptureSource(avDevice, device, WTFMove(hashSalts), pageIdentifier));
+    Ref<RealtimeMediaSource> source = adoptRef(*new AVVideoCaptureSource(avDevice.get(), device, WTF::move(hashSalts), pageIdentifier));
 
     if (!source->capabilities().width().max() || !source->capabilities().height().max() || !source->capabilities().frameRate().max())
         return CaptureSourceOrError({ "AVVideoCaptureSource device has invalid width, height or frameRate capabilities"_s , MediaAccessDenialReason::PermissionDenied });
@@ -235,7 +243,7 @@ CaptureSourceOrError AVVideoCaptureSource::create(const CaptureDevice& device, M
             return CaptureSourceOrError(CaptureSourceError { result->invalidConstraint });
     }
 
-    return WTFMove(source);
+    return WTF::move(source);
 }
 
 static double cameraZoomScaleFactor(AVCaptureDeviceType deviceType)
@@ -250,7 +258,7 @@ static double cameraZoomScaleFactor(AVCaptureDeviceType deviceType)
 }
 
 AVVideoCaptureSource::AVVideoCaptureSource(AVCaptureDevice* avDevice, const CaptureDevice& device, MediaDeviceHashSalts&& hashSalts, std::optional<PageIdentifier> pageIdentifier)
-    : RealtimeVideoCaptureSource(device, WTFMove(hashSalts), pageIdentifier)
+    : RealtimeVideoCaptureSource(device, WTF::move(hashSalts), pageIdentifier)
     , m_objcObserver(adoptNS([[WebCoreAVVideoCaptureSourceObserver alloc] initWithCaptureSource:this]))
     , m_device(avDevice)
     , m_zoomScaleFactor(cameraZoomScaleFactor([avDevice deviceType]))
@@ -534,7 +542,7 @@ const RealtimeMediaSourceSettings& AVVideoCaptureSource::settings()
 #endif
     settings.setSupportedConstraints(supportedConstraints);
 
-    m_currentSettings = WTFMove(settings);
+    m_currentSettings = WTF::move(settings);
 
     return *m_currentSettings;
 }
@@ -548,16 +556,16 @@ const RealtimeMediaSourceCapabilities& AVVideoCaptureSource::capabilities()
     capabilities.setDeviceId(hashedId());
     capabilities.setGroupId(hashedGroupId());
 
-    AVCaptureDevice *videoDevice = device();
-    if ([videoDevice position] == AVCaptureDevicePositionFront)
+    RetainPtr videoDevice = device();
+    if ([videoDevice.get() position] == AVCaptureDevicePositionFront)
         capabilities.addFacingMode(VideoFacingMode::User);
-    if ([videoDevice position] == AVCaptureDevicePositionBack)
+    if ([videoDevice.get() position] == AVCaptureDevicePositionBack)
         capabilities.addFacingMode(VideoFacingMode::Environment);
 
     auto supportedConstraints = settings().supportedConstraints();
 
 #if HAVE(AVCAPTUREDEVICE_MINFOCUSLENGTH)
-    double minimumFocusDistance = [videoDevice minimumFocusDistance];
+    double minimumFocusDistance = [videoDevice.get() minimumFocusDistance];
     if (minimumFocusDistance != -1.0) {
         ASSERT(minimumFocusDistance >= 0);
         supportedConstraints.setSupportsFocusDistance(true);
@@ -565,13 +573,13 @@ const RealtimeMediaSourceCapabilities& AVVideoCaptureSource::capabilities()
     }
 #endif // HAVE(AVCAPTUREDEVICE_MINFOCUSLENGTH)
 
-    auto whiteBalanceModes = supportedWhiteBalanceModes(videoDevice);
+    auto whiteBalanceModes = supportedWhiteBalanceModes(videoDevice.get());
     if (!whiteBalanceModes.isEmpty()) {
         supportedConstraints.setSupportsWhiteBalanceMode(true);
-        capabilities.setWhiteBalanceModes(WTFMove(whiteBalanceModes));
+        capabilities.setWhiteBalanceModes(WTF::move(whiteBalanceModes));
     }
 
-    if ([videoDevice hasTorch]) {
+    if ([videoDevice.get() hasTorch]) {
         supportedConstraints.setSupportsTorch(true);
         capabilities.setTorch(true);
     }
@@ -586,7 +594,7 @@ const RealtimeMediaSourceCapabilities& AVVideoCaptureSource::capabilities()
     capabilities.setSupportedConstraints(supportedConstraints);
     updateCapabilities(capabilities);
 
-    m_capabilities = WTFMove(capabilities);
+    m_capabilities = WTF::move(capabilities);
 
     return *m_capabilities;
 }
@@ -622,7 +630,7 @@ void AVVideoCaptureSource::resolvePendingPhotoRequest(Vector<uint8_t>&& data, co
         return;
     }
 
-    m_photoProducer->resolve(std::make_pair(WTFMove(data), mimeType));
+    m_photoProducer->resolve(std::make_pair(WTF::move(data), mimeType));
     m_photoProducer = nullptr;
 }
 
@@ -642,27 +650,31 @@ IntSize AVVideoCaptureSource::maxPhotoSizeForCurrentPreset(IntSize requestedSize
 {
     ASSERT(isMainThread());
 
-    CMVideoDimensions bestMaxPhotoSize;
-
     auto *format = [m_device activeFormat];
-    if ([format respondsToSelector:@selector(supportedMaxPhotoDimensions)]) {
-        NSArray<NSValue*> *maxPhotoDimensions = format.supportedMaxPhotoDimensions;
-        if (!maxPhotoDimensions.count)
-            return { };
+    if ([format respondsToSelector:@selector(supportedMaxPhotoDimensions)])
+        return maxPhotoSizeForActiveFormat(format, requestedSize);
 
-        bestMaxPhotoSize = maxPhotoDimensions.firstObject.CMVideoDimensionsValue;
-        for (NSValue *value in maxPhotoDimensions) {
-            CMVideoDimensions dimensions = value.CMVideoDimensionsValue;
-            if (dimensions.width >= requestedSize.width() && dimensions.height >= requestedSize.height()) {
-                if (dimensions.width * dimensions.height < bestMaxPhotoSize.width * bestMaxPhotoSize.height)
-                    bestMaxPhotoSize = dimensions;
-            }
-        }
-    } else {
-        if (!m_currentPreset)
-            return { };
-
+    if (m_currentPreset)
         return m_currentPreset->size();
+
+    return { };
+}
+
+IntSize AVVideoCaptureSource::maxPhotoSizeForActiveFormat(AVCaptureDeviceFormat *format, IntSize requestedSize) const
+{
+    ASSERT([format respondsToSelector:@selector(supportedMaxPhotoDimensions)]);
+
+    NSArray<NSValue*> *maxPhotoDimensions = format.supportedMaxPhotoDimensions;
+    if (!maxPhotoDimensions.count)
+        return { };
+
+    auto bestMaxPhotoSize = maxPhotoDimensions.firstObject.CMVideoDimensionsValue;
+    for (NSValue *value in maxPhotoDimensions) {
+        CMVideoDimensions dimensions = value.CMVideoDimensionsValue;
+        if (dimensions.width >= requestedSize.width() && dimensions.height >= requestedSize.height()) {
+            if (dimensions.width * dimensions.height < bestMaxPhotoSize.width * bestMaxPhotoSize.height)
+                bestMaxPhotoSize = dimensions;
+        }
     }
 
     return { bestMaxPhotoSize.width, bestMaxPhotoSize.height };
@@ -676,7 +688,7 @@ RetainPtr<AVCapturePhotoSettings> AVVideoCaptureSource::photoConfiguration(const
     if (photoSettings.imageHeight && photoSettings.imageWidth)
         requestedPhotoDimensions = { static_cast<int>(*photoSettings.imageWidth), static_cast<int>(*photoSettings.imageHeight) };
 
-    AVCapturePhotoSettings* avPhotoSettings = [PAL::getAVCapturePhotoSettingsClass() photoSettingsWithFormat:@{
+    AVCapturePhotoSettings* avPhotoSettings = [PAL::getAVCapturePhotoSettingsClassSingleton() photoSettingsWithFormat:@{
         AVVideoCodecKey : AVVideoCodecTypeJPEG,
         AVVideoCompressionPropertiesKey : @{ AVVideoQualityKey : @(1) }
     }];
@@ -730,16 +742,16 @@ auto AVVideoCaptureSource::takePhotoInternal(PhotoSettings&& photoSettings) -> R
         return TakePhotoNativePromise::createAndReject("Internal error"_s);
     }
 
-    photoQueueSingleton().dispatch([protectedThis = Ref { *this }, this, avPhotoSettings = WTFMove(avPhotoSettings), photoOutput = WTFMove(photoOutput)] {
+    photoQueueSingleton().dispatch([protectedThis = Ref { *this }, this, avPhotoSettings = WTF::move(avPhotoSettings), photoOutput = WTF::move(photoOutput), device = m_device] {
         ASSERT(!isMainThread());
 
         if ([avPhotoSettings respondsToSelector:@selector(setMaxPhotoDimensions:)]) {
-            auto requestedPhotoDimensions = [avPhotoSettings maxPhotoDimensions];
-            if (requestedPhotoDimensions.width && requestedPhotoDimensions.height) {
-                auto currentMaxPhotoDimensions = [photoOutput maxPhotoDimensions];
-                if (requestedPhotoDimensions.width > currentMaxPhotoDimensions.width || requestedPhotoDimensions.height > currentMaxPhotoDimensions.height)
-                    [photoOutput setMaxPhotoDimensions:requestedPhotoDimensions];
-            }
+            auto *format = [device activeFormat];
+            auto maxDimensions = [avPhotoSettings maxPhotoDimensions];
+
+            auto requestedPhotoDimensions = maxPhotoSizeForActiveFormat(format, toIntSize(maxDimensions));
+            if (!requestedPhotoDimensions.isEmpty())
+                [photoOutput setMaxPhotoDimensions:toCMVideoDimensions(requestedPhotoDimensions)];
         }
 
         [photoOutput capturePhotoWithSettings:avPhotoSettings.get() delegate:m_objcObserver.get()];
@@ -762,7 +774,7 @@ auto AVVideoCaptureSource::getPhotoCapabilities() -> Ref<PhotoCapabilitiesNative
     auto width = capabilities.width();
     photoCapabilities.imageWidth = { width.max(), width.min(), 1 };
 
-    m_photoCapabilities = WTFMove(photoCapabilities);
+    m_photoCapabilities = WTF::move(photoCapabilities);
 
     return PhotoCapabilitiesNativePromise::createAndResolve(*m_photoCapabilities);
 }
@@ -853,7 +865,7 @@ void AVVideoCaptureSource::applyFrameRateAndZoomWithPreset(double requestedFrame
 
     beginConfigurationForConstraintsIfNeeded();
 
-    m_currentPreset = WTFMove(preset);
+    m_currentPreset = WTF::move(preset);
     if (m_currentPreset)
         setIntrinsicSize({ m_currentPreset->size().width(), m_currentPreset->size().height() });
 
@@ -926,13 +938,13 @@ void AVVideoCaptureSource::setSessionSizeFrameRateAndZoom()
         [device() setActiveFormat:m_currentPreset->format()];
 
 #if PLATFORM(MAC)
-        auto settingsDictionary = @{
+        RetainPtr settingsDictionary = @{
             (__bridge NSString *)kCVPixelBufferPixelFormatTypeKey: @(preferedPixelBufferFormat()),
             (__bridge NSString *)kCVPixelBufferWidthKey: @(m_currentPreset->size().width()),
             (__bridge NSString *)kCVPixelBufferHeightKey: @(m_currentPreset->size().height()),
             (__bridge NSString *)kCVPixelBufferIOSurfacePropertiesKey : @{ }
         };
-        [m_videoOutput setVideoSettings:settingsDictionary];
+        [m_videoOutput setVideoSettings:settingsDictionary.get()];
 #endif
 
         auto* frameRateRange = frameDurationForFrameRate(m_currentFrameRate);
@@ -948,8 +960,16 @@ void AVVideoCaptureSource::setSessionSizeFrameRateAndZoom()
 
             ALWAYS_LOG_IF_POSSIBLE(LOGIDENTIFIER, "setting frame rate to ", m_currentFrameRate, ", duration ", PAL::toMediaTime(frameDuration));
 
+#if PLATFORM(MAC)
+            AVCaptureConnection* captureConnection = [m_videoOutput connectionWithMediaType:AVMediaTypeVideo];
+            if (captureConnection.supportsVideoMinFrameDuration)
+                captureConnection.videoMinFrameDuration = frameDuration;
+            if (captureConnection.supportsVideoMaxFrameDuration)
+                captureConnection.videoMaxFrameDuration = frameDuration;
+#else
             [device() setActiveVideoMinFrameDuration: frameDuration];
             [device() setActiveVideoMaxFrameDuration: frameDuration];
+#endif
         } else
             ERROR_LOG_IF_POSSIBLE(LOGIDENTIFIER, "cannot find proper frame rate range for the selected preset\n");
 
@@ -1089,7 +1109,7 @@ bool AVVideoCaptureSource::setupSession()
     String mediaEnvironment = RealtimeMediaSourceCenter::singleton().currentMediaEnvironment();
     WARNING_LOG_IF(loggerPtr() && mediaEnvironment.isEmpty(), "Media environment is empty");
     // FIXME (119325252): Remove staging code for -[AVCaptureSession initWithMediaEnvironment:]
-    if (!mediaEnvironment.isEmpty() && [PAL::getAVCaptureSessionClass() instancesRespondToSelector:@selector(initWithMediaEnvironment:)])
+    if (!mediaEnvironment.isEmpty() && [PAL::getAVCaptureSessionClassSingleton() instancesRespondToSelector:@selector(initWithMediaEnvironment:)])
         m_session = adoptNS([PAL::allocAVCaptureSessionInstance() initWithMediaEnvironment:mediaEnvironment.createNSString().get()]);
 #endif
 
@@ -1098,7 +1118,7 @@ bool AVVideoCaptureSource::setupSession()
         auto identity = RealtimeMediaSourceCenter::singleton().identity();
         ERROR_LOG_IF(loggerPtr() && !identity, LOGIDENTIFIER, "RealtimeMediaSourceCenter::identity() returned null!");
 
-        if (identity && [PAL::getAVCaptureSessionClass() instancesRespondToSelector:@selector(initWithAssumedIdentity:)])
+        if (identity && [PAL::getAVCaptureSessionClassSingleton() instancesRespondToSelector:@selector(initWithAssumedIdentity:)])
             m_session = adoptNS([PAL::allocAVCaptureSessionInstance() initWithAssumedIdentity:identity.get()]);
     }
 #endif
@@ -1134,10 +1154,10 @@ AVFrameRateRange* AVVideoCaptureSource::frameDurationForFrameRate(double rate)
 {
     using namespace PAL; // For CMTIME_COMPARE_INLINE
 
-    AVFrameRateRange *bestFrameRateRange = nil;
+    RetainPtr<AVFrameRateRange> bestFrameRateRange;
     for (AVFrameRateRange *frameRateRange in [[device() activeFormat] videoSupportedFrameRateRanges]) {
         if (frameRateRangeIncludesRate({ [frameRateRange minFrameRate], [frameRateRange maxFrameRate] }, rate)) {
-            if (!bestFrameRateRange || CMTIME_COMPARE_INLINE([frameRateRange minFrameDuration], >, [bestFrameRateRange minFrameDuration]))
+            if (!bestFrameRateRange || CMTIME_COMPARE_INLINE([frameRateRange minFrameDuration], >, [bestFrameRateRange.get() minFrameDuration]))
                 bestFrameRateRange = frameRateRange;
         }
     }
@@ -1145,7 +1165,7 @@ AVFrameRateRange* AVVideoCaptureSource::frameDurationForFrameRate(double rate)
     if (!bestFrameRateRange)
         ERROR_LOG_IF_POSSIBLE(LOGIDENTIFIER, "no frame rate range for rate ", rate);
 
-    return bestFrameRateRange;
+    return bestFrameRateRange.autorelease();
 }
 
 bool AVVideoCaptureSource::setupCaptureSession()
@@ -1286,14 +1306,14 @@ void AVVideoCaptureSource::captureOutputDidOutputSampleBufferFromConnection(AVCa
     setIntrinsicSize(expandedIntSize(videoFrame->presentationSize()));
     VideoFrameTimeMetadata metadata;
     metadata.captureTime = MonotonicTime::now().secondsSinceEpoch();
-    dispatchVideoFrameToObservers(WTFMove(videoFrame), metadata);
+    dispatchVideoFrameToObservers(WTF::move(videoFrame), metadata);
 }
 
 void AVVideoCaptureSource::captureOutputDidFinishProcessingPhoto(RetainPtr<AVCapturePhotoOutput>, RetainPtr<AVCapturePhoto> photo, RetainPtr<NSError> error)
 {
     if (error) {
         rejectPendingPhotoRequest("AVCapturePhotoOutput failed"_s);
-        RunLoop::mainSingleton().dispatch([protectedThis = Ref { *this }, logIdentifier = LOGIDENTIFIER, error = WTFMove(error)] {
+        RunLoop::mainSingleton().dispatch([protectedThis = Ref { *this }, logIdentifier = LOGIDENTIFIER, error = WTF::move(error)] {
             ASSERT(isMainThread());
             ALWAYS_LOG_WITH_THIS_IF_POSSIBLE(protectedThis, logIdentifier, "failed: ", [error code], ", ", error.get());
         });
@@ -1394,12 +1414,12 @@ void AVVideoCaptureSource::generatePresets()
         for (AVFrameRateRange* range in [format videoSupportedFrameRateRanges])
             frameRates.append({ range.minFrameRate, range.maxFrameRate});
 
-        VideoPreset preset { size, WTFMove(frameRates), computeMinZoom(), computeMaxZoom(format), isFormatPowerEfficient(format) };
+        VideoPreset preset { size, WTF::move(frameRates), computeMinZoom(), computeMaxZoom(format), isFormatPowerEfficient(format) };
         preset.setFormat(format);
-        presets.append(WTFMove(preset));
+        presets.append(WTF::move(preset));
     }
 
-    setSupportedPresets(WTFMove(presets));
+    setSupportedPresets(WTF::move(presets));
 }
 
 #if PLATFORM(IOS_FAMILY)

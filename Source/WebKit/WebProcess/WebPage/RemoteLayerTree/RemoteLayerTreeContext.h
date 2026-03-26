@@ -40,6 +40,8 @@
 #include <wtf/Vector.h>
 
 namespace WebCore {
+class HTMLVideoElement;
+enum class GraphicsLayerType : uint8_t;
 enum class UseLosslessCompression : bool;
 }
 
@@ -71,7 +73,7 @@ public:
     void graphicsLayerDidEnterContext(GraphicsLayerCARemote&);
     void graphicsLayerWillLeaveContext(GraphicsLayerCARemote&);
 
-    WebCore::LayerPool& layerPool() { return m_layerPool; }
+    WebCore::LayerPool& layerPool() { return m_layerPool.get(); }
 
     float deviceScaleFactor() const;
     
@@ -92,9 +94,6 @@ public:
     void willStartAnimationOnLayer(PlatformCALayerRemote&);
 
     RemoteLayerBackingStoreCollection& backingStoreCollection() { return m_backingStoreCollection; }
-    
-    void setNextRenderingUpdateRequiresSynchronousImageDecoding() { m_nextRenderingUpdateRequiresSynchronousImageDecoding = true; }
-    bool nextRenderingUpdateRequiresSynchronousImageDecoding() const { return m_nextRenderingUpdateRequiresSynchronousImageDecoding; }
 
     void adoptLayersFromContext(RemoteLayerTreeContext&);
 
@@ -112,12 +111,13 @@ public:
 
     WebPage& webPage();
     Ref<WebPage> protectedWebPage();
+    Ref<const WebPage> protectedWebPage() const;
 
 private:
     explicit RemoteLayerTreeContext(WebPage&);
 
     // WebCore::GraphicsLayerFactory
-    Ref<WebCore::GraphicsLayer> createGraphicsLayer(WebCore::GraphicsLayer::Type, WebCore::GraphicsLayerClient&) override;
+    Ref<WebCore::GraphicsLayer> createGraphicsLayer(WebCore::GraphicsLayerType, WebCore::GraphicsLayerClient&) override;
 
     WeakRef<WebPage> m_webPage;
 
@@ -134,11 +134,10 @@ private:
 
     const UniqueRef<RemoteLayerBackingStoreCollection> m_backingStoreCollection;
 
-    WebCore::LayerPool m_layerPool;
+    const UniqueRef<WebCore::LayerPool> m_layerPool;
 
     CheckedPtr<RemoteLayerTreeTransaction> m_currentTransaction;
 
-    bool m_nextRenderingUpdateRequiresSynchronousImageDecoding { false };
     bool m_useDynamicContentScalingDisplayListsForDOMRendering { false };
 };
 

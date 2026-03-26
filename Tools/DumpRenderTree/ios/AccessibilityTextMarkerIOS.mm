@@ -42,17 +42,15 @@ AccessibilityTextMarker::AccessibilityTextMarker(const AccessibilityTextMarker& 
 {
 }
 
-AccessibilityTextMarker::~AccessibilityTextMarker()
-{
-}
+AccessibilityTextMarker::~AccessibilityTextMarker() = default;
 
 bool AccessibilityTextMarker::isEqual(AccessibilityTextMarker* other)
 {
     return [platformTextMarker() isEqual:other->platformTextMarker()];
 }
 
-PlatformTextMarker AccessibilityTextMarker::platformTextMarker() const 
-{ 
+PlatformTextMarker AccessibilityTextMarker::platformTextMarker() const
+{
     return m_textMarker;
 }
 
@@ -68,9 +66,7 @@ AccessibilityTextMarkerRange::AccessibilityTextMarkerRange(const AccessibilityTe
 {
 }
 
-AccessibilityTextMarkerRange::~AccessibilityTextMarkerRange()
-{
-}
+AccessibilityTextMarkerRange::~AccessibilityTextMarkerRange() = default;
 
 bool AccessibilityTextMarkerRange::isEqual(AccessibilityTextMarkerRange* other)
 {

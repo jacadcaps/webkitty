@@ -40,7 +40,6 @@
 
 namespace WebCore {
 struct DragItem;
-struct TextIndicatorData;
 struct NodeIdentifierType;
 using NodeIdentifier = ObjectIdentifier<NodeIdentifierType>;
 }
@@ -52,7 +51,7 @@ struct DragSourceState {
     CGRect dragPreviewFrameInRootViewCoordinates { CGRectZero };
     using DragPreviewContentType = Variant<RetainPtr<UIImage>, RetainPtr<UIView>>;
     DragPreviewContentType dragPreviewContent;
-    std::optional<WebCore::TextIndicatorData> indicatorData;
+    RefPtr<WebCore::TextIndicator> textIndicator;
     std::optional<WebCore::Path> visiblePath;
     String linkTitle;
     URL linkURL;
@@ -78,7 +77,7 @@ public:
     const DragSourceState& stagedDragSource() const { return m_stagedDragSource.value(); }
     enum class DidBecomeActive : bool { No, Yes };
     void clearStagedDragSource(DidBecomeActive = DidBecomeActive::No);
-    UITargetedDragPreview *previewForLifting(UIDragItem *, UIView *contentView, UIView *previewContainer, const std::optional<WebCore::TextIndicatorData>&) const;
+    UITargetedDragPreview *previewForLifting(UIDragItem *, UIView *contentView, UIView *previewContainer, RefPtr<WebCore::TextIndicator>&&) const;
     UITargetedDragPreview *previewForCancelling(UIDragItem *, UIView *contentView, UIView *previewContainer);
     void dragSessionWillDelaySetDownAnimation(dispatch_block_t completion);
     bool shouldRequestAdditionalItemForDragSession(id <UIDragSession>) const;
@@ -96,14 +95,14 @@ public:
     bool isPerformingDrop() const { return m_isPerformingDrop; }
     id<UIDragSession> dragSession() const { return m_dragSession.get(); }
     id<UIDropSession> dropSession() const { return m_dropSession.get(); }
-    BlockPtr<void()> takeDragStartCompletionBlock() { return WTFMove(m_dragStartCompletionBlock); }
-    BlockPtr<void(NSArray<UIDragItem *> *)> takeAddDragItemCompletionBlock() { return WTFMove(m_addDragItemCompletionBlock); }
+    BlockPtr<void()> takeDragStartCompletionBlock() { return WTF::move(m_dragStartCompletionBlock); }
+    BlockPtr<void(NSArray<UIDragItem *> *)> takeAddDragItemCompletionBlock() { return WTF::move(m_addDragItemCompletionBlock); }
     Vector<RetainPtr<UIView>> takePreviewViewsForDragCancel() { return std::exchange(m_previewViewsForDragCancel, { }); }
     std::optional<WebCore::NodeIdentifier> nodeIdentifier() const { return m_nodeIdentifier; }
 
     void addDefaultDropPreview(UIDragItem *, UITargetedDragPreview *);
     UITargetedDragPreview *finalDropPreview(UIDragItem *) const;
-    void deliverDelayedDropPreview(UIView *contentView, UIView *previewContainer, const RefPtr<WebCore::TextIndicator>&&);
+    void deliverDelayedDropPreview(UIView *contentView, UIView *previewContainer, RefPtr<WebCore::TextIndicator>&&);
     void deliverDelayedDropPreview(UIView *contentView, CGRect unobscuredContentRect, NSArray<UIDragItem *> *, const Vector<WebCore::IntRect>& placeholderRects);
 
 private:
@@ -111,7 +110,7 @@ private:
     std::optional<DragSourceState> activeDragSourceForItem(UIDragItem *) const;
     UITargetedDragPreview *defaultDropPreview(UIDragItem *) const;
 
-    RetainPtr<UITargetedDragPreview> createDragPreviewInternal(UIDragItem *, UIView *contentView, UIView *previewContainer, AddPreviewViewToContainer, const std::optional<WebCore::TextIndicatorData>&) const;
+    RetainPtr<UITargetedDragPreview> createDragPreviewInternal(UIDragItem *, UIView *contentView, UIView *previewContainer, AddPreviewViewToContainer, const RefPtr<WebCore::TextIndicator>&&) const;
 
     CGPoint m_lastGlobalPosition { CGPointZero };
     CGPoint m_adjustedPositionForDragEnd { CGPointZero };

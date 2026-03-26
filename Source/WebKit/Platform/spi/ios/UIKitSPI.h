@@ -253,7 +253,6 @@ WTF_EXTERN_C_END
 - (void)_cancelAllTouches;
 - (BOOL)isSuspendedUnderLock;
 - (void)_enqueueHIDEvent:(IOHIDEventRef)event;
-- (BOOL)_appAdoptsUISceneLifecycle;
 - (void)_registerBSActionHandler:(id<_UIApplicationBSActionHandler>)handler;
 @end
 
@@ -480,8 +479,10 @@ typedef struct CGSVGDocument *CGSVGDocumentRef;
 #endif
 @property (nonatomic, setter=_setAllowsParentToBeginHorizontally:) BOOL _allowsParentToBeginHorizontally;
 @property (nonatomic, setter=_setAllowsParentToBeginVertically:) BOOL _allowsParentToBeginVertically;
-@property (nonatomic) BOOL tracksImmediatelyWhileDecelerating;
-@property (nonatomic, getter=_avoidsJumpOnInterruptedBounce, setter=_setAvoidsJumpOnInterruptedBounce:) BOOL _avoidsJumpOnInterruptedBounce;
+#if HAVE(UIKIT_SCROLLBAR_COLOR_SPI)
+@property (nonatomic, nullable, setter=_setVerticalScrollIndicatorColor:) UIColor *_verticalScrollIndicatorColor;
+@property (nonatomic, nullable, setter=_setHorizontalScrollIndicatorColor:) UIColor *_horizontalScrollIndicatorColor;
+#endif
 @end
 
 typedef NS_ENUM(NSUInteger, UIScrollPhase) {
@@ -634,6 +635,9 @@ extern NSString * const UIPresentationControllerDismissalTransitionDidEndComplet
 #if PLATFORM(VISION)
 @interface UIActivityViewController ()
 @property (nonatomic) BOOL allowsCustomPresentationStyle;
+@end
+@interface UIView ()
+- (void)_requestRemoteEffects:(NSArray *)effects forKey:(NSString *)key;
 @end
 #endif // PLATFORM(VISION)
 
@@ -1070,7 +1074,23 @@ extern void _UIApplicationCatalystRequestViewServiceIdiomAndScaleFactor(UIUserIn
 @property (nonatomic, copy) id badgeValue;
 @end
 
+#if HAVE(UISCROLLVIEW_DECELERATION_TRACKING_BEHAVIOR)
+
+typedef NS_ENUM(NSInteger, _UIScrollViewDecelerationTrackingBehavior) {
+    _UIScrollViewDecelerationTrackingBehaviorAdaptive  = 2
+};
+
+@interface UIScrollView (Staging_55353291)
+@property (nonatomic, setter=_setDecelerationTrackingBehavior:, getter=_decelerationTrackingBehavior) _UIScrollViewDecelerationTrackingBehavior _decelerationTrackingBehavior;
+@end
+
+#endif
+
 #endif // USE(APPLE_INTERNAL_SDK)
+
+@interface UITextChecker (Staging_165842824)
+- (void)requestProofreadingReviewOfString:(NSString *)stringToCheck range:(NSRange)range language:(NSString *)language options:(NSDictionary<NSString *, id> *)options completionHandler:(void (^)(NSArray<NSTextCheckingResult *> *results))completionHandler;
+@end
 
 #if HAVE(UITOOLTIPINTERACTION)
 @interface NSObject (NSViewDynamicToolTipManager)
@@ -1278,16 +1298,9 @@ typedef NS_ENUM(NSUInteger, _UIScrollDeviceCategory) {
 
 #if HAVE(LIQUID_GLASS)
 
-@interface _UIScrollPocket : UIView
-- (void)invalidateAllElements;
-@end
-
-@interface UIScrollView (ScrollPocket_IPI)
-- (_UIScrollPocket *)_pocketForEdge:(UIRectEdge)edge makeIfNeeded:(BOOL)makeIfNeeded;
-@end
-
-@interface UIScrollView (Staging_155261419)
+@interface UIScrollView ()
 - (void)_setPrefersSolidColorHardPocket:(BOOL)prefersSolidColorHardPocket forEdge:(UIRectEdge)edge;
+- (void)_setPocketColor:(UIColor *)color forEdge:(UIRectEdge)edge;
 @end
 
 #endif // HAVE(LIQUID_GLASS)

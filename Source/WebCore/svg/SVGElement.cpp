@@ -41,9 +41,11 @@
 #include "HTMLParserIdioms.h"
 #include "JSEventListener.h"
 #include "LegacyRenderSVGResourceContainer.h"
+#include "NodeInlines.h"
 #include "NodeName.h"
 #include "RenderAncestorIterator.h"
 #include "RenderSVGResourceContainer.h"
+#include "RenderStyle+GettersInlines.h"
 #include "ResolvedStyle.h"
 #include "SVGDocumentExtensions.h"
 #include "SVGElementRareData.h"
@@ -55,12 +57,12 @@
 #include "SVGParsingError.h"
 #include "SVGPropertyAnimatorFactory.h"
 #include "SVGPropertyOwnerRegistry.h"
-#include "SVGRenderStyle.h"
 #include "SVGRenderSupport.h"
 #include "SVGResourceElementClient.h"
 #include "SVGSVGElement.h"
 #include "SVGTitleElement.h"
 #include "SVGUseElement.h"
+#include "Settings.h"
 #include "ShadowRoot.h"
 #include "StyleAdjuster.h"
 #include "StyleExtractor.h"
@@ -75,26 +77,27 @@
 
 namespace WebCore {
 
-WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(SVGElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGElement);
 
 SVGElement::SVGElement(const QualifiedName& tagName, Document& document, UniqueRef<SVGPropertyRegistry>&& propertyRegistry, OptionSet<TypeFlag> typeFlags)
     : StyledElement(tagName, document, typeFlags | TypeFlag::IsSVGElement | TypeFlag::HasCustomStyleResolveCallbacks)
     , m_propertyAnimatorFactory(makeUniqueRef<SVGPropertyAnimatorFactory>())
-    , m_propertyRegistry(WTFMove(propertyRegistry))
+    , m_propertyRegistry(WTF::move(propertyRegistry))
     , m_className(SVGAnimatedString::create(this))
 {
-    static std::once_flag onceFlag;
-    std::call_once(onceFlag, [] {
+    static bool didRegistration = false;
+    if (!didRegistration) [[unlikely]] {
+        didRegistration = true;
         PropertyRegistry::registerProperty<HTMLNames::classAttr, &SVGElement::m_className>();
-    });
+    }
 }
 
 SVGElement::~SVGElement()
 {
     if (m_svgRareData) {
         RELEASE_ASSERT(m_svgRareData->referencingElements().isEmptyIgnoringNullReferences());
-        for (SVGElement& instance : copyToVectorOf<Ref<SVGElement>>(instances()))
-            instance.m_svgRareData->setCorrespondingElement(nullptr);
+        for (Ref instance : copyToVectorOf<Ref<SVGElement>>(instances()))
+            instance->m_svgRareData->setCorrespondingElement(nullptr);
         RELEASE_ASSERT(!m_svgRareData->correspondingElement());
         m_svgRareData = nullptr;
     }
@@ -227,14 +230,17 @@ SVGSVGElement* SVGElement::ownerSVGElement() const
     return nullptr;
 }
 
-SVGElement* SVGElement::viewportElement() const
+SVGElement* SVGElement::viewportElement(ViewportElementType type) const
 {
     // This function needs shadow tree support - as RenderSVGContainer uses this function
-    // to determine the "overflow" property. <use> on <symbol> wouldn't work otherwhise.
+    // to determine the "overflow" property. <use> on <symbol> wouldn't work otherwise.
     auto* node = parentNode();
     while (node) {
-        if (is<SVGSVGElement>(*node) || is<SVGImageElement>(*node) || node->hasTagName(SVGNames::symbolTag))
-            return downcast<SVGElement>(node);
+        if (is<SVGSVGElement>(*node) || is<SVGImageElement>(*node))
+            return dynamicDowncast<SVGElement>(node);
+
+        if (type == ViewportElementType::Any && node->hasTagName(SVGNames::symbolTag))
+            return dynamicDowncast<SVGElement>(node);
 
         node = node->parentOrShadowHostNode();
     }
@@ -317,7 +323,7 @@ SVGElement* SVGElement::correspondingElement() const
     return m_svgRareData ? m_svgRareData->correspondingElement() : nullptr;
 }
 
-RefPtr<SVGUseElement> SVGElement::correspondingUseElement() const
+SVGUseElement* SVGElement::correspondingUseElement() const
 {
     SUPPRESS_UNCOUNTED_LOCAL auto* root = containingShadowRoot();
     if (!root)
@@ -341,8 +347,8 @@ void SVGElement::setCorrespondingElement(SVGElement* correspondingElement)
 
 bool SVGElement::haveLoadedRequiredResources()
 {
-    for (auto& child : childrenOfType<SVGElement>(*this)) {
-        if (!child.haveLoadedRequiredResources())
+    for (Ref child : childrenOfType<SVGElement>(*this)) {
+        if (!child->haveLoadedRequiredResources())
             return false;
     }
     return true;
@@ -415,8 +421,8 @@ static bool hasLoadListener(Element* element)
     if (element->hasEventListeners(eventNames().loadEvent))
         return true;
 
-    for (element = element->parentOrShadowHostElement(); element; element = element->parentOrShadowHostElement()) {
-        if (element->hasCapturingEventListeners(eventNames().loadEvent))
+    for (CheckedPtr current = element->parentOrShadowHostElement(); current; current = current->parentOrShadowHostElement()) {
+        if (current->hasCapturingEventListeners(eventNames().loadEvent))
             return true;
     }
 
@@ -693,7 +699,7 @@ const RenderStyle* SVGElement::computedStyle(const std::optional<Style::PseudoEl
 ColorInterpolation SVGElement::colorInterpolation() const
 {
     if (auto renderer = this->renderer())
-        return renderer->style().svgStyle().colorInterpolationFilters();
+        return renderer->style().colorInterpolationFilters();
 
     // Try to determine the property value from the computed style.
     if (auto value = Style::Extractor(const_cast<SVGElement*>(this)).propertyValue(CSSPropertyColorInterpolationFilters, Style::Extractor::UpdateLayout::No))

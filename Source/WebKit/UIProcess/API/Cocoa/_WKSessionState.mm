@@ -48,7 +48,7 @@
     if (!(self = [super init]))
         return nil;
 
-    _sessionState = WTFMove(sessionState);
+    _sessionState = WTF::move(sessionState);
 
     return self;
 }
@@ -56,6 +56,11 @@
 - (NSData *)data
 {
     return WebKit::encodeSessionState(_sessionState).autorelease();
+}
+
+- (BOOL)isEqualForTesting:(_WKSessionState *)other
+{
+    return _sessionState.isEqualForTesting(other->_sessionState);
 }
 
 @end

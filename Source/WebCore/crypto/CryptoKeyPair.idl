@@ -24,7 +24,8 @@
  */
 
 [
-    JSGenerateToJSObject
+    JSGenerateToJSObject,
+    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary CryptoKeyPair {
     CryptoKey publicKey;
     CryptoKey privateKey;

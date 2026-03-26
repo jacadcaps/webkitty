@@ -23,8 +23,7 @@
 
 #include "ActiveDOMObject.h"
 #include "ContextDestructionObserverInlines.h"
-#include "Document.h"
-#include "DocumentInlines.h"
+#include "DocumentQuirks.h"
 #include "ExtendedDOMClientIsoSubspaces.h"
 #include "ExtendedDOMIsoSubspaces.h"
 #include "IDLTypes.h"
@@ -38,7 +37,6 @@
 #include "JSDOMGlobalObjectInlines.h"
 #include "JSDOMOperation.h"
 #include "JSDOMWrapperCache.h"
-#include "Quirks.h"
 #include "ScriptExecutionContext.h"
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/FunctionPrototype.h>
@@ -149,7 +147,7 @@ void JSTestNamedSetterWithLegacyUnforgeablePropertiesPrototype::finishCreation(V
 const ClassInfo JSTestNamedSetterWithLegacyUnforgeableProperties::s_info = { "TestNamedSetterWithLegacyUnforgeableProperties"_s, &Base::s_info, &JSTestNamedSetterWithLegacyUnforgeablePropertiesTable, nullptr, CREATE_METHOD_TABLE(JSTestNamedSetterWithLegacyUnforgeableProperties) };
 
 JSTestNamedSetterWithLegacyUnforgeableProperties::JSTestNamedSetterWithLegacyUnforgeableProperties(Structure* structure, JSDOMGlobalObject& globalObject, Ref<TestNamedSetterWithLegacyUnforgeableProperties>&& impl)
-    : JSDOMWrapper<TestNamedSetterWithLegacyUnforgeableProperties>(structure, globalObject, WTFMove(impl))
+    : JSDOMWrapper<TestNamedSetterWithLegacyUnforgeableProperties>(structure, globalObject, WTF::move(impl))
 {
 }
 
@@ -174,7 +172,7 @@ JSValue JSTestNamedSetterWithLegacyUnforgeableProperties::getConstructor(VM& vm,
 
 void JSTestNamedSetterWithLegacyUnforgeableProperties::destroy(JSC::JSCell* cell)
 {
-    JSTestNamedSetterWithLegacyUnforgeableProperties* thisObject = static_cast<JSTestNamedSetterWithLegacyUnforgeableProperties*>(cell);
+    SUPPRESS_MEMORY_UNSAFE_CAST JSTestNamedSetterWithLegacyUnforgeableProperties* thisObject = static_cast<JSTestNamedSetterWithLegacyUnforgeableProperties*>(cell);
     thisObject->JSTestNamedSetterWithLegacyUnforgeableProperties::~JSTestNamedSetterWithLegacyUnforgeableProperties();
 }
 
@@ -189,7 +187,7 @@ bool JSTestNamedSetterWithLegacyUnforgeableProperties::legacyPlatformObjectGetOw
             return thisObject.wrapped().namedItem(propertyNameToAtomString(propertyName));
         });
         if (auto namedProperty = accessVisibleNamedProperty<LegacyOverrideBuiltIns::No>(*lexicalGlobalObject, *thisObject, propertyName, getterFunctor)) {
-            auto value = toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, WTFMove(namedProperty.value()));
+            auto value = toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, WTF::move(namedProperty.value()));
             RETURN_IF_EXCEPTION(throwScope, false);
             slot.setValue(thisObject, 0, value);
             return true;
@@ -216,7 +214,7 @@ bool JSTestNamedSetterWithLegacyUnforgeableProperties::getOwnPropertySlotByIndex
         return thisObject.wrapped().namedItem(propertyNameToAtomString(propertyName));
     });
     if (auto namedProperty = accessVisibleNamedProperty<LegacyOverrideBuiltIns::No>(*lexicalGlobalObject, *thisObject, propertyName, getterFunctor)) {
-        auto value = toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, WTFMove(namedProperty.value()));
+        auto value = toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, WTF::move(namedProperty.value()));
         RETURN_IF_EXCEPTION(throwScope, false);
         slot.setValue(thisObject, 0, value);
         return true;
@@ -224,7 +222,7 @@ bool JSTestNamedSetterWithLegacyUnforgeableProperties::getOwnPropertySlotByIndex
     return JSObject::getOwnPropertySlotByIndex(object, lexicalGlobalObject, index, slot);
 }
 
-void JSTestNamedSetterWithLegacyUnforgeableProperties::getOwnPropertyNames(JSObject* object, JSGlobalObject* lexicalGlobalObject, PropertyNameArray& propertyNames, DontEnumPropertiesMode mode)
+void JSTestNamedSetterWithLegacyUnforgeableProperties::getOwnPropertyNames(JSObject* object, JSGlobalObject* lexicalGlobalObject, PropertyNameArrayBuilder& propertyNames, DontEnumPropertiesMode mode)
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto* thisObject = jsCast<JSTestNamedSetterWithLegacyUnforgeableProperties*>(object);
@@ -268,7 +266,7 @@ bool JSTestNamedSetterWithLegacyUnforgeableProperties::put(JSCell* cell, JSGloba
         ownDescriptor.setPropertySlot(lexicalGlobalObject, propertyName, slot);
         RETURN_IF_EXCEPTION(throwScope, false);
     }
-    RELEASE_AND_RETURN(throwScope, ordinarySetWithOwnDescriptor(lexicalGlobalObject, thisObject, propertyName, value, putPropertySlot.thisValue(), WTFMove(ownDescriptor), putPropertySlot.isStrictMode()));
+    RELEASE_AND_RETURN(throwScope, ordinarySetWithOwnDescriptor(lexicalGlobalObject, thisObject, propertyName, value, putPropertySlot.thisValue(), WTF::move(ownDescriptor), putPropertySlot.isStrictMode()));
 }
 
 bool JSTestNamedSetterWithLegacyUnforgeableProperties::putByIndex(JSCell* cell, JSGlobalObject* lexicalGlobalObject, unsigned index, JSValue value, bool shouldThrow)
@@ -441,7 +439,7 @@ bool JSTestNamedSetterWithLegacyUnforgeablePropertiesOwner::isReachableFromOpaqu
 
 void JSTestNamedSetterWithLegacyUnforgeablePropertiesOwner::finalize(JSC::Handle<JSC::Unknown> handle, void* context)
 {
-    auto* jsTestNamedSetterWithLegacyUnforgeableProperties = static_cast<JSTestNamedSetterWithLegacyUnforgeableProperties*>(handle.slot()->asCell());
+    SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestNamedSetterWithLegacyUnforgeableProperties = static_cast<JSTestNamedSetterWithLegacyUnforgeableProperties*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
     uncacheWrapper(world, jsTestNamedSetterWithLegacyUnforgeableProperties->protectedWrapped().ptr(), jsTestNamedSetterWithLegacyUnforgeableProperties);
 }
@@ -455,7 +453,7 @@ extern "C" { extern void (*const __identifier("??_7TestNamedSetterWithLegacyUnfo
 extern "C" { extern void* _ZTVN7WebCore46TestNamedSetterWithLegacyUnforgeablePropertiesE[]; }
 #endif
 template<std::same_as<TestNamedSetterWithLegacyUnforgeableProperties> T>
-static inline void verifyVTable(TestNamedSetterWithLegacyUnforgeableProperties* ptr) 
+static inline void verifyVTable(TestNamedSetterWithLegacyUnforgeableProperties* ptr)
 {
     if constexpr (std::is_polymorphic_v<T>) {
         const void* actualVTablePointer = getVTablePointer<T>(ptr);
@@ -475,12 +473,13 @@ static inline void verifyVTable(TestNamedSetterWithLegacyUnforgeableProperties* 
 #endif
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestNamedSetterWithLegacyUnforgeableProperties>&& impl)
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<TestNamedSetterWithLegacyUnforgeableProperties>&& impl)
 {
+    UNUSED_PARAM(lexicalGlobalObject);
 #if ENABLE(BINDING_INTEGRITY)
     verifyVTable<TestNamedSetterWithLegacyUnforgeableProperties>(impl.ptr());
 #endif
-    return createWrapper<TestNamedSetterWithLegacyUnforgeableProperties>(globalObject, WTFMove(impl));
+    return createWrapper<TestNamedSetterWithLegacyUnforgeableProperties>(globalObject, WTF::move(impl));
 }
 
 JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestNamedSetterWithLegacyUnforgeableProperties& impl)

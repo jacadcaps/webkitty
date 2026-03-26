@@ -45,12 +45,13 @@
 #import "WebExtensionUtilities.h"
 #import <wtf/BlockPtr.h>
 #import <wtf/CallbackAggregator.h>
+#import <wtf/darwin/DispatchExtras.h>
 
 namespace WebKit {
 
 void WebExtensionContext::runtimeGetBackgroundPage(CompletionHandler<void(Expected<std::optional<WebCore::PageIdentifier>, WebExtensionError>&&)>&& completionHandler)
 {
-    wakeUpBackgroundContentIfNecessary([this, protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)]() mutable {
+    wakeUpBackgroundContentIfNecessary([this, protectedThis = Ref { *this }, completionHandler = WTF::move(completionHandler)]() mutable {
         completionHandler(backgroundPageIdentifier());
     });
 }
@@ -80,7 +81,7 @@ void WebExtensionContext::runtimeOpenOptionsPage(CompletionHandler<void(Expected
     }
 
     if (respondsToOpenOptionsPage) {
-        [delegate webExtensionController:extensionController->wrapper() openOptionsPageForExtensionContext:wrapper() completionHandler:makeBlockPtr([completionHandler = WTFMove(completionHandler)](NSError *error) mutable {
+        [delegate webExtensionController:extensionController->wrapper() openOptionsPageForExtensionContext:wrapper() completionHandler:makeBlockPtr([completionHandler = WTF::move(completionHandler)](NSError *error) mutable {
             if (error) {
                 RELEASE_LOG_ERROR(Extensions, "Error opening options page: %{public}@", privacyPreservingDescription(error));
                 completionHandler(toWebExtensionError(apiName, nullString(), error.localizedDescription));
@@ -104,7 +105,7 @@ void WebExtensionContext::runtimeOpenOptionsPage(CompletionHandler<void(Expected
     configuration.index = frontmostWindow ? frontmostWindow->tabs().size() : 0;
     configuration.url = optionsPageURL().createNSURL().get();
 
-    [delegate webExtensionController:extensionController->wrapper() openNewTabUsingConfiguration:configuration forExtensionContext:wrapper() completionHandler:makeBlockPtr([completionHandler = WTFMove(completionHandler)](id<WKWebExtensionTab> newTab, NSError *error) mutable {
+    [delegate webExtensionController:extensionController->wrapper() openNewTabUsingConfiguration:configuration forExtensionContext:wrapper() completionHandler:makeBlockPtr([completionHandler = WTF::move(completionHandler)](id<WKWebExtensionTab> newTab, NSError *error) mutable {
         if (error) {
             RELEASE_LOG_ERROR(Extensions, "Error opening options page in new tab: %{public}@", privacyPreservingDescription(error));
             completionHandler(toWebExtensionError(apiName, nullString(), error.localizedDescription));
@@ -122,7 +123,7 @@ void WebExtensionContext::runtimeOpenOptionsPage(CompletionHandler<void(Expected
 
 void WebExtensionContext::runtimeReload()
 {
-    reload();
+    std::ignore = reload();
 }
 
 void WebExtensionContext::runtimeSendMessage(const String& extensionID, const String& messageJSON, const WebExtensionMessageSenderParameters& senderParameters, CompletionHandler<void(Expected<String, WebExtensionError>&&)>&& completionHandler)
@@ -147,14 +148,14 @@ void WebExtensionContext::runtimeSendMessage(const String& extensionID, const St
     constexpr auto targetContentWorldType = WebExtensionContentWorldType::Main;
     constexpr auto eventType = WebExtensionEventListenerType::RuntimeOnMessage;
 
-    wakeUpBackgroundContentIfNecessaryToFireEvents({ eventType }, [=, this, protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)]() mutable {
+    wakeUpBackgroundContentIfNecessaryToFireEvents({ eventType }, [=, this, protectedThis = Ref { *this }, completionHandler = WTF::move(completionHandler)]() mutable {
         auto mainWorldProcesses = processes(eventType, targetContentWorldType);
         if (mainWorldProcesses.isEmpty()) {
             completionHandler({ });
             return;
         }
 
-        auto callbackAggregator = EagerCallbackAggregator<void(Expected<String, WebExtensionError>)>::create(WTFMove(completionHandler), { });
+        auto callbackAggregator = EagerCallbackAggregator<void(Expected<String, WebExtensionError>)>::create(WTF::move(completionHandler), { });
 
         for (auto& process : mainWorldProcesses) {
             process->sendWithAsyncReply(Messages::WebExtensionContextProxy::DispatchRuntimeMessageEvent(targetContentWorldType, messageJSON, std::nullopt, completeSenderParameters), [callbackAggregator](String&& replyJSON) {
@@ -163,7 +164,7 @@ void WebExtensionContext::runtimeSendMessage(const String& extensionID, const St
                 if (replyJSON.isNull())
                     return;
 
-                callbackAggregator.get()(WTFMove(replyJSON));
+                callbackAggregator.get()(WTF::move(replyJSON));
             }, identifier());
         }
     });
@@ -196,7 +197,7 @@ void WebExtensionContext::runtimeConnect(const String& extensionID, WebExtension
 
     constexpr auto eventType = WebExtensionEventListenerType::RuntimeOnConnect;
 
-    wakeUpBackgroundContentIfNecessaryToFireEvents({ eventType }, [=, this, protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)]() mutable {
+    wakeUpBackgroundContentIfNecessaryToFireEvents({ eventType }, [=, this, protectedThis = Ref { *this }, completionHandler = WTF::move(completionHandler)]() mutable {
         auto mainWorldProcesses = processes(eventType, targetContentWorldType);
         if (mainWorldProcesses.isEmpty()) {
             completionHandler(toWebExtensionError(apiName, nullString(), @"no runtime.onConnect listeners found"));
@@ -209,7 +210,7 @@ void WebExtensionContext::runtimeConnect(const String& extensionID, WebExtension
         for (auto& process : mainWorldProcesses) {
             process->sendWithAsyncReply(Messages::WebExtensionContextProxy::DispatchRuntimeConnectEvent(targetContentWorldType, channelIdentifier, name, std::nullopt, completeSenderParameters), [=, this, protectedThis = Ref { *this }, &handledCount](HashCountedSet<WebPageProxyIdentifier>&& addedPortCounts) mutable {
                 // Flip target and source worlds since we're adding the opposite side of the port connection, sending from target back to source.
-                addPorts(targetContentWorldType, sourceContentWorldType, channelIdentifier, WTFMove(addedPortCounts));
+                addPorts(targetContentWorldType, sourceContentWorldType, channelIdentifier, WTF::move(addedPortCounts));
 
                 fireQueuedPortMessageEventsIfNeeded(targetContentWorldType, channelIdentifier);
                 fireQueuedPortMessageEventsIfNeeded(sourceContentWorldType, channelIdentifier);
@@ -266,12 +267,12 @@ void WebExtensionContext::sendNativeMessage(const String& applicationID, id mess
             return;
         }
 
-        Ref callbackAggregator = EagerCallbackAggregator<void(Expected<RetainPtr<id>, WebExtensionError>&&)>::create(WTFMove(completionHandler), { });
+        Ref callbackAggregator = EagerCallbackAggregator<void(Expected<RetainPtr<id>, WebExtensionError>&&)>::create(WTF::move(completionHandler), { });
 
         nativeExtension.requestCancellationBlock = makeBlockPtr([callbackAggregator](id<NSCopying> requestIdentifier, NSError *error) {
             RELEASE_LOG_ERROR(Extensions, "NSExtension request with identifier %{public}@ was canceled: %{public}@", requestIdentifier, privacyPreservingDescription(error));
 
-            dispatch_async(dispatch_get_main_queue(), makeBlockPtr([callbackAggregator] {
+            dispatch_async(mainDispatchQueueSingleton(), makeBlockPtr([callbackAggregator] {
                 --activeRequestCount;
 
                 callbackAggregator.get()(toWebExtensionError(apiName, nullString(), @"the native extension canceled the request or encountered an error"));
@@ -281,7 +282,7 @@ void WebExtensionContext::sendNativeMessage(const String& applicationID, id mess
         nativeExtension.requestInterruptionBlock = makeBlockPtr([callbackAggregator, nativeExtension = WeakObjCPtr { nativeExtension }](id<NSCopying> requestIdentifier) {
             RELEASE_LOG_ERROR(Extensions, "NSExtension request with identifier %{public}@ was interrupted", requestIdentifier);
 
-            dispatch_async(dispatch_get_main_queue(), makeBlockPtr([callbackAggregator] {
+            dispatch_async(mainDispatchQueueSingleton(), makeBlockPtr([callbackAggregator] {
                 --activeRequestCount;
 
                 callbackAggregator.get()(toWebExtensionError(apiName, nullString(), @"the native extension was interrupted or crashed"));
@@ -294,7 +295,7 @@ void WebExtensionContext::sendNativeMessage(const String& applicationID, id mess
         nativeExtension.requestCompletionBlock = ^(id<NSCopying> requestIdentifier, NSArray<NSExtensionItem *> *items) {
             id replyMessage = items.firstObject.userInfo[messageKey];
 
-            dispatch_async(dispatch_get_main_queue(), makeBlockPtr([callbackAggregator, replyMessage = RetainPtr { replyMessage }] {
+            dispatch_async(mainDispatchQueueSingleton(), makeBlockPtr([callbackAggregator, replyMessage = RetainPtr { replyMessage }] {
                 --activeRequestCount;
 
                 callbackAggregator.get()({ replyMessage.get() });
@@ -312,7 +313,7 @@ void WebExtensionContext::sendNativeMessage(const String& applicationID, id mess
 
             RELEASE_LOG_ERROR(Extensions, "NSExtension request with identifier %{public}@ failed: %{public}@", requestIdentifier, privacyPreservingDescription(error));
 
-            dispatch_async(dispatch_get_main_queue(), makeBlockPtr([callbackAggregator, nativeExtension, requestIdentifier = RetainPtr { requestIdentifier }] {
+            dispatch_async(mainDispatchQueueSingleton(), makeBlockPtr([callbackAggregator, nativeExtension, requestIdentifier = RetainPtr { requestIdentifier }] {
                 --activeRequestCount;
 
                 callbackAggregator.get()(toWebExtensionError(apiName, nullString(), @"the native extension encountered an unknown error"));
@@ -327,7 +328,7 @@ void WebExtensionContext::sendNativeMessage(const String& applicationID, id mess
 
     auto *applicationIdentifier = !applicationID.isNull() ? applicationID.createNSString().get() : nil;
 
-    [delegate webExtensionController:extensionController->wrapper() sendMessage:message toApplicationWithIdentifier:applicationIdentifier forExtensionContext:wrapper() replyHandler:makeBlockPtr([completionHandler = WTFMove(completionHandler)](id replyMessage, NSError *error) mutable {
+    [delegate webExtensionController:extensionController->wrapper() sendMessage:message toApplicationWithIdentifier:applicationIdentifier forExtensionContext:wrapper() replyHandler:makeBlockPtr([completionHandler = WTF::move(completionHandler)](id replyMessage, NSError *error) mutable {
         if (error) {
             completionHandler(toWebExtensionError(apiName, nullString(), error.localizedDescription));
             return;
@@ -344,7 +345,7 @@ void WebExtensionContext::sendNativeMessage(const String& applicationID, id mess
 
 void WebExtensionContext::runtimeSendNativeMessage(const String& applicationID, const String& messageJSON, CompletionHandler<void(Expected<String, WebExtensionError>&&)>&& completionHandler)
 {
-    sendNativeMessage(applicationID, parseJSON(messageJSON.createNSString().get(), JSONOptions::FragmentsAllowed), [completionHandler = WTFMove(completionHandler)](auto&& result) mutable {
+    sendNativeMessage(applicationID, parseJSON(messageJSON.createNSString().get(), JSONOptions::FragmentsAllowed), [completionHandler = WTF::move(completionHandler)](auto&& result) mutable {
         if (!result) {
             completionHandler(makeUnexpected(result.error()));
             return;
@@ -412,7 +413,7 @@ void WebExtensionContext::runtimeConnectNative(const String& applicationID, WebE
         return;
     }
 
-    [delegate webExtensionController:extensionController->wrapper() connectUsingMessagePort:nativePort->wrapper() forExtensionContext:wrapper() completionHandler:makeBlockPtr([=, this, protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)] (NSError *error) mutable {
+    [delegate webExtensionController:extensionController->wrapper() connectUsingMessagePort:nativePort->wrapper() forExtensionContext:wrapper() completionHandler:makeBlockPtr([=, this, protectedThis = Ref { *this }, completionHandler = WTF::move(completionHandler)] (NSError *error) mutable {
         if (error) {
             completionHandler(toWebExtensionError(apiName, nullString(), error.localizedDescription));
 
@@ -442,7 +443,7 @@ void WebExtensionContext::runtimeWebPageSendMessage(const String& extensionID, c
     RefPtr destinationExtension = extensionController->extensionContext(extensionID);
     RefPtr tab = getTab(senderParameters.pageProxyIdentifier);
     if (!destinationExtension || !tab) {
-        callAfterRandomDelay([completionHandler = WTFMove(completionHandler)]() mutable {
+        callAfterRandomDelay([completionHandler = WTF::move(completionHandler)]() mutable {
             completionHandler({ });
         });
 
@@ -455,7 +456,7 @@ void WebExtensionContext::runtimeWebPageSendMessage(const String& extensionID, c
     auto url = completeSenderParameters.url;
     auto validMatchPatterns = destinationExtension->protectedExtension()->externallyConnectableMatchPatterns();
     if (!hasPermission(url, tab.get()) || !WebExtensionMatchPattern::patternsMatchURL(validMatchPatterns, url)) {
-        callAfterRandomDelay([completionHandler = WTFMove(completionHandler)]() mutable {
+        callAfterRandomDelay([completionHandler = WTF::move(completionHandler)]() mutable {
             completionHandler({ });
         });
 
@@ -464,14 +465,14 @@ void WebExtensionContext::runtimeWebPageSendMessage(const String& extensionID, c
 
     constexpr auto eventType = WebExtensionEventListenerType::RuntimeOnMessageExternal;
 
-    wakeUpBackgroundContentIfNecessaryToFireEvents({ eventType }, [=, this, protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)]() mutable {
+    wakeUpBackgroundContentIfNecessaryToFireEvents({ eventType }, [=, this, protectedThis = Ref { *this }, completionHandler = WTF::move(completionHandler)]() mutable {
         auto mainWorldProcesses = processes(eventType, WebExtensionContentWorldType::Main);
         if (mainWorldProcesses.isEmpty()) {
             completionHandler({ });
             return;
         }
 
-        auto callbackAggregator = EagerCallbackAggregator<void(Expected<String, WebExtensionError>)>::create(WTFMove(completionHandler), { });
+        auto callbackAggregator = EagerCallbackAggregator<void(Expected<String, WebExtensionError>)>::create(WTF::move(completionHandler), { });
 
         for (auto& process : mainWorldProcesses) {
             process->sendWithAsyncReply(Messages::WebExtensionContextProxy::DispatchRuntimeMessageEvent(WebExtensionContentWorldType::Main, messageJSON, std::nullopt, completeSenderParameters), [callbackAggregator](String&& replyJSON) {
@@ -480,7 +481,7 @@ void WebExtensionContext::runtimeWebPageSendMessage(const String& extensionID, c
                 if (replyJSON.isNull())
                     return;
 
-                callbackAggregator.get()(WTFMove(replyJSON));
+                callbackAggregator.get()(WTF::move(replyJSON));
             }, identifier());
         }
     });
@@ -502,7 +503,7 @@ void WebExtensionContext::runtimeWebPageConnect(const String& extensionID, WebEx
     RefPtr destinationExtension = extensionController->extensionContext(extensionID);
     RefPtr tab = getTab(senderParameters.pageProxyIdentifier);
     if (!destinationExtension || !tab) {
-        callAfterRandomDelay([=, this, protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)]() mutable {
+        callAfterRandomDelay([=, this, protectedThis = Ref { *this }, completionHandler = WTF::move(completionHandler)]() mutable {
             completionHandler({ });
             firePortDisconnectEventIfNeeded(sourceContentWorldType, targetContentWorldType, channelIdentifier);
             clearQueuedPortMessages(targetContentWorldType, channelIdentifier);
@@ -517,7 +518,7 @@ void WebExtensionContext::runtimeWebPageConnect(const String& extensionID, WebEx
     auto url = completeSenderParameters.url;
     auto validMatchPatterns = destinationExtension->protectedExtension()->externallyConnectableMatchPatterns();
     if (!hasPermission(url, tab.get()) || !WebExtensionMatchPattern::patternsMatchURL(validMatchPatterns, url)) {
-        callAfterRandomDelay([=, this, protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)]() mutable {
+        callAfterRandomDelay([=, this, protectedThis = Ref { *this }, completionHandler = WTF::move(completionHandler)]() mutable {
             completionHandler({ });
             firePortDisconnectEventIfNeeded(sourceContentWorldType, targetContentWorldType, channelIdentifier);
             clearQueuedPortMessages(targetContentWorldType, channelIdentifier);
@@ -531,7 +532,7 @@ void WebExtensionContext::runtimeWebPageConnect(const String& extensionID, WebEx
 
     constexpr auto eventType = WebExtensionEventListenerType::RuntimeOnConnectExternal;
 
-    wakeUpBackgroundContentIfNecessaryToFireEvents({ eventType }, [=, this, protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)]() mutable {
+    wakeUpBackgroundContentIfNecessaryToFireEvents({ eventType }, [=, this, protectedThis = Ref { *this }, completionHandler = WTF::move(completionHandler)]() mutable {
         auto mainWorldProcesses = processes(eventType, targetContentWorldType);
         if (mainWorldProcesses.isEmpty()) {
             completionHandler(toWebExtensionError(apiName, nullString(), @"no runtime.onConnectExternal listeners found"));
@@ -544,7 +545,7 @@ void WebExtensionContext::runtimeWebPageConnect(const String& extensionID, WebEx
         for (auto& process : mainWorldProcesses) {
             process->sendWithAsyncReply(Messages::WebExtensionContextProxy::DispatchRuntimeConnectEvent(targetContentWorldType, channelIdentifier, name, std::nullopt, completeSenderParameters), [=, this, protectedThis = Ref { *this }, &handledCount](HashCountedSet<WebPageProxyIdentifier>&& addedPortCounts) mutable {
                 // Flip target and source worlds since we're adding the opposite side of the port connection, sending from target back to source.
-                addPorts(targetContentWorldType, sourceContentWorldType, channelIdentifier, WTFMove(addedPortCounts));
+                addPorts(targetContentWorldType, sourceContentWorldType, channelIdentifier, WTF::move(addedPortCounts));
 
                 fireQueuedPortMessageEventsIfNeeded(targetContentWorldType, channelIdentifier);
                 fireQueuedPortMessageEventsIfNeeded(sourceContentWorldType, channelIdentifier);

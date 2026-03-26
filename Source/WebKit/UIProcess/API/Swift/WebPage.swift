@@ -28,6 +28,8 @@ import Observation
 internal import WebKit_Private
 internal import WebKit_Internal
 
+/// An object that controls and manages the behavior of interactive web content.
+///
 /// A ``WebPage`` is an ``Observable`` type, which you use to access various properties of web content
 /// and track changes to them. Use ``WebPage`` to interact with web content, like evaluating JavaScript
 /// or converting the page to PDF data. The following example shows you how you can combine these
@@ -92,6 +94,9 @@ internal import WebKit_Internal
 @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
 @available(watchOS, unavailable)
 @available(tvOS, unavailable)
+#if compiler(>=6.2.3)
+@_expose(!Cxx)
+#endif
 final public class WebPage {
     /// A CSS media type as defined by the [CSS specification](https://www.w3.org/TR/mediaqueries-4/#media-types), or an arbitrary media type value.
     ///
@@ -142,7 +147,7 @@ final public class WebPage {
         /// The page is not currently in fullscreen.
         case notInFullscreen
     }
-    
+
     // This is based on the XGA standard resolution size.
     private static let defaultFrame = CGRect(x: 0, y: 0, width: 1024, height: 768)
 
@@ -393,16 +398,26 @@ final public class WebPage {
         return webView
     }()
 
+    #if os(macOS)
+    // SPI for testing.
+    // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
+    @_spi(Testing)
+    public var smartListsEnabled: Bool {
+        get { backingWebView._isSmartListsEnabled() }
+        set { backingWebView._setSmartListsEnabled(newValue) }
+    }
+    #endif
+
     // MARK: Loading functions
-    
-    @ObservationIgnored
-    private var scopedNavigations: [ObjectIdentifier : AsyncThrowingStream<NavigationEvent, any Error>.Continuation] = [:]
 
     @ObservationIgnored
-    private var scopedStreams: [ObjectIdentifier : AsyncThrowingStream<NavigationEvent, any Error>] = [:]
+    private var scopedNavigations: [ObjectIdentifier: AsyncThrowingStream<NavigationEvent, any Error>.Continuation] = [:]
 
     @ObservationIgnored
-    private var indefiniteNavigations: [UUID : AsyncThrowingStream<NavigationEvent, any Error>.Continuation] = [:]
+    private var scopedStreams: [ObjectIdentifier: AsyncThrowingStream<NavigationEvent, any Error>] = [:]
+
+    @ObservationIgnored
+    private var indefiniteNavigations: [UUID: AsyncThrowingStream<NavigationEvent, any Error>.Continuation] = [:]
 
     /// Loads the web content that the specified URL references and navigates to that content.
     ///
@@ -462,7 +477,7 @@ final public class WebPage {
         guard let convertedEncoding = CFStringConvertEncodingToIANACharSetName(cfEncoding) as? String else {
             preconditionFailure("\(characterEncoding) is not a valid character encoding")
         }
-        
+
         return toNavigationSequence {
             $0.load(data, mimeType: mimeType, characterEncodingName: convertedEncoding, baseURL: baseURL)
         }
@@ -480,6 +495,7 @@ final public class WebPage {
     ///   - baseURL: The base URL to use when the system resolves relative URLs within the HTML string. By default, this is `about:blank`.
     /// - Returns: An async sequence you use to track the loading progress of the navigation. If the `Task` enclosing the sequence is cancelled, the page will stop loading all resources.
     // swift-format-ignore: NeverForceUnwrap
+    // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
     @discardableResult
     public func load(
         html: Swift.String,
@@ -498,7 +514,11 @@ final public class WebPage {
     ///   - responseData: The data to use as the contents of the webpage.
     /// - Returns: An async sequence you use to track the loading progress of the navigation. If the `Task` enclosing the sequence is cancelled, the page will stop loading all resources.
     @discardableResult
-    public func load(simulatedRequest request: URLRequest, response: URLResponse, responseData: Data) -> some AsyncSequence<NavigationEvent, any Error> {
+    public func load(
+        simulatedRequest request: URLRequest,
+        response: URLResponse,
+        responseData: Data
+    ) -> some AsyncSequence<NavigationEvent, any Error> {
         toNavigationSequence {
             // `WKWebView` annotates this method as returning non-nil, but it may return nil.
             $0.loadSimulatedRequest(request, response: response, responseData: responseData) as WKNavigation?
@@ -590,7 +610,7 @@ final public class WebPage {
     ///   frame is no longer valid when script evaluation begins, this function throws an error with the
     ///   `WKError.Code.javaScriptInvalidFrameTarget` code.
     ///
-    ///   - contentWorld: The namespace in which to evaluate the JavaScript code. THis parameter doesn't apply to changes
+    ///   - contentWorld: The namespace in which to evaluate the JavaScript code. This parameter doesn't apply to changes
     ///   you make in the underlying web content, such as the document's DOM structure. Those changes remain visible to
     ///   all scripts, regardless of which content world you specify. For more information about content worlds, see `WKContentWorld`.
     ///

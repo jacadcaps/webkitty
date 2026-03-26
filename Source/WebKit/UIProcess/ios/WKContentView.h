@@ -23,6 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#import "TransactionID.h"
 #import "WKApplicationStateTrackingView.h"
 #import "WKBase.h"
 #import "WKBrowsingContextController.h"
@@ -48,6 +49,8 @@ class WebFrameProxy;
 class WebPageProxy;
 class WebProcessProxy;
 class WebProcessPool;
+struct MainFrameData;
+struct PageData;
 enum class ViewStabilityFlag : uint8_t;
 }
 
@@ -87,6 +90,8 @@ enum class ViewStabilityFlag : uint8_t;
 - (void)didInterruptScrolling;
 - (void)didZoomToScale:(CGFloat)scale;
 - (void)willStartZoomOrScroll;
+
+- (CGFloat)intrinsicDeviceScaleFactor;
 - (BOOL)screenIsBeingCaptured;
 
 - (void)_webViewDestroyed;
@@ -115,6 +120,7 @@ enum class ViewStabilityFlag : uint8_t;
 #endif // ENABLE(MODEL_PROCESS)
 #if USE(EXTENSIONKIT)
 - (UIView *)_createVisibilityPropagationView;
+- (void)_removeVisibilityPropagationView:(UIView *)view;
 #endif
 #endif // HAVE(VISIBILITY_PROPAGATION_VIEW)
 
@@ -124,7 +130,7 @@ enum class ViewStabilityFlag : uint8_t;
 - (void)_showInspectorHighlight:(const WebCore::InspectorOverlay::Highlight&)highlight;
 - (void)_hideInspectorHighlight;
 
-- (void)_didCommitLayerTree:(const WebKit::RemoteLayerTreeTransaction&)layerTreeTransaction;
+- (void)_didCommitLayerTree:(const WebKit::RemoteLayerTreeTransaction&)layerTreeTransaction mainFrameData:(const std::optional<WebKit::MainFrameData>&)mainFrameData pageData:(const WebKit::PageData&)pageData transactionID:(const WebKit::TransactionID&)transactionID;
 - (void)_layerTreeCommitComplete;
 
 - (void)_setAccessibilityWebProcessToken:(NSData *)data;
@@ -140,4 +146,5 @@ enum class ViewStabilityFlag : uint8_t;
 #if ENABLE(MODEL_PROCESS)
 - (void)_setTransform3DForModelViews:(CGFloat)newScale;
 #endif
+- (BOOL)_shouldExposeRollAngleAsTwist;
 @end

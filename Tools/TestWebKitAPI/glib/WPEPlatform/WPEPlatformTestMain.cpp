@@ -46,6 +46,8 @@ int main(int argc, char** argv)
     g_setenv("WPE_PLATFORMS_PATH", WPE_MOCK_PLATFORM_DIR, TRUE);
     g_test_bug_base("https://bugs.webkit.org/");
 
+    g_unsetenv("WPE_DRM_DEVICE");
+
     TestWebKitAPI::beforeAll();
     int returnValue = g_test_run();
     TestWebKitAPI::afterAll();

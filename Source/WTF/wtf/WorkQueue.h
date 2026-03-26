@@ -33,8 +33,7 @@
 #include <wtf/Threading.h>
 
 #if USE(COCOA_EVENT_LOOP)
-#include <dispatch/dispatch.h>
-#include <wtf/OSObjectPtr.h>
+#include <wtf/darwin/DispatchOSObject.h>
 #else
 #include <wtf/RunLoop.h>
 #endif
@@ -54,6 +53,7 @@ public:
 
 #if USE(COCOA_EVENT_LOOP)
     dispatch_queue_t dispatchQueue() const { return m_dispatchQueue.get(); }
+    OSObjectPtr<dispatch_queue_t> protectedDispatchQueue() const { return dispatchQueue(); }
 #endif
 
     virtual void ref() const = 0;
@@ -74,7 +74,7 @@ protected:
 #if USE(COCOA_EVENT_LOOP)
     const OSObjectPtr<dispatch_queue_t> m_dispatchQueue;
 #else
-    RunLoop* m_runLoop;
+    RefPtr<RunLoop> m_runLoop;
 #endif
     uint32_t m_threadID { 0 };
 private:

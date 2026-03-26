@@ -57,6 +57,7 @@ TouchGestureController::EventVariant TouchGestureController::handleEvent(const s
     {
         switch (m_gesturedEvent) {
         case GesturedEvent::None:
+        case GesturedEvent::ContextMenu:
             break;
         case GesturedEvent::Click:
         {
@@ -77,12 +78,10 @@ TouchGestureController::EventVariant TouchGestureController::handleEvent(const s
             m_gesturedEvent = GesturedEvent::Axis;
             [[fallthrough]];
         }
-        case GesturedEvent::ContextMenu:
-            break;
         case GesturedEvent::Axis:
         {
             AxisEvent generatedEvent;
-            generatedEvent.phase = WebWheelEvent::Phase::PhaseChanged;
+            generatedEvent.phase = WebWheelEvent::Phase::Changed;
 
 #if WPE_CHECK_VERSION(1, 5, 0)
             generatedEvent.event.base = {
@@ -162,7 +161,7 @@ TouchGestureController::EventVariant TouchGestureController::handleEvent(const s
             m_gesturedEvent = GesturedEvent::None;
 
             AxisEvent generatedEvent;
-            generatedEvent.phase = WebWheelEvent::Phase::PhaseEnded;
+            generatedEvent.phase = WebWheelEvent::Phase::Ended;
 
 #if WPE_CHECK_VERSION(1, 5, 0)
             generatedEvent.event.base = {

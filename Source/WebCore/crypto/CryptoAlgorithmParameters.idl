@@ -23,6 +23,8 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-dictionary CryptoAlgorithmParameters {
+[
+    LegacyNativeDictionaryRequiredInterfaceNullability,
+] dictionary CryptoAlgorithmParameters {
     required DOMString name;
 };

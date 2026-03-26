@@ -16,7 +16,6 @@
 #include "include/core/SkPathTypes.h"
 #include "include/core/SkPoint3.h"
 #include "include/core/SkRRect.h"
-#include "include/core/SkRSXform.h"
 #include "include/core/SkSamplingOptions.h"
 #include "include/core/SkScalar.h"
 #include "include/core/SkSize.h"
@@ -391,12 +390,10 @@ void SurfaceDrawContext::drawPaint(const GrClip* clip,
         this->fillRectToRect(clip, std::move(paint), GrAA::kNo, SkMatrix::I(), r, r);
     } else {
         // Use the inverse view matrix to arrive at appropriate local coordinates for the paint.
-        SkMatrix localMatrix;
-        if (!viewMatrix.invert(&localMatrix)) {
-            return;
+        if (auto localMatrix = viewMatrix.invert()) {
+            SkIRect bounds = SkIRect::MakeSize(this->asSurfaceProxy()->dimensions());
+            this->fillPixelsWithLocalMatrix(clip, std::move(paint), bounds, *localMatrix);
         }
-        SkIRect bounds = SkIRect::MakeSize(this->asSurfaceProxy()->dimensions());
-        this->fillPixelsWithLocalMatrix(clip, std::move(paint), bounds, localMatrix);
     }
 }
 
@@ -766,12 +763,12 @@ void SurfaceDrawContext::fillRectToRect(const GrClip* clip,
             (!paint.usesLocalCoords() || quad.fLocal.asRect(&croppedLocal))) {
             // The cropped quad is still a rect, and our view matrix preserves rects. Map it back
             // to pre-matrix space.
-            SkMatrix inverse;
-            if (!viewMatrix.invert(&inverse)) {
+            auto inverse = viewMatrix.invert();
+            if (!inverse) {
                 return;
             }
-            SkASSERT(inverse.rectStaysRect());
-            inverse.mapRect(&croppedRect);
+            SkASSERT(inverse->rectStaysRect());
+            inverse->mapRect(&croppedRect);
             if (opt == QuadOptimization::kClipApplied) {
                 optimizedClip = nullptr;
             }
@@ -987,10 +984,9 @@ void SurfaceDrawContext::drawMesh(const GrClip* clip,
 void SurfaceDrawContext::drawAtlas(const GrClip* clip,
                                    GrPaint&& paint,
                                    const SkMatrix& viewMatrix,
-                                   int spriteCount,
-                                   const SkRSXform xform[],
-                                   const SkRect texRect[],
-                                   const SkColor colors[]) {
+                                   SkSpan<const SkRSXform> xform,
+                                   SkSpan<const SkRect> texRect,
+                                   SkSpan<const SkColor> colors) {
     ASSERT_SINGLE_OWNER
     RETURN_IF_ABANDONED
     SkDEBUGCODE(this->validate();)
@@ -998,7 +994,8 @@ void SurfaceDrawContext::drawAtlas(const GrClip* clip,
 
     GrAAType aaType = this->chooseAAType(GrAA::kNo);
     GrOp::Owner op = DrawAtlasOp::Make(fContext, std::move(paint), viewMatrix,
-                                       aaType, spriteCount, xform, texRect, colors);
+                                       aaType, xform.size(), xform.data(),
+                                       texRect.data(), colors.data());
     this->addDrawOp(clip, std::move(op));
 }
 
@@ -1219,9 +1216,8 @@ bool SurfaceDrawContext::drawFastShadow(const GrClip* clip,
         spotOffset.fX += spotScale*viewMatrix[SkMatrix::kMTransX];
         spotOffset.fY += spotScale*viewMatrix[SkMatrix::kMTransY];
         // This offset is in dev space, need to transform it into source space.
-        SkMatrix ctmInverse;
-        if (viewMatrix.invert(&ctmInverse)) {
-            spotOffset = ctmInverse.mapPoint(spotOffset);
+        if (auto ctmInverse = viewMatrix.invert()) {
+            spotOffset = ctmInverse->mapPoint(spotOffset);
         } else {
             // Since the matrix is a similarity, this should never happen, but just in case...
             SkDebugf("Matrix is degenerate. Will not render spot shadow correctly!\n");
@@ -1229,10 +1225,9 @@ bool SurfaceDrawContext::drawFastShadow(const GrClip* clip,
         }
 
         // Compute the transformed shadow rrect
-        SkRRect spotShadowRRect;
         SkMatrix shadowTransform;
         shadowTransform.setScaleTranslate(spotScale, spotScale, spotOffset.fX, spotOffset.fY);
-        rrect.transform(shadowTransform, &spotShadowRRect);
+        SkRRect spotShadowRRect = rrect.transform(shadowTransform).value_or(SkRRect());
         SkScalar spotRadius = spotShadowRRect.getSimpleRadii().fX;
 
         // Compute the insetWidth
@@ -1333,8 +1328,7 @@ void SurfaceDrawContext::drawRegion(const GrClip* clip,
     }
     bool complexStyle = !style.isSimpleFill();
     if (complexStyle || GrAA::kYes == aa) {
-        SkPath path;
-        region.getBoundaryPath(&path);
+        SkPath path = region.getBoundaryPath();
         path.setIsVolatile(true);
 
         return this->drawPath(clip, std::move(paint), aa, viewMatrix, path, style);
@@ -1746,8 +1740,8 @@ bool SurfaceDrawContext::drawSimpleShape(const GrClip* clip,
             // for and outsets thin non-aa rects to 1px, the path renderer could be skipped.
             SkScalar coverage;
             if (aaType == GrAAType::kCoverage ||
-                !SkDrawTreatAAStrokeAsHairline(shape.style().strokeRec().getWidth(), viewMatrix,
-                                               &coverage)) {
+                !skcpu::DrawTreatAAStrokeAsHairline(
+                        shape.style().strokeRec().getWidth(), viewMatrix, &coverage)) {
                 this->drawStrokedLine(clip, std::move(*paint), aa, viewMatrix, linePts,
                                       shape.style().strokeRec());
                 return true;

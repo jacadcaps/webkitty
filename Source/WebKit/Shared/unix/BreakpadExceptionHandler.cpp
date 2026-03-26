@@ -29,8 +29,6 @@
 #if ENABLE(BREAKPAD)
 
 #include <breakpad/client/linux/handler/exception_handler.h>
-#include <mutex>
-#include <signal.h>
 #include <wtf/FileSystem.h>
 #include <wtf/NeverDestroyed.h>
 
@@ -38,13 +36,11 @@ namespace WebKit {
 
 void installBreakpadExceptionHandler()
 {
-    static std::once_flag onceFlag;
-    static MainThreadLazyNeverDestroyed<google_breakpad::ExceptionHandler> exceptionHandler;
     static String breakpadMinidumpDir = String::fromUTF8(getenv("BREAKPAD_MINIDUMP_DIR"));
 
 #ifdef BREAKPAD_MINIDUMP_DIR
     if (breakpadMinidumpDir.isEmpty())
-        breakpadMinidumpDir = StringImpl::createFromCString(BREAKPAD_MINIDUMP_DIR);
+        breakpadMinidumpDir = String::fromUTF8(BREAKPAD_MINIDUMP_DIR);
 #endif
 
     if (breakpadMinidumpDir.isEmpty())
@@ -55,13 +51,10 @@ void installBreakpadExceptionHandler()
         return;
     }
 
-    std::call_once(onceFlag, []() {
-        exceptionHandler.construct(google_breakpad::MinidumpDescriptor(breakpadMinidumpDir.utf8().data()), nullptr,
-            [](const google_breakpad::MinidumpDescriptor&, void*, bool succeeded) -> bool {
-                return succeeded;
-            }, nullptr, true, -1);
-    });
-}
+    static NeverDestroyed<google_breakpad::ExceptionHandler> exceptionHandler(google_breakpad::MinidumpDescriptor(breakpadMinidumpDir.utf8().data()), nullptr,
+        [](const google_breakpad::MinidumpDescriptor&, void*, bool succeeded) -> bool {
+            return succeeded;
+        }, nullptr, true, -1);
 }
 #endif
 

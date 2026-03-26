@@ -35,8 +35,6 @@
 
 class LeakChecker {
 public:
-    LeakChecker() = default;
-
     ~LeakChecker()
     {
         if (m_watchedObjects.isEmpty())
@@ -4563,7 +4561,6 @@ static void testsJSCOptions()
         return FALSE;
     }, &optionsCount);
     g_assert_cmpuint(optionsCount, >, 100);
-    g_assert_cmpuint(optionsCount, <, 500);
 
     optionsCount = 0;
     jsc_options_foreach([](const char* option, JSCOptionType type, const char* description, gpointer userData) -> gboolean {

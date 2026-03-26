@@ -333,15 +333,17 @@ class Manager(object):
         for test in aggregate_tests_to_skip:
             skipped_tests_by_path[test.test_path].add(test)
 
-        # If a test is marked skipped, but was explicitly requested, run it anyways
+        # If a test is marked skipped, but was explicitly requested, run it anyways.
         if self._options.skipped != 'always':
-            for arg in args:
-                if arg in skipped_tests_by_path:
-                    tests = skipped_tests_by_path[arg]
-                    tests_to_run_by_device[device_type_list[0]].extend(tests)
-                    aggregate_tests_to_run |= tests
-                    aggregate_tests_to_skip -= tests
-                    del skipped_tests_by_path[arg]
+            _, explicitly_specified_tests = self._finder.find_tests_for_specified_files(self._options, args)
+            for test in explicitly_specified_tests:
+                path = test.test_path
+                if path in skipped_tests_by_path:
+                    skipped_tests = skipped_tests_by_path[path]
+                    tests_to_run_by_device[device_type_list[0]].extend(skipped_tests)
+                    aggregate_tests_to_run |= skipped_tests
+                    aggregate_tests_to_skip -= skipped_tests
+                    del skipped_tests_by_path[path]
 
         aggregate_tests = aggregate_tests_to_run | aggregate_tests_to_skip
 
@@ -446,7 +448,7 @@ class Manager(object):
 
             configuration = self._port.configuration_for_upload(self._port.target_host(0))
             if not configuration.get('flavor', None):  # The --result-report-flavor argument should override wk1/wk2
-                configuration['flavor'] = 'wk2' if self._options.webkit_test_runner else 'wk1'
+                configuration['flavor'] = 'wk1' if self._port.is_webkitlegacy() else 'wk2'
             temp_initial_results, temp_retry_results, temp_enabled_pixel_tests_in_retry = self._run_test_subset(test_inputs, device_type=device_type)
 
             skipped_results = TestRunResults(self._expectations[device_type], len(aggregate_tests_to_skip))

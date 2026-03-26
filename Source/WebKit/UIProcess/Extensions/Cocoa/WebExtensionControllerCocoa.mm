@@ -67,6 +67,10 @@
 #import "FoundationSPI.h"
 #endif
 
+#if ENABLE(DNR_ON_RULE_MATCHED_DEBUG)
+#import <WebCore/ContentRuleListMatchedRule.h>
+#endif
+
 static constexpr Seconds purgeMatchedRulesInterval = 5_min;
 
 static NSString * const WebExtensionUniqueIdentifierKey = @"uniqueIdentifier";
@@ -135,7 +139,7 @@ void WebExtensionController::getDataRecords(OptionSet<WebExtensionDataType> data
     }
 
     Ref recordHolder = WebExtensionDataRecordHolder::create();
-    Ref aggregator = MainRunLoopCallbackAggregator::create([recordHolder, completionHandler = WTFMove(completionHandler)]() mutable {
+    Ref aggregator = MainRunLoopCallbackAggregator::create([recordHolder, completionHandler = WTF::move(completionHandler)]() mutable {
         Vector<Ref<WebExtensionDataRecord>> records;
         for (auto& entry : recordHolder->recordsMap)
             records.append(entry.value);
@@ -197,7 +201,7 @@ void WebExtensionController::getDataRecord(OptionSet<WebExtensionDataType> dataT
     }
 
     Ref recordHolder = WebExtensionDataRecordHolder::create();
-    Ref aggregator = MainRunLoopCallbackAggregator::create([recordHolder, completionHandler = WTFMove(completionHandler)]() mutable {
+    Ref aggregator = MainRunLoopCallbackAggregator::create([recordHolder, completionHandler = WTF::move(completionHandler)]() mutable {
         completionHandler(recordHolder->recordsMap.takeFirst());
     });
 
@@ -229,7 +233,7 @@ void WebExtensionController::removeData(OptionSet<WebExtensionDataType> dataType
         return;
     }
 
-    Ref aggregator = MainRunLoopCallbackAggregator::create([completionHandler = WTFMove(completionHandler)]() mutable {
+    Ref aggregator = MainRunLoopCallbackAggregator::create([completionHandler = WTF::move(completionHandler)]() mutable {
         completionHandler();
     });
 
@@ -259,7 +263,7 @@ void WebExtensionController::calculateStorageSize(RefPtr<WebExtensionStorageSQLi
     if (!storage)
         return;
 
-    storage->getStorageSizeForKeys({ }, [completionHandler = WTFMove(completionHandler)](size_t storageSize, const String& errorMessage) mutable {
+    storage->getStorageSizeForKeys({ }, [completionHandler = WTF::move(completionHandler)](size_t storageSize, const String& errorMessage) mutable {
         // FIXME: <https://webkit.org/b/269100> Add storage size of window.localStorage, window.sessionStorage and indexedDB.
         if (!errorMessage.isEmpty())
             completionHandler(makeUnexpected(errorMessage));
@@ -270,7 +274,7 @@ void WebExtensionController::calculateStorageSize(RefPtr<WebExtensionStorageSQLi
 
 void WebExtensionController::removeStorage(RefPtr<WebExtensionStorageSQLiteStore> storage, WebExtensionDataType type, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&& completionHandler)
 {
-    storage->deleteDatabase([completionHandler = WTFMove(completionHandler)](const String& errorMessage) mutable {
+    storage->deleteDatabase([completionHandler = WTF::move(completionHandler)](const String& errorMessage) mutable {
         // FIXME: <https://webkit.org/b/269100> Remove window.localStorage, window.sessionStorage, indexedDB.
         if (!errorMessage.isEmpty())
             completionHandler(makeUnexpected(errorMessage));
@@ -279,24 +283,17 @@ void WebExtensionController::removeStorage(RefPtr<WebExtensionStorageSQLiteStore
     });
 }
 
-bool WebExtensionController::load(WebExtensionContext& extensionContext, NSError **outError)
+Expected<bool, RefPtr<API::Error>> WebExtensionController::load(WebExtensionContext& extensionContext)
 {
-    if (outError)
-        *outError = nil;
-
     if (!m_extensionContexts.add(extensionContext)) {
         RELEASE_LOG_ERROR(Extensions, "Extension context already loaded");
-        if (outError)
-            *outError = extensionContext.createError(WebExtensionContext::Error::AlreadyLoaded);
-        return false;
+        return makeUnexpected(extensionContext.createError(WebExtensionContext::Error::AlreadyLoaded));
     }
 
     if (!m_extensionContextBaseURLMap.add(extensionContext.baseURL().protocolHostAndPort(), extensionContext)) {
         RELEASE_LOG_ERROR(Extensions, "Extension context already loaded with same base URL: %{private}@", extensionContext.baseURL().createNSURL().get());
         m_extensionContexts.remove(extensionContext);
-        if (outError)
-            *outError = extensionContext.createError(WebExtensionContext::Error::BaseURLAlreadyInUse);
-        return false;
+        return makeUnexpected(extensionContext.createError(WebExtensionContext::Error::BaseURLAlreadyInUse));
     }
 
     for (Ref processPool : m_processPools) {
@@ -318,7 +315,8 @@ bool WebExtensionController::load(WebExtensionContext& extensionContext, NSError
     if (!!extensionDirectory && !FileSystem::makeAllDirectories(extensionDirectory))
         RELEASE_LOG_ERROR(Extensions, "Failed to create directory: %{private}@", extensionDirectory.createNSString().get());
 
-    if (!extensionContext.load(*this, extensionDirectory, outError)) {
+    auto loadResult = extensionContext.load(*this, extensionDirectory);
+    if (!loadResult) {
         m_extensionContexts.remove(extensionContext);
         m_extensionContextBaseURLMap.remove(extensionContext.baseURL().protocolHostAndPort());
 
@@ -327,24 +325,19 @@ bool WebExtensionController::load(WebExtensionContext& extensionContext, NSError
             processPool->removeMessageReceiver(Messages::WebExtensionContext::messageReceiverName(), extensionContext.privilegedIdentifier());
         }
 
-        return false;
+        return makeUnexpected(loadResult.error());
     }
 
     return true;
 }
 
-bool WebExtensionController::unload(WebExtensionContext& extensionContext, NSError **outError)
+Expected<bool, RefPtr<API::Error>> WebExtensionController::unload(WebExtensionContext& extensionContext)
 {
-    if (outError)
-        *outError = nil;
-
     Ref protectedExtensionContext = extensionContext;
 
     if (!m_extensionContexts.remove(extensionContext)) {
         RELEASE_LOG_ERROR(Extensions, "Extension context not loaded");
-        if (outError)
-            *outError = extensionContext.createError(WebExtensionContext::Error::NotLoaded);
-        return false;
+        return makeUnexpected(extensionContext.createError(WebExtensionContext::Error::NotLoaded));
     }
 
     bool result = m_extensionContextBaseURLMap.remove(extensionContext.baseURL().protocolHostAndPort());
@@ -358,8 +351,9 @@ bool WebExtensionController::unload(WebExtensionContext& extensionContext, NSErr
         processPool->removeMessageReceiver(Messages::WebExtensionContext::messageReceiverName(), extensionContext.privilegedIdentifier());
     }
 
-    if (!extensionContext.unload(outError))
-        return false;
+    auto unloadResult = extensionContext.unload();
+    if (!unloadResult)
+        return makeUnexpected(unloadResult.error());
 
     return true;
 }
@@ -368,7 +362,7 @@ void WebExtensionController::unloadAll()
 {
     auto contextsCopy = m_extensionContexts;
     for (Ref context : contextsCopy)
-        unload(context, nullptr);
+        std::ignore = unload(context);
 }
 
 void WebExtensionController::dispatchDidLoad(WebExtensionContext& context)
@@ -464,6 +458,7 @@ void WebExtensionController::addUserContentController(WebUserContentControllerPr
             continue;
 
         context->addInjectedContent(userContentController);
+        context->addDeclarativeNetRequestRules(userContentController);
     }
 }
 
@@ -475,23 +470,25 @@ void WebExtensionController::removeUserContentController(WebUserContentControlle
             return;
     }
 
-    for (Ref context : m_extensionContexts)
+    for (Ref context : m_extensionContexts) {
         context->removeInjectedContent(userContentController);
+        userContentController.removeContentRuleList(context->uniqueIdentifier());
+    }
 
     m_allNonPrivateUserContentControllers.remove(userContentController);
     m_allPrivateUserContentControllers.remove(userContentController);
     m_allUserContentControllers.remove(userContentController);
 }
 
-WebsiteDataStore* WebExtensionController::websiteDataStore(std::optional<PAL::SessionID> sessionID) const
+RefPtr<WebsiteDataStore> WebExtensionController::websiteDataStore(std::optional<PAL::SessionID> sessionID) const
 {
     Ref configuration = m_configuration;
     if (!sessionID || configuration->defaultWebsiteDataStore().sessionID() == sessionID.value())
-        return &configuration->defaultWebsiteDataStore();
+        return configuration->defaultWebsiteDataStore();
 
     for (Ref dataStore : allWebsiteDataStores()) {
         if (dataStore->sessionID() == sessionID.value())
-            return dataStore.ptr();
+            return dataStore;
     }
 
     return nullptr;
@@ -666,6 +663,31 @@ void WebExtensionController::handleContentRuleListNotification(WebPageProxyIdent
     m_purgeOldMatchedRulesTimer->startRepeating(purgeMatchedRulesInterval);
 }
 
+#if ENABLE(DNR_ON_RULE_MATCHED_DEBUG)
+void WebExtensionController::handleContentRuleListMatchedRule(WebPageProxyIdentifier pageID, WebCore::ContentRuleListMatchedRule& matchedRule)
+{
+    auto contentRuleListIdentifier = matchedRule.rule.extensionId;
+    if (!contentRuleListIdentifier.has_value())
+        return;
+
+    for (Ref context : m_extensionContexts) {
+        if (context->uniqueIdentifier() != contentRuleListIdentifier.value())
+            continue;
+
+        RefPtr tab = context->getTab(pageID);
+        if (!tab)
+            break;
+
+        // FIXME: <rdar://99141106> Implement declarativeNetRequest.testMatchOutcome; until then, extensionId should be null
+        matchedRule.rule.extensionId = std::nullopt;
+        matchedRule.request.tabId = toWebAPI(tab->identifier());
+        context->handleContentRuleListMatchedRule(*tab, matchedRule);
+
+        break;
+    }
+}
+#endif
+
 void WebExtensionController::purgeOldMatchedRules()
 {
     WallTime earliestDateToKeep = WallTime::now() - purgeMatchedRulesInterval;
@@ -690,10 +712,10 @@ void WebExtensionController::updateWebsitePoliciesForNavigation(API::WebsitePoli
         for (Ref pattern : context->currentPermissionMatchPatterns())
             patterns.appendVector(pattern->expandedStrings());
 
-        actionPatterns.set(context->uniqueIdentifier(), WTFMove(patterns));
+        actionPatterns.set(context->uniqueIdentifier(), WTF::move(patterns));
     }
 
-    websitePolicies.setActiveContentRuleListActionPatterns(WTFMove(actionPatterns));
+    websitePolicies.setActiveContentRuleListActionPatterns(WTF::move(actionPatterns));
 }
 
 void WebExtensionController::resourceLoadDidSendRequest(WebPageProxyIdentifier pageID, const ResourceLoadInfo& loadInfo, const WebCore::ResourceRequest& request)

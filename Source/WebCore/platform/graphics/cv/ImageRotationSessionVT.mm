@@ -66,7 +66,7 @@ static ImageRotationSessionVT::RotationProperties transformToRotationProperties(
 ImageRotationSessionVT::ImageRotationSessionVT(AffineTransform&& transform, FloatSize size, IsCGImageCompatible isCGImageCompatible, ShouldUseIOSurface shouldUseIOSurface)
     : ImageRotationSessionVT(transformToRotationProperties(transform), size, isCGImageCompatible, shouldUseIOSurface)
 {
-    m_transform = WTFMove(transform);
+    m_transform = WTF::move(transform);
 }
 
 ImageRotationSessionVT::ImageRotationSessionVT(const RotationProperties& rotation, FloatSize size, IsCGImageCompatible isCGImageCompatible, ShouldUseIOSurface shouldUseIOSurface)
@@ -115,7 +115,7 @@ RetainPtr<CVPixelBufferRef> ImageRotationSessionVT::rotate(CVPixelBufferRef pixe
             return nullptr;
         }
 
-        m_rotationPool = WTFMove(*bufferPool);
+        m_rotationPool = WTF::move(*bufferPool);
     }
 
     RetainPtr<CVPixelBufferRef> result;
@@ -138,17 +138,17 @@ RetainPtr<CVPixelBufferRef> ImageRotationSessionVT::rotate(CVPixelBufferRef pixe
 
 RetainPtr<CVPixelBufferRef> ImageRotationSessionVT::rotate(VideoFrame& videoFrame, const RotationProperties& rotation, IsCGImageCompatible cgImageCompatible)
 {
-    auto pixelBuffer = videoFrame.pixelBuffer();
+    RetainPtr pixelBuffer = videoFrame.pixelBuffer();
     ASSERT(pixelBuffer);
     if (!pixelBuffer)
         return nullptr;
 
-    m_pixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer);
-    IntSize size { (int)CVPixelBufferGetWidth(pixelBuffer), (int)CVPixelBufferGetHeight(pixelBuffer) };
+    m_pixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer.get());
+    IntSize size { static_cast<int>(CVPixelBufferGetWidth(pixelBuffer.get())), static_cast<int>(CVPixelBufferGetHeight(pixelBuffer.get())) };
     if (rotation != m_rotationProperties || m_size != size)
         initialize(rotation, size, cgImageCompatible);
 
-    return rotate(pixelBuffer);
+    return rotate(pixelBuffer.get());
 }
 
 RefPtr<VideoFrame> ImageRotationSessionVT::applyRotation(VideoFrame& videoFrame, IsCGImageCompatible cgImageCompatible)
@@ -162,7 +162,7 @@ RefPtr<VideoFrame> ImageRotationSessionVT::applyRotation(VideoFrame& videoFrame,
     if (!pixelBuffer)
         return nullptr;
 
-    return VideoFrameCV::create(videoFrame.presentationTime(), false, VideoFrameRotation::None, WTFMove(pixelBuffer), videoFrame.colorSpace());
+    return VideoFrameCV::create(videoFrame.presentationTime(), false, VideoFrameRotation::None, WTF::move(pixelBuffer), videoFrame.colorSpace());
 }
 
 }

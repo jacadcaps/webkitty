@@ -34,7 +34,7 @@ import unittest
 from webkitpy.common.system.executive_mock import MockExecutive
 from webkitpy.common.system.filesystem_mock import MockFileSystem
 from webkitpy.port.wpe import WPEPort
-from webkitpy.port import port_testcase
+from webkitpy.port import Driver, port_testcase
 from webkitpy.thirdparty.mock import Mock, patch
 from webkitpy.tool.mocktool import MockOptions
 from webkitcorepy import OutputCapture
@@ -74,10 +74,10 @@ class WPEPortTest(port_testcase.PortTestCase):
                           '/mock-checkout/LayoutTests/platform/wpe-legacy-api/TestExpectations'])
 
     def test_default_timeout_ms(self):
-        self.assertEqual(self.make_port(options=MockOptions(configuration='Release')).default_timeout_ms(), 15000)
-        self.assertEqual(self.make_port(options=MockOptions(configuration='Debug')).default_timeout_ms(), 30000)
-        self.assertEqual(self.make_port(options=MockOptions(configuration='Release', leaks=True, wrapper="valgrind")).default_timeout_ms(), 150000)
-        self.assertEqual(self.make_port(options=MockOptions(configuration='Debug', leaks=True, wrapper="valgrind")).default_timeout_ms(), 300000)
+        self.assertEqual(self.make_port(options=MockOptions(configuration='Release')).default_timeout_ms(), 30000)
+        self.assertEqual(self.make_port(options=MockOptions(configuration='Debug')).default_timeout_ms(), 60000)
+        self.assertEqual(self.make_port(options=MockOptions(configuration='Release', leaks=True, wrapper="valgrind")).default_timeout_ms(), 300000)
+        self.assertEqual(self.make_port(options=MockOptions(configuration='Debug', leaks=True, wrapper="valgrind")).default_timeout_ms(), 600000)
 
     def test_get_crash_log(self):
         # This function tested in linux_get_crash_log_unittest.py
@@ -85,11 +85,16 @@ class WPEPortTest(port_testcase.PortTestCase):
 
     def test_default_upload_configuration(self):
         port = self.make_port()
+        port.host.filesystem.write_text_file(
+            '/mock-checkout/Source/cmake/OptionsWPE.cmake',
+            'SET_PROJECT_VERSION(2 51 4)\n'
+        )
         configuration = port.configuration_for_upload()
         self.assertEqual(configuration['architecture'], port.architecture())
         self.assertEqual(configuration['is_simulator'], False)
         self.assertEqual(configuration['platform'], 'WPE')
         self.assertEqual(configuration['style'], 'release')
+        self.assertEqual(configuration['version'], '2.51')
 
     def test_browser_name_default_wihout_cog_built(self):
         port = self.make_port()
@@ -174,3 +179,24 @@ class WPEPortTest(port_testcase.PortTestCase):
         self.assertTrue(mb_path.endswith('/MiniBrowser'))
         cog_path = port.get_browser_path('cog')
         self.assertTrue(cog_path.endswith('/cog'))
+
+    def test_setup_environ_for_test_wpe_prefix(self):
+        environment_user = {'WPE_DISPLAY':  'wpe-display-drm',
+                            'WPE_DRM_DEVICE': 'drm1',
+                            'WPE_USE_EXPLICIT_SYNC': '1',
+                            'WPE_RANDOM_VAR': 'randValue',
+                            'WPE-NOTPASS': '0',
+                            'WPEWEBKIT_NOT_PASS': '0'}
+        # Test that WPE_ prefixed variables from the environment are allowed on the generic
+        # base driver. Specific drivers (like headless or wayland) can filter-out or override
+        # some of this variables. But that is tested on their respective unit test files.
+        with patch('os.environ', environment_user), patch('sys.platform', 'linux2'):
+            port = self.make_port()
+            driver = Driver(port, None, pixel_tests=False)
+            environment_driver_test = driver._setup_environ_for_test()
+            for var in environment_user:
+                if var.startswith('WPE_'):
+                    self.assertIn(var, environment_driver_test)
+                    self.assertEqual(environment_user[var], environment_driver_test[var])
+                else:
+                    self.assertNotIn(var, environment_driver_test)

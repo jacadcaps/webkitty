@@ -95,7 +95,7 @@ static NSDictionary* dictionaryThatCanCode(NSDictionary* src)
 
 namespace WebCore {
 
-static RetainPtr<NSError> createNSErrorFromResourceErrorBase(const ResourceErrorBase& resourceError)
+static RetainPtr<NSError> createNSErrorFromResourceErrorBase(const ResourceErrorBase& resourceError, NSError *underlyingError = nil)
 {
     RetainPtr<NSMutableDictionary> userInfo = adoptNS([[NSMutableDictionary alloc] init]);
 
@@ -103,10 +103,15 @@ static RetainPtr<NSError> createNSErrorFromResourceErrorBase(const ResourceError
         [userInfo setValue:resourceError.localizedDescription().createNSString().get() forKey:NSLocalizedDescriptionKey];
 
     if (!resourceError.failingURL().isEmpty()) {
-        [userInfo setValue:resourceError.failingURL().string().createNSString().get() forKey:@"NSErrorFailingURLStringKey"];
+#if USE(NSURL_ERROR_FAILING_URL_STRING_KEY)
+        [userInfo setValue:resourceError.failingURL().string().createNSString().get() forKey:NSURLErrorFailingURLStringErrorKey];
+#endif
         if (RetainPtr cocoaURL = resourceError.failingURL().createNSURL())
             [userInfo setValue:cocoaURL.get() forKey:NSURLErrorFailingURLErrorKey];
     }
+
+    if (underlyingError)
+        [userInfo setValue:underlyingError forKey:NSUnderlyingErrorKey];
 
     return adoptNS([[NSError alloc] initWithDomain:resourceError.domain().createNSString().get() code:resourceError.errorCode() userInfo:userInfo.get()]);
 }
@@ -144,7 +149,7 @@ auto ResourceError::ipcData() const -> std::optional<IPCData>
 }
 
 ResourceError::ResourceError(CFErrorRef cfError)
-    : ResourceError { (__bridge NSError *)cfError }
+    : ResourceError { bridge_cast(cfError) }
 {
 }
 
@@ -209,10 +214,10 @@ void ResourceError::mapPlatformError()
     if (!m_platformError)
         return;
 
-    auto domain = [m_platformError domain];
+    RetainPtr domain = [m_platformError domain];
     auto errorCode = [m_platformError code];
 
-    if ([domain isEqualToString:NSURLErrorDomain] || [domain isEqualToString:(__bridge NSString *)kCFErrorDomainCFNetwork])
+    if ([domain isEqualToString:NSURLErrorDomain] || [domain isEqualToString:bridge_cast(kCFErrorDomainCFNetwork)])
         setType((errorCode == NSURLErrorTimedOut) ? Type::Timeout : (errorCode == NSURLErrorCancelled) ? Type::Cancellation : Type::General);
     else
         setType(Type::General);
@@ -227,10 +232,10 @@ void ResourceError::platformLazyInit()
     m_errorCode = [m_platformError code];
 
     RetainPtr userInfo = [m_platformError userInfo];
-    if (auto *failingURLString = dynamic_objc_cast<NSString>([userInfo valueForKey:@"NSErrorFailingURLStringKey"]))
-        m_failingURL = URL { failingURLString };
-    else if (auto *failingURL = dynamic_objc_cast<NSURL>([userInfo valueForKey:NSURLErrorFailingURLErrorKey]))
-        m_failingURL = URL { failingURL };
+    if (RetainPtr failingURLString = dynamic_objc_cast<NSString>([userInfo valueForKey:@"NSErrorFailingURLStringKey"]))
+        m_failingURL = URL { failingURLString.get() };
+    else if (RetainPtr failingURL = dynamic_objc_cast<NSURL>([userInfo valueForKey:NSURLErrorFailingURLErrorKey]))
+        m_failingURL = URL { failingURL.get() };
     // Workaround for <rdar://problem/6554067>
     m_localizedDescription = m_failingURL.string();
     BEGIN_BLOCK_OBJC_EXCEPTIONS
@@ -262,6 +267,24 @@ NSError *ResourceError::nsError() const
     return m_platformError.get();
 }
 
+RetainPtr<NSError> ResourceError::protectedNSError() const
+{
+    return nsError();
+}
+
+NSError *ResourceError::nsError(NSError *underlyingError) const
+{
+    if (isNull()) {
+        ASSERT(!m_platformError);
+        return nil;
+    }
+
+    if (!m_platformError)
+        m_platformError = createNSErrorFromResourceErrorBase(*this, underlyingError);
+
+    return m_platformError.get();
+}
+
 ResourceError::operator NSError *() const
 {
     return nsError();
@@ -269,7 +292,22 @@ ResourceError::operator NSError *() const
 
 CFErrorRef ResourceError::cfError() const
 {
-    return (__bridge CFErrorRef)nsError();
+    return bridge_cast(nsError());
+}
+
+RetainPtr<CFErrorRef> ResourceError::protectedCFError() const
+{
+    return cfError();
+}
+
+CFErrorRef ResourceError::cfError(CFErrorRef underlyingError) const
+{
+    return bridge_cast(nsError(bridge_cast(underlyingError)));
+}
+
+RetainPtr<CFErrorRef> ResourceError::protectedCFError(CFErrorRef underlyingError) const
+{
+    return cfError(underlyingError);
 }
 
 ResourceError::operator CFErrorRef() const
@@ -281,10 +319,11 @@ ResourceError::operator CFErrorRef() const
 
 bool ResourceError::blockedKnownTracker() const
 {
-    if (id blockedTrackerFailure = nsError().userInfo[@"_NSURLErrorBlockedTrackerFailureKey"])
+    RetainPtr error = nsError();
+    if (id blockedTrackerFailure = error.get().userInfo[@"_NSURLErrorBlockedTrackerFailureKey"])
         return [blockedTrackerFailure boolValue];
     // This loop can be removed when the CFNetwork loader is no longer in use
-    for (NSError *underlyingError in nsError().underlyingErrors) {
+    for (NSError *underlyingError in error.get().underlyingErrors) {
         if ([underlyingError.userInfo[@"_NSURLErrorBlockedTrackerFailureKey"] boolValue])
             return true;
     }
@@ -295,16 +334,17 @@ String ResourceError::blockedTrackerHostName() const
 {
     ASSERT(blockedKnownTracker());
 
-    if (id failingPath = nsError().userInfo[@"_NSURLErrorNWPathKey"]) {
-        auto failingEndpoint = adoptNS(nw_path_copy_effective_remote_endpoint(failingPath));
+    RetainPtr error = nsError();
+    if (RetainPtr<id> failingPath = error.get().userInfo[@"_NSURLErrorNWPathKey"]) {
+        auto failingEndpoint = adoptNS(nw_path_copy_effective_remote_endpoint(failingPath.get()));
         if (auto* hostName = nw_endpoint_get_known_tracker_name(failingEndpoint.get()))
             return String::fromUTF8(hostName);
         return { };
     }
     // This loop can be removed when the CFNetwork loader is no longer in use
-    for (NSError *underlyingError in nsError().underlyingErrors) {
-        if (id failingPath = underlyingError.userInfo[@"_NSURLErrorNWPathKey"]) {
-            auto failingEndpoint = adoptNS(nw_path_copy_effective_remote_endpoint(failingPath));
+    for (NSError *underlyingError in error.get().underlyingErrors) {
+        if (RetainPtr<id> failingPath = underlyingError.userInfo[@"_NSURLErrorNWPathKey"]) {
+            auto failingEndpoint = adoptNS(nw_path_copy_effective_remote_endpoint(failingPath.get()));
             if (auto* hostName = nw_endpoint_get_known_tracker_name(failingEndpoint.get()))
                 return String::fromUTF8(hostName);
         }
@@ -314,13 +354,15 @@ String ResourceError::blockedTrackerHostName() const
 
 #endif // ENABLE(ADVANCED_PRIVACY_PROTECTIONS)
 
+#if USE(NSURL_ERROR_FAILING_URL_STRING_KEY)
 bool ResourceError::hasMatchingFailingURLKeys() const
 {
-    if (RetainPtr<id> nsErrorFailingURL = [nsError().userInfo objectForKey:NSURLErrorFailingURLErrorKey]) {
+    RetainPtr error = nsError();
+    if (RetainPtr<id> nsErrorFailingURL = [error.get().userInfo objectForKey:NSURLErrorFailingURLErrorKey]) {
         RetainPtr failingURL = dynamic_objc_cast<NSURL>(nsErrorFailingURL.get());
         if (!failingURL)
             return false;
-        if (RetainPtr<id> nsErrorFailingURLString = [nsError().userInfo objectForKey:@"NSErrorFailingURLStringKey"]) {
+        if (RetainPtr<id> nsErrorFailingURLString = [error.get().userInfo objectForKey:NSURLErrorFailingURLStringErrorKey]) {
             RetainPtr failingURLString = dynamic_objc_cast<NSString>(nsErrorFailingURLString.get());
             if (!failingURLString)
                 return false;
@@ -330,5 +372,6 @@ bool ResourceError::hasMatchingFailingURLKeys() const
     }
     return true;
 }
+#endif
 
 } // namespace WebCore

@@ -46,7 +46,7 @@ namespace WebKit {
 class WebMouseEvent;
 class WebWheelEvent;
 class WebKeyboardEvent;
-enum class WebEventType : uint8_t;
+enum class WebEventType : uint32_t;
 enum class WebMouseEventButton : int8_t;
 
 #if ENABLE(TOUCH_EVENTS)
@@ -83,7 +83,7 @@ OptionSet<WebCore::PlatformEvent::Modifier> platform(OptionSet<WebEventModifier>
 OptionSet<WebKit::WebEventModifier> kit(OptionSet<WebCore::PlatformEvent::Modifier>);
 
 #if PLATFORM(GTK) || PLATFORM(WPE) || USE(LIBWPE)
-WallTime wallTimeForEventTimeInMilliseconds(uint64_t);
+MonotonicTime monotonicTimeForEventTimeInMilliseconds(uint64_t);
 #endif
 
 } // namespace WebKit

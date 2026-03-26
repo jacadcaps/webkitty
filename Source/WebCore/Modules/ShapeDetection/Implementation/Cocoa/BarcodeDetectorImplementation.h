@@ -27,7 +27,7 @@
 
 #if HAVE(SHAPE_DETECTION_API_IMPLEMENTATION) && HAVE(VISION)
 
-#include "BarcodeDetectorInterface.h"
+#include <WebCore/BarcodeDetectorInterface.h>
 #include <wtf/HashFunctions.h>
 #include <wtf/HashSet.h>
 #include <wtf/HashTraits.h>
@@ -59,7 +59,7 @@ private:
     BarcodeDetectorImpl& operator=(const BarcodeDetectorImpl&) = delete;
     BarcodeDetectorImpl& operator=(BarcodeDetectorImpl&&) = delete;
 
-    void detect(Ref<ImageBuffer>&&, CompletionHandler<void(Vector<DetectedBarcode>&&)>&&) final;
+    void detect(const NativeImage&, CompletionHandler<void(Vector<DetectedBarcode>&&)>&&) final;
 
     std::optional<BarcodeFormatSet> m_requestedBarcodeFormatSet;
 };

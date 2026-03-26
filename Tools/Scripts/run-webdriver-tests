@@ -29,6 +29,8 @@ import sys
 from webkitpy.common.host import Host
 from webkitpy.webdriver_tests.webdriver_test_runner import WebDriverTestRunner
 from webkitpy.common.system.logutils import configure_logging
+from webkitpy.port.linux_container_sdk_utils import maybe_use_container_sdk_root_dir
+maybe_use_container_sdk_root_dir()
 
 _log = logging.getLogger(__name__)
 
@@ -56,6 +58,8 @@ option_parser.add_option('--display-server', choices=['xvfb', 'xorg', 'weston', 
 option_parser.add_option('--disable-webdriver-bidi', action='store_false',
                          dest='enable_webdriver_bidi', default=True,
                          help='Run Selenium tests with BiDi disabled')
+option_parser.add_option('--force', action='store_true',
+                         help='Ignore the expectations file, running all given tests and assuming they should PASS')
 
 options, args = option_parser.parse_args()
 
@@ -66,23 +70,6 @@ try:
 except NotImplementedError as e:
     _log.error(str(e))
     sys.exit(-1)
-
-if port.name() in ['gtk', 'wpe']:
-    import os
-
-    top_level_directory = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..'))
-    sys.path.insert(0, os.path.join(top_level_directory, 'Tools', 'flatpak'))
-    import flatpakutils
-    flatpakutils.run_in_sandbox_if_available(sys.argv)
-    if not flatpakutils.is_sandboxed():
-        sys.path.insert(0, os.path.join(top_level_directory, 'Tools', 'jhbuild'))
-        import jhbuildutils
-
-        if not jhbuildutils.enter_jhbuild_environment_if_available(port.name()):
-            print('***')
-            print('*** Warning: jhbuild environment not present and not running in flatpak.')
-            print('*** Run update-webkitgtk-libs or update-webkit-flatpak before build-webkit to ensure proper testing..')
-            print('***')
 
 runner = WebDriverTestRunner(port)
 runner.run(args)

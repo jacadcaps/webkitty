@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -83,21 +83,19 @@ class NetworkResourceLoader final
     , public WebCore::CrossOriginAccessControlCheckDisabler
 #if ENABLE(CONTENT_FILTERING)
     , public WebCore::ContentFilterClient
-#else
-    , public CanMakeWeakPtr<NetworkResourceLoader>
 #endif
     , public WebCore::ReportingClient {
     WTF_DEPRECATED_MAKE_FAST_ALLOCATED(NetworkResourceLoader);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(NetworkResourceLoader);
 public:
-#if ENABLE(CONTENT_FILTERING)
+    USING_CAN_MAKE_WEAKPTR(NetworkLoadClient);
+
     void ref() const final { RefCounted::ref(); }
     void deref() const final { RefCounted::deref(); }
-#endif
 
     static Ref<NetworkResourceLoader> create(NetworkResourceLoadParameters&& parameters, NetworkConnectionToWebProcess& connection, CompletionHandler<void(const WebCore::ResourceError&, const WebCore::ResourceResponse, Vector<uint8_t>&&)>&& reply = nullptr)
     {
-        return adoptRef(*new NetworkResourceLoader(WTFMove(parameters), connection, WTFMove(reply)));
+        return adoptRef(*new NetworkResourceLoader(WTF::move(parameters), connection, WTF::move(reply)));
     }
     virtual ~NetworkResourceLoader();
 
@@ -115,7 +113,7 @@ public:
 
     void continueWillSendRequest(WebCore::ResourceRequest&&, bool isAllowedToAskUserForCredentials, CompletionHandler<void(WebCore::ResourceRequest&&)>&&);
 
-    void setResponse(WebCore::ResourceResponse&& response) { m_response = WTFMove(response); }
+    void setResponse(WebCore::ResourceResponse&& response) { m_response = WTF::move(response); }
     const WebCore::ResourceResponse& response() const { return m_response; }
 
     NetworkConnectionToWebProcess& connectionToWebProcess() const { return m_connection; }
@@ -201,13 +199,9 @@ private:
 #if ENABLE(CONTENT_FILTERING)
     // ContentFilterClient
     void dataReceivedThroughContentFilter(const WebCore::SharedBuffer&) final;
-    WebCore::ResourceError contentFilterDidBlock(WebCore::ContentFilterUnblockHandler, String&& unblockRequestDeniedScript) final;
+    WebCore::ResourceError contentFilterDidBlock(WebCore::ContentFilterUnblockHandler&&, String&& unblockRequestDeniedScript) final;
     void cancelMainResourceLoadForContentFilter(const WebCore::ResourceError&) final;
     void handleProvisionalLoadFailureFromContentFilter(const URL& blockedPageURL, WebCore::SubstituteData&&) final;
-    CheckedPtr<WebCore::ContentFilter> checkedContentFilter();
-#if HAVE(WEBCONTENTRESTRICTIONS)
-    bool usesWebContentRestrictions() final;
-#endif
 #if HAVE(WEBCONTENTRESTRICTIONS_PATH_SPI)
     String webContentRestrictionsConfigurationPath() const final;
 #endif
@@ -273,7 +267,7 @@ private:
     ResourceLoadInfo resourceLoadInfo();
 
 #if ENABLE(CONTENT_FILTERING)
-    bool startContentFiltering(WebCore::ResourceRequest&);
+    void startContentFiltering(WebCore::ResourceRequest&&, CompletionHandler<void(WebCore::ResourceRequest)>&&);
 #endif
 
     // ReportingClient
@@ -314,7 +308,7 @@ private:
     unsigned m_redirectCount { 0 };
 
     std::unique_ptr<SynchronousLoadData> m_synchronousLoadData;
-    Vector<RefPtr<WebCore::BlobDataFileReference>> m_fileReferences;
+    Vector<Ref<WebCore::BlobDataFileReference>> m_fileReferences;
 
     bool m_wasStarted { false };
     bool m_didConsumeSandboxExtensions { false };
@@ -350,7 +344,7 @@ private:
     std::optional<WebCore::CrossOriginOpenerPolicyEnforcementResult> m_currentCoopEnforcementResult;
 
 #if ENABLE(CONTENT_FILTERING)
-    std::unique_ptr<WebCore::ContentFilter> m_contentFilter;
+    RefPtr<WebCore::ContentFilter> m_contentFilter;
     WebCore::ContentFilterUnblockHandler m_unblockHandler;
     String m_unblockRequestDeniedScript;
 #endif

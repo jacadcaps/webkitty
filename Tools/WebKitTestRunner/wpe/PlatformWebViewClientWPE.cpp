@@ -27,7 +27,7 @@
 #include "PlatformWebViewClientWPE.h"
 
 #if ENABLE(WPE_PLATFORM)
-#include <wpe/headless/wpe-headless.h>
+#include <wpe/wpe-platform.h>
 #include <wtf/glib/GUniquePtr.h>
 
 #if USE(CAIRO)
@@ -42,12 +42,15 @@ IGNORE_CLANG_WARNINGS_END
 namespace WTR {
 
 PlatformWebViewClientWPE::PlatformWebViewClientWPE(WKPageConfigurationRef configuration)
-    : m_display(adoptGRef(wpe_display_headless_new()))
 {
-    m_view = WKViewCreate(m_display.get(), configuration);
+    WPEDisplay* display = wpe_display_get_default();
+    if (!display)
+        g_error("Failed to get the default WPE display\n");
+    m_view = WKViewCreate(display, configuration);
     auto* wpeView = WKViewGetView(m_view);
+    m_toplevel = wpe_view_get_toplevel(wpeView);
     wpe_view_focus_in(wpeView);
-    wpe_toplevel_resize(wpe_view_get_toplevel(wpeView), 800, 600);
+    wpe_toplevel_resize(m_toplevel.get(), 800, 600);
     g_signal_connect(wpeView, "buffer-rendered", G_CALLBACK(+[](WPEView*, WPEBuffer* buffer, gpointer userData) {
         auto& view = *static_cast<PlatformWebViewClientWPE*>(userData);
         view.m_buffer = buffer;
@@ -59,14 +62,53 @@ PlatformWebViewClientWPE::~PlatformWebViewClientWPE()
     g_signal_handlers_disconnect_by_data(WKViewGetView(m_view), this);
 }
 
+static bool toplevelContainsView(WPEToplevel* toplevel, WPEView* view)
+{
+    struct Context {
+        WPEView* view;
+        bool found;
+    } context = { view, false };
+
+    wpe_toplevel_foreach_view(toplevel, +[](WPEToplevel* toplevel, WPEView* item, gpointer userData) -> gboolean {
+        auto& context = *static_cast<Context*>(userData);
+        if (context.view == item) {
+            context.found = true;
+            return TRUE;
+        }
+        return FALSE;
+    }, &context);
+
+    return context.found;
+}
+
 void PlatformWebViewClientWPE::addToWindow()
 {
-    // FIXME: implement.
+    auto* wpeView = WKViewGetView(m_view);
+    if (toplevelContainsView(m_toplevel.get(), wpeView))
+        return;
+
+    wpe_view_set_toplevel(wpeView, m_toplevel.get());
 }
 
 void PlatformWebViewClientWPE::removeFromWindow()
 {
-    // FIXME: implement.
+    auto* wpeView = WKViewGetView(m_view);
+    if (!toplevelContainsView(m_toplevel.get(), wpeView))
+        return;
+
+    wpe_view_set_toplevel(wpeView, nullptr);
+}
+
+WKSize PlatformWebViewClientWPE::size()
+{
+    int width, height;
+    wpe_toplevel_get_size(m_toplevel.get(), &width, &height);
+    return { static_cast<double>(width), static_cast<double>(height) };
+}
+
+void PlatformWebViewClientWPE::resize(WKSize size)
+{
+    wpe_toplevel_resize(m_toplevel.get(), size.width, size.height);
 }
 
 void PlatformWebViewClientWPE::focus()

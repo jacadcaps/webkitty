@@ -9,7 +9,7 @@ import("canvaskit.gni")
 # These targets depend on components that are only declared if
 # `skia_enable_tools` is true.
 if (skia_enable_tools) {
-  component("viewer_wasm") {
+  skia_component("viewer_wasm") {
     testonly = true
     include_dirs = [ "../.." ]
     sources = [
@@ -44,12 +44,11 @@ if (skia_enable_tools) {
       "../../modules/svg/src/SkSVGUse.cpp",
       "../../modules/svg/src/SkSVGValue.cpp",
       "../../tools/viewer/SKPSlide.cpp",
-      "../../tools/viewer/SampleSlide.cpp",
       "../../tools/viewer/SvgSlide.cpp",
     ]
   }
 
-  component("gm_wasm") {
+  skia_component("gm_wasm") {
     testonly = true
     include_dirs = [ "../.." ]
     deps = [
@@ -61,7 +60,7 @@ if (skia_enable_tools) {
   }
 }
 
-component("debugger") {
+skia_component("debugger") {
   include_dirs = [ "../.." ]
   sources = [
     "../../tools/SkSharingProc.cpp",
@@ -164,7 +163,6 @@ skia_wasm_lib("canvaskit") {
   if (is_debug) {
     ldflags += [
       "-O0",
-      "-sDEMANGLE_SUPPORT=1",
       "-sASSERTIONS=1",
       "-sGL_ASSERTIONS=1",
       "-g3",
@@ -224,7 +222,7 @@ skia_wasm_lib("canvaskit") {
   }
 
   ldflags += [
-    "-std=c++17",
+    "-std=c++20",
     "--bind",
     "--no-entry",
     "--pre-js",
@@ -349,12 +347,16 @@ skia_wasm_lib("canvaskit") {
     "-sINITIAL_MEMORY=128MB",
     "-sWASM",
     "-sSTRICT=1",
+    "-sEXPORTED_RUNTIME_METHODS=HEAP32,HEAPU8,HEAPU16,HEAPU32,HEAPF32",
+
+    # INCOMING_MODULE_JS_API is set to empty by default.
+    # https://github.com/emscripten-core/emscripten/blob/8dc91db45bf96c174531006839472a3924d105aa/src/settings.js#L1204
+    "-sINCOMING_MODULE_JS_API=onRuntimeInitialized,locateFile",
   ]
 
   defines = [
     "SK_FORCE_8_BYTE_ALIGNMENT",
     "EMSCRIPTEN_HAS_UNBOUND_TYPE_NAMES=0",
-    "SK_DISABLE_LEGACY_PARAGRAPH_UNICODE=1",
   ]
   if (is_debug) {
     defines += [ "SK_DEBUG" ]

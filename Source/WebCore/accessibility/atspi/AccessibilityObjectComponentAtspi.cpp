@@ -29,7 +29,8 @@
 #include "Document.h"
 #include "LocalFrameView.h"
 #include "RenderLayer.h"
-#include "RenderStyleInlines.h"
+#include "RenderObjectStyle.h"
+#include "RenderStyle+GettersInlines.h"
 
 namespace WebCore {
 
@@ -211,7 +212,7 @@ void AccessibilityObjectAtspi::scrollToPoint(const IntPoint& point, Atspi::Coord
         if (auto* frameView = m_coreObject->documentFrameView())
             convertedPoint = frameView->contentsToWindow(frameView->screenToContents(point));
     }
-    m_coreObject->scrollToGlobalPoint(WTFMove(convertedPoint));
+    m_coreObject->scrollToGlobalPoint(WTF::move(convertedPoint));
 }
 
 } // namespace WebCore

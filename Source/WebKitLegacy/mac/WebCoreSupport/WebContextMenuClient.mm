@@ -53,6 +53,7 @@
 #import <WebCore/LocalizedStrings.h>
 #import <WebCore/Page.h>
 #import <WebCore/RenderBoxInlines.h>
+#import <WebCore/RenderObjectInlines.h>
 #import <WebCore/SharedBuffer.h>
 #import <WebCore/SimpleRange.h>
 #import <WebKitLegacy/DOMPrivate.h>
@@ -207,7 +208,7 @@ RetainPtr<NSImage> WebContextMenuClient::imageForCurrentSharingServicePickerItem
         return nil;
 
     // This is effectively a snapshot, and will be painted in an unaccelerated fashion in line with FrameSnapshotting.
-    auto buffer = ImageBuffer::create(rect.size(), RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1, DestinationColorSpace::SRGB(), ImageBufferPixelFormat::BGRA8);
+    auto buffer = ImageBuffer::create(rect.size(), RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
     if (!buffer)
         return nil;
 
@@ -225,7 +226,7 @@ RetainPtr<NSImage> WebContextMenuClient::imageForCurrentSharingServicePickerItem
     localFrame->selection().setSelection(oldSelection);
     frameView->setPaintBehavior(oldPaintBehavior);
 
-    auto image = BitmapImage::create(ImageBuffer::sinkIntoNativeImage(WTFMove(buffer)));
+    auto image = BitmapImage::create(ImageBuffer::sinkIntoNativeImage(WTF::move(buffer)));
     if (!image)
         return nil;
 
@@ -246,7 +247,10 @@ NSMenu *WebContextMenuClient::contextMenuForEvent(NSEvent *event, NSView *view, 
     if (Image* image = page->contextMenuController().context().controlledImage()) {
         ASSERT(page->contextMenuController().context().hitTestResult().innerNode());
 
-        RetainPtr<NSItemProvider> itemProvider = adoptNS([[NSItemProvider alloc] initWithItem:image->adapter().snapshotNSImage().get() typeIdentifier:@"public.image"]);
+        // FIXME: <rdar://165255055> Migrate from deprecated NSItemProvider APIs
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+        RetainPtr itemProvider = adoptNS([[NSItemProvider alloc] initWithItem:image->adapter().snapshotNSImage().get() typeIdentifier:@"public.image"]);
+ALLOW_DEPRECATED_DECLARATIONS_END
 
         bool isContentEditable = page->contextMenuController().context().hitTestResult().innerNode()->isContentEditable();
         m_sharingServicePickerController = adoptNS([[WebSharingServicePickerController alloc] initWithItems:@[ itemProvider.get() ] includeEditorServices:isContentEditable client:this style:NSSharingServicePickerStyleRollover]);
@@ -271,17 +275,17 @@ void WebContextMenuClient::showContextMenu()
     if (!frameView)
         return;
 
-    NSView* view = frameView->documentView();
+    RetainPtr view = frameView->documentView();
     IntPoint point = frameView->contentsToWindow(page->contextMenuController().hitTestResult().roundedPointInInnerNodeFrame());
-    NSEvent* event = [NSEvent mouseEventWithType:NSEventTypeRightMouseDown location:point modifierFlags:0 timestamp:0 windowNumber:[[view window] windowNumber] context:0 eventNumber:0 clickCount:1 pressure:1];
+    NSEvent* event = [NSEvent mouseEventWithType:NSEventTypeRightMouseDown location:point modifierFlags:0 timestamp:0 windowNumber:[[view.get() window] windowNumber] context:0 eventNumber:0 clickCount:1 pressure:1];
 
     // Show the contextual menu for this event.
     bool isServicesMenu;
-    if (NSMenu *menu = contextMenuForEvent(event, view, isServicesMenu)) {
+    if (RetainPtr menu = contextMenuForEvent(event, view.get(), isServicesMenu)) {
         if (isServicesMenu)
-            [menu popUpMenuPositioningItem:nil atLocation:[view convertPoint:point toView:nil] inView:view];
+            [menu.get() popUpMenuPositioningItem:nil atLocation:[view.get() convertPoint:point toView:nil] inView:view.get()];
         else
-            [NSMenu popUpContextMenu:menu withEvent:event forView:view];
+            [NSMenu popUpContextMenu:menu.get() withEvent:event forView:view.get()];
     }
 }
 

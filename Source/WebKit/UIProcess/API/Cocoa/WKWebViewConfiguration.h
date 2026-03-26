@@ -143,7 +143,7 @@ WK_CLASS_AVAILABLE(macos(10.10), ios(8.0))
 /*! @abstract A Boolean value indicating whether the System Screen Time blocking view should be shown.
  @discussion The default value is YES.
  */
-@property (nonatomic) BOOL showsSystemScreenTimeBlockingView WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
+@property (nonatomic) BOOL showsSystemScreenTimeBlockingView WK_API_AVAILABLE(macos(26.0), ios(26.0));
 
 /*! @abstract A Boolean value indicating whether HTTP requests to servers known to support HTTPS should be automatically upgraded to HTTPS requests.
  @discussion The default value is YES.
@@ -185,7 +185,7 @@ on the system setting.
  picture-in-picture.
  @discussion The default value is YES.
  */
-@property (nonatomic) BOOL allowsPictureInPictureMediaPlayback WK_API_AVAILABLE(ios(9_0));
+@property (nonatomic) BOOL allowsPictureInPictureMediaPlayback WK_API_AVAILABLE(ios(9.0));
 
 /*! @abstract An enum value indicating the type of data detection desired.
  @discussion The default value is WKDataDetectorTypeNone.

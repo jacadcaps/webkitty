@@ -80,7 +80,7 @@ class Git(Scm):
             default_branch = self.repo.default_branch
             if branch == default_branch:
                 branch_point = None
-            elif self._ordered_commits[branch]:
+            elif self._ordered_commits[branch] and self._ordered_commits[branch][0] in self._hash_to_identifiers:
                 branch_point = int(self._hash_to_identifiers[self._ordered_commits[branch][0]].split('@')[0])
             else:
                 return
@@ -479,10 +479,8 @@ class Git(Scm):
         if self._branch:
             return self._branch
 
-        status = run([self.executable(), 'status'], cwd=self.root_path, capture_output=True, encoding='utf-8')
-        if status.returncode:
-            raise self.Exception('Failed to run `git status` for {}'.format(self.root_path))
-        if status.stdout.splitlines()[0].startswith('HEAD detached at'):
+        head_ref = run([self.executable(), 'symbolic-ref', '-q', 'HEAD'], cwd=self.root_path, stdout=subprocess.DEVNULL)
+        if head_ref.returncode:
             return None
 
         result = run([self.executable(), 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=self.root_path, capture_output=True, encoding='utf-8')
@@ -585,29 +583,52 @@ class Git(Scm):
 
     @decorators.Memoize(cached=False)
     def branches_for(self, hash=None, remote=True):
-        branch = run(
-            [self.executable(), 'branch'] + (['--contains', hash, '-a'] if hash else ['-a']),
+        if hash:
+            contains = ['--contains', hash]
+        else:
+            contains = []
+
+        group_remotes = False
+        if isinstance(remote, str):
+            patterns = [f'refs/remotes/{remote}/**']
+        else:
+            patterns = ['refs/heads/**']
+            if remote is not False:
+                patterns.append('refs/remotes/**')
+                group_remotes = remote is not True
+
+        refs = run(
+            [self.executable(), 'for-each-ref', '--format', '%(refname)'] + contains + patterns,
             cwd=self.root_path,
             capture_output=True,
             encoding='utf-8',
+            check=True,
         )
-        if branch.returncode:
-            raise self.Exception('Failed to retrieve branch list for {}'.format(self.root_path))
-        result = defaultdict(set)
-        for branch in [branch.lstrip(' *') for branch in filter(lambda branch: '->' not in branch, branch.stdout.splitlines())]:
-            match = self.REMOTE_BRANCH.match(branch)
-            if match:
-                result[match.group('remote')].add(match.group('branch'))
-            else:
-                result[None].add(branch)
 
-        if remote is False:
-            return sorted(result[None])
-        if remote is True:
-            return sorted(set.union(*result.values())) if result else []
-        if isinstance(remote, string_utils.basestring):
-            return sorted(result.get(remote, []))
-        return result
+        results = set()
+        by_remote = defaultdict(set)
+
+        for line in refs.stdout.split('\n'):
+            if not line:
+                continue
+
+            if line.startswith('refs/heads/'):
+                results.add(line[len('refs/heads/'):])
+            elif line.startswith('refs/remotes/'):
+                ref_path = line.split('/', 3)
+                if len(ref_path) == 4:
+                    if group_remotes:
+                        by_remote[ref_path[2]].add(ref_path[3])
+                    else:
+                        results.add(ref_path[3])
+            elif line:
+                raise self.Exception('unexpected output from for-each-ref')
+
+        if group_remotes:
+            by_remote[None] = results
+            return by_remote
+
+        return sorted(results)
 
     def is_suitable_branch_for_pull_request(self, branch, source_remote):
         if branch is None or branch in self.DEFAULT_BRANCHES or self.PROD_BRANCHES.match(branch):
@@ -616,17 +637,54 @@ class Git(Scm):
             return False
         return True
 
+    @decorators.Memoize()
+    def _maybe_update_default_branch_ref_from_fetch_head(self):
+        # The way the buildbot workers update the git repository does not always update the remote/origin/main reference.
+        # Workaround that by checking if remote/origin/main is an ancestor of FETCH_HEAD and then updating it here of needed.
+        # See https://webkit.org/b/299395 for more details.
+        fh_path = os.path.join(self.common_directory, 'FETCH_HEAD')
+        if not os.path.isfile(fh_path):
+            return
+        repo_url = self.url().removesuffix('.git')
+        # FETCH_HEAD can contain more than one line, ensure that only the ones matching this repo and default_branch are considered.
+        default_branch_pattern = re.compile(rf'(?P<hash>[0-9a-f]{{40}})\s+(branch [\'"]?{self.default_branch}[\'"]? of\s+)?[\'"]?{repo_url}(\.git)?[\'"]?$')
+        merge_candidates = set()
+        with open(fh_path, 'r') as fh_fd:
+            for line in fh_fd:
+                line = line.strip()
+                fh_match = default_branch_pattern.match(line)
+                if fh_match:
+                    merge_candidates.add(fh_match.group('hash'))
+        if len(merge_candidates) == 0:
+            return
+        if len(merge_candidates) > 1:
+            log.warning(f'Not updating the ref on remotes/origin/{self.default_branch} because more than one candidate was found (that is unexpected): {merge_candidates}')
+            return
+        fh_hash = merge_candidates.pop()
+        # Check if the ref on remotes/origin/defrbranch is strictly an ancestor of FETCH_HEAD and in that case update the ref of it
+        is_defrbranch_ancestor_of_fh = run([self.executable(), 'merge-base', '--is-ancestor', f'remotes/origin/{self.default_branch}', f'{fh_hash}'],
+                                           cwd=self.root_path).returncode == 0
+        if not is_defrbranch_ancestor_of_fh:
+            log.warning(f'Hash {fh_hash} at FETCH_HEAD is not a fast-foward update for remotes/origin/{self.default_branch}')
+            return
+        is_fh_not_ancestor_of_defrbranch = run([self.executable(), 'merge-base', '--is-ancestor', f'{fh_hash}', f'remotes/origin/{self.default_branch}'],
+                                               cwd=self.root_path).returncode == 1
+        is_fh_strictly_fast_forward_of_defrbranch = is_defrbranch_ancestor_of_fh and is_fh_not_ancestor_of_defrbranch
+        if is_fh_strictly_fast_forward_of_defrbranch:
+            result = run([self.executable(), 'update-ref', f'refs/remotes/origin/{self.default_branch}', f'{fh_hash}'], cwd=self.root_path, capture_output=True, encoding='utf-8')
+            if result.returncode:
+                log.warning(f'Error updating remotes/origin/{self.default_branch} to FETCH_HEAD: {result.stderr}')
+
     def _is_on_default_branch(self, hash):
-        branches = self.branches_for(remote=None)
+        self._maybe_update_default_branch_ref_from_fetch_head()
         remote_keys = [None] + self.source_remotes()
         default_branch = self.default_branch
         for key in remote_keys:
-            if default_branch in branches.get(key, []):
-                return run([
-                    self.executable(), 'merge-base', '--is-ancestor', hash,
-                    'remotes/{}/{}'.format(key, default_branch) if key else default_branch,
-                ], cwd=self.root_path, capture_output=True, encoding='utf-8').returncode == 0
-        return default_branch in self.branches_for(hash)
+            if run([self.executable(), 'merge-base', '--is-ancestor', hash,
+                    f'refs/remotes/{key}/{default_branch}' if key is not None else f'refs/heads/{default_branch}'],
+                   cwd=self.root_path, capture_output=True, encoding='utf-8').returncode == 0:
+                return True
+        return False
 
     def branch_point(self, ref='HEAD'):
         branches = self.branches_for(remote=None)
@@ -1373,7 +1431,7 @@ class Git(Scm):
         return output.stdout.rstrip().splitlines()
 
     def remote_for(self, argument):
-        candidates = self.source_remotes()
+        candidates = list(self.source_remotes())
         while candidates:
             if argument not in self.branches_for(remote=candidates[-1]):
                 candidates.remove(candidates[-1])

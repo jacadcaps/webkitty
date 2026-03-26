@@ -25,27 +25,20 @@
 
 #pragma once
 
+#import <wtf/Platform.h>
+
 #if ENABLE(DATA_DETECTION) && PLATFORM(MAC)
 
-#import "GraphicsLayer.h"
-#import "GraphicsLayerClient.h"
-#import "SimpleRange.h"
-#import "Timer.h"
+#import <WebCore/GraphicsLayerClient.h>
+#import <WebCore/SimpleRange.h>
+#import <WebCore/Timer.h>
+#import <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 #import <wtf/RefCountedAndCanMakeWeakPtr.h>
 #import <wtf/RefPtr.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/WeakPtr.h>
 
 using DDHighlightRef = struct __DDHighlight*;
-
-namespace WebCore {
-class DataDetectorHighlightClient;
-}
-
-namespace WTF {
-template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
-template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::DataDetectorHighlightClient> : std::true_type { };
-}
 
 namespace WebCore {
 
@@ -56,7 +49,7 @@ class GraphicsLayer;
 
 enum class RenderingUpdateStep : uint32_t;
 
-class DataDetectorHighlightClient : public CanMakeWeakPtr<DataDetectorHighlightClient> {
+class DataDetectorHighlightClient : public AbstractRefCountedAndCanMakeWeakPtr<DataDetectorHighlightClient> {
 public:
     WEBCORE_EXPORT virtual ~DataDetectorHighlightClient() = default;
     WEBCORE_EXPORT virtual DataDetectorHighlight* activeHighlight() const = 0;
@@ -108,7 +101,7 @@ private:
 
     // GraphicsLayerClient
     void notifyFlushRequired(const GraphicsLayer*) override;
-    void paintContents(const GraphicsLayer*, GraphicsContext&, const FloatRect& inClip, OptionSet<GraphicsLayerPaintBehavior>) override;
+    void paintContents(const GraphicsLayer&, GraphicsContext&, const FloatRect& inClip, OptionSet<GraphicsLayerPaintBehavior>) override;
     float deviceScaleFactor() const override;
 
     void fadeAnimationTimerFired();

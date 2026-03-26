@@ -25,11 +25,12 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
 #if PLATFORM(IOS_FAMILY)
 
-#include "AudioSession.h"
-#include "MediaSessionHelperIOS.h"
-#include "MediaSessionManagerCocoa.h"
+#include <WebCore/AudioSession.h>
+#include <WebCore/MediaSessionHelperIOS.h>
+#include <WebCore/MediaSessionManagerCocoa.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/TZoneMalloc.h>
 
@@ -44,29 +45,35 @@ extern NSString *WebUIApplicationDidEnterBackgroundNotification;
 
 namespace WebCore {
 
-class MediaSessionManageriOS
+class WEBCORE_EXPORT MediaSessionManageriOS
     : public MediaSessionManagerCocoa
     , public MediaSessionHelperClient
     , public AudioSessionInterruptionObserver {
     WTF_MAKE_TZONE_ALLOCATED(MediaSessionManageriOS);
 public:
-    MediaSessionManageriOS();
+    static Ref<MediaSessionManageriOS> create(PageIdentifier);
     virtual ~MediaSessionManageriOS();
 
     bool hasWirelessTargetsAvailable() final;
     bool isMonitoringWirelessTargets() const final;
 
+    // MediaSessionHelperClient, AudioSessionInterruptionObserver.
+    void ref() const override { MediaSessionManagerCocoa::ref(); }
+    void deref() const override { MediaSessionManagerCocoa::deref(); }
+
     USING_CAN_MAKE_WEAKPTR(MediaSessionHelperClient);
 
-private:
+protected:
+    explicit MediaSessionManageriOS(PageIdentifier);
+
 #if !PLATFORM(MACCATALYST)
-    void resetRestrictions() final;
+    void resetRestrictions() override;
 #endif
 
+    void sessionWillBeginPlayback(PlatformMediaSessionInterface&, CompletionHandler<void(bool)>&&) override;
+
+private:
     void configureWirelessTargetMonitoring() final;
-    void providePresentingApplicationPIDIfNecessary(const std::optional<ProcessID>&) final;
-    void updatePresentingApplicationPIDIfNecessary(ProcessID) final;
-    bool sessionWillBeginPlayback(PlatformMediaSessionInterface&) final;
     void sessionWillEndPlayback(PlatformMediaSessionInterface&, DelayCallingUpdateNowPlaying) final;
 
     // AudioSessionInterruptionObserver
@@ -83,8 +90,9 @@ private:
     void activeVideoRouteDidChange(SupportsAirPlayVideo, Ref<MediaPlaybackTarget>&&) final;
     void isPlayingToAutomotiveHeadUnitDidChange(PlayingToAutomotiveHeadUnit) final;
     void activeAudioRouteSupportsSpatialPlaybackDidChange(SupportsSpatialAudioPlayback) final;
+
 #if !RELEASE_LOG_DISABLED
-    ASCIILiteral logClassName() const final { return "MediaSessionManageriOS"_s; }
+    ASCIILiteral logClassName() const override;
 #endif
 
 #if !PLATFORM(WATCHOS)
@@ -93,8 +101,11 @@ private:
 #endif
 
     bool m_isMonitoringWirelessRoutes { false };
-    bool m_havePresentedApplicationPID { false };
 };
+
+#if !RELEASE_LOG_DISABLED
+inline ASCIILiteral MediaSessionManageriOS::logClassName() const { return "MediaSessionManageriOS"_s; }
+#endif
 
 } // namespace WebCore
 

@@ -376,10 +376,13 @@ class Executive(AbstractExecutive):
                     pass_fds=()):
         """Popen wrapper for convenience and to work around python bugs."""
         assert(isinstance(args, list) or isinstance(args, tuple))
-        start_time = time.time()
+        start_time = time.monotonic()
 
         stdin, string_to_communicate = self._compute_stdin(input)
         stderr = self.STDOUT if return_stderr else None
+
+        cmd_str = f'"{self.command_for_printing(args)}"'
+        _log.debug(f'Running {cmd_str}...')
 
         process = self.popen(args,
                              stdin=stdin,
@@ -404,10 +407,10 @@ class Executive(AbstractExecutive):
             # http://bugs.python.org/issue1731717
             exit_code = process.wait(timeout=Timeout.difference())
 
-            _log.debug('"%s" took %.2fs' % (self.command_for_printing(args), time.time() - start_time))
+            _log.debug(f'{cmd_str} took {time.monotonic() - start_time:.2f}s' + (f' with exit code {exit_code}).' if exit_code else '.'))
 
         except subprocess.TimeoutExpired:
-            _log.debug('"%s" timed out after %.2fs' % (self.command_for_printing(args), time.time() - start_time))
+            _log.debug(f'{cmd_str} timed out after {time.monotonic() - start_time:.2f}s.')
             exit_code = 255
 
         finally:

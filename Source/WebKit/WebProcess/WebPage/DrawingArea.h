@@ -174,7 +174,7 @@ public:
     virtual void backgroundColorDidChange() { };
 #endif
 
-#if PLATFORM(WPE) && USE(GBM) && ENABLE(WPE_PLATFORM)
+#if PLATFORM(WPE) && ENABLE(WPE_PLATFORM) && (USE(GBM) || OS(ANDROID))
     virtual void preferredBufferFormatsDidChange() { }
 #endif
 
@@ -189,8 +189,6 @@ public:
 
     virtual void adoptLayersFromDrawingArea(DrawingArea&) { }
     virtual void adoptDisplayRefreshMonitorsFromDrawingArea(DrawingArea&) { }
-
-    virtual void setNextRenderingUpdateRequiresSynchronousImageDecoding() { }
 
     void removeMessageReceiverIfNeeded();
     
@@ -233,7 +231,7 @@ private:
 #endif
 
     virtual void setDeviceScaleFactor(float, CompletionHandler<void()>&& completionHandler) { completionHandler(); }
-    virtual void displayDidRefresh() { }
+    virtual void displayDidRefresh(MonotonicTime) { }
 
     // DisplayRefreshMonitorFactory.
     RefPtr<WebCore::DisplayRefreshMonitor> createDisplayRefreshMonitor(WebCore::PlatformDisplayID) override;

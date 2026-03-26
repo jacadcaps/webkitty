@@ -37,18 +37,16 @@
 #if USE(CAIRO)
 #include <cairo.h>
 #elif USE(SKIA)
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 #include <skia/core/SkData.h>
-
-IGNORE_CLANG_WARNINGS_BEGIN("cast-align")
 #include <skia/encode/SkPngEncoder.h>
-IGNORE_CLANG_WARNINGS_END
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 #endif
 
 namespace WTR {
 
 void TestController::notifyDone()
 {
-    RunLoop::mainSingleton().stop();
 }
 
 void TestController::setHidden(bool)
@@ -73,9 +71,8 @@ void TestController::platformRunUntil(bool& done, WTF::Seconds timeout)
     class TimeoutTimer {
     public:
         TimeoutTimer(WTF::Seconds timeout, bool& timedOut)
-            : m_timer(RunLoop::mainSingleton(), "TestController::TimeoutTimer::Timer"_s, [&timedOut] {
+            : m_timer(RunLoop::mainSingleton(), "TestController::TimeoutTimer"_s, [&timedOut] {
                 timedOut = true;
-                RunLoop::mainSingleton().stop();
             })
         {
             m_timer.setPriority(G_PRIORITY_DEFAULT_IDLE);
@@ -86,8 +83,9 @@ void TestController::platformRunUntil(bool& done, WTF::Seconds timeout)
         RunLoop::Timer m_timer;
     } timeoutTimer(timeout, timedOut);
 
+    auto* mainContext = g_main_context_default();
     while (!done && !timedOut)
-        RunLoop::mainSingleton().run();
+        g_main_context_iteration(mainContext, TRUE);
 }
 
 void TestController::platformDidCommitLoadForFrame(WKPageRef, WKFrameRef)
@@ -121,11 +119,6 @@ void TestController::runModal(PlatformWebView*)
 
 void TestController::abortModal()
 {
-}
-
-WKContextRef TestController::platformContext()
-{
-    return m_context.get();
 }
 
 const char* TestController::platformLibraryPathForTesting()

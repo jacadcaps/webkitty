@@ -43,6 +43,10 @@ void Texture::invokeReleaseProc() {
     }
 }
 
+bool Texture::uploadDataOnHost(const UploadSource& source, const SkIRect& dstRect) {
+    SK_ABORT("Not implemented");
+}
+
 MutableTextureState* Texture::mutableState() const { return fMutableState.get(); }
 
 void Texture::onDumpMemoryStatistics(SkTraceMemoryDump* traceMemoryDump,

@@ -29,7 +29,6 @@
 #if ENABLE(GPU_PROCESS) && PLATFORM(COCOA)
 
 #import "LayerHostingContext.h"
-#import "MediaPlayerPrivateRemote.h"
 #import "VideoLayerRemote.h"
 #import <WebCore/FloatRect.h>
 #import <WebCore/GeometryUtilities.h>
@@ -37,6 +36,9 @@
 #import <WebCore/WebCoreObjCExtras.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <wtf/MachSendRight.h>
+#if ENABLE(MACH_PORT_LAYER_HOSTING)
+#import <wtf/MachSendRightAnnotated.h>
+#endif
 #import <wtf/WeakObjCPtr.h>
 #import <wtf/WeakPtr.h>
 
@@ -45,7 +47,7 @@
 static const Seconds PostAnimationDelay { 100_ms };
 
 @implementation WKVideoLayerRemote {
-    ThreadSafeWeakPtr<WebKit::MediaPlayerPrivateRemote> _mediaPlayerPrivateRemote;
+    ThreadSafeWeakPtr<WebKit::VideoLayerRemoteParent> _parent;
     RetainPtr<CAContext> _context;
     WebCore::MediaPlayerEnums::VideoGravity _videoGravity;
 
@@ -81,14 +83,14 @@ static const Seconds PostAnimationDelay { 100_ms };
     [super dealloc];
 }
 
-- (WebKit::MediaPlayerPrivateRemote*)mediaPlayerPrivateRemote
+- (RefPtr<WebKit::VideoLayerRemoteParent>)parent
 {
-    return _mediaPlayerPrivateRemote.get().get();
+    return _parent.get();
 }
 
-- (void)setMediaPlayerPrivateRemote:(WebKit::MediaPlayerPrivateRemote*)mediaPlayerPrivateRemote
+- (void)setParent:(RefPtr<WebKit::VideoLayerRemoteParent>)parent
 {
-    _mediaPlayerPrivateRemote = *mediaPlayerPrivateRemote;
+    _parent = *parent;
 }
 
 - (WebCore::MediaPlayerEnums::VideoGravity)videoGravity
@@ -103,8 +105,8 @@ static const Seconds PostAnimationDelay { 100_ms };
 
 - (bool)resizePreservingGravity
 {
-    RefPtr<WebKit::MediaPlayerPrivateRemote> player = self.mediaPlayerPrivateRemote;
-    if (player && player->inVideoFullscreenOrPictureInPicture())
+    RefPtr<WebKit::VideoLayerRemoteParent> parent = self.parent;
+    if (parent && parent->inVideoFullscreenOrPictureInPicture())
         return true;
     
     return _videoGravity != WebCore::MediaPlayer::VideoGravity::Resize;
@@ -112,8 +114,8 @@ static const Seconds PostAnimationDelay { 100_ms };
 
 - (void)layoutSublayers
 {
-    auto* sublayers = [self sublayers];
-    
+    RetainPtr sublayers = [self sublayers];
+
     if ([sublayers count] != 1) {
         ASSERT_NOT_REACHED();
         return;
@@ -136,8 +138,8 @@ static const Seconds PostAnimationDelay { 100_ms };
     CGAffineTransform transform = CGAffineTransformIdentity;
     if ([self resizePreservingGravity]) {
         WebCore::FloatSize naturalSize { };
-        if (RefPtr mediaPlayer = _mediaPlayerPrivateRemote.get())
-            naturalSize = mediaPlayer->naturalSize();
+        if (RefPtr parent = _parent.get())
+            naturalSize = parent->naturalSize();
 
         if (!naturalSize.isEmpty()) {
             // The video content will be sized within the remote layer, preserving aspect
@@ -153,7 +155,7 @@ static const Seconds PostAnimationDelay { 100_ms };
     } else
         transform = CGAffineTransformMakeScale(targetVideoFrame.width() / sourceVideoFrame.width(), targetVideoFrame.height() / sourceVideoFrame.height());
 
-    auto* videoSublayer = [sublayers objectAtIndex:0];
+    RetainPtr videoSublayer = [sublayers objectAtIndex:0];
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
     [videoSublayer setPosition:CGPointMake(CGRectGetMidX(self.bounds), CGRectGetMidY(self.bounds))];
@@ -180,14 +182,14 @@ static const Seconds PostAnimationDelay { 100_ms };
         return;
     }
 
-    auto* sublayers = [self sublayers];
+    RetainPtr sublayers = [self sublayers];
     if ([sublayers count] != 1) {
         ASSERT_NOT_REACHED();
         return;
     }
 
-    auto* videoSublayer = [sublayers objectAtIndex:0];
-    if (!CGRectIsEmpty(self.videoLayerFrame) && CGRectEqualToRect(self.videoLayerFrame, videoSublayer.bounds) && CGAffineTransformIsIdentity(videoSublayer.affineTransform))
+    RetainPtr videoSublayer = [sublayers objectAtIndex:0];
+    if (!CGRectIsEmpty(self.videoLayerFrame) && CGRectEqualToRect(self.videoLayerFrame, videoSublayer.get().bounds) && CGAffineTransformIsIdentity(videoSublayer.get().affineTransform))
         return;
 
     [CATransaction begin];
@@ -195,9 +197,9 @@ static const Seconds PostAnimationDelay { 100_ms };
 
     if (!CGRectEqualToRect(self.videoLayerFrame, self.bounds)) {
         self.videoLayerFrame = self.bounds;
-        if (RefPtr<WebKit::MediaPlayerPrivateRemote> mediaPlayerPrivateRemote = self.mediaPlayerPrivateRemote) {
+        if (RefPtr<WebKit::VideoLayerRemoteParent> parent = self.parent) {
             MachSendRight fenceSendRight = MachSendRight::adopt([_context createFencePort]);
-            mediaPlayerPrivateRemote->setVideoLayerSizeFenced(WebCore::FloatSize(self.videoLayerFrame.size), { WTFMove(fenceSendRight), { } });
+            parent->setVideoLayerSizeFenced(WebCore::FloatSize(self.videoLayerFrame.size), { WTF::move(fenceSendRight), { } });
         }
     }
 
@@ -211,14 +213,14 @@ static const Seconds PostAnimationDelay { 100_ms };
 
 namespace WebKit {
 
-PlatformLayerContainer createVideoLayerRemote(MediaPlayerPrivateRemote* mediaPlayerPrivateRemote, LayerHostingContextID contextId, WebCore::MediaPlayerEnums::VideoGravity videoGravity, IntSize contentSize)
+PlatformLayerContainer createVideoLayerRemote(VideoLayerRemoteParent& parent, LayerHostingContextID contextId, WebCore::MediaPlayerEnums::VideoGravity videoGravity, IntSize contentSize)
 {
     // Initially, all the layers will be empty (both width and height are 0) and invisible.
     // The renderer will change the sizes of WKVideoLayerRemote to trigger layout of sublayers and make them visible.
     auto videoLayerRemote = adoptNS([[WKVideoLayerRemote alloc] init]);
     [videoLayerRemote setName:@"WKVideoLayerRemote"];
     [videoLayerRemote setVideoGravity:videoGravity];
-    [videoLayerRemote setMediaPlayerPrivateRemote:mediaPlayerPrivateRemote];
+    [videoLayerRemote setParent:&parent];
     RetainPtr layerForHostContext = LayerHostingContext::createPlatformLayerForHostingContext(contextId).get();
     auto frame = CGRectMake(0, 0, contentSize.width(), contentSize.height());
     [videoLayerRemote setVideoLayerFrame:frame];

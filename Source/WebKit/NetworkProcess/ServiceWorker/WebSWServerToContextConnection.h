@@ -103,6 +103,7 @@ public:
     void reportNetworkUsageToWorkerClient(const WebCore::ScriptExecutionContextIdentifier, uint64_t bytesTransferredOverNetworkDelta) final;
 #endif
 
+    std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const;
 private:
     WebSWServerToContextConnection(NetworkConnectionToWebProcess&, WebPageProxyIdentifier, WebCore::Site&&, std::optional<WebCore::ScriptExecutionContextIdentifier>, WebCore::SWServer&);
 
@@ -115,7 +116,7 @@ private:
     IPC::Connection* messageSenderConnection() const final;
     uint64_t messageSenderDestinationID() const final;
 
-    void postMessageToServiceWorkerClient(const WebCore::ScriptExecutionContextIdentifier& destinationIdentifier, const WebCore::MessageWithMessagePorts&, WebCore::ServiceWorkerIdentifier sourceIdentifier, const String& sourceOrigin);
+    void postMessageToServiceWorkerClient(const WebCore::ScriptExecutionContextIdentifier& destinationIdentifier, const WebCore::MessageWithMessagePorts&, WebCore::ServiceWorkerIdentifier sourceIdentifier, const WebCore::SecurityOriginData& sourceOrigin);
     void skipWaiting(WebCore::ServiceWorkerIdentifier, CompletionHandler<void()>&&);
 
     // Messages back from the SW host process

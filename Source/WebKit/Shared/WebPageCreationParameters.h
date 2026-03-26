@@ -31,6 +31,7 @@
 #include "ProvisionalFrameCreationParameters.h"
 #include "SandboxExtension.h"
 #include "SessionState.h"
+#include "TextManipulationParameters.h"
 #include "UserContentControllerParameters.h"
 #include "ViewWindowCoordinates.h"
 #include "VisitedLinkTableIdentifier.h"
@@ -73,7 +74,7 @@
 #include "WebExtensionControllerParameters.h"
 #endif
 
-#if (PLATFORM(GTK) || PLATFORM(WPE)) && USE(GBM)
+#if (PLATFORM(GTK) || PLATFORM(WPE)) && (USE(GBM) || OS(ANDROID))
 #include "RendererBufferFormat.h"
 #endif
 
@@ -87,6 +88,10 @@
 
 #if HAVE(AUDIT_TOKEN)
 #include "CoreIPCAuditToken.h"
+#endif
+
+#if ENABLE(IMAGE_ANALYSIS)
+#include <WebCore/ImageAnalysisQueue.h>
 #endif
 
 namespace WebCore {
@@ -184,6 +189,7 @@ struct WebPageCreationParameters {
 
     bool useDarkAppearance { false };
     bool useElevatedUserInterfaceLevel { false };
+    bool allowPostingLegacySynchronousMessages { false };
 
 #if PLATFORM(MAC)
     std::optional<WebCore::DestinationColorSpace> colorSpace { };
@@ -316,6 +322,10 @@ struct WebPageCreationParameters {
 
     bool hasResizableWindows { false };
 
+#if PLATFORM(MAC)
+    double overflowHeightForTopScrollEdgeEffect { 0 };
+#endif
+
     WebCore::ContentSecurityPolicyModeForExtension contentSecurityPolicyModeForExtension { WebCore::ContentSecurityPolicyModeForExtension::None };
 
     std::optional<RemotePageParameters> remotePageParameters { };
@@ -324,7 +334,11 @@ struct WebPageCreationParameters {
     String openedMainFrameName;
     std::optional<WebCore::FrameIdentifier> mainFrameOpenerIdentifier { };
     WebCore::SandboxFlags initialSandboxFlags;
+    WebCore::ReferrerPolicy initialReferrerPolicy { WebCore::ReferrerPolicy::EmptyString };
     std::optional<WebCore::WindowFeatures> windowFeatures { };
+    bool statusBarIsVisible;
+    bool menuBarIsVisible;
+    bool toolbarsAreVisible;
 
 #if ENABLE(ADVANCED_PRIVACY_PROTECTIONS)
     Vector<WebCore::LinkDecorationFilteringData> linkDecorationFilteringData { };
@@ -336,7 +350,7 @@ struct WebPageCreationParameters {
 #endif
 
 #if PLATFORM(GTK) || PLATFORM(WPE)
-#if USE(GBM)
+#if USE(GBM) || OS(ANDROID)
     Vector<RendererBufferFormat> preferredBufferFormats { };
 #endif
 #endif
@@ -353,6 +367,12 @@ struct WebPageCreationParameters {
     String presentingApplicationBundleIdentifier;
 #endif
     bool shouldSendConsoleLogsToUIProcessForTesting { false };
+
+#if ENABLE(IMAGE_ANALYSIS)
+    std::optional<WebCore::ImageTranslationLanguageIdentifiers> imageTranslationLanguageIdentifiers { std::nullopt };
+#endif
+
+    std::optional<TextManipulationParameters> textManipulationParameters { std::nullopt };
 };
 
 } // namespace WebKit

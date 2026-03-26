@@ -236,7 +236,7 @@ void PlatformCAAnimationRemote::setFillMode(FillModeType value)
 void PlatformCAAnimationRemote::setTimingFunction(const TimingFunction* value, bool)
 {
     RefPtr<TimingFunction> timingFunction = value->clone();
-    m_properties.timingFunction = WTFMove(timingFunction);
+    m_properties.timingFunction = WTF::move(timingFunction);
 }
 
 void PlatformCAAnimationRemote::copyTimingFunctionFrom(const PlatformCAAnimation& value)
@@ -458,10 +458,10 @@ void PlatformCAAnimationRemote::copyTimingFunctionsFrom(const PlatformCAAnimatio
     m_properties.reverseTimingFunctions = other.m_properties.reverseTimingFunctions;
 }
 
-void PlatformCAAnimationRemote::setAnimations(const Vector<RefPtr<PlatformCAAnimation>>& values)
+void PlatformCAAnimationRemote::setAnimations(const Vector<Ref<PlatformCAAnimation>>& values)
 {
     m_properties.animations = values.map([](auto& value) {
-        return downcast<PlatformCAAnimationRemote>(value.get())->properties();
+        return downcast<PlatformCAAnimationRemote>(value)->properties();
     });
 }
 
@@ -506,9 +506,9 @@ static RetainPtr<CAAnimation> createAnimation(CALayer *layer, RemoteLayerTreeHos
         }
 
         if (properties.timingFunctions.size())
-            [basicAnimation setTimingFunction:toCAMediaTimingFunction(properties.timingFunctions[0].get(), properties.reverseTimingFunctions)];
+            [basicAnimation setTimingFunction:toCAMediaTimingFunction(properties.timingFunctions[0].get(), properties.reverseTimingFunctions).get()];
 
-        caAnimation = WTFMove(basicAnimation);
+        caAnimation = WTF::move(basicAnimation);
         break;
     }
     case PlatformCAAnimation::AnimationType::Group: {
@@ -517,7 +517,7 @@ static RetainPtr<CAAnimation> createAnimation(CALayer *layer, RemoteLayerTreeHos
         if (properties.animations.size()) {
             [animationGroup setAnimations:createNSArray(properties.animations, [&] (auto& animationProperties) -> CAAnimation * {
                 if (PlatformCAAnimation::isValidKeyPath(properties.keyPath, properties.animationType))
-                    return createAnimation(layer, layerTreeHost, animationProperties).get();
+                    return createAnimation(layer, layerTreeHost, animationProperties).autorelease();
                 ASSERT_NOT_REACHED();
                 return nil;
             }).get()];
@@ -542,15 +542,15 @@ static RetainPtr<CAAnimation> createAnimation(CALayer *layer, RemoteLayerTreeHos
         }
 
         if (properties.timingFunction)
-            [keyframeAnimation setTimingFunction:toCAMediaTimingFunction(Ref { *properties.timingFunction }, false)]; // FIXME: handle reverse.
+            [keyframeAnimation setTimingFunction:toCAMediaTimingFunction(Ref { *properties.timingFunction }, false).get()]; // FIXME: handle reverse.
 
         if (properties.timingFunctions.size()) {
             [keyframeAnimation setTimingFunctions:createNSArray(properties.timingFunctions, [&] (auto& function) {
-                return toCAMediaTimingFunction(function.get(), properties.reverseTimingFunctions);
+                return toCAMediaTimingFunction(function.get(), properties.reverseTimingFunctions).autorelease();
             }).get()];
         }
 
-        caAnimation = WTFMove(keyframeAnimation);
+        caAnimation = WTF::move(keyframeAnimation);
         break;
     }
     case PlatformCAAnimation::AnimationType::Spring: {
@@ -571,7 +571,7 @@ static RetainPtr<CAAnimation> createAnimation(CALayer *layer, RemoteLayerTreeHos
                 [springAnimation setInitialVelocity:function->initialVelocity()];
             }
         }
-        caAnimation = WTFMove(springAnimation);
+        caAnimation = WTF::move(springAnimation);
         break;
     }
     }
@@ -587,11 +587,11 @@ static RetainPtr<CAAnimation> createAnimation(CALayer *layer, RemoteLayerTreeHos
     if ([caAnimation isKindOfClass:[CAPropertyAnimation class]]) {
         [(CAPropertyAnimation *)caAnimation setAdditive:properties.additive];
         if (properties.valueFunction != PlatformCAAnimation::ValueFunctionType::NoValueFunction)
-            [(CAPropertyAnimation *)caAnimation setValueFunction:[CAValueFunction functionWithName:toCAValueFunctionType(properties.valueFunction)]];
+            [(CAPropertyAnimation *)caAnimation setValueFunction:[CAValueFunction functionWithName:toCAValueFunctionType(properties.valueFunction).get()]];
     }
 
     if (properties.fillMode != PlatformCAAnimation::FillModeType::NoFillMode)
-        [caAnimation setFillMode:toCAFillModeType(properties.fillMode)];
+        [caAnimation setFillMode:toCAFillModeType(properties.fillMode).get()];
 
     if (properties.hasExplicitBeginTime)
         [caAnimation setValue:@YES forKey:WKExplicitBeginTimeFlag];
@@ -663,7 +663,7 @@ TextStream& operator<<(TextStream& ts, const PlatformCAAnimationRemote::Properti
     ts.dumpProperty("fillMode"_s, animation.fillMode);
     ts.dumpProperty("valueFunction"_s, animation.valueFunction);
     if (animation.timingFunction)
-        ts.dumpProperty<const TimingFunction&>("timing function", Ref { *animation.timingFunction });
+        ts.dumpProperty<const TimingFunction&>("timing function"_s, Ref { *animation.timingFunction });
 
     if (animation.autoReverses)
         ts.dumpProperty("autoReverses"_s, animation.autoReverses);
@@ -697,7 +697,7 @@ TextStream& operator<<(TextStream& ts, const PlatformCAAnimationRemote::Properti
             ts.dumpProperty("time"_s, animation.keyTimes[i]);
 
         if (i < animation.timingFunctions.size())
-            ts.dumpProperty<const TimingFunction&>("timing function", animation.timingFunctions[i]);
+            ts.dumpProperty<const TimingFunction&>("timing function"_s, animation.timingFunctions[i]);
 
         if (i < animation.keyValues.size()) {
             ts.startGroup();

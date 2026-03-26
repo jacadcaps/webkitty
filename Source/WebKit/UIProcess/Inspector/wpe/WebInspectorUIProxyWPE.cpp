@@ -84,7 +84,7 @@ public:
         // Try to load the request in the inspected page.
         if (RefPtr page = m_proxy.inspectedPage()) {
             auto request = navigationAction->request();
-            page->loadRequest(WTFMove(request));
+            page->loadRequest(WTF::move(request));
         }
     }
 
@@ -99,7 +99,7 @@ static Ref<WebsiteDataStore> inspectorWebsiteDataStore()
     String baseDataDirectory = FileSystem::pathByAppendingComponent(FileSystem::userDataDirectory(), versionedDirectory);
 
     auto configuration = WebsiteDataStoreConfiguration::createWithBaseDirectories(baseCacheDirectory, baseDataDirectory);
-    return WebsiteDataStore::create(WTFMove(configuration), PAL::SessionID::generatePersistentSessionID());
+    return WebsiteDataStore::create(WTF::move(configuration), PAL::SessionID::generatePersistentSessionID());
 }
 
 RefPtr<WebPageProxy> WebInspectorUIProxy::platformCreateFrontendPage()
@@ -134,19 +134,24 @@ RefPtr<WebPageProxy> WebInspectorUIProxy::platformCreateFrontendPage()
     pageConfiguration->setPreferences(preferences.ptr());
     pageConfiguration->setPageGroup(pageGroup.ptr());
     pageConfiguration->setWebsiteDataStore(websiteDataStore.ptr());
-    m_inspectorView = WKWPE::ViewPlatform::create(wpe_view_get_display(inspectedWPEView), *pageConfiguration.ptr());
+    auto inspectorView = WKWPE::ViewPlatform::create(wpe_view_get_display(inspectedWPEView), *pageConfiguration.ptr());
 
-    Ref page = m_inspectorView->page();
-    page->setNavigationClient(makeUniqueRef<InspectorNavigationClient>(*this));
+    auto* wpeView = inspectorView->wpeView();
+    if (auto* toplevel = wpe_view_get_toplevel(wpeView)) {
+        m_inspectorWindow = toplevel;
+        wpe_view_set_toplevel(wpeView, nullptr);
+    } else
+        m_inspectorWindow = adoptGRef(wpe_display_create_toplevel(wpe_view_get_display(wpeView), 1));
+    if (!m_inspectorWindow)
+        return nullptr;
 
-    auto* wpeView = m_inspectorView->wpeView();
+    m_inspectorView = WTF::move(inspectorView);
     g_signal_connect(wpeView, "closed", G_CALLBACK(+[](WPEView* wpeView, WebInspectorUIProxy* proxy) {
         proxy->close();
     }), this);
-    m_inspectorWindow = wpe_view_get_toplevel(wpeView);
-    wpe_view_set_toplevel(wpeView, nullptr);
-    wpe_toplevel_resize(m_inspectorWindow.get(), initialWindowWidth, initialWindowHeight);
 
+    Ref page = m_inspectorView->page();
+    page->setNavigationClient(makeUniqueRef<InspectorNavigationClient>(*this));
     return page;
 }
 

@@ -78,7 +78,7 @@ SOFT_LINK_OPTIONAL(libsystem_info, lookup_close_connections, int, (), ());
 SOFT_LINK_FRAMEWORK_IN_UMBRELLA(ApplicationServices, HIServices)
 SOFT_LINK_OPTIONAL(HIServices, HIS_XPC_ResetMessageConnection, void, (), ())
 
-#if PLATFORM(MAC)
+#if PLATFORM(MAC) || PLATFORM(MACCATALYST)
 #define USE_CACHE_COMPILED_SANDBOX 1
 #else
 #define USE_CACHE_COMPILED_SANDBOX 0
@@ -164,7 +164,7 @@ void AuxiliaryProcess::launchServicesCheckIn()
 #endif
 
     _LSSetApplicationLaunchServicesServerConnectionStatus(0, 0);
-    RetainPtr<CFDictionaryRef> unused = _LSApplicationCheckIn(kLSDefaultSessionID, CFBundleGetInfoDictionary(CFBundleGetMainBundle()));
+    RetainPtr<CFDictionaryRef> unused = _LSApplicationCheckIn(kLSDefaultSessionID, RetainPtr { CFBundleGetInfoDictionary(RetainPtr { CFBundleGetMainBundle() }.get()) }.get());
 }
 
 static OSStatus enableSandboxStyleFileQuarantine()
@@ -350,7 +350,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         if (!makeDataVault())
             return false;
     } else {
-        WTFLogAlways("%s: Sandbox directory couldn't be created: ", getprogname(), safeStrerror(errno).data());
+        WTFLogAlways("%s: Sandbox directory couldn't be created: %s", getprogname(), safeStrerror(errno).data());
         return false;
     }
 #else
@@ -456,7 +456,7 @@ static bool tryApplyCachedSandbox(const SandboxInfo& info)
     auto contents = fileContents(info.filePath);
     if (!contents || contents->isEmpty())
         return false;
-    Vector<uint8_t> cachedSandboxContents = WTFMove(*contents);
+    Vector<uint8_t> cachedSandboxContents = WTF::move(*contents);
     if (sizeof(CachedSandboxHeader) > cachedSandboxContents.size())
         return false;
 
@@ -518,7 +518,7 @@ static bool tryApplyCachedSandbox(const SandboxInfo& info)
 }
 #endif // USE(CACHE_COMPILED_SANDBOX)
 
-static inline const NSBundle *webKit2Bundle()
+static inline const NSBundle *webKit2BundleSingleton()
 {
     const static NeverDestroyed<RetainPtr<NSBundle>> bundle = [NSBundle bundleForClass:NSClassFromString(@"WKWebView")];
     return bundle.get().get();
@@ -528,7 +528,7 @@ static void getSandboxProfileOrProfilePath(const SandboxInitializationParameters
 {
     switch (parameters.mode()) {
     case SandboxInitializationParameters::ProfileSelectionMode::UseDefaultSandboxProfilePath:
-        profileOrProfilePath = [webKit2Bundle() pathForResource:[[NSBundle mainBundle] bundleIdentifier] ofType:@"sb"];
+        profileOrProfilePath = [webKit2BundleSingleton() pathForResource:[[NSBundle mainBundle] bundleIdentifier] ofType:@"sb"];
         isProfilePath = true;
         return;
     case SandboxInitializationParameters::ProfileSelectionMode::UseOverrideSandboxProfilePath:
@@ -552,8 +552,9 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     if (sandbox_init_with_parameters(temp.data(), flags, parameters.namedParameterVector().span().data(), &errorBuf)) {
 ALLOW_DEPRECATED_DECLARATIONS_END
         WTFLogAlways("%s: Could not initialize sandbox profile [%s], error '%s'\n", getprogname(), temp.data(), errorBuf);
-        for (size_t i = 0, count = parameters.count(); i != count; ++i)
-            WTFLogAlways("%s=%s\n", parameters.name(i), parameters.value(i));
+        for (size_t i = 0, count = parameters.count(); i != count; ++i) {
+            WTFLogAlways("%s=%s\n", parameters.name(i).characters(), parameters.value(i));
+        }
         return false;
     }
     return true;
@@ -692,9 +693,9 @@ static void populateSandboxInitializationParameters(SandboxInitializationParamet
     }
     setenv("TMPDIR", temporaryDirectory, 1);
 
-    String bundlePath = webKit2Bundle().bundlePath;
+    String bundlePath = webKit2BundleSingleton().bundlePath;
     if (!bundlePath.startsWith("/System/Library/Frameworks"_s))
-        bundlePath = webKit2Bundle().bundlePath.stringByDeletingLastPathComponent;
+        bundlePath = webKit2BundleSingleton().bundlePath.stringByDeletingLastPathComponent;
 
     sandboxParameters.addPathParameter("WEBKIT2_FRAMEWORK_DIR"_s, bundlePath.utf8().data());
     sandboxParameters.addConfDirectoryParameter("DARWIN_USER_TEMP_DIR"_s, _CS_DARWIN_USER_TEMP_DIR);
@@ -819,7 +820,7 @@ void AuxiliaryProcess::openDirectoryCacheInvalidated(SandboxExtension::Handle&& 
     // we need to rebuild the cache by getting the home directory while holding a temporary sandbox
     // extension to the associated Open Directory service.
 
-    auto sandboxExtension = SandboxExtension::create(WTFMove(handle));
+    auto sandboxExtension = SandboxExtension::create(WTF::move(handle));
     if (!sandboxExtension)
         return;
 

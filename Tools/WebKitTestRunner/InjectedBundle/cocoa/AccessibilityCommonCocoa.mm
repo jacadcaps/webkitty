@@ -58,7 +58,7 @@
 
 namespace WTR {
 
-Class webAccessibilityObjectWrapperClass()
+Class webAccessibilityObjectWrapperClassSingleton()
 {
     static Class cls = objc_getClass("WebAccessibilityObjectWrapper");
     ASSERT(cls);
@@ -90,12 +90,14 @@ JSValueRef makeValueRefForValue(JSContextRef context, id value)
 {
     if ([value isKindOfClass:[NSString class]])
         return JSValueMakeString(context, [value createJSStringRef].get());
+    if ([value isKindOfClass:[NSAttributedString class]])
+        return JSValueMakeString(context, [[value description] createJSStringRef].get());
     if ([value isKindOfClass:[NSNumber class]]) {
         if (nsValueHasObjCType<BOOL>((NSValue *)value) || nsValueHasObjCType<char>((NSValue *)value))
             return JSValueMakeBoolean(context, [value boolValue]);
         return JSValueMakeNumber(context, [value doubleValue]);
     }
-    if ([value isKindOfClass:webAccessibilityObjectWrapperClass()])
+    if ([value isKindOfClass:webAccessibilityObjectWrapperClassSingleton()])
         return toJS(context, WTR::AccessibilityUIElement::create(static_cast<PlatformUIElement>(value)).ptr());
     if ([value isKindOfClass:[NSDictionary class]])
         return makeJSObject(context, value);
@@ -152,4 +154,3 @@ NSDictionary *searchPredicateForSearchCriteria(JSContextRef context, Accessibili
 }
 
 } // namespace WTR
-

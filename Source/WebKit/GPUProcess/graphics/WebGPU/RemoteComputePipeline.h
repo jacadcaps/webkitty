@@ -54,7 +54,7 @@ class RemoteComputePipeline final : public IPC::StreamMessageReceiver {
 public:
     static Ref<RemoteComputePipeline> create(WebCore::WebGPU::ComputePipeline& computePipeline, WebGPU::ObjectHeap& objectHeap, Ref<IPC::StreamServerConnection>&& streamConnection, RemoteGPU& gpu, WebGPUIdentifier identifier)
     {
-        return adoptRef(*new RemoteComputePipeline(computePipeline, objectHeap, WTFMove(streamConnection), gpu, identifier));
+        return adoptRef(*new RemoteComputePipeline(computePipeline, objectHeap, WTF::move(streamConnection), gpu, identifier));
     }
 
     std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const { return m_gpu->sharedPreferencesForWebProcess(); }

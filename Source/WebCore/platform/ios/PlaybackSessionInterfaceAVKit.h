@@ -27,7 +27,7 @@
 
 #if HAVE(AVKIT_CONTENT_SOURCE)
 
-#include "PlaybackSessionInterfaceIOS.h"
+#include <WebCore/PlaybackSessionInterfaceIOS.h>
 #include <wtf/TZoneMalloc.h>
 
 OBJC_CLASS WebAVContentSource;
@@ -70,7 +70,7 @@ private:
     PlaybackSessionInterfaceAVKit(PlaybackSessionModel&);
 
     RetainPtr<WebAVContentSource> m_contentSource;
-    NowPlayingMetadataObserver m_nowPlayingMetadataObserver;
+    const Ref<NowPlayingMetadataObserver> m_nowPlayingMetadataObserver;
 };
 
 } // namespace WebCore

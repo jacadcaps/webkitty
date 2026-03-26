@@ -39,6 +39,7 @@
 #import <WebCore/LegacyWebArchive.h>
 #import <WebCore/ThreadCheck.h>
 #import <WebCore/WebCoreJITOperations.h>
+#import <WebCore/WebCoreMainThread.h>
 #import <WebCore/WebCoreObjCExtras.h>
 #import <WebCore/WebCoreURLResponse.h>
 #import <pal/text/TextEncoding.h>
@@ -67,11 +68,7 @@ static NSString * const WebResourceResponseKey =          @"WebResourceResponse"
 
 + (void)initialize
 {
-#if !PLATFORM(IOS_FAMILY)
-    JSC::initialize();
-    WTF::initializeMainThread();
-    WebCore::populateJITOperations();
-#endif
+    WebCore::initializeMainThreadIfNeeded();
 }
 
 - (instancetype)init
@@ -85,7 +82,7 @@ static NSString * const WebResourceResponseKey =          @"WebResourceResponse"
     self = [super init];
     if (!self)
         return nil;
-    coreResource = WTFMove(passedResource);
+    coreResource = WTF::move(passedResource);
     return self;
 }
 
@@ -122,11 +119,13 @@ static NSString * const WebResourceResponseKey =          @"WebResourceResponse"
     if (!self)
         return nil;
 
-    NSData *data = nil;
-    NSURL *url = nil;
-    NSString *mimeType = nil, *textEncoding = nil, *frameName = nil;
-    NSURLResponse *response = nil;
-    
+    RetainPtr<NSData> data;
+    RetainPtr<NSURL> url;
+    RetainPtr<NSString> mimeType;
+    RetainPtr<NSString> textEncoding;
+    RetainPtr<NSString> frameName;
+    RetainPtr<NSURLResponse> response;
+
     @try {
         id object = [decoder decodeObjectForKey:WebResourceDataKey];
         if ([object isKindOfClass:[NSData class]])
@@ -151,7 +150,7 @@ static NSString * const WebResourceResponseKey =          @"WebResourceResponse"
         return nil;
     }
 
-    auto coreResource = ArchiveResource::create(SharedBuffer::create(data), url, mimeType, textEncoding, frameName, response);
+    auto coreResource = ArchiveResource::create(SharedBuffer::create(data.get()), url.get(), mimeType.get(), textEncoding.get(), frameName.get(), response.get());
     if (!coreResource) {
         [self release];
         return nil;
@@ -170,7 +169,7 @@ static NSString * const WebResourceResponseKey =          @"WebResourceResponse"
     RetainPtr<NSString> mimeType;
     RetainPtr<NSString> textEncoding;
     RetainPtr<NSString> frameName;
-    NSURLResponse *response = nil;
+    RetainPtr<NSURLResponse> response;
 
     if (resource) {
         data = resource->data().makeContiguous()->createNSData();
@@ -185,7 +184,7 @@ static NSString * const WebResourceResponseKey =          @"WebResourceResponse"
     [encoder encodeObject:mimeType.get() forKey:WebResourceMIMETypeKey];
     [encoder encodeObject:textEncoding.get() forKey:WebResourceTextEncodingNameKey];
     [encoder encodeObject:frameName.get() forKey:WebResourceFrameNameKey];
-    [encoder encodeObject:response forKey:WebResourceResponseKey];
+    [encoder encodeObject:response.get() forKey:WebResourceResponseKey];
 }
 
 - (void)dealloc
@@ -259,7 +258,7 @@ static NSString * const WebResourceResponseKey =          @"WebResourceResponse"
     if (!self)
         return nil;
 
-    _private = [[WebResourcePrivate alloc] initWithCoreResource:WTFMove(coreResource)];
+    _private = [[WebResourcePrivate alloc] initWithCoreResource:WTF::move(coreResource)];
     return self;
 }
 
@@ -350,10 +349,10 @@ static NSString * const WebResourceResponseKey =          @"WebResourceResponse"
 {
     WebCoreThreadViolationCheckRoundTwo();
 
-    NSURLResponse *response = nil;
+    RetainPtr<NSURLResponse> response;
     if (_private->coreResource)
         response = _private->coreResource->response().nsURLResponse();
-    return response ? response : adoptNS([[NSURLResponse alloc] init]).autorelease();
+    return response ? response.autorelease() : adoptNS([[NSURLResponse alloc] init]).autorelease();
 }
 
 - (NSString *)_stringValue

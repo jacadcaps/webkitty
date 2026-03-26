@@ -28,6 +28,7 @@
 #import "RenderedImageWithOptionsProtocol.h"
 #import "TestNSBundleExtras.h"
 #import "TestNavigationDelegate.h"
+#import "TestWKWebView.h"
 #import "Utilities.h"
 #import "WKWebViewConfigurationExtras.h"
 #import <WebKit/WKWebViewPrivate.h>
@@ -41,7 +42,7 @@ using namespace TestWebKitAPI;
 static void runTestWithWidth(NSNumber *width, CGSize expectedSize)
 {
     WKWebViewConfiguration *configuration = [WKWebViewConfiguration _test_configurationWithTestPlugInClassName:@"RenderedImageWithOptionsPlugIn"];
-    auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectZero configuration:configuration]);
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectZero configuration:configuration]);
 
     _WKRemoteObjectInterface *interface = [_WKRemoteObjectInterface remoteObjectInterfaceWithProtocol:@protocol(RenderedImageWithOptionsProtocol)];
     auto remoteObject = retainPtr([[webView _remoteObjectRegistry] remoteObjectProxyWithInterface:interface]);
@@ -52,7 +53,7 @@ static void runTestWithWidth(NSNumber *width, CGSize expectedSize)
     __block bool testFinished = false;
     [remoteObject renderImageWithWidth:width completionHandler:^(CGSize imageSize) {
 #if PLATFORM(IOS_FAMILY)
-        CGFloat scale = [UIScreen mainScreen].scale;
+        CGFloat scale = [webView window].screen.scale;
 #elif PLATFORM(MAC)
         CGFloat scale = [NSScreen mainScreen].backingScaleFactor;
 #endif

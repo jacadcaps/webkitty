@@ -33,8 +33,11 @@
 #import "Logging.h"
 #import "PlatformGamepad.h"
 #import <wtf/NeverDestroyed.h>
+#import <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(MultiGamepadProvider::PlatformGamepadWrapper);
 
 static size_t numberOfGamepadProviders = 2;
 
@@ -106,7 +109,7 @@ void MultiGamepadProvider::platformGamepadConnected(PlatformGamepad& gamepad, Ev
 {
     auto index = indexForNewlyConnectedDevice();
 
-    LOG(Gamepad, "MultiGamepadProvider adding new platform gamepad to index %i from a %s source", index, gamepad.source());
+    LOG(Gamepad, "MultiGamepadProvider adding new platform gamepad to index %i from a %s source", index, gamepad.source().characters());
 
     ASSERT(m_gamepadVector.size() > index);
 
@@ -114,13 +117,14 @@ void MultiGamepadProvider::platformGamepadConnected(PlatformGamepad& gamepad, Ev
     ASSERT(addResult.isNewEntry);
     m_gamepadVector[index] = addResult.iterator->value.get();
 
-    for (auto& client : m_clients)
-        client.platformGamepadConnected(*m_gamepadVector[index], eventVisibility);
+    CheckedRef gamepadRef = *m_gamepadVector[index];
+    for (Ref client : m_clients)
+        client->platformGamepadConnected(gamepadRef, eventVisibility);
 }
 
 void MultiGamepadProvider::platformGamepadDisconnected(PlatformGamepad& gamepad)
 {
-    LOG(Gamepad, "MultiGamepadProvider disconnecting gamepad from a %s source", gamepad.source());
+    LOG(Gamepad, "MultiGamepadProvider disconnecting gamepad from a %s source", gamepad.source().characters());
 
     auto gamepadWrapper = m_gamepadMap.take(gamepad);
 
@@ -130,8 +134,8 @@ void MultiGamepadProvider::platformGamepadDisconnected(PlatformGamepad& gamepad)
 
     m_gamepadVector[gamepadWrapper->index()] = nullptr;
 
-    for (auto& client : m_clients)
-        client.platformGamepadDisconnected(*gamepadWrapper);
+    for (Ref client : m_clients)
+        client->platformGamepadDisconnected(*gamepadWrapper);
 }
 
 void MultiGamepadProvider::platformGamepadInputActivity(EventMakesGamepadsVisible eventVisibility)
@@ -139,8 +143,8 @@ void MultiGamepadProvider::platformGamepadInputActivity(EventMakesGamepadsVisibl
     if (eventVisibility == EventMakesGamepadsVisible::Yes)
         GameControllerGamepadProvider::singleton().makeInvisibleGamepadsVisible();
 
-    for (auto& client : m_clients)
-        client.platformGamepadInputActivity(eventVisibility);
+    for (Ref client : m_clients)
+        client->platformGamepadInputActivity(eventVisibility);
 }
 
 } // namespace WebCore

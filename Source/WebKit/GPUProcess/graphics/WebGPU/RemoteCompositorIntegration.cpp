@@ -29,6 +29,7 @@
 #if ENABLE(GPU_PROCESS)
 
 #include "GPUConnectionToWebProcess.h"
+#include "Logging.h"
 #include "RemoteCompositorIntegrationMessages.h"
 #include "RemoteGPU.h"
 #include "StreamServerConnection.h"
@@ -36,7 +37,7 @@
 #include <WebCore/WebGPUCompositorIntegration.h>
 #include <wtf/TZoneMallocInlines.h>
 
-#define MESSAGE_CHECK_COMPLETION(assertion, completion) MESSAGE_CHECK_COMPLETION_BASE(assertion, *connection(), completion)
+#define MESSAGE_CHECK_COMPLETION(assertion, completion) MESSAGE_CHECK_COMPLETION_BASE(assertion, m_streamConnection, completion)
 
 namespace WebKit {
 
@@ -45,7 +46,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteCompositorIntegration);
 RemoteCompositorIntegration::RemoteCompositorIntegration(WebCore::WebGPU::CompositorIntegration& compositorIntegration, WebGPU::ObjectHeap& objectHeap, Ref<IPC::StreamServerConnection>&& streamConnection, RemoteGPU& gpu, WebGPUIdentifier identifier)
     : m_backing(compositorIntegration)
     , m_objectHeap(objectHeap)
-    , m_streamConnection(WTFMove(streamConnection))
+    , m_streamConnection(WTF::move(streamConnection))
     , m_gpu(gpu)
     , m_identifier(identifier)
 {
@@ -53,14 +54,6 @@ RemoteCompositorIntegration::RemoteCompositorIntegration(WebCore::WebGPU::Compos
 }
 
 RemoteCompositorIntegration::~RemoteCompositorIntegration() = default;
-
-RefPtr<IPC::Connection> RemoteCompositorIntegration::connection() const
-{
-    RefPtr connection = protectedGPU()->gpuConnectionToWebProcess();
-    if (!connection)
-        return nullptr;
-    return &connection->connection();
-}
 
 void RemoteCompositorIntegration::destruct()
 {
@@ -70,7 +63,7 @@ void RemoteCompositorIntegration::destruct()
 void RemoteCompositorIntegration::paintCompositedResultsToCanvas(WebCore::RenderingResourceIdentifier imageBufferIdentifier, uint32_t bufferIndex, CompletionHandler<void()>&& completionHandler)
 {
     UNUSED_PARAM(imageBufferIdentifier);
-    protectedBacking()->withDisplayBufferAsNativeImage(bufferIndex, [gpu = m_gpu, imageBufferIdentifier, completionHandler = WTFMove(completionHandler)] (WebCore::NativeImage* image) mutable {
+    protectedBacking()->withDisplayBufferAsNativeImage(bufferIndex, [gpu = m_gpu, imageBufferIdentifier, completionHandler = WTF::move(completionHandler)] (WebCore::NativeImage* image) mutable {
         if (image && gpu.ptr())
             gpu->paintNativeImageToImageBuffer(*image, imageBufferIdentifier);
         completionHandler();
@@ -83,18 +76,18 @@ void RemoteCompositorIntegration::stopListeningForIPC()
 }
 
 #if PLATFORM(COCOA)
-void RemoteCompositorIntegration::recreateRenderBuffers(int width, int height, WebCore::DestinationColorSpace&& destinationColorSpace, WebCore::AlphaPremultiplication alphaMode, WebCore::WebGPU::TextureFormat textureFormat, WebKit::WebGPUIdentifier deviceIdentifier, CompletionHandler<void(Vector<MachSendRight>&&)>&& callback)
+void RemoteCompositorIntegration::recreateRenderBuffers(int width, int height, WebCore::DestinationColorSpace&& destinationColorSpace, WebCore::AlphaPremultiplication alphaMode, WebCore::WebGPU::TextureFormat textureFormat, unsigned bufferCount, WebKit::WebGPUIdentifier deviceIdentifier, CompletionHandler<void(Vector<MachSendRight>&&)>&& callback)
 {
     auto convertedDevice = protectedObjectHeap()->convertDeviceFromBacking(deviceIdentifier);
     MESSAGE_CHECK_COMPLETION(convertedDevice, callback({ }));
 
-    callback(protectedBacking()->recreateRenderBuffers(width, height, WTFMove(destinationColorSpace), alphaMode, textureFormat, *convertedDevice));
+    callback(protectedBacking()->recreateRenderBuffers(width, height, WTF::move(destinationColorSpace), alphaMode, textureFormat, bufferCount, *convertedDevice));
 }
 #endif
 
 void RemoteCompositorIntegration::prepareForDisplay(uint32_t frameIndex, CompletionHandler<void(bool)>&& completionHandler)
 {
-    protectedBacking()->prepareForDisplay(frameIndex, [completionHandler = WTFMove(completionHandler)]() mutable {
+    protectedBacking()->prepareForDisplay(frameIndex, [completionHandler = WTF::move(completionHandler)]() mutable {
         completionHandler(true);
     });
 }

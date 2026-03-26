@@ -55,7 +55,7 @@ constexpr unsigned testContextHeight = 88;
 static RefPtr<WebCore::ImageBuffer> createReferenceTarget()
 {
     auto colorSpace = WebCore::DestinationColorSpace::SRGB();
-    auto pixelFormat = WebCore::ImageBufferPixelFormat::BGRA8;
+    auto pixelFormat = WebCore::PixelFormat::BGRA8;
     WebCore::FloatSize logicalSize { testContextWidth, testContextHeight };
     float scale = 1;
     return WebCore::ImageBuffer::create(logicalSize, WebCore::RenderingMode::Unaccelerated, WebCore::RenderingPurpose::Unspecified, scale, colorSpace, pixelFormat);
@@ -73,7 +73,7 @@ static WebCore::Path createTestPath()
 static Ref<WebCore::ImageBuffer> createTestImageBuffer()
 {
     auto colorSpace = WebCore::DestinationColorSpace::SRGB();
-    auto pixelFormat = WebCore::ImageBufferPixelFormat::BGRA8;
+    auto pixelFormat = WebCore::PixelFormat::BGRA8;
     WebCore::FloatSize logicalSize { 3, 7 };
     float scale = 1;
     auto result = WebCore::ImageBuffer::create(logicalSize, WebCore::RenderingMode::Unaccelerated, WebCore::RenderingPurpose::Unspecified, scale, colorSpace, pixelFormat);
@@ -259,15 +259,23 @@ struct DrawSystemImage {
 struct ResetClipRect {
     void operator()(WebCore::GraphicsContext& c)
     {
+        c.translate(10, 10);
+        c.save();
         c.resetClip();
+        c.restore();
     }
 
     static String description()
     {
         return R"DL(
+(translate
+  (x 10.00)
+  (y 10.00))
+(save)
 (reset-clip)
 (clip
-  (rect at (0,0) size 77x88)))DL"_s;
+  (rect at (-10,-10) size 77x88))
+(restore))DL"_s;
     }
 };
 

@@ -30,15 +30,6 @@
 #include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
-class GStreamerPeerConnectionBackend;
-}
-
-namespace WTF {
-template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
-template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::GStreamerPeerConnectionBackend> : std::true_type { };
-}
-
-namespace WebCore {
 
 class GStreamerMediaEndpoint;
 class GStreamerRtpReceiverBackend;
@@ -53,12 +44,6 @@ class RealtimeMediaSourceGStreamer;
 class RealtimeOutgoingAudioSourceGStreamer;
 class RealtimeOutgoingVideoSourceGStreamer;
 
-struct GStreamerIceCandidate {
-    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(GStreamerIceCandidate);
-    unsigned sdpMLineIndex;
-    String candidate;
-};
-
 class GStreamerPeerConnectionBackend final : public PeerConnectionBackend {
     WTF_MAKE_TZONE_ALLOCATED(GStreamerPeerConnectionBackend);
 public:
@@ -70,6 +55,7 @@ public:
     void dispatchSenderBitrateRequest(const GRefPtr<GstWebRTCDTLSTransport>&, uint32_t bitrate);
 
 private:
+    void prepareForClose() final;
     void close() final;
     void doCreateOffer(RTCOfferOptions&&) final;
     void doCreateAnswer(RTCAnswerOptions&&) final;
@@ -84,7 +70,6 @@ private:
     void getStats(RTCRtpSender&, Ref<DeferredPromise>&&) final;
     void getStats(RTCRtpReceiver&, Ref<DeferredPromise>&&) final;
 
-    void emulatePlatformEvent(const String&) final { }
     void applyRotationForOutgoingVideoSources() final;
 
     void gatherDecoderImplementationName(Function<void(String&&)>&&) final;
@@ -112,8 +97,8 @@ private:
 
     GStreamerRtpSenderBackend::Source createSourceForTrack(MediaStreamTrack&);
 
-    RTCRtpTransceiver* existingTransceiver(WTF::Function<bool(GStreamerRtpTransceiverBackend&)>&&);
-    RTCRtpTransceiver& newRemoteTransceiver(std::unique_ptr<GStreamerRtpTransceiverBackend>&&, RealtimeMediaSource::Type, String&&);
+    RefPtr<RTCRtpTransceiver> existingTransceiver(WTF::Function<bool(GStreamerRtpTransceiverBackend&)>&&);
+    Ref<RTCRtpTransceiver> newRemoteTransceiver(std::unique_ptr<GStreamerRtpTransceiverBackend>&&, RealtimeMediaSource::Type, String&&);
 
     void collectTransceivers() final;
 

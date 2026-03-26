@@ -55,19 +55,19 @@ namespace PAL {
 inline WKDDActionContext *allocWKDDActionContextInstance()
 {
 #if HAVE(SECURE_ACTION_CONTEXT)
-    return allocDDSecureActionContextInstance();
+    SUPPRESS_RETAINPTR_CTOR_ADOPT return allocDDSecureActionContextInstance();
 #else
-    return allocDDActionContextInstance();
+    SUPPRESS_RETAINPTR_CTOR_ADOPT return allocDDActionContextInstance();
 #endif
 }
 
 #ifdef __OBJC__
-inline Class getWKDDActionContextClass()
+inline Class getWKDDActionContextClassSingleton()
 {
 #if HAVE(SECURE_ACTION_CONTEXT)
-    return getDDSecureActionContextClass();
+    return getDDSecureActionContextClassSingleton();
 #else
-    return getDDActionContextClass();
+    return getDDActionContextClassSingleton();
 #endif
 }
 #endif

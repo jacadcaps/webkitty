@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,6 +30,8 @@
 
 #import "SceneKitModelPlayer.h"
 
+#import "GraphicsLayer.h"
+#import "ModelPlayerGraphicsLayerConfiguration.h"
 #import "SceneKitModel.h"
 #import "SceneKitModelLoader.h"
 #import <pal/spi/cocoa/SceneKitSPI.h>
@@ -49,6 +52,7 @@ Ref<SceneKitModelPlayer> SceneKitModelPlayer::create(ModelPlayerClient& client)
 SceneKitModelPlayer::SceneKitModelPlayer(ModelPlayerClient& client)
     : m_client { client }
     , m_layer { adoptNS([[SCNMetalLayer alloc] init]) }
+    , m_id { ModelPlayerIdentifier::generate() }
 {
     m_layer.get().autoenablesDefaultLighting = YES;
 
@@ -65,6 +69,11 @@ SceneKitModelPlayer::~SceneKitModelPlayer()
 
 // MARK: - ModelPlayer overrides.
 
+ModelPlayerIdentifier SceneKitModelPlayer::identifier() const
+{
+    return m_id;
+}
+
 void SceneKitModelPlayer::load(Model& modelSource, LayoutSize)
 {
     if (m_loader)
@@ -77,14 +86,9 @@ void SceneKitModelPlayer::sizeDidChange(LayoutSize)
 {
 }
 
-PlatformLayer* SceneKitModelPlayer::layer()
+void SceneKitModelPlayer::configureGraphicsLayer(GraphicsLayer& graphicsLayer, ModelPlayerGraphicsLayerConfiguration&&)
 {
-    return m_layer.get();
-}
-
-std::optional<LayerHostingContextIdentifier> SceneKitModelPlayer::layerHostingContextIdentifier()
-{
-    return std::nullopt;
+    graphicsLayer.setContentsToPlatformLayer(m_layer.get(), GraphicsLayer::ContentsLayerPurpose::Model);
 }
 
 void SceneKitModelPlayer::enterFullscreen()
@@ -151,31 +155,43 @@ void SceneKitModelPlayer::setIsMuted(bool, CompletionHandler<void(bool success)>
 {
 }
 
+ModelPlayerAccessibilityChildren SceneKitModelPlayer::accessibilityChildren()
+{
+#if PLATFORM(IOS_FAMILY)
+    RetainPtr<NSArray> children = [m_model->defaultScene() accessibilityElements];
+#else
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    RetainPtr<NSArray> children = [m_model->defaultScene() accessibilityAttributeValue:NSAccessibilityChildrenAttribute];
+ALLOW_DEPRECATED_DECLARATIONS_END
+#endif
+    return { makeVector<RetainPtr<id>>(children.get()) };
+}
+
 // MARK: - SceneKitModelLoaderClient overrides.
 
 void SceneKitModelPlayer::didFinishLoading(SceneKitModelLoader& loader, Ref<SceneKitModel> model)
 {
-    dispatch_assert_queue(dispatch_get_main_queue());
+    dispatch_assert_queue(mainDispatchQueueSingleton());
     ASSERT_UNUSED(loader, &loader == m_loader.get());
 
     m_loader = nullptr;
-    m_model = WTFMove(model);
+    m_model = WTF::move(model);
 
     updateScene();
 
-    if (m_client)
-        m_client->didFinishLoading(*this);
+    if (RefPtr client = m_client.get())
+        client->didFinishLoading(*this);
 }
 
 void SceneKitModelPlayer::didFailLoading(SceneKitModelLoader& loader, const ResourceError& error)
 {
-    dispatch_assert_queue(dispatch_get_main_queue());
+    dispatch_assert_queue(mainDispatchQueueSingleton());
     ASSERT_UNUSED(loader, &loader == m_loader.get());
 
     m_loader = nullptr;
 
-    if (!m_client)
-        m_client->didFailLoading(*this, error);
+    if (RefPtr client = m_client.get())
+        client->didFailLoading(*this, error);
 }
 
 void SceneKitModelPlayer::updateScene()
@@ -185,25 +201,6 @@ void SceneKitModelPlayer::updateScene()
     m_layer.get().scene = m_model->defaultScene();
 }
 
-Vector<RetainPtr<id>> SceneKitModelPlayer::accessibilityChildren()
-{
-#if PLATFORM(IOS_FAMILY)
-    NSArray *children = [m_model->defaultScene() accessibilityElements];
-#else
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    NSArray *children = [m_model->defaultScene() accessibilityAttributeValue:NSAccessibilityChildrenAttribute];
-ALLOW_DEPRECATED_DECLARATIONS_END
-#endif
-    return makeVector<RetainPtr<id>>(children);
-}
-
-#if ENABLE(MODEL_PROCESS)
-WebCore::ModelPlayerIdentifier SceneKitModelPlayer::identifier() const
-{
-    return m_id;
-}
-#endif
-
-}
+} // namespace WebCore
 
 #endif

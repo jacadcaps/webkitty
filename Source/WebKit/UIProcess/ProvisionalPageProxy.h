@@ -45,6 +45,7 @@
 
 namespace API {
 class Navigation;
+class WebsitePolicies;
 }
 
 namespace IPC {
@@ -78,7 +79,6 @@ class WebsiteDataStore;
 struct FrameInfoData;
 struct NavigationActionData;
 struct URLSchemeTaskParameters;
-struct WebsitePoliciesData;
 struct WebBackForwardListCounts;
 struct WebNavigationDataStore;
 
@@ -105,7 +105,7 @@ public:
 
     WebCore::PageIdentifier webPageID() const { return m_webPageID; }
     WebFrameProxy* mainFrame() const { return m_mainFrame.get(); }
-    BrowsingContextGroup& browsingContextGroup() { return m_browsingContextGroup.get(); }
+    BrowsingContextGroup& browsingContextGroup() const { return m_browsingContextGroup.get(); }
     WebProcessProxy& process();
     Ref<WebProcessProxy> protectedProcess();
     ProcessSwapRequestedByClient processSwapRequestedByClient() const { return m_processSwapRequestedByClient; }
@@ -121,7 +121,7 @@ public:
     void setNavigation(API::Navigation&);
 
 #if PLATFORM(COCOA)
-    Vector<uint8_t> takeAccessibilityToken() { return WTFMove(m_accessibilityToken); }
+    Vector<uint8_t> takeAccessibilityToken() { return WTF::move(m_accessibilityToken); }
 #endif
 #if PLATFORM(GTK) || PLATFORM(WPE)
     const String& accessibilityPlugID() { return m_accessibilityPlugID; }
@@ -138,8 +138,8 @@ public:
 #endif
 #endif
 
-    void loadData(API::Navigation&, Ref<WebCore::SharedBuffer>&&, const String& mimeType, const String& encoding, const String& baseURL, API::Object* userData, WebCore::ShouldTreatAsContinuingLoad, std::optional<NavigatingToAppBoundDomain>, std::optional<WebsitePoliciesData>&&, WebCore::SubstituteData::SessionHistoryVisibility);
-    void loadRequest(API::Navigation&, WebCore::ResourceRequest&&, API::Object* userData, WebCore::ShouldTreatAsContinuingLoad, std::optional<NavigatingToAppBoundDomain>, std::optional<WebsitePoliciesData>&& = std::nullopt, std::optional<NetworkResourceLoadIdentifier> existingNetworkResourceLoadIdentifierToResume = std::nullopt, WebCore::IsPerformingHTTPFallback = WebCore::IsPerformingHTTPFallback::No);
+    void loadData(API::Navigation&, Ref<WebCore::SharedBuffer>&&, const String& mimeType, const String& encoding, const String& baseURL, API::Object* userData, WebCore::ShouldTreatAsContinuingLoad, std::optional<NavigatingToAppBoundDomain>, RefPtr<API::WebsitePolicies>&&, WebCore::SubstituteData::SessionHistoryVisibility);
+    void loadRequest(API::Navigation&, WebCore::ResourceRequest&&, API::Object* userData, WebCore::ShouldTreatAsContinuingLoad, std::optional<NavigatingToAppBoundDomain>, RefPtr<API::WebsitePolicies>&& = nullptr, std::optional<NetworkResourceLoadIdentifier> existingNetworkResourceLoadIdentifierToResume = std::nullopt, WebCore::NavigationUpgradeToHTTPSBehavior = WebCore::NavigationUpgradeToHTTPSBehavior::BasedOnPolicy);
     void goToBackForwardItem(API::Navigation&, WebBackForwardListItem&, RefPtr<API::WebsitePolicies>&&, WebCore::ShouldTreatAsContinuingLoad, std::optional<NetworkResourceLoadIdentifier> existingNetworkResourceLoadIdentifierToResume = std::nullopt, WebCore::ProcessSwapDisposition processSwapDisposition = WebCore::ProcessSwapDisposition::None);
     void cancel();
 
@@ -149,7 +149,7 @@ public:
 
     bool needsCookieAccessAddedInNetworkProcess() const { return m_needsCookieAccessAddedInNetworkProcess; }
 
-    WebsitePoliciesData* mainFrameWebsitePoliciesData() const { return m_mainFrameWebsitePoliciesData.get(); }
+    API::WebsitePolicies* mainFrameWebsitePolicies() const { return m_mainFrameWebsitePolicies.get(); }
 
     WebPageProxyMessageReceiverRegistration& messageReceiverRegistration() { return m_messageReceiverRegistration; }
 
@@ -162,7 +162,7 @@ private:
 
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
-    bool didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
+    void didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
 
     // IPC::MessageSender
     IPC::Connection* messageSenderConnection() const final;
@@ -225,14 +225,14 @@ private:
     ProcessSwapRequestedByClient m_processSwapRequestedByClient;
     bool m_wasCommitted { false };
     bool m_isProcessSwappingOnNavigationResponse { false };
-    const bool m_isProcessSwappingForNewWindow;
+    const bool m_shouldReuseMainFrame;
     bool m_needsCookieAccessAddedInNetworkProcess { false };
     bool m_needsDidStartProvisionalLoad { true };
     bool m_shouldClosePage { true };
     bool m_needsMainFrameObserver { false };
     URL m_provisionalLoadURL;
     WebPageProxyMessageReceiverRegistration m_messageReceiverRegistration;
-    std::unique_ptr<WebsitePoliciesData> m_mainFrameWebsitePoliciesData;
+    RefPtr<API::WebsitePolicies> m_mainFrameWebsitePolicies;
 
 #if PLATFORM(COCOA)
     Vector<uint8_t> m_accessibilityToken;

@@ -31,7 +31,7 @@
 
 namespace IPC {
 
-template<typename, typename> struct ArgumentCoder;
+template<typename> struct ArgumentCoder;
 
 // IPC encoder which:
 //  - Encodes to a caller buffer with fixed size, does not resize, stops when size runs out
@@ -55,8 +55,6 @@ public:
         memcpySpan(stream, bytes);
         m_buffer = stream.subspan(bytes.size());
     }
-
-    ~StreamConnectionEncoder() = default;
 
     template<typename T, size_t Extent>
     bool encodeSpan(std::span<T, Extent> span)
@@ -83,7 +81,7 @@ public:
     template<typename T>
     StreamConnectionEncoder& operator<<(T&& t)
     {
-        ArgumentCoder<std::remove_cvref_t<T>, void>::encode(*this, std::forward<T>(t));
+        ArgumentCoder<std::remove_cvref_t<T>>::encode(*this, std::forward<T>(t));
         return *this;
     }
 

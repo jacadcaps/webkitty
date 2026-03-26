@@ -18,11 +18,13 @@
 #include <string>
 #include <vector>
 
+#include "absl/functional/any_invocable.h"
 #include "absl/strings/string_view.h"
 #include "api/audio/audio_device.h"
 #include "api/candidate.h"
 #include "api/crypto/crypto_options.h"
 #include "api/data_channel_interface.h"
+#include "api/environment/environment.h"
 #include "api/field_trials_view.h"
 #include "api/jsep.h"
 #include "api/media_stream_interface.h"
@@ -87,17 +89,17 @@ class PeerConnectionSdpMethods {
   virtual bool dtls_enabled() const = 0;
   virtual const PeerConnectionFactoryInterface::Options* options() const = 0;
 
-  // Returns the CryptoOptions for this PeerConnection. This will always
-  // return the RTCConfiguration.crypto_options if set and will only default
-  // back to the PeerConnectionFactory settings if nothing was set.
+  // Returns the CryptoOptions for this PeerConnection.
   virtual CryptoOptions GetCryptoOptions() = 0;
   virtual JsepTransportController* transport_controller_s() = 0;
   virtual JsepTransportController* transport_controller_n() = 0;
   virtual DataChannelController* data_channel_controller() = 0;
   virtual PortAllocator* port_allocator() = 0;
   virtual LegacyStatsCollector* legacy_stats() = 0;
-  // Returns the observer. Will crash on CHECK if the observer is removed.
-  virtual PeerConnectionObserver* Observer() const = 0;
+  // Run lambda on the PeerConnectionObserver. Will crash on CHECK if the
+  // observer is removed.
+  virtual void RunWithObserver(
+      absl::AnyInvocable<void(webrtc::PeerConnectionObserver*) &&>) = 0;
   virtual std::optional<SSLRole> GetSctpSslRole_n() = 0;
   virtual PeerConnectionInterface::IceConnectionState
   ice_connection_state_internal() = 0;
@@ -128,6 +130,8 @@ class PeerConnectionSdpMethods {
   // `sctp_mid()` if set. Called as part of setting the local description.
   virtual RTCError StartSctpTransport(const SctpOptions& options) = 0;
   [[deprecated("Call with SctpOptions")]]
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
   virtual void StartSctpTransport(int local_port,
                                   int remote_port,
                                   int max_message_size) {
@@ -135,6 +139,7 @@ class PeerConnectionSdpMethods {
                         .remote_port = remote_port,
                         .max_message_size = max_message_size});
   }
+#pragma clang diagnostic pop
 
   // Asynchronously adds a remote candidate on the network thread.
   virtual void AddRemoteCandidate(absl::string_view mid,
@@ -152,6 +157,7 @@ class PeerConnectionSdpMethods {
   // Tears down the data channel transport state and clears the `sctp_mid()` and
   // `sctp_transport_name()` properties.
   virtual void DestroyDataChannelTransport(RTCError error) = 0;
+  virtual const Environment& env() const = 0;
   virtual const FieldTrialsView& trials() const = 0;
 
   virtual void ClearStatsCache() = 0;

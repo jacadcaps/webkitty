@@ -33,6 +33,7 @@
 
 typedef struct _WPEDisplay WPEDisplay;
 typedef struct _WPEBuffer WPEBuffer;
+typedef struct _WPEToplevel WPEToplevel;
 
 namespace WTR {
 
@@ -41,17 +42,18 @@ public:
     PlatformWebViewClientWPE(WKPageConfigurationRef);
     ~PlatformWebViewClientWPE();
 
-    WPEDisplay* display() const { return m_display.get(); }
-
 private:
     void addToWindow() override;
     void removeFromWindow() override;
+
+    WKSize size() override;
+    void resize(WKSize) override;
 
     void focus() override;
 
     PlatformImage snapshot() override;
 
-    GRefPtr<WPEDisplay> m_display;
+    GRefPtr<WPEToplevel> m_toplevel;
     GRefPtr<WPEBuffer> m_buffer;
 };
 

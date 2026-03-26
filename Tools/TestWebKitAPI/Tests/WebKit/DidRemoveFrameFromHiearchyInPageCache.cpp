@@ -30,6 +30,7 @@
 #include "PlatformUtilities.h"
 #include "PlatformWebView.h"
 #include "Test.h"
+#include "Tests/WebKitCocoa/SiteIsolationUtilities.h"
 #include <WebKit/WKString.h>
 
 namespace TestWebKitAPI {
@@ -76,6 +77,12 @@ TEST(WebKit, DidRemoveFrameFromHiearchyInBackForwardCache)
     WKContextSetCacheModel(context.get(), kWKCacheModelPrimaryWebBrowser);
 
     PlatformWebView webView(context.get());
+
+    // FIXME: Page cache is currently disabled under site isolation; see rdar://161762363.
+    // In site isolation, persisted: false. PageShow events are not being restored from the back-forward cache.
+    if (isSiteIsolationEnabled(static_cast<WKWebView*>(webView.platformView())))
+        return;
+
     setPageLoaderClient(webView.page());
     setInjectedBundleClient(webView.page());
 

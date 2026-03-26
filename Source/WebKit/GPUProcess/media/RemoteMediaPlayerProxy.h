@@ -99,6 +99,7 @@ namespace WebKit {
 
 using LayerHostingContextID = uint32_t;
 class LayerHostingContext;
+class LayerHostingContextManager;
 #if ENABLE(WIRELESS_PLAYBACK_TARGET)
 class MediaPlaybackTargetContextSerialized;
 #endif
@@ -126,6 +127,7 @@ public:
 
     WebCore::MediaPlayerIdentifier identifier() const { return m_id; }
     void invalidate();
+    void connectionToWebProcessClosed();
 
     // Ensure that all previously queued messages to the content process have completed.
     Ref<WebCore::MediaPromise> commitAllTransactions();
@@ -145,7 +147,7 @@ public:
 #endif
 
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
-    bool didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&);
+    void didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&);
 
     void getConfiguration(RemoteMediaPlayerConfiguration&);
 
@@ -211,9 +213,6 @@ public:
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA) && ENABLE(ENCRYPTED_MEDIA)
     void setShouldContinueAfterKeyNeeded(bool);
 #endif
-
-    void beginSimulatedHDCPError();
-    void endSimulatedHDCPError();
 
     void notifyActiveSourceBuffersChanged();
 
@@ -304,7 +303,7 @@ private:
     bool mediaPlayerIsVideo() const final;
     float mediaPlayerContentsScale() const final;
     bool mediaPlayerPlatformVolumeConfigurationRequired() const final;
-    WebCore::CachedResourceLoader* mediaPlayerCachedResourceLoader() final;
+    WebCore::CachedResourceLoader* mediaPlayerCachedResourceLoader() const final;
     Ref<WebCore::PlatformMediaResourceLoader> mediaPlayerCreateResourceLoader() final;
     bool doesHaveAttribute(const AtomString&, AtomString* = nullptr) const final;
     bool mediaPlayerShouldUsePersistentCache() const final;
@@ -314,7 +313,7 @@ private:
     void textTrackRepresentationBoundsChanged(const WebCore::IntRect&) final;
 
 #if PLATFORM(COCOA)
-    Vector<RefPtr<WebCore::PlatformTextTrack>> outOfBandTrackSources() final;
+    Vector<Ref<WebCore::PlatformTextTrack>> outOfBandTrackSources() final;
 #endif
 
 #if PLATFORM(IOS_FAMILY)
@@ -371,8 +370,7 @@ private:
     void currentTimeChanged(const MediaTime&);
 
 #if PLATFORM(COCOA)
-    WebCore::FloatSize mediaPlayerVideoLayerSize() const final { return m_configuration.videoLayerSize; }
-    void setVideoLayerSizeIfPossible(const WebCore::FloatSize&);
+    WebCore::FloatSize mediaPlayerVideoLayerSize() const final;
     void nativeImageForCurrentTime(CompletionHandler<void(std::optional<WTF::MachSendRight>&&, WebCore::DestinationColorSpace)>&&);
     void colorSpace(CompletionHandler<void(WebCore::DestinationColorSpace)>&&);
 #endif
@@ -427,11 +425,6 @@ private:
     RefPtr<SandboxExtension> m_sandboxExtension;
     Ref<IPC::Connection> m_webProcessConnection;
     RefPtr<WebCore::MediaPlayer> m_player;
-    Vector<LayerHostingContextCallback> m_layerHostingContextRequests;
-    std::unique_ptr<LayerHostingContext> m_inlineLayerHostingContext;
-#if ENABLE(VIDEO_PRESENTATION_MODE)
-    std::unique_ptr<LayerHostingContext> m_fullscreenLayerHostingContext;
-#endif
     WeakPtr<RemoteMediaPlayerManagerProxy> m_manager;
     WebCore::MediaPlayerEnums::MediaEngineIdentifier m_engineIdentifier;
     Vector<WebCore::ContentType> m_typesRequiringHardwareSupport;
@@ -472,6 +465,9 @@ private:
     SoundStageSize m_soundStageSize { SoundStageSize::Auto };
 #if !RELEASE_LOG_DISABLED
     const Ref<const Logger> m_logger;
+#endif
+#if PLATFORM(COCOA)
+    const UniqueRef<LayerHostingContextManager> m_layerHostingContextManager;
 #endif
 };
 

@@ -43,6 +43,11 @@ messages -> WebExtensionContextProxy {
     // Cookies
     DispatchCookiesChangedEvent()
 
+#if ENABLE(DNR_ON_RULE_MATCHED_DEBUG)
+    // DeclarativeNetRequest
+    DispatchOnRuleMatchedDebugEvent(struct WebCore::ContentRuleListMatchedRule matchedRule)
+#endif
+
 #if ENABLE(INSPECTOR_EXTENSIONS)
     // DevTools
     AddInspectorPageIdentifier(WebCore::PageIdentifier pageID, std::optional<WebKit::WebExtensionTabIdentifier> tabIdentifier, std::optional<WebKit::WebExtensionWindowIdentifier> windowIdentifier)
@@ -77,7 +82,7 @@ messages -> WebExtensionContextProxy {
 
     // Storage
     SetStorageAccessLevel(bool allowedInContentScripts)
-    DispatchStorageChangedEvent(String onChangedJSON, WebKit::WebExtensionDataType dataType, WebKit::WebExtensionContentWorldType contentWorldType)
+    DispatchStorageChangedEvent(Vector<String> onChangedJSON, WebKit::WebExtensionDataType dataType, WebKit::WebExtensionContentWorldType contentWorldType)
 
     // Tabs Events
     DispatchTabsCreatedEvent(WebKit::WebExtensionTabParameters tabParameters)

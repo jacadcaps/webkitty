@@ -36,15 +36,18 @@
 #import "WKNSURLExtras.h"
 #import "WebPageProxy.h"
 #import "_WKActivatedElementInfoInternal.h"
+#import "_WKCaptionStyleMenuController.h"
 #import "_WKElementActionInternal.h"
 #import <UIKit/UIView.h>
+#import <WebCore/CaptionDisplaySettingsOptions.h>
 #import <WebCore/DataDetection.h>
 #import <WebCore/FloatRect.h>
 #import <WebCore/LocalizedStrings.h>
 #import <WebCore/PathUtilities.h>
+#import <WebCore/ResolvedCaptionDisplaySettingsOptions.h>
 #import <WebCore/UIViewControllerUtilities.h>
-#import <pal/spi/ios/DataDetectorsUISoftLink.h>
 #import <wtf/CompletionHandler.h>
+#import <wtf/Markable.h>
 #import <wtf/SoftLinking.h>
 #import <wtf/Vector.h>
 #import <wtf/WeakObjCPtr.h>
@@ -65,6 +68,7 @@ SOFT_LINK_CLASS(SafariServices, SSReadingList)
 #endif
 
 #import "TCCSoftLink.h"
+#import <pal/spi/ios/DataDetectorsUISoftLink.h>
 
 OBJC_CLASS DDAction;
 
@@ -94,6 +98,14 @@ static LSAppLink *appLinkForURL(NSURL *url)
 }
 #endif
 
+#if ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
+@interface WKActionSheetAssistant () <WKCaptionStyleMenuControllerDelegate>
+- (void)captionStyleMenuWillOpen:(PlatformMenu *)menu;
+- (void)captionStyleMenuDidClose:(PlatformMenu *)menu;
+- (void)captionStyleMenu:(PlatformMenu *)menu didSelectProfile:(NSString *)profileID;
+@end
+#endif
+
 @implementation WKActionSheetAssistant {
     WeakObjCPtr<id <WKActionSheetAssistantDelegate>> _delegate;
     RetainPtr<WKActionSheet> _interactionSheet;
@@ -108,9 +120,15 @@ static LSAppLink *appLinkForURL(NSURL *url)
     RetainPtr<UIMenu> _mediaControlsContextMenu;
     WebCore::FloatRect _mediaControlsContextMenuTargetFrame;
     CompletionHandler<void(WebCore::MediaControlsContextMenuItem::ID)> _mediaControlsContextMenuCallback;
+    Markable<WebCore::HTMLMediaElementIdentifier> _mediaElementIdentifier;
+    std::unique_ptr<WebKit::FrameInfoData> _frameInfo;
 #endif // ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
+#if ENABLE(VIDEO)
+    CompletionHandler<void(Expected<void, WebCore::ExceptionData>)> _captionDisplaySettingsMenuCompletionHandler;
+#endif
 #endif // USE(UICONTEXTMENU)
     WeakObjCPtr<UIView> _view;
+    RetainPtr<WKCaptionStyleMenuController> _captionStyleMenuController;
     BOOL _needsLinkIndicator;
     BOOL _isPresentingDDUserInterface;
     BOOL _hasPendingActionSheet;
@@ -309,7 +327,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (!targetURL)
         return;
 
-    auto *controller = [PAL::getDDDetectionControllerClass() sharedController];
+    auto *controller = [PAL::getDDDetectionControllerClassSingleton() sharedController];
     if ([controller respondsToSelector:@selector(interactionDidStartForURL:)])
         [controller interactionDidStartForURL:targetURL.get()];
 #endif
@@ -401,7 +419,7 @@ static bool isJavaScriptURL(NSURL *url)
             return;
         auto defaultActions = [self defaultActionsForImageSheet:elementInfo.get()];
 
-        RetainPtr<NSArray> actions = [delegate actionSheetAssistant:self decideActionsForElement:elementInfo.get() defaultActions:WTFMove(defaultActions)];
+        RetainPtr<NSArray> actions = [delegate actionSheetAssistant:self decideActionsForElement:elementInfo.get() defaultActions:WTF::move(defaultActions)];
 
         if (![actions count])
             return;
@@ -417,14 +435,14 @@ static bool isJavaScriptURL(NSURL *url)
         if (!_interactionSheet)
             return;
 
-        _elementInfo = WTFMove(elementInfo);
+        _elementInfo = WTF::move(elementInfo);
 
         if (![_interactionSheet presentSheet:[self _presentationStyleForPositionInfo:_positionInformation.value() elementInfo:_elementInfo.get()]])
             [self cleanupSheet];
     };
 
     if (_positionInformation->url.isEmpty() && _positionInformation->image && [delegate respondsToSelector:@selector(actionSheetAssistant:getAlternateURLForImage:completion:)]) {
-        RetainPtr<UIImage> uiImage = adoptNS([[UIImage alloc] initWithCGImage:_positionInformation->image->makeCGImageCopy().get()]);
+        RetainPtr<UIImage> uiImage = adoptNS([[UIImage alloc] initWithCGImage:_positionInformation->image->createPlatformImage().get()]);
 
         _hasPendingActionSheet = YES;
         RetainPtr<WKActionSheetAssistant> retainedSelf(self);
@@ -501,7 +519,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (!externalApplicationName)
         return YES;
 
-    RetainPtr openInExternalApplicationTitle = adoptNS([[NSString alloc] initWithFormat:WEB_UI_NSSTRING(@"Open in “%@”", "Title for Open in External Application Link action button"), externalApplicationName]);
+    SUPPRESS_UNRETAINED_ARG RetainPtr openInExternalApplicationTitle = adoptNS([[NSString alloc] initWithFormat:WEB_UI_NSSTRING(@"Open in “%@”", "Title for Open in External Application Link action button"), externalApplicationName]);
     _WKElementAction *openInExternalApplicationAction = [_WKElementAction _elementActionWithType:_WKElementActionTypeOpenInExternalApplication title:openInExternalApplicationTitle.get() actionHandler:^(_WKActivatedElementInfo *) {
 #if HAVE(APP_LINKS_WITH_ISENABLED)
         appLink.enabled = YES;
@@ -560,12 +578,12 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     [self _appendOpenActionsForURL:targetURL actions:defaultActions.get() elementInfo:elementInfo];
 
 #if HAVE(SAFARI_SERVICES_FRAMEWORK)
-    if ([getSSReadingListClass() supportsURL:targetURL])
+    if ([getSSReadingListClassSingleton() supportsURL:targetURL])
         [defaultActions addObject:[_WKElementAction _elementActionWithType:_WKElementActionTypeAddToReadingList info:elementInfo assistant:self]];
 #endif
 
     if ([elementInfo imageURL]) {
-        if (TCCAccessPreflight(WebKit::get_TCC_kTCCServicePhotos(), NULL) != kTCCAccessPreflightDenied)
+        if (TCCAccessPreflight(WebKit::get_TCC_kTCCServicePhotosSingleton(), NULL) != kTCCAccessPreflightDenied)
             [defaultActions addObject:[_WKElementAction _elementActionWithType:_WKElementActionTypeSaveImage info:elementInfo assistant:self]];
     }
 
@@ -603,10 +621,10 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         [defaultActions addObject:[_WKElementAction _elementActionWithType:_WKElementActionTypeShare info:elementInfo assistant:self]];
 
 #if HAVE(SAFARI_SERVICES_FRAMEWORK)
-    if ([getSSReadingListClass() supportsURL:targetURL])
+    if ([getSSReadingListClassSingleton() supportsURL:targetURL])
         [defaultActions addObject:[_WKElementAction _elementActionWithType:_WKElementActionTypeAddToReadingList info:elementInfo assistant:self]];
 #endif
-    if (TCCAccessPreflight(WebKit::get_TCC_kTCCServicePhotos(), NULL) != kTCCAccessPreflightDenied)
+    if (TCCAccessPreflight(WebKit::get_TCC_kTCCServicePhotosSingleton(), NULL) != kTCCAccessPreflightDenied)
         [defaultActions addObject:[_WKElementAction _elementActionWithType:_WKElementActionTypeSaveImage info:elementInfo assistant:self]];
 
     [defaultActions addObject:[_WKElementAction _elementActionWithType:_WKElementActionTypeCopy info:elementInfo assistant:self]];
@@ -662,7 +680,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     auto defaultActions = [self defaultActionsForLinkSheet:elementInfo.get()];
 
-    RetainPtr<NSArray> actions = [_delegate actionSheetAssistant:self decideActionsForElement:elementInfo.get() defaultActions:WTFMove(defaultActions)];
+    RetainPtr<NSArray> actions = [_delegate actionSheetAssistant:self decideActionsForElement:elementInfo.get() defaultActions:WTF::move(defaultActions)];
 
     if (![actions count]) {
         _needsLinkIndicator = NO;
@@ -675,7 +693,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         return;
     }
 
-    _elementInfo = WTFMove(elementInfo);
+    _elementInfo = WTF::move(elementInfo);
 
     if (![_interactionSheet presentSheet:[self _presentationStyleForPositionInfo:_positionInformation.value() elementInfo:_elementInfo.get()]])
         [self cleanupSheet];
@@ -725,6 +743,9 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (auto mediaControlsContextMenuCallback = std::exchange(_mediaControlsContextMenuCallback, { }))
         mediaControlsContextMenuCallback(WebCore::MediaControlsContextMenuItem::invalidID);
 
+    if (_captionDisplaySettingsMenuCompletionHandler)
+        _captionDisplaySettingsMenuCompletionHandler({ });
+
     if ([_delegate respondsToSelector:@selector(removeContextMenuViewIfPossibleForActionSheetAssistant:)])
         [_delegate removeContextMenuViewIfPossibleForActionSheetAssistant:self];
 }
@@ -755,7 +776,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     auto retainedSelf = retainPtr(self);
     _WKElementAction *elementAction = [_WKElementAction elementActionWithTitle:action.localizedName actionHandler:^(_WKActivatedElementInfo *actionInfo) {
         retainedSelf->_isPresentingDDUserInterface = action.hasUserInterface;
-        [[PAL::getDDDetectionControllerClass() sharedController] performAction:action fromAlertController:retainedSelf->_interactionSheet.get() interactionDelegate:retainedSelf.get()];
+        [[PAL::getDDDetectionControllerClassSingleton() sharedController] performAction:action fromAlertController:retainedSelf->_interactionSheet.get() interactionDelegate:retainedSelf.get()];
     }];
     elementAction.dismissalHandler = ^BOOL {
         return !action.hasUserInterface;
@@ -780,7 +801,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (!targetURL)
         return;
 
-    DDDetectionController *controller = [PAL::getDDDetectionControllerClass() sharedController];
+    DDDetectionController *controller = [PAL::getDDDetectionControllerClassSingleton() sharedController];
     NSDictionary *context = nil;
     NSString *textAtSelection = nil;
 
@@ -838,9 +859,13 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         UIImage *image = !item.icon.isEmpty() ? [UIImage systemImageNamed:item.icon.createNSString().get()] : nil;
 
         if (!item.children.isEmpty())
-            return [UIMenu menuWithTitle:item.title.createNSString().get() image:image identifier:nil options:0 children:[self _uiMenuElementsForMediaControlContextMenuItems:WTFMove(item.children)]];
+            return [UIMenu menuWithTitle:item.title.createNSString().get() image:image identifier:nil options:0 children:[self _uiMenuElementsForMediaControlContextMenuItems:WTF::move(item.children)]];
 
         auto selectedItemID = item.id;
+
+        if (selectedItemID == WebCore::ContextMenuItemCaptionDisplayStyleSubmenu)
+            return [_captionStyleMenuController captionStyleMenu];
+
         UIAction *action = [UIAction actionWithTitle:item.title.createNSString().get() image:image identifier:nil handler:[weakSelf = WeakObjCPtr<WKActionSheetAssistant>(self), selectedItemID] (UIAction *) {
             auto strongSelf = weakSelf.get();
             if (!strongSelf)
@@ -854,7 +879,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     }).autorelease();
 }
 
-- (void)showMediaControlsContextMenu:(WebCore::FloatRect&&)targetFrame items:(Vector<WebCore::MediaControlsContextMenuItem>&&)items completionHandler:(CompletionHandler<void(WebCore::MediaControlsContextMenuItem::ID)>&&)completionHandler
+- (void)showMediaControlsContextMenu:(WebCore::FloatRect&&)targetFrame items:(Vector<WebCore::MediaControlsContextMenuItem>&&)items frameInfo:(const WebKit::FrameInfoData&)frameInfo identifier:(WebCore::HTMLMediaElementIdentifier)identifier  completionHandler:(CompletionHandler<void(WebCore::MediaControlsContextMenuItem::ID)>&&)completionHandler
 {
     ASSERT(!_mediaControlsContextMenuPresenter);
     ASSERT(!_mediaControlsContextMenu);
@@ -863,10 +888,10 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     String menuTitle;
     Vector<WebCore::MediaControlsContextMenuItem> itemsToPresent;
     if (items.size() == 1) {
-        menuTitle = WTFMove(items[0].title);
-        itemsToPresent = WTFMove(items[0].children);
+        menuTitle = WTF::move(items[0].title);
+        itemsToPresent = WTF::move(items[0].children);
     } else
-        itemsToPresent = WTFMove(items);
+        itemsToPresent = WTF::move(items);
 
     NSArray<UIMenuElement *> *additionalItems = nil;
     if ([_delegate respondsToSelector:@selector(additionalMediaControlsContextMenuItemsForActionSheetAssistant:)])
@@ -877,17 +902,85 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         return;
     }
 
-    NSArray<UIMenuElement *> *menuItems = [self _uiMenuElementsForMediaControlContextMenuItems:WTFMove(itemsToPresent)];
+    _captionStyleMenuController = [WKCaptionStyleMenuController menuController];
+    [_captionStyleMenuController setDelegate:self];
+
+    NSArray<UIMenuElement *> *menuItems = [self _uiMenuElementsForMediaControlContextMenuItems:WTF::move(itemsToPresent)];
     menuItems = [menuItems arrayByAddingObjectsFromArray:additionalItems];
 
     _mediaControlsContextMenu = [UIMenu menuWithTitle:menuTitle.createNSString().get() children:menuItems];
-    _mediaControlsContextMenuTargetFrame = WTFMove(targetFrame);
-    _mediaControlsContextMenuCallback = WTFMove(completionHandler);
+    _mediaControlsContextMenuTargetFrame = WTF::move(targetFrame);
+    _frameInfo = makeUnique<WebKit::FrameInfoData>(frameInfo);
+    _mediaElementIdentifier = identifier;
+    _mediaControlsContextMenuCallback = WTF::move(completionHandler);
 
     self._mediaControlsContextMenuPresenter.present(_mediaControlsContextMenuTargetFrame);
 }
 
+- (void)captionStyleMenuWillOpen:(PlatformMenu *)menu
+{
+    if ([_delegate respondsToSelector:@selector(captionStyleMenuWillOpenWithFrameInfo:identifier:)] && _mediaElementIdentifier && _frameInfo)
+        [_delegate captionStyleMenuWillOpenWithFrameInfo:*_frameInfo identifier:*_mediaElementIdentifier];
+}
+
+- (void)captionStyleMenu:(PlatformMenu *)captionStyleMenu didSelectProfile:(NSString *)profileID
+{
+#if ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
+    if (!_mediaControlsContextMenuPresenter)
+        return;
+
+    if (!_captionStyleMenuController)
+        return;
+
+    BlockPtr<UIMenu*(UIMenu*)> menuUpdater;
+    menuUpdater = makeBlockPtr([&](UIMenu *menu) -> UIMenu* {
+        if ([menu.identifier isEqual:captionStyleMenu.identifier])
+            return captionStyleMenu;
+
+        if (!menu.children.count)
+            return menu;
+
+        RetainPtr newChildren = adoptNS([[NSMutableArray alloc] initWithCapacity:menu.children.count]);
+
+        for (id childMenuItem in menu.children) {
+            if (auto childMenu = dynamic_objc_cast<UIMenu>(childMenuItem))
+                [newChildren addObject:menuUpdater(childMenu)];
+            else
+                [newChildren addObject:childMenuItem];
+        }
+
+        return [menu menuByReplacingChildren:newChildren.get()];
+    });
+
+    _mediaControlsContextMenuPresenter->updateVisibleMenu(menuUpdater.get());
+#endif
+}
+
+- (void)captionStyleMenuDidClose:(PlatformMenu *)menu
+{
+    if ([_delegate respondsToSelector:@selector(captionStyleMenuWillOpenWithFrameInfo:identifier:)] && _mediaElementIdentifier && _frameInfo)
+        [_delegate captionStyleMenuDidCloseWithFrameInfo:*_frameInfo identifier:*_mediaElementIdentifier];
+
+    if (_captionDisplaySettingsMenuCompletionHandler)
+        _captionDisplaySettingsMenuCompletionHandler({ });
+}
+
 #endif // ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
+
+#if ENABLE(VIDEO) && USE(UICONTEXTMENU)
+- (void)showCaptionDisplaySettingsMenu:(WebCore::HTMLMediaElementIdentifier)identifier withOptions:(const WebCore::ResolvedCaptionDisplaySettingsOptions&)options completionHandler:(CompletionHandler<void(Expected<void, WebCore::ExceptionData>)>&&)completionHandler
+{
+    _captionStyleMenuController = [WKCaptionStyleMenuController menuController];
+    [_captionStyleMenuController setDelegate:self];
+
+    _mediaControlsContextMenu = [_captionStyleMenuController captionStyleMenu];
+    _mediaControlsContextMenuTargetFrame = options.anchorBounds.value_or(WebCore::FloatRect { });
+    _mediaElementIdentifier = identifier;
+    _captionDisplaySettingsMenuCompletionHandler = WTF::move(completionHandler);
+
+    self._mediaControlsContextMenuPresenter.present(_mediaControlsContextMenuTargetFrame);
+}
+#endif
 
 static NSMutableArray<UIMenuElement *> *menuElementsFromDefaultActions(RetainPtr<NSArray> defaultElementActions, RetainPtr<_WKActivatedElementInfo> elementInfo)
 {
@@ -913,7 +1006,7 @@ static NSMutableArray<UIMenuElement *> *menuElementsFromDefaultActions(RetainPtr
 {
 #if ENABLE(DATA_DETECTION)
     if (_dataDetectorContextMenuPresenter && interaction == _dataDetectorContextMenuPresenter->interaction()) {
-        DDDetectionController *controller = [PAL::getDDDetectionControllerClass() sharedController];
+        DDDetectionController *controller = [PAL::getDDDetectionControllerClassSingleton() sharedController];
         NSDictionary *context = nil;
         NSString *textAtSelection = nil;
 
@@ -931,7 +1024,7 @@ static NSMutableArray<UIMenuElement *> *menuElementsFromDefaultActions(RetainPtr
         else
             sourceRect = _positionInformation->bounds;
 
-        auto ddContextMenuActionClass = PAL::getDDContextMenuActionClass();
+        auto ddContextMenuActionClass = PAL::getDDContextMenuActionClassSingleton();
         auto finalContext = [ddContextMenuActionClass updateContext:newContext withSourceRect:sourceRect];
 
         if (ddResult)
@@ -1007,6 +1100,9 @@ static NSMutableArray<UIMenuElement *> *menuElementsFromDefaultActions(RetainPtr
 #if ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
     if (_mediaControlsContextMenuPresenter && interaction == _mediaControlsContextMenuPresenter->interaction())
         [self _resetMediaControlsContextMenuPresenter];
+
+    if (_mediaElementIdentifier && _frameInfo)
+        [self captionStyleMenuDidClose:nil];
 #endif // ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
 
     [animator addCompletion:[weakSelf = WeakObjCPtr<WKActionSheetAssistant>(self)] {
@@ -1093,7 +1189,7 @@ static NSMutableArray<UIMenuElement *> *menuElementsFromDefaultActions(RetainPtr
                 return elementAnimationContext.element;
             });
 
-            [delegate _actionSheetAssistant:self performAction:sheetAction onElements:WTFMove(elementContexts)];
+            [delegate _actionSheetAssistant:self performAction:sheetAction onElements:WTF::move(elementContexts)];
         }
 #endif // ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
         break;

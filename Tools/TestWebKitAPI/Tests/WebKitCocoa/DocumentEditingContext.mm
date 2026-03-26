@@ -42,6 +42,9 @@
 #import <wtf/cocoa/TypeCastsCocoa.h>
 #import <wtf/text/MakeString.h>
 
+// DocumentEditingContext tests broke on iOS 26 https://bugs.webkit.org/show_bug.cgi?id=301019
+#define BUG_301019 (PLATFORM(IOS) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 260000 && !USE(APPLE_INTERNAL_SDK))
+
 static constexpr auto longTextString = "Here's to the crazy ones. The misfits. The rebels. The troublemakers. The round pegs in the square holes. "
     "The ones who see things differently. They're not fond of rules. And they have no respect for the status quo. "
     "You can quote them, disagree with them, glorify or vilify them. About the only thing you can't do is ignore them. "
@@ -441,7 +444,11 @@ TEST(DocumentEditingContext, RequestMarkedText)
     }
 }
 
+#if BUG_301019
+TEST(DocumentEditingContext, DISABLED_RequestMarkedTextRectsAndTextOnly)
+#else
 TEST(DocumentEditingContext, RequestMarkedTextRectsAndTextOnly)
+#endif
 {
     auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600)]);
     [webView synchronouslyLoadHTMLString:DocumentEditingContextTestHelpers::applyAhemStyle(@"<input />")];
@@ -473,7 +480,11 @@ TEST(DocumentEditingContext, RequestMarkedTextRectsAndTextOnly)
 #endif
 }
 
+#if BUG_301019
+TEST(DocumentEditingContext, DISABLED_SpatialRequestInTextField)
+#else
 TEST(DocumentEditingContext, SpatialRequestInTextField)
+#endif
 {
     auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600)]);
 
@@ -1679,7 +1690,7 @@ TEST(DocumentEditingContext, RequestAnnotationsForTextChecking)
             String { dynamic_objc_cast<NSString>(context.selectedText) },
             String { dynamic_objc_cast<NSString>(context.contextAfter) }
         );
-        return std::pair { WTFMove(combinedContext), WTFMove(annotatedText) };
+        return std::pair { WTF::move(combinedContext), WTF::move(annotatedText) };
     };
     {
         [webView _setEditable:YES];
@@ -1726,6 +1737,24 @@ TEST(DocumentEditingContext, ContextWithWritingSuggestions)
     EXPECT_WK_STREQ("lo", markedText.get());
     EXPECT_EQ(selectedRangeInMarkedText.location, 0U);
     EXPECT_EQ(selectedRangeInMarkedText.length, 0U);
+}
+
+TEST(DocumentEditingContext, RequestAttributedTextWithCustomFont)
+{
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 500)]);
+    [webView _setEditable:YES];
+    [webView synchronouslyLoadHTMLString:DocumentEditingContextTestHelpers::applyAhemStyle(threeSentencesExample)];
+    [webView objectByEvaluatingJavaScript:@"getSelection().setPosition(document.getElementById('text').childNodes[0], 3)"]; // After the first word, "The".
+    [webView waitForNextPresentationUpdate];
+
+    RetainPtr context = [webView synchronouslyRequestDocumentContext:makeRequest(UIWKDocumentRequestAttributed, UITextGranularityWord, 2)];
+    RetainPtr contextBefore = [dynamic_objc_cast<NSAttributedString>([context contextBefore]) string] ?: @"";
+    RetainPtr selectedText = [dynamic_objc_cast<NSAttributedString>([context selectedText]) string] ?: @"";
+    RetainPtr contextAfter = [dynamic_objc_cast<NSAttributedString>([context contextAfter]) string] ?: @"";
+
+    EXPECT_WK_STREQ(contextBefore.get(), "The");
+    EXPECT_WK_STREQ(selectedText.get(), "");
+    EXPECT_WK_STREQ(contextAfter.get(), " first sentence");
 }
 
 #endif // HAVE(UI_WK_DOCUMENT_CONTEXT)

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -54,6 +54,9 @@ struct WKAppPrivacyReportTestingData {
 
 @property (nonatomic, readonly) NSString *_caLayerTreeAsText;
 
+- (NSString *)_caLayerTreeAsTextForLayerWithID:(unsigned long long)layerID;
+- (NSString *)_caLayerTreeAsTextForLayer:(CALayer *)layer;
+
 - (NSDictionary<NSString *, id> *)_propertiesOfLayerWithID:(unsigned long long)layerID;
 - (NSString*)_scrollbarStateForScrollingNodeID:(uint64_t)scrollingNodeID processID:(uint64_t)processID isVertical:(bool)isVertical;
 
@@ -66,7 +69,7 @@ struct WKAppPrivacyReportTestingData {
 - (void)_setGrammarCheckingEnabledForTesting:(BOOL)enabled;
 - (NSDictionary *)_contentsOfUserInterfaceItem:(NSString *)userInterfaceItem;
 
-- (void)_requestActiveNowPlayingSessionInfo:(void(^)(BOOL, BOOL, NSString*, double, double, NSInteger))callback;
+- (void)_requestActiveNowPlayingSessionInfo:(void(^)(BOOL, BOOL, NSString*, double, double, NSInteger, NSUInteger))callback;
 - (void)_setNowPlayingMetadataObserver:(void(^)(_WKNowPlayingMetadata *))observer;
 
 - (void)_doAfterNextPresentationUpdateWithoutWaitingForAnimatedResizeForTesting:(void (^)(void))updateBlock;
@@ -83,6 +86,7 @@ struct WKAppPrivacyReportTestingData {
 - (BOOL)_beginBackSwipeForTesting;
 - (BOOL)_completeBackSwipeForTesting;
 - (void)_resetNavigationGestureStateForTesting;
+@property (nonatomic, readonly) BOOL _didCallEndSwipeGestureForTesting;
 
 - (void)_setShareSheetCompletesImmediatelyWithResolutionForTesting:(BOOL)resolved;
 
@@ -96,6 +100,8 @@ struct WKAppPrivacyReportTestingData {
 - (void)_didPresentContactPicker;
 - (void)_didDismissContactPicker;
 - (void)_dismissContactPickerWithContacts:(NSArray *)contacts;
+
+- (void)_getRenderTreeAsStringWithCompletionHandler:(NS_SWIFT_UI_ACTOR void (^)(NSString * NS_NULLABLE_RESULT, NSError * _Nullable error))completionHandler WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA), visionos(WK_XROS_TBA));
 
 @property (nonatomic, setter=_setScrollingUpdatesDisabledForTesting:) BOOL _scrollingUpdatesDisabledForTesting;
 @property (nonatomic, readonly) NSString *_scrollingTreeAsText;
@@ -156,7 +162,7 @@ struct WKAppPrivacyReportTestingData {
 
 - (void)_setMediaVolumeForTesting:(float)volume;
 
-- (void)_textFragmentRangesWithCompletionHandlerForTesting:(void(^)(NSArray<NSValue *> *fragmentRanges))completionHandler WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA), visionos(WK_XROS_TBA));
+- (void)_textFragmentRangesWithCompletionHandlerForTesting:(void(^)(NSArray<NSValue *> *fragmentRanges))completionHandler WK_API_AVAILABLE(macos(26.0), ios(26.0), visionos(26.0));
 
 @property (nonatomic, readonly) _WKRectEdge _fixedContainerEdges;
 #if TARGET_OS_IPHONE
@@ -171,8 +177,16 @@ struct WKAppPrivacyReportTestingData {
 - (void)_cancelFixedColorExtensionFadeAnimationsForTesting;
 
 - (unsigned)_forwardedLogsCountForTesting;
+- (bool)_receivedLogsDuringLaunchForTesting;
 
 - (void)_modelProcessModelPlayerCountForTesting:(void(^)(NSUInteger))completionHandler;
+
+- (NSString *)_webContentProcessVariantForFrame:(nullable _WKFrameHandle *)frameHandle;
+
+#if defined(ENABLE_THREADED_ANIMATIONS) && ENABLE_THREADED_ANIMATIONS
+- (NSString *)_animationStackForLayerWithID:(unsigned long long)layerID;
+- (NSString *)_progressBasedTimelinesForScrollingNodeID:(uint64_t)scrollingNodeID processID:(uint64_t)processID;
+#endif
 
 @end
 

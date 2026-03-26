@@ -96,15 +96,15 @@ NSString * const WebScriptErrorLineNumberKey = @"WebScriptErrorLineNumber";
     if (!value)
         return nil;
 
-    WebScriptObject *globalObject = _private->globalObject;
-    if (value == [globalObject _imp])
-        return globalObject;
+    RetainPtr globalObject = _private->globalObject;
+    if (value == [globalObject.get() _imp])
+        return globalObject.autorelease();
 
-    JSC::Bindings::RootObject* root1 = [globalObject _originRootObject];
+    JSC::Bindings::RootObject* root1 = [globalObject.get() _originRootObject];
     if (!root1)
         return nil;
 
-    JSC::Bindings::RootObject* root2 = [globalObject _rootObject];
+    JSC::Bindings::RootObject* root2 = [globalObject.get() _rootObject];
     if (!root2)
         return nil;
 
@@ -146,7 +146,7 @@ NSString * const WebScriptErrorLineNumberKey = @"WebScriptErrorLineNumber";
         return nil;
 
     String functionName = _private->functionName;
-    return nsStringNilIfEmpty(functionName);
+    return nsStringNilIfEmpty(functionName).autorelease();
 }
 
 // Returns the pending exception for this frame (nil if none).

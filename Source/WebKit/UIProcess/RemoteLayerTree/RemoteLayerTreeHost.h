@@ -49,6 +49,12 @@ namespace WebKit {
 
 class RemoteLayerTreeDrawingAreaProxy;
 class WebPageProxy;
+struct MainFrameData;
+
+#if ENABLE(THREADED_ANIMATIONS)
+class RemoteAnimationStack;
+class RemoteAnimationTimeline;
+#endif
 
 class RemoteLayerTreeHost {
     WTF_MAKE_TZONE_ALLOCATED(RemoteLayerTreeHost);
@@ -61,12 +67,14 @@ public:
     RefPtr<RemoteLayerTreeNode> protectedRootNode() const { return m_rootNode.get(); }
 
     CALayer *layerForID(std::optional<WebCore::PlatformLayerIdentifier>) const;
+    RetainPtr<CALayer> protectedLayerForID(std::optional<WebCore::PlatformLayerIdentifier>) const;
     CALayer *rootLayer() const;
+    RetainPtr<CALayer> protectedRootLayer() const;
 
     RemoteLayerTreeDrawingAreaProxy& drawingArea() const;
 
     // Returns true if the root layer changed.
-    bool updateLayerTree(const IPC::Connection&, const RemoteLayerTreeTransaction&, float indicatorScaleFactor  = 1);
+    bool updateLayerTree(const IPC::Connection&, const RemoteLayerTreeTransaction&, const std::optional<MainFrameData>&, float indicatorScaleFactor  = 1);
     void asyncSetLayerContents(WebCore::PlatformLayerIdentifier, RemoteLayerBackingStoreProperties&&);
 
     void setIsDebugLayerTreeHost(bool flag) { m_isDebugLayerTreeHost = flag; }
@@ -78,9 +86,11 @@ public:
     void animationDidStart(std::optional<WebCore::PlatformLayerIdentifier>, CAAnimation *, MonotonicTime startTime);
     void animationDidEnd(std::optional<WebCore::PlatformLayerIdentifier>, CAAnimation *);
 
-#if ENABLE(THREADED_ANIMATION_RESOLUTION)
+#if ENABLE(THREADED_ANIMATIONS)
     void animationsWereAddedToNode(RemoteLayerTreeNode&);
     void animationsWereRemovedFromNode(RemoteLayerTreeNode&);
+    RefPtr<const RemoteAnimationTimeline> timeline(const TimelineID&) const;
+    RefPtr<const RemoteAnimationStack> animationStackForNodeWithIDForTesting(WebCore::PlatformLayerIdentifier) const;
 #endif
 
     void detachFromDrawingArea();
@@ -92,14 +102,9 @@ public:
     CALayer *layerWithIDForTesting(WebCore::PlatformLayerIdentifier) const;
 
     bool replayDynamicContentScalingDisplayListsIntoBackingStore() const;
-    bool threadedAnimationResolutionEnabled() const;
+    bool threadedAnimationsEnabled() const;
 
     bool cssUnprefixedBackdropFilterEnabled() const;
-
-#if ENABLE(THREADED_ANIMATION_RESOLUTION)
-    Seconds acceleratedTimelineTimeOrigin(WebCore::ProcessIdentifier) const;
-    MonotonicTime animationCurrentTime(WebCore::ProcessIdentifier) const;
-#endif
 
     void remotePageProcessDidTerminate(WebCore::ProcessIdentifier);
 
@@ -109,7 +114,7 @@ private:
     void createLayer(const RemoteLayerTreeTransaction::LayerCreationProperties&);
     RefPtr<RemoteLayerTreeNode> makeNode(const RemoteLayerTreeTransaction::LayerCreationProperties&);
 
-    bool updateBannerLayers(const RemoteLayerTreeTransaction&);
+    bool updateBannerLayers(const std::optional<MainFrameData>&);
 
     void layerWillBeRemoved(WebCore::ProcessIdentifier, WebCore::PlatformLayerIdentifier);
 

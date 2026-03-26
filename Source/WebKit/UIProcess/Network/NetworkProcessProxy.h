@@ -34,6 +34,7 @@
 #include "ProcessLauncher.h"
 #include "ProcessThrottler.h"
 #include "QuotaIncreaseRequestIdentifier.h"
+#include "SharedPreferencesForWebProcess.h"
 #include "UserContentControllerIdentifier.h"
 #include "WebsiteDataStore.h"
 #include <WebCore/CrossSiteNavigationDataTransfer.h>
@@ -83,6 +84,10 @@ struct ClientOrigin;
 struct NotificationData;
 struct NotificationPayload;
 struct OrganizationStorageAccessPromptQuirk;
+
+#if HAVE(WEBCONTENTRESTRICTIONS)
+struct ParentalControlsURLFilterParameters;
+#endif
 }
 
 namespace WebKit {
@@ -141,6 +146,7 @@ public:
     void dataTaskWithRequest(WebPageProxy&, PAL::SessionID, WebCore::ResourceRequest&&, const std::optional<WebCore::SecurityOriginData>& topOrigin, bool shouldRunAtForegroundPriority, CompletionHandler<void(API::DataTask&)>&&);
 
     void addAllowedFirstPartyForCookies(WebProcessProxy&, const WebCore::RegistrableDomain& firstPartyForCookies, LoadedWebArchive, CompletionHandler<void()>&&);
+    void addAllowedFilePaths(WebProcessProxy&, const Vector<String>& paths);
 
     void fetchWebsiteData(PAL::SessionID, OptionSet<WebsiteDataType>, OptionSet<WebsiteDataFetchOption>, CompletionHandler<void(WebsiteData)>&&);
     void deleteWebsiteData(PAL::SessionID, OptionSet<WebsiteDataType>, WallTime modifiedSince, const HashSet<WebCore::ProcessIdentifier>&, CompletionHandler<void()>&&);
@@ -156,6 +162,7 @@ public:
     void updatePrevalentDomainsToBlockCookiesFor(PAL::SessionID, const Vector<RegistrableDomain>&, CompletionHandler<void()>&&);
     void hasHadUserInteraction(PAL::SessionID, const RegistrableDomain&, CompletionHandler<void(bool)>&&);
     void isRelationshipOnlyInDatabaseOnce(PAL::SessionID, const RegistrableDomain& subDomain, const RegistrableDomain& topDomain, CompletionHandler<void(bool)>&&);
+    void hasLocalStorageOrCookies(PAL::SessionID, const RegistrableDomain&, CompletionHandler<void(bool)>&&);
     void hasLocalStorage(PAL::SessionID, const RegistrableDomain&, CompletionHandler<void(bool)>&&);
     void isGrandfathered(PAL::SessionID, const RegistrableDomain&, CompletionHandler<void(bool)>&&);
     void isPrevalentResource(PAL::SessionID, const RegistrableDomain&, CompletionHandler<void(bool)>&&);
@@ -283,11 +290,14 @@ public:
 
 #if ENABLE(APPLE_PAY_REMOTE_UI_USES_SCENE)
     void getWindowSceneAndBundleIdentifierForPaymentPresentation(WebPageProxyIdentifier, CompletionHandler<void(const String&, const String&)>&&);
+    void notifyWillPresentPaymentUI(WebPageProxyIdentifier);
 #endif
 
 #if ENABLE(APPLE_PAY_REMOTE_UI)
     void getPaymentCoordinatorEmbeddingUserAgent(WebPageProxyIdentifier, CompletionHandler<void(const String&)>&&);
 #endif
+
+    void isStorageSuspendedForTesting(PAL::SessionID, CompletionHandler<void(bool)>&&);
 
     // ProcessThrottlerClient
     void sendPrepareToSuspend(IsSuspensionImminent, double remainingRunTime, CompletionHandler<void()>&&) final;
@@ -350,6 +360,10 @@ public:
 
     void setDefaultRequestTimeoutInterval(double);
 
+#if HAVE(WEBCONTENTRESTRICTIONS)
+    void allowEvaluatedURL(const WebCore::ParentalControlsURLFilterParameters&, CompletionHandler<void(bool)>&&);
+#endif
+
 private:
     explicit NetworkProcessProxy();
 
@@ -367,7 +381,7 @@ private:
 
     // IPC::Connection::Client
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
-    bool didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) override;
+    void didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) override;
     void didClose(IPC::Connection&) override;
     void didReceiveInvalidMessage(IPC::Connection&, IPC::MessageName, const Vector<uint32_t>& indicesOfObjectsFailingDecoding) override;
     // Note: uses dispatchMessage, dispatchSyncMessage from superclass.
@@ -445,10 +459,6 @@ private:
 
     RefPtr<ProcessThrottler::Activity> m_activityFromWebProcesses;
 
-#if ENABLE(CONTENT_EXTENSIONS)
-    WeakHashSet<WebUserContentControllerProxy> m_webUserContentControllerProxies;
-#endif
-
 #if ENABLE(ADVANCED_PRIVACY_PROTECTIONS)
     RefPtr<ListDataObserver> m_storageAccessPromptQuirksDataUpdateObserver;
 #endif
@@ -465,16 +475,17 @@ private:
     public:
         XPCEventHandler(const NetworkProcessProxy&);
 
-        bool handleXPCEvent(xpc_object_t) const override;
+        bool handleXPCEvent(xpc_object_t) override;
 
     private:
         WeakPtr<NetworkProcessProxy> m_networkProcess;
     };
-    OSObjectPtr<xpc_object_t> m_endpointMessage;
+    XPCObjectPtr<xpc_object_t> m_endpointMessage;
 #endif
 
     WeakHashSet<WebsiteDataStore> m_websiteDataStores;
     WeakHashMap<WebProcessProxy, std::pair<LoadedWebArchive, HashSet<WebCore::RegistrableDomain>>> m_allowedFirstPartiesForCookies;
+    WeakHashMap<WebProcessProxy, HashSet<String>> m_allowedFilePathsByProcess;
     HashMap<DataTaskIdentifier, Ref<API::DataTask>> m_dataTasks;
 #if PLATFORM(MAC)
     // On macOS, we prevent suspension of the NetworkProcess to avoid kills when holding

@@ -22,10 +22,12 @@
 #include <vector>
 
 #include "absl/strings/match.h"
+#include "absl/strings/string_view.h"
 #include "api/array_view.h"
 #include "api/environment/environment.h"
 #include "api/environment/environment_factory.h"
 #include "api/fec_controller_override.h"
+#include "api/field_trials.h"
 #include "api/field_trials_view.h"
 #include "api/make_ref_counted.h"
 #include "api/rtp_headers.h"
@@ -99,13 +101,12 @@
 #include "rtc_base/task_queue_for_test.h"
 #include "rtc_base/thread.h"
 #include "rtc_base/thread_annotations.h"
-#include "rtc_base/time_utils.h"
 #include "rtc_base/unique_id_generator.h"
 #include "test/call_test.h"
 #include "test/configurable_frame_size_encoder.h"
+#include "test/create_test_field_trials.h"
 #include "test/encoder_settings.h"
 #include "test/fake_encoder.h"
-#include "test/field_trial.h"
 #include "test/frame_forwarder.h"
 #include "test/frame_generator_capturer.h"
 #include "test/frame_utils.h"
@@ -114,7 +115,6 @@
 #include "test/null_transport.h"
 #include "test/rtcp_packet_parser.h"
 #include "test/rtp_rtcp_observer.h"
-#include "test/scoped_key_value_config.h"
 #include "test/video_encoder_proxy_factory.h"
 #include "test/video_test_constants.h"
 #include "video/config/video_encoder_config.h"
@@ -733,10 +733,8 @@ TEST_F(VideoSendStreamTest, SupportsUlpfecWithoutExtensions) {
 class VideoSendStreamWithoutUlpfecTest : public test::CallTest {
  protected:
   VideoSendStreamWithoutUlpfecTest()
-      : field_trial_(field_trials_, "WebRTC-DisableUlpFecExperiment/Enabled/") {
-  }
-
-  test::ScopedKeyValueConfig field_trial_;
+      : CallTest(
+            CreateTestFieldTrials("WebRTC-DisableUlpFecExperiment/Enabled/")) {}
 };
 
 TEST_F(VideoSendStreamWithoutUlpfecTest, NoUlpfecIfDisabledThroughFieldTrial) {
@@ -862,7 +860,7 @@ class FlexfecObserver : public test::EndToEndTest {
     return SEND_PACKET;
   }
 
-  BuiltInNetworkBehaviorConfig GetSendTransportConfig() const {
+  BuiltInNetworkBehaviorConfig GetSendTransportConfig() const override {
     // At low RTT (< kLowRttNackMs) -> NACK only, no FEC.
     // Therefore we need some network delay.
     const int kNetworkDelayMs = 100;
@@ -872,7 +870,7 @@ class FlexfecObserver : public test::EndToEndTest {
     return config;
   }
 
-  BuiltInNetworkBehaviorConfig GetReceiveTransportConfig() const {
+  BuiltInNetworkBehaviorConfig GetReceiveTransportConfig() const override {
     // We need the RTT to be >200 ms to send FEC and the network delay for the
     // send transport is 100 ms, so add 100 ms (but no loss) on the return link.
     BuiltInNetworkBehaviorConfig config;
@@ -1081,15 +1079,15 @@ void VideoSendStreamTest::TestNackRetransmission(
         config.rtcp_report_interval = TimeDelta::Millis(kRtcpIntervalMs);
         config.local_media_ssrc =
             test::VideoTestConstants::kReceiverLocalVideoSsrc;
-        RTCPSender rtcp_sender(env_, config);
+        config.schedule_next_rtcp_send_evaluation = [](TimeDelta) {};
+        RTCPSender rtcp_sender(env_, std::move(config));
 
         rtcp_sender.SetRTCPStatus(RtcpMode::kReducedSize);
         rtcp_sender.SetRemoteSSRC(test::VideoTestConstants::kVideoSendSsrcs[0]);
 
         RTCPSender::FeedbackState feedback_state;
         EXPECT_EQ(0, rtcp_sender.SendRTCP(feedback_state, kRtcpNack,
-                                          sequence_numbers.size(),
-                                          sequence_numbers.data()));
+                                          sequence_numbers));
       }
 
       // Drop media packet, otherwise transport feeback may indirectly ack the
@@ -1284,7 +1282,8 @@ void VideoSendStreamTest::TestPacketFragmentationSize(TestVideoFormat format,
         config.outgoing_transport = transport_adapter_.get();
         config.rtcp_report_interval = TimeDelta::Millis(kRtcpIntervalMs);
         config.local_media_ssrc = test::VideoTestConstants::kVideoSendSsrcs[0];
-        RTCPSender rtcp_sender(env_, config);
+        config.schedule_next_rtcp_send_evaluation = [](TimeDelta) {};
+        RTCPSender rtcp_sender(env_, std::move(config));
 
         rtcp_sender.SetRTCPStatus(RtcpMode::kReducedSize);
         rtcp_sender.SetRemoteSSRC(test::VideoTestConstants::kVideoSendSsrcs[0]);
@@ -1668,7 +1667,7 @@ TEST_F(VideoSendStreamTest, ChangingNetworkRoute) {
       extensions_.Register<TransportSequenceNumber>(kExtensionId);
     }
 
-    ~ChangingNetworkRouteTest() {
+    ~ChangingNetworkRouteTest() override {
       // Block until all already posted tasks run to avoid 'use after free'
       // when such task accesses `this`.
       SendTask(task_queue_, [] {});
@@ -1771,9 +1770,9 @@ TEST_F(VideoSendStreamTest, DISABLED_RelayToDirectRoute) {
   static const int kStartBitrateBps = 300000;
   static const int kRelayBandwidthCapBps = 800000;
   static const int kMinPacketsToSend = 100;
-  test::ScopedKeyValueConfig field_trials(
-      field_trials_, "WebRTC-Bwe-NetworkRouteConstraints/relay_cap:" +
-                         std::to_string(kRelayBandwidthCapBps) + "bps/");
+  field_trials().Set(
+      "WebRTC-Bwe-NetworkRouteConstraints",
+      "relay_cap:" + std::to_string(kRelayBandwidthCapBps) + "bps");
 
   class RelayToDirectRouteTest : public test::EndToEndTest {
    public:
@@ -1787,7 +1786,7 @@ TEST_F(VideoSendStreamTest, DISABLED_RelayToDirectRoute) {
       task_queue_thread_.Detach();
     }
 
-    ~RelayToDirectRouteTest() {
+    ~RelayToDirectRouteTest() override {
       // Block until all already posted tasks run to avoid 'use after free'
       // when such task accesses `this`.
       SendTask(task_queue_, [] {});
@@ -1958,7 +1957,7 @@ class MaxPaddingSetTest : public test::SendTest {
     task_queue_thread_.Detach();
   }
 
-  ~MaxPaddingSetTest() {
+  ~MaxPaddingSetTest() override {
     // Block until all already posted tasks run to avoid 'use after free'
     // when such task accesses `this`.
     SendTask(task_queue_, [] {});
@@ -2729,8 +2728,7 @@ TEST_F(VideoSendStreamTest, ReconfigureBitratesSetsEncoderBitratesCorrectly) {
   // TODO(bugs.webrtc.org/12058): If these fields trial are on, we get lower
   // bitrates than expected by this test, due to encoder pushback and subtracted
   // overhead.
-  test::ScopedKeyValueConfig field_trials(
-      field_trials_, "WebRTC-VideoRateControl/bitrate_adjuster:false/");
+  field_trials().Set("WebRTC-VideoRateControl", "bitrate_adjuster:false");
 
   class EncoderBitrateThresholdObserver : public test::SendTest,
                                           public VideoBitrateAllocatorFactory,
@@ -2816,7 +2814,7 @@ TEST_F(VideoSendStreamTest, ReconfigureBitratesSetsEncoderBitratesCorrectly) {
       // more than one update pending, in which case we keep waiting
       // until the correct value has been observed.
       // The target_bitrate_ is reduced by the calculated packet overhead.
-      const int64_t start_time = TimeMillis();
+      const Timestamp start_time = env_.clock().CurrentTime();
       do {
         MutexLock lock(&mutex_);
 
@@ -2828,7 +2826,7 @@ TEST_F(VideoSendStreamTest, ReconfigureBitratesSetsEncoderBitratesCorrectly) {
       } while (bitrate_changed_event_.Wait(
           std::max(TimeDelta::Millis(1),
                    test::VideoTestConstants::kDefaultTimeout -
-                       TimeDelta::Millis(TimeMillis() - start_time))));
+                       (env_.clock().CurrentTime() - start_time))));
       MutexLock lock(&mutex_);
       EXPECT_NEAR(target_bitrate_, expected_bitrate, abs_error)
           << "Timed out while waiting encoder rate to be set.";
@@ -2935,7 +2933,9 @@ TEST_F(VideoSendStreamTest, ReportsSentResolution) {
   static const struct {
     int width;
     int height;
-  } kEncodedResolution[kNumStreams] = {{241, 181}, {300, 121}, {121, 221}};
+  } kEncodedResolution[kNumStreams] = {{.width = 241, .height = 181},
+                                       {.width = 300, .height = 121},
+                                       {.width = 121, .height = 221}};
   class ScreencastTargetBitrateTest : public test::SendTest,
                                       public test::FakeEncoder {
    public:
@@ -3627,7 +3627,10 @@ TEST_F(VideoSendStreamTest, Vp9NonFlexModeSmallResolution) {
     }
   };
 
-  Vp9TestParams params{"L1T1", 1, 1, InterLayerPredMode::kOn};
+  Vp9TestParams params{.scalability_mode = "L1T1",
+                       .num_spatial_layers = 1,
+                       .num_temporal_layers = 1,
+                       .inter_layer_pred = InterLayerPredMode::kOn};
   NonFlexibleModeResolution test(params);
 
   RunBaseTest(&test);
@@ -3671,7 +3674,10 @@ TEST_F(VideoSendStreamTest, MAYBE_Vp9FlexModeRefCount) {
     }
   };
 
-  Vp9TestParams params{"L2T1", 2, 1, InterLayerPredMode::kOn};
+  Vp9TestParams params{.scalability_mode = "L2T1",
+                       .num_spatial_layers = 2,
+                       .num_temporal_layers = 1,
+                       .inter_layer_pred = InterLayerPredMode::kOn};
   FlexibleMode test(params);
 
   RunBaseTest(&test);
@@ -3890,15 +3896,13 @@ class PacingFactorObserver : public test::SendTest {
   const std::optional<float> expected_pacing_factor_;
 };
 
-std::string GetAlrProbingExperimentString() {
-  return std::string(
-             AlrExperimentSettings::kScreenshareProbingBweExperimentName) +
-         "/1.0,2875,80,40,-60,3/";
-}
-const float kAlrProbingExperimentPaceMultiplier = 1.0f;
+constexpr absl::string_view kAlrProbingExperimentValue = "1.0,2875,80,40,-60,3";
+constexpr float kAlrProbingExperimentPaceMultiplier = 1.0f;
 
 TEST_F(VideoSendStreamTest, AlrConfiguredWhenSendSideOn) {
-  test::ScopedFieldTrials alr_experiment(GetAlrProbingExperimentString());
+  field_trials().Set(
+      AlrExperimentSettings::kScreenshareProbingBweExperimentName,
+      kAlrProbingExperimentValue);
   // Send-side bwe on, use pacing factor from `kAlrProbingExperiment` above.
   PacingFactorObserver test_with_send_side(true,
                                            kAlrProbingExperimentPaceMultiplier);
@@ -3906,7 +3910,9 @@ TEST_F(VideoSendStreamTest, AlrConfiguredWhenSendSideOn) {
 }
 
 TEST_F(VideoSendStreamTest, AlrNotConfiguredWhenSendSideOff) {
-  test::ScopedFieldTrials alr_experiment(GetAlrProbingExperimentString());
+  field_trials().Set(
+      AlrExperimentSettings::kScreenshareProbingBweExperimentName,
+      kAlrProbingExperimentValue);
   // Send-side bwe off, use configuration should not be overridden.
   PacingFactorObserver test_without_send_side(false, std::nullopt);
   RunBaseTest(&test_without_send_side);

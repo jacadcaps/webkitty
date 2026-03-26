@@ -306,6 +306,7 @@ WI.SettingsTabContentView = class SettingsTabContentView extends WI.TabContentVi
         let cssGroup = elementsSettingsView.addGroup(WI.UIString("CSS:"));
         cssGroup.addSetting(WI.settings.cssChangesPerNode, WI.UIString("Show changes only for selected node"));
         cssGroup.addSetting(WI.settings.showCSSPropertySyntaxInDocumentationPopover, WI.UIString("Show property syntax in documentation popover"));
+        cssGroup.addSetting(WI.settings.showUserAgentStyles, WI.UIString("Show user agent styles"));
 
         this._createReferenceLink(elementsSettingsView);
 
@@ -389,8 +390,13 @@ WI.SettingsTabContentView = class SettingsTabContentView extends WI.TabContentVi
                 let logEditor = consoleSettingsView.addGroupWithCustomSetting(label, WI.SettingEditor.Type.Select, {values: logLevels});
                 logEditor.value = channel.level;
                 logEditor.addEventListener(WI.SettingEditor.Event.ValueDidChange, function(event) {
-                    for (let target of WI.targets)
+                    for (let target of WI.targets) {
+                        // FIXME: <https://webkit.org/b/298911> Add Console support for FrameTarget.
+                        if (target instanceof WI.FrameTarget)
+                            continue;
+
                         target.ConsoleAgent.setLoggingChannelLevel(channel.source, this.value);
+                    }
                 }, logEditor);
             }
         }
@@ -423,6 +429,13 @@ WI.SettingsTabContentView = class SettingsTabContentView extends WI.TabContentVi
             experimentalSettingsView.addSeparator();
         }
 
+        if (InspectorBackend.hasCommand("LayerTree.requestContent")) {
+            let layersGroup = experimentalSettingsView.addGroup(WI.UIString("Layers:"));
+            layersGroup.addSetting(WI.settings.experimentalLayers3DShowLayerContents, WI.UIString("Show layer contents"));
+
+            experimentalSettingsView.addSeparator();
+        }
+
         let hasNetworkEmulatedCondition = InspectorBackend.hasCommand("Network.setEmulatedConditions");
         if (hasNetworkEmulatedCondition) {
             let networkGroup = experimentalSettingsView.addGroup(WI.UIString("Network:"));
@@ -434,6 +447,11 @@ WI.SettingsTabContentView = class SettingsTabContentView extends WI.TabContentVi
         let sourcesGroup = experimentalSettingsView.addGroup(WI.UIString("Sources:"));
         sourcesGroup.addSetting(WI.settings.experimentalLimitSourceCodeHighlighting, WI.UIString("Limit syntax highlighting on long lines of code"));
         sourcesGroup.addSetting(WI.settings.experimentalUseFuzzyMatchingForCSSCodeCompletion, WI.UIString("Use fuzzy matching for CSS code completion"));
+
+        experimentalSettingsView.addSeparator();
+
+        let searchGroup = experimentalSettingsView.addGroup(WI.UIString("Search:"));
+        searchGroup.addSetting(WI.settings.experimentalUseStrictCheckForGlobMatching, WI.UIString("Use strict word boundary checks for glob pattern matching"));
 
         experimentalSettingsView.addSeparator();
 
@@ -465,6 +483,9 @@ WI.SettingsTabContentView = class SettingsTabContentView extends WI.TabContentVi
             listenForChange(WI.settings.experimentalEnableStylesJumpToVariableDeclaration);
             listenForChange(WI.settings.experimentalCSSSortPropertyNameAutocompletionByUsage);
         }
+
+        if (InspectorBackend.hasCommand("LayerTree.requestContent"))
+            listenForChange(WI.settings.experimentalLayers3DShowLayerContents);
 
         if (hasNetworkEmulatedCondition)
             listenForChange(WI.settings.experimentalEnableNetworkEmulatedCondition);
@@ -498,6 +519,11 @@ WI.SettingsTabContentView = class SettingsTabContentView extends WI.TabContentVi
         let heapSnapshotGroup = engineeringSettingsView.addGroup(WI.unlocalizedString("Heap Snapshot:"));
         heapSnapshotGroup.addSetting(WI.settings.engineeringShowInternalObjectsInHeapSnapshot, WI.unlocalizedString("Show Internal Objects"));
         heapSnapshotGroup.addSetting(WI.settings.engineeringShowPrivateSymbolsInHeapSnapshot, WI.unlocalizedString("Show Private Symbols"));
+
+        if (WI.isEngineeringBuild) {
+            engineeringSettingsView.addSeparator();
+            engineeringSettingsView.addSetting(WI.unlocalizedString("Debug UI:"), WI.showDebugUISetting, WI.unlocalizedString("Show Debug UI"));
+        }
 
         this.addSettingsView(engineeringSettingsView);
     }

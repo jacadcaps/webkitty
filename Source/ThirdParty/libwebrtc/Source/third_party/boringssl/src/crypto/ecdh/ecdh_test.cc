@@ -28,7 +28,7 @@
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/nid.h>
-#include <openssl/sha.h>
+#include <openssl/sha2.h>
 
 #include "../test/file_test.h"
 #include "../test/test_util.h"
@@ -64,7 +64,8 @@ static bssl::UniquePtr<BIGNUM> GetBIGNUM(FileTest *t, const char *key) {
     return nullptr;
   }
 
-  return bssl::UniquePtr<BIGNUM>(BN_bin2bn(bytes.data(), bytes.size(), nullptr));
+  return bssl::UniquePtr<BIGNUM>(
+      BN_bin2bn(bytes.data(), bytes.size(), nullptr));
 }
 
 TEST(ECDHTest, TestVectors) {
@@ -140,7 +141,7 @@ static void RunWycheproofTest(FileTest *t) {
   std::vector<uint8_t> shared;
   ASSERT_TRUE(t->GetBytes(&shared, "shared"));
   // BoringSSL supports compressed coordinates.
-  bool is_valid = result.IsValid({"CompressedPoint"});
+  bool is_valid = result.IsValid({"CompressedPoint", "CompressedPublic"});
 
   // Wycheproof stores the peer key in an SPKI to mimic a Java API mistake.
   // This is non-standard and error-prone.

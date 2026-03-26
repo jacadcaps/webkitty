@@ -43,7 +43,7 @@ CoreIPCNSValue::CoreIPCNSValue(CoreIPCNSValue&&) = default;
 CoreIPCNSValue::~CoreIPCNSValue() = default;
 
 CoreIPCNSValue::CoreIPCNSValue(Value&& value)
-    : m_value(WTFMove(value)) { }
+    : m_value(WTF::move(value)) { }
 
 auto CoreIPCNSValue::valueFromNSValue(NSValue *nsValue) -> Value
 {
@@ -70,7 +70,7 @@ RetainPtr<id> CoreIPCNSValue::toID() const
 
         WTF::switchOn(wrappedValue, [&](const IPCRange& range) {
             result = [NSValue valueWithRange:NSMakeRange(range.location, range.length)];
-        }, [&](const DoubleRect& rect) {
+        }, [&](const WebCore::DoubleRect& rect) {
             result = [NSValue valueWithRect:rect.toCG()];
         }, [&](const UniqueRef<CoreIPCNSCFObject>& object) {
             result = object->toID();

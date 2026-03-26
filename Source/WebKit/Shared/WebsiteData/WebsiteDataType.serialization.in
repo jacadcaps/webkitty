@@ -26,7 +26,7 @@ headers: "WebsiteDataType.h"
     Cookies,
     DiskCache,
     MemoryCache,
-    OfflineWebApplicationCache,
+    LegacyOfflineWebApplicationCachePlaceholder,
     SessionStorage,
     LocalStorage,
     WebSQLDatabases,
@@ -48,4 +48,5 @@ headers: "WebsiteDataType.h"
 #if ENABLE(SCREEN_TIME)
     ScreenTime,
 #endif
+    EnhancedSecurityRecord,
 };

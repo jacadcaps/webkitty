@@ -20,10 +20,12 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import fnmatch
 import hashlib
 import json
 import os
 import re
+import itertools
 import time
 from collections import OrderedDict
 from datetime import datetime, timezone
@@ -129,7 +131,7 @@ class Git(mocks.Subprocess):
                     '\tmerge = refs/heads/{branch}\n'.format(
                         remote=self.remote,
                         branch=self.default_branch,
-                        editor='\teditor = /bin/example -n -w\n' if editor else '',
+                        editor='\teditor = /bin/Example\\ Program -n -w\n' if editor else '',
                     ))
                 for name, url in (remotes or {}).items():
                     config.write(
@@ -209,6 +211,15 @@ class Git(mocks.Subprocess):
 
         super(Git, self).__init__(
             mocks.Subprocess.Route(
+                self.executable, 'symbolic-ref', '-q', 'HEAD',
+                cwd=self.path,
+                generator=lambda *args, **kwargs:
+                    mocks.ProcessCompletion(
+                        returncode=1 if self.detached else 0,
+                        stdout='' if self.detached else 'refs/heads/{}\n'.format(self.branch)
+                    ),
+            ),
+            mocks.Subprocess.Route(
                 self.executable, 'status',
                 cwd=self.path,
                 generator=lambda *args, **kwargs:
@@ -279,6 +290,14 @@ nothing to commit, working tree clean
                            '\n'.join(['  remotes/{}'.format(name) for name in self.remotes.keys() if default_branch in name]) + '\n' + \
                            '\n'.join(['  remotes/{}'.format(name) for name in self.remotes.keys() if default_branch not in name]) + '\n',
                 ),
+            ), mocks.Subprocess.Route(
+                self.executable, 'for-each-ref', '--format', '%(refname)', '--contains', re.compile(r'.+'),
+                cwd=self.path,
+                generator=lambda *args, **kwargs: self.for_each_ref(args[5], *args[6:]),
+            ), mocks.Subprocess.Route(
+                self.executable, 'for-each-ref', '--format', '%(refname)',
+                cwd=self.path,
+                generator=lambda *args, **kwargs: self.for_each_ref(None, *args[4:]),
             ), mocks.Subprocess.Route(
                 self.executable, 'tag',
                 cwd=self.path,
@@ -437,7 +456,7 @@ nothing to commit, working tree clean
                 cwd=self.path,
                 generator=lambda *args, **kwargs: mocks.ProcessCompletion(
                     returncode=0,
-                    stdout='\n'.join(sorted(self.branches_on(args[3]))) + '\n',
+                    stdout='\n'.join(sorted(self.branches_on(self.find(args[3])))) + '\n'
                 ) if self.find(args[3]) else mocks.ProcessCompletion(returncode=128),
             ), mocks.Subprocess.Route(
                 self.executable, 'checkout', '-b', re.compile(r'.+'),
@@ -566,6 +585,11 @@ nothing to commit, working tree clean
                         '{}       {}'.format('M' if value.startswith('diff') else 'A', key) for key, value in self.staged.items()
                     ]))),
             ), mocks.Subprocess.Route(
+                self.executable, 'diff', '--cached', '--quiet',
+                cwd=self.path,
+                generator=lambda *args, **kwargs:
+                    mocks.ProcessCompletion(returncode=1, stdout=''),
+            ), mocks.Subprocess.Route(
                 self.executable, 'check-ref-format', re.compile(r'.+'),
                 generator=lambda *args, **kwargs:
                     mocks.ProcessCompletion(returncode=0) if re.match(r'^[A-Za-z0-9-]+/[A-Za-z0-9/-]+$', args[2]) else mocks.ProcessCompletion(),
@@ -581,6 +605,10 @@ nothing to commit, working tree clean
                 self.executable, 'commit', '-a', '-m', re.compile(r'.+'),
                 cwd=self.path,
                 generator=lambda *args, **kwargs: self.commit(message=args[4], env=kwargs.get('env', dict())),
+            ), mocks.Subprocess.Route(
+                self.executable, 'commit', '-m', re.compile(r'.+'),
+                cwd=self.path,
+                generator=lambda *args, **kwargs: self.commit(message=args[3], env=kwargs.get('env', dict())),
             ), mocks.Subprocess.Route(
                 self.executable, 'apply', '--index', re.compile(r'.+'), '-3',
                 cwd=self.path,
@@ -605,6 +633,10 @@ nothing to commit, working tree clean
                 self.executable, 'restore', '--staged', re.compile(r'.+'),
                 cwd=self.path,
                 generator=lambda *args, **kwargs: self.restore(args[3], staged=True),
+            ), mocks.Subprocess.Route(
+                self.executable, 'add', '--all',
+                cwd=self.path,
+                generator=lambda *args, **kwargs: self.add_all(),
             ), mocks.Subprocess.Route(
                 self.executable, 'add', re.compile(r'.+'),
                 cwd=self.path,
@@ -750,6 +782,10 @@ nothing to commit, working tree clean
                 cwd=self.path,
                 generator=lambda *args, **kwargs: self.merge_base(args[2], *args[3:]),
             ), mocks.Subprocess.Route(
+                self.executable, 'update-ref', re.compile(r'.+'), re.compile(r'.+'),
+                cwd=self.path,
+                generator=lambda *args, **kwargs: self.update_ref(args[2], args[3]),
+            ), mocks.Subprocess.Route(
                 self.executable,
                 cwd=self.path,
                 completion=mocks.ProcessCompletion(
@@ -790,7 +826,7 @@ nothing to commit, working tree clean
                 self.executable, 'lfs', 'install',
                 generator=lambda *args, **kwargs: self._configure_git_lfs(),
             ), mocks.Subprocess.Route(
-                '/bin/example', '-n', '-w',
+                '/bin/Example Program', '-n', '-w',
                 generator=editor_generator,
             ), *git_svn_routes
         )
@@ -859,25 +895,18 @@ nothing to commit, working tree clean
         rev_list = self.rev_list(something)
         return len(rev_list)
 
-    def branches_on(self, hash):
+    def branches_on(self, commit):
         result = set()
         found_identifier = 0
-        if '/' in hash:
-            _, hash = hash.split('/', 1)
-        for remote in self.remotes.keys():
-            if remote.endswith('/{}'.format(hash)):
-                result.add('remotes/{}'.format(remote))
-        for branch, commits in self.commits.items():
-            for commit in commits:
-                if commit.hash.startswith(hash) or commit.branch == hash:
-                    if commit.identifier is not None:
-                        found_identifier = max(commit.identifier, found_identifier)
-                    result.add(commit.branch)
-
-        if self.default_branch in result:
-            for branch, commits in self.commits.items():
-                if commits[0].branch_point and commits[0].branch_point >= found_identifier:
-                    result.add(branch)
+        for branch in self.commits.keys():
+            commits = self.resolve_all_commits(branch)
+            if commit in commits:
+                result.add(branch)
+        for remote_branch in self.remotes.keys():
+            remote, branch = remote_branch.split('/', 1)
+            commits = self.resolve_all_commits(branch, remote)
+            if commit in commits:
+                result.add(f'remotes/{remote_branch}')
         return result
 
     def checkout(self, something, source=None, create=False, force=False):
@@ -1201,6 +1230,12 @@ nothing to commit, working tree clean
         del self.modified[file]
         return mocks.ProcessCompletion(returncode=0)
 
+    def add_all(self):
+        for key, value in self.modified.items():
+            self.staged[key] = value
+        self.modified = {}
+        return mocks.ProcessCompletion(returncode=0)
+
     def rebase(self, target, base, head):
         if target not in self.commits or base not in self.commits or head not in self.commits:
             return mocks.ProcessCompletion(returncode=1)
@@ -1470,7 +1505,25 @@ nothing to commit, working tree clean
                     stderr='fatal: Not a valid object name {}\n'.format(ref),
                 )
 
-        return mocks.ProcessCompletion(returncode=0 if ancestor in self.rev_list(descendent)else 1)
+        return mocks.ProcessCompletion(returncode=0 if any(commit.hash == ancestor_commit.hash for commit in self.rev_list(descendent)) else 1)
+
+    def update_ref(self, ref, value):
+        commit = self.find(value)
+        if not commit:
+            return mocks.ProcessCompletion(
+                returncode=128,
+                stderr=f'fatal: Not a valid object name {value}\n',
+            )
+        remote_ref = ref[len('refs/remotes/'):]
+        if remote_ref not in self.remotes:
+            return mocks.ProcessCompletion(
+                returncode=128,
+                stderr=f'fatal: Unable to find remote reference {ref}\n',
+            )
+        if commit not in self.remotes[remote_ref]:
+            self.remotes[remote_ref] = list(reversed(self.rev_list(value)))
+        return mocks.ProcessCompletion(returncode=0)
+
 
     def add_remote(self, name):
         for existing in list(self.remotes.keys()):
@@ -1478,3 +1531,41 @@ nothing to commit, working tree clean
             if remote == 'origin':
                 self.remotes['{}/{}'.format(name, branch)] = self.remotes[existing][:]
         return mocks.ProcessCompletion(returncode=0)
+
+    def for_each_ref(self, contains_commit, *patterns):
+        if contains_commit:
+            commit = self.find(contains_commit)
+            if commit is None:
+                return mocks.ProcessCompletion(
+                    returncode=0,
+                    stdout='\n',
+                )
+
+            candidate_refs = sorted(
+                f'refs/{branch}' if branch.startswith('remotes/') else f'refs/heads/{branch}'
+                for branch in self.branches_on(commit)
+            )
+        else:
+            candidate_refs = [f'refs/heads/{branch}' for branch in sorted(self.commits)] + [
+                f'refs/remotes/{branch}' for branch in sorted(self.remotes)
+            ]
+
+        patterns_re = re.compile(
+            '|'.join(
+                itertools.chain.from_iterable(
+                    (
+                        fnmatch.translate(pattern),
+                        re.escape(pattern) + r'\Z',
+                        re.escape(pattern) + '/',
+                    )
+                    for pattern in patterns
+                )
+            )
+        )
+
+        refs = [ref for ref in candidate_refs if patterns_re.match(ref)]
+
+        return mocks.ProcessCompletion(
+            returncode=0,
+            stdout='\n'.join(refs) + '\n' if refs else '',
+        )

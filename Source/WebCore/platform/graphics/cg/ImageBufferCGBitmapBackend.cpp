@@ -40,16 +40,16 @@
 
 namespace WebCore {
 
-WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(ImageBufferCGBitmapBackend);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ImageBufferCGBitmapBackend);
 
 size_t ImageBufferCGBitmapBackend::calculateMemoryCost(const Parameters& parameters)
 {
-    return ImageBufferBackend::calculateMemoryCost(parameters.backendSize, calculateBytesPerRow(parameters.backendSize));
+    return ImageBufferBackend::calculateMemoryCost(parameters.backendSize, calculateBytesPerRow(parameters.backendSize, parameters.bufferFormat.pixelFormat));
 }
 
 std::unique_ptr<ImageBufferCGBitmapBackend> ImageBufferCGBitmapBackend::create(const Parameters& parameters, const ImageBufferCreationContext&)
 {
-    ASSERT(parameters.bufferFormat.pixelFormat == ImageBufferPixelFormat::BGRA8);
+    ASSERT(parameters.bufferFormat.pixelFormat == PixelFormat::BGRA8);
 
     IntSize backendSize = calculateSafeBackendSize(parameters);
     if (backendSize.isEmpty())
@@ -81,13 +81,13 @@ std::unique_ptr<ImageBufferCGBitmapBackend> ImageBufferCGBitmapBackend::create(c
         fastFree(const_cast<void*>(data));
     }));
 
-    return std::unique_ptr<ImageBufferCGBitmapBackend>(new ImageBufferCGBitmapBackend(parameters, data.leakSpan(), WTFMove(dataProvider), WTFMove(context)));
+    return std::unique_ptr<ImageBufferCGBitmapBackend>(new ImageBufferCGBitmapBackend(parameters, data.leakSpan(), WTF::move(dataProvider), WTF::move(context)));
 }
 
 ImageBufferCGBitmapBackend::ImageBufferCGBitmapBackend(const Parameters& parameters, std::span<uint8_t> data, RetainPtr<CGDataProviderRef>&& dataProvider, std::unique_ptr<GraphicsContextCG>&& context)
-    : ImageBufferCGBackend(parameters, WTFMove(context))
+    : ImageBufferCGBackend(parameters, WTF::move(context))
     , m_data(data)
-    , m_dataProvider(WTFMove(dataProvider))
+    , m_dataProvider(WTF::move(dataProvider))
 {
     ASSERT(m_data.data());
     ASSERT(m_dataProvider);
@@ -104,7 +104,7 @@ GraphicsContext& ImageBufferCGBitmapBackend::context()
 
 unsigned ImageBufferCGBitmapBackend::bytesPerRow() const
 {
-    return calculateBytesPerRow(m_parameters.backendSize);
+    return calculateBytesPerRow(m_parameters.backendSize, m_parameters.bufferFormat.pixelFormat);
 }
 
 bool ImageBufferCGBitmapBackend::canMapBackingStore() const

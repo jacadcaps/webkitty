@@ -40,10 +40,10 @@
 #endif
 
 namespace WebCore {
-class InspectorController;
-class InspectorFrontendHost;
 class CertificateInfo;
 class FloatRect;
+class InspectorFrontendHost;
+class PageInspectorController;
 }
 
 namespace WebKit {
@@ -158,6 +158,9 @@ public:
 
     void setInspectorPageDeveloperExtrasEnabled(bool) override;
 
+    void setPageAndTextZoomFactors(double pageZoomFactor, double textZoomFactor) override;
+    double pageZoomFactor() const override;
+
 #if ENABLE(INSPECTOR_TELEMETRY)
     bool supportsDiagnosticLogging() override;
     bool diagnosticLoggingAvailable() override { return m_diagnosticLoggingAvailable; }
@@ -204,7 +207,7 @@ private:
 
     // Keep a pointer to the frontend's inspector controller rather than going through
     // corePage(), since we may need it after the frontend's page has started destruction.
-    WeakPtr<WebCore::InspectorController> m_frontendController;
+    WeakPtr<WebCore::PageInspectorController> m_frontendController;
 
 #if ENABLE(INSPECTOR_EXTENSIONS)
     RefPtr<WebInspectorUIExtensionController> m_extensionController;
@@ -223,6 +226,7 @@ private:
 
     DockSide m_dockSide { DockSide::Undocked };
     unsigned m_inspectionLevel { 1 };
+    double m_pageZoomFactor { 1.0 };
 };
 
 } // namespace WebKit

@@ -31,11 +31,11 @@
 class WebKit::WebEvent {
     WebKit::WebEventType type();
     OptionSet<WebKit::WebEventModifier> modifiers();
-    WallTime timestamp();
+    MonotonicTime timestamp();
     WTF::UUID authorizationToken();
 };
 
-enum class WebKit::WebEventType : uint8_t {
+enum class WebKit::WebEventType : uint32_t {
     MouseDown,
     MouseUp,
     MouseMove,
@@ -62,7 +62,7 @@ enum class WebKit::WebEventType : uint8_t {
 
 class WebKit::WebKeyboardEvent : WebKit::WebEvent {
     String text();
-#if !PLATFORM(GTK) && !USE(LIBWPE)
+#if !PLATFORM(GTK) && !USE(LIBWPE) && !ENABLE(WPE_PLATFORM)
     String unmodifiedText();
 #endif
     String key();
@@ -70,13 +70,13 @@ class WebKit::WebKeyboardEvent : WebKit::WebEvent {
     String keyIdentifier();
     int32_t windowsVirtualKeyCode();
     int32_t nativeVirtualKeyCode();
-#if !PLATFORM(GTK) && !USE(LIBWPE)
+#if !PLATFORM(GTK) && !USE(LIBWPE) && !ENABLE(WPE_PLATFORM)
     int32_t macCharCode();
 #endif
-#if USE(APPKIT) || PLATFORM(IOS_FAMILY) || PLATFORM(GTK) || USE(LIBWPE)
+#if USE(APPKIT) || PLATFORM(IOS_FAMILY) || PLATFORM(GTK) || USE(LIBWPE) || ENABLE(WPE_PLATFORM)
     bool handledByInputMethod();
 #endif
-#if PLATFORM(GTK) || USE(LIBWPE)
+#if PLATFORM(GTK) || USE(LIBWPE) || ENABLE(WPE_PLATFORM)
     std::optional<Vector<WebCore::CompositionUnderline>> preeditUnderlines();
     std::optional<WebKit::EditingRange> preeditSelectionRange();
 #endif
@@ -88,7 +88,7 @@ class WebKit::WebKeyboardEvent : WebKit::WebEvent {
 #endif
     bool isAutoRepeat();
     bool isKeypad();
-#if !PLATFORM(GTK) && !USE(LIBWPE)
+#if !PLATFORM(GTK) && !USE(LIBWPE) && !ENABLE(WPE_PLATFORM)
     bool isSystemKey();
 #endif
 };
@@ -103,7 +103,7 @@ class WebKit::WebTouchEvent : WebKit::WebEvent {
     Vector<WebKit::WebTouchEvent> coalescedEvents();
     Vector<WebKit::WebTouchEvent> predictedEvents();
 #if PLATFORM(IOS_FAMILY)
-    WebCore::IntPoint position();
+    WebCore::DoublePoint position();
     bool isPotentialTap();
     bool isGesture();
     float gestureScale();
@@ -123,14 +123,15 @@ class WebKit::WebTouchEvent : WebKit::WebEvent {
 [CustomHeader] class WebKit::WebPlatformTouchPoint {
 #if PLATFORM(IOS_FAMILY)
     unsigned identifier()
-    WebCore::IntPoint locationInRootView()
-    WebCore::IntPoint locationInViewport()
+    WebCore::DoublePoint locationInRootView()
+    WebCore::DoublePoint locationInViewport()
     WebKit::WebPlatformTouchPoint::State phase()
 #endif
 #if PLATFORM(IOS_FAMILY) && ENABLE(IOS_TOUCH_EVENTS)
     double radiusX()
     double radiusY()
     double rotationAngle()
+    double twist()
     double force()
     double altitudeAngle()
     double azimuthAngle()
@@ -139,9 +140,9 @@ class WebKit::WebTouchEvent : WebKit::WebEvent {
 #if !PLATFORM(IOS_FAMILY)
     uint32_t id()
     WebKit::WebPlatformTouchPoint::State state()
-    WebCore::IntPoint screenPosition()
-    WebCore::IntPoint position()
-    WebCore::IntSize radius()
+    WebCore::DoublePoint screenPosition()
+    WebCore::DoublePoint position()
+    WebCore::DoubleSize radius()
     float rotationAngle()
     float force()
 #endif
@@ -152,6 +153,8 @@ class WebKit::WebTouchEvent : WebKit::WebEvent {
     Left,
     Middle,
     Right,
+    Back,
+    Forward,
     None
 };
 
@@ -166,8 +169,8 @@ enum class WebKit::GestureWasCancelled : bool;
 class WebKit::WebMouseEvent : WebKit::WebEvent {
     WebKit::WebMouseEventButton button();
     unsigned short buttons();
-    WebCore::IntPoint position();
-    WebCore::IntPoint globalPosition();
+    WebCore::DoublePoint position();
+    WebCore::DoublePoint globalPosition();
     float deltaX();
     float deltaY();
     float deltaZ();
@@ -186,7 +189,7 @@ class WebKit::WebMouseEvent : WebKit::WebEvent {
     String pointerType();
 #endif
     WebKit::GestureWasCancelled gestureWasCancelled();
-    WebCore::IntPoint unadjustedMovementDelta();
+    WebCore::DoublePoint unadjustedMovementDelta();
     Vector<WebKit::WebMouseEvent> coalescedEvents();
 };
 
@@ -207,15 +210,15 @@ class WebKit::WebGestureEvent : WebKit::WebEvent {
     ScrollByPixelWheelEvent
 };
 
-[Nested] enum class WebKit::WebWheelEvent::Phase : uint32_t {
-    PhaseNone,
-    PhaseBegan,
-    PhaseStationary,
-    PhaseChanged,
-    PhaseEnded,
-    PhaseCancelled,
-    PhaseMayBegin,
-    PhaseWillBegin,
+[Nested] enum class WebKit::WebWheelEvent::Phase : uint8_t {
+    None,
+    Began,
+    Stationary,
+    Changed,
+    Ended,
+    Cancelled,
+    MayBegin,
+    WillBegin,
 };
 
 [Nested] enum class WebKit::WebWheelEvent::MomentumEndType : uint8_t {
@@ -233,7 +236,7 @@ class WebKit::WebWheelEvent : WebKit::WebEvent {
 #if PLATFORM(COCOA)
     bool directionInvertedFromDevice();
 #endif
-#if PLATFORM(COCOA) || PLATFORM(GTK) || USE(LIBWPE)
+#if PLATFORM(COCOA) || PLATFORM(GTK) || USE(LIBWPE) || ENABLE(WPE_PLATFORM)
     WebKit::WebWheelEvent::Phase phase();
     WebKit::WebWheelEvent::Phase momentumPhase();
     bool hasPreciseScrollingDeltas();
@@ -241,7 +244,7 @@ class WebKit::WebWheelEvent : WebKit::WebEvent {
 #if PLATFORM(COCOA)
     uint32_t scrollCount();
     WebCore::FloatSize unacceleratedScrollingDelta();
-    WallTime ioHIDEventTimestamp();
+    MonotonicTime ioHIDEventTimestamp();
     std::optional<WebCore::FloatSize> rawPlatformDelta();
     WebKit::WebWheelEvent::MomentumEndType momentumEndType();
 #endif

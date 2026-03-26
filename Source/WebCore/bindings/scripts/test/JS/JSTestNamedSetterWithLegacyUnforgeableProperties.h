@@ -20,8 +20,8 @@
 
 #pragma once
 
-#include "JSDOMWrapper.h"
 #include "TestNamedSetterWithLegacyUnforgeableProperties.h"
+#include <WebCore/JSDOMWrapper.h>
 #include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
@@ -32,7 +32,7 @@ public:
     static JSTestNamedSetterWithLegacyUnforgeableProperties* create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestNamedSetterWithLegacyUnforgeableProperties>&& impl)
     {
         SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
-        JSTestNamedSetterWithLegacyUnforgeableProperties* ptr = new (NotNull, JSC::allocateCell<JSTestNamedSetterWithLegacyUnforgeableProperties>(vm)) JSTestNamedSetterWithLegacyUnforgeableProperties(structure, *globalObject, WTFMove(impl));
+        JSTestNamedSetterWithLegacyUnforgeableProperties* ptr = new (NotNull, JSC::allocateCell<JSTestNamedSetterWithLegacyUnforgeableProperties>(vm)) JSTestNamedSetterWithLegacyUnforgeableProperties(structure, *globalObject, WTF::move(impl));
         ptr->finishCreation(vm);
         return ptr;
     }
@@ -43,7 +43,7 @@ public:
     static bool legacyPlatformObjectGetOwnProperty(JSC::JSObject*, JSC::JSGlobalObject*, JSC::PropertyName, JSC::PropertySlot&, bool ignoreNamedProperties);
     static bool getOwnPropertySlot(JSC::JSObject*, JSC::JSGlobalObject*, JSC::PropertyName, JSC::PropertySlot&);
     static bool getOwnPropertySlotByIndex(JSC::JSObject*, JSC::JSGlobalObject*, unsigned propertyName, JSC::PropertySlot&);
-    static void getOwnPropertyNames(JSC::JSObject*, JSC::JSGlobalObject*, JSC::PropertyNameArray&, JSC::DontEnumPropertiesMode);
+    static void getOwnPropertyNames(JSC::JSObject*, JSC::JSGlobalObject*, JSC::PropertyNameArrayBuilder&, JSC::DontEnumPropertiesMode);
     static bool put(JSC::JSCell*, JSC::JSGlobalObject*, JSC::PropertyName, JSC::JSValue, JSC::PutPropertySlot&);
     static bool putByIndex(JSC::JSCell*, JSC::JSGlobalObject*, unsigned propertyName, JSC::JSValue, bool shouldThrow);
     static bool defineOwnProperty(JSC::JSObject*, JSC::JSGlobalObject*, JSC::PropertyName, const JSC::PropertyDescriptor&, bool shouldThrow);
@@ -93,10 +93,8 @@ inline void* wrapperKey(TestNamedSetterWithLegacyUnforgeableProperties* wrappabl
 }
 
 JSC::JSValue toJS(JSC::JSGlobalObject*, JSDOMGlobalObject*, TestNamedSetterWithLegacyUnforgeableProperties&);
-inline JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestNamedSetterWithLegacyUnforgeableProperties* impl) { return impl ? toJS(lexicalGlobalObject, globalObject, *impl) : JSC::jsNull(); }
 JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject*, Ref<TestNamedSetterWithLegacyUnforgeableProperties>&&);
 ALWAYS_INLINE JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestNamedSetterWithLegacyUnforgeableProperties& impl) { return toJSNewlyCreated(lexicalGlobalObject, globalObject, Ref { impl }); }
-inline JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, RefPtr<TestNamedSetterWithLegacyUnforgeableProperties>&& impl) { return impl ? toJSNewlyCreated(lexicalGlobalObject, globalObject, impl.releaseNonNull()) : JSC::jsNull(); }
 
 template<> struct JSDOMWrapperConverterTraits<TestNamedSetterWithLegacyUnforgeableProperties> {
     using WrapperClass = JSTestNamedSetterWithLegacyUnforgeableProperties;

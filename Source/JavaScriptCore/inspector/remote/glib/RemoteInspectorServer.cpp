@@ -212,7 +212,7 @@ gboolean RemoteInspectorServer::incomingConnectionCallback(GSocketService*, GSoc
 void RemoteInspectorServer::incomingConnection(Ref<SocketConnection>&& connection)
 {
     ASSERT(!m_connections.contains(connection.ptr()));
-    m_connections.add(WTFMove(connection));
+    m_connections.add(WTF::move(connection));
 }
 
 void RemoteInspectorServer::setTargetList(SocketConnection& remoteInspectorConnection, GVariant* parameters)
@@ -234,6 +234,7 @@ void RemoteInspectorServer::setTargetList(SocketConnection& remoteInspectorConne
     clientConnection->sendMessage("SetTargetList", g_variant_new("(t@a(tsssb))", addResult.iterator->value, targetList.get()));
 }
 
+IGNORE_CLANG_WARNINGS_BEGIN("unsafe-buffer-usage-in-libc-call")
 GVariant* RemoteInspectorServer::setupInspectorClient(SocketConnection& clientConnection, const char* clientBackendCommandsHash)
 {
     ASSERT(!m_clientConnection);
@@ -252,6 +253,7 @@ GVariant* RemoteInspectorServer::setupInspectorClient(SocketConnection& clientCo
 
     return backendCommands;
 }
+IGNORE_CLANG_WARNINGS_END
 
 void RemoteInspectorServer::setup(SocketConnection& clientConnection, uint64_t connectionID, uint64_t targetID)
 {

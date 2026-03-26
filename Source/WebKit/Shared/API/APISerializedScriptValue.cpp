@@ -28,6 +28,7 @@
 
 #include <JavaScriptCore/JSRemoteInspector.h>
 #include <JavaScriptCore/JSRetainPtr.h>
+#include <wtf/CanMakeWeakPtr.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RunLoop.h>
 #include <wtf/RuntimeApplicationChecks.h>
@@ -36,13 +37,10 @@ namespace API {
 
 static constexpr auto SharedJSContextWKMaxIdleTime = 10_s;
 
-class SharedJSContextWK {
+class SharedJSContextWK : public CanMakeWeakPtr<SharedJSContextWK> {
 public:
     static SharedJSContextWK& singleton()
     {
-#if PLATFORM(COCOA)
-        ASSERT(isInWebProcess());
-#endif
         static MainRunLoopNeverDestroyed<SharedJSContextWK> sharedContext;
         return sharedContext.get();
     }

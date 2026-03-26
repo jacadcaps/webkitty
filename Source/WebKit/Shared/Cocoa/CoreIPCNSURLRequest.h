@@ -137,6 +137,7 @@ struct CoreIPCNSURLRequestData {
     bool privacyProxyFailClosed { false };
     bool privacyProxyFailClosedForUnreachableNonMainHosts { false };
     bool privacyProxyFailClosedForUnreachableHosts { false };
+    bool privacyProxyStrictFailClosed { false };
     std::optional<bool> requiresDNSSECValidation;
     bool allowsPersistentDNS { false };
     bool prohibitPrivacyProxy { false };
@@ -160,7 +161,7 @@ public:
 
     RetainPtr<id> toID() const;
 private:
-    friend struct IPC::ArgumentCoder<CoreIPCNSURLRequest, void>;
+    friend struct IPC::ArgumentCoder<CoreIPCNSURLRequest>;
     CoreIPCNSURLRequestData m_data;
 };
 

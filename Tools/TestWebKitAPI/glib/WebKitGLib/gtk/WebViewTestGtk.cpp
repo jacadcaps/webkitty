@@ -21,8 +21,7 @@
 #include "config.h"
 #include "WebViewTest.h"
 
-#include <WebCore/GUniquePtrGtk.h>
-#include <WebCore/GtkVersioning.h>
+#include <WebKit/GtkVersioning.h>
 #include <gtk/gtk.h>
 #include <webkit/WebKitWebViewBaseInternal.h>
 

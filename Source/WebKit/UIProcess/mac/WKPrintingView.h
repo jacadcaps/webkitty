@@ -52,7 +52,7 @@ class WebFrameProxy;
     WeakObjCPtr<NSPrintOperation> _printOperation;
     RetainPtr<NSView> _wkView;
 
-    const RefPtr<WebKit::WebFrameProxy> _webFrame;
+    RefPtr<WebKit::WebFrameProxy> _webFrame;
     Vector<WebCore::IntRect> _printingPageRects;
     double _totalScaleFactorForPrinting;
     HashMap<WebCore::IntRect, RefPtr<WebCore::ShareableBitmap>> _pagePreviews;
@@ -70,7 +70,7 @@ class WebFrameProxy;
     Lock _printingCallbackMutex;
     Condition _printingCallbackCondition;
 
-    NSTimer *_autodisplayResumeTimer;
+    RetainPtr<NSTimer> _autodisplayResumeTimer;
 }
 
 - (id)initWithFrameProxy:(WebKit::WebFrameProxy&)frame view:(NSView *)wkView;

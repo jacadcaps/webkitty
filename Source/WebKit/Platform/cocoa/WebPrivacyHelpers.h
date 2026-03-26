@@ -25,6 +25,7 @@
 
 #pragma once
 
+#import "APIContentRuleListStore.h"
 #import "ScriptTrackingPrivacyFilter.h"
 #import <wtf/CompletionHandler.h>
 #import <wtf/ContinuousApproximateTime.h>
@@ -48,6 +49,11 @@ OBJC_CLASS WKWebPrivacyNotificationListener;
 OBJC_CLASS NSURLSession;
 OBJC_CLASS WKContentRuleList;
 
+namespace WebCore {
+class ResourceRequest;
+enum class IsKnownCrossSiteTracker : bool;
+};
+
 namespace WebKit {
 
 #if ENABLE(ADVANCED_PRIVACY_PROTECTIONS)
@@ -56,22 +62,21 @@ enum class RestrictedOpenerType : uint8_t;
 
 void configureForAdvancedPrivacyProtections(NSURLSession *);
 bool isKnownTrackerAddressOrDomain(StringView host);
+WebCore::IsKnownCrossSiteTracker isRequestToKnownCrossSiteTracker(const WebCore::ResourceRequest&);
 void requestLinkDecorationFilteringData(CompletionHandler<void(Vector<WebCore::LinkDecorationFilteringData>&&)>&&);
 
 class ListDataObserver : public RefCountedAndCanMakeWeakPtr<ListDataObserver> {
 public:
     static Ref<ListDataObserver> create(Function<void()>&& callback)
     {
-        return adoptRef(*new ListDataObserver(WTFMove(callback)));
+        return adoptRef(*new ListDataObserver(WTF::move(callback)));
     }
-
-    ~ListDataObserver() = default;
 
     void invokeCallback() { m_callback(); }
 
 private:
     explicit ListDataObserver(Function<void()>&& callback)
-        : m_callback { WTFMove(callback) }
+        : m_callback { WTF::move(callback) }
     {
     }
 
@@ -108,8 +113,9 @@ public:
     void setCachedListDataForTesting(BackingDataType&& data)
     {
         m_wasInitialized = true;
-        setCachedListData(WTFMove(data));
-        m_observers.forEach([](auto& observer) {
+        setCachedListData(WTF::move(data));
+        // FIXME: This is a safer cpp false positive (rdar://161384112).
+        SUPPRESS_FORWARD_DECL_ARG m_observers.forEach([](ListDataObserver& observer) {
             observer.invokeCallback();
         });
     }
@@ -121,7 +127,7 @@ protected:
 
     void setCachedListData(BackingDataType&& data)
     {
-        m_cachedListData = WTFMove(data);
+        m_cachedListData = WTF::move(data);
         didUpdateCachedListData();
     }
 
@@ -165,7 +171,7 @@ private:
 
 class RestrictedOpenerDomainsController {
 public:
-    static RestrictedOpenerDomainsController& shared();
+    static RestrictedOpenerDomainsController& singleton();
 
     RestrictedOpenerType lookup(const WebCore::RegistrableDomain&) const;
 
@@ -187,9 +193,13 @@ public:
     void prepare(CompletionHandler<void(WKContentRuleList *, bool)>&&);
     void getSource(CompletionHandler<void(String&&)>&&);
 
+    void setContentRuleListStore(API::ContentRuleListStore&);
+
 private:
     friend class NeverDestroyed<ResourceMonitorURLsController, MainRunLoopAccessTraits>;
     ResourceMonitorURLsController() = default;
+
+    RefPtr<API::ContentRuleListStore> m_contentRuleListStore;
 };
 
 #define HAVE_RESOURCE_MONITOR_URLS_GET_SOURCE 1

@@ -51,10 +51,11 @@ static constexpr auto multipleOf4(auto input)
 }
 static uint64_t maxBufferSize(id<MTLDevice> device)
 {
+    constexpr auto maxBuffersToAllow = 3;
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
-    auto result = std::max<uint64_t>(std::min<uint64_t>(device.maxBufferLength, GB), std::min<uint64_t>(INT_MAX, device.maxBufferLength / 10));
+    auto result = std::max<uint64_t>(std::min<uint64_t>(device.maxBufferLength, GB), std::min<uint64_t>(INT_MAX, device.maxBufferLength / maxBuffersToAllow));
 #else
-    auto result = std::max<uint64_t>(defaultMaxBufferSize, std::min<uint64_t>(INT_MAX, device.maxBufferLength / 10));
+    auto result = std::max<uint64_t>(defaultMaxBufferSize, std::min<uint64_t>(GB, device.maxBufferLength / maxBuffersToAllow));
 #endif
     return multipleOf4(result);
 }
@@ -138,6 +139,9 @@ static Vector<WGPUFeatureName> baseFeatures(id<MTLDevice> device, const Hardware
     features.append(WGPUFeatureName_RG11B10UfloatRenderable);
     features.append(WGPUFeatureName_ShaderF16);
     features.append(WGPUFeatureName_BGRA8UnormStorage);
+#if CPU(ARM64)
+    features.append(WGPUFeatureName_TextureFormatsTier1);
+#endif
 
 #if !PLATFORM(WATCHOS)
     if (device.supports32BitFloatFiltering)
@@ -152,15 +156,94 @@ static Vector<WGPUFeatureName> baseFeatures(id<MTLDevice> device, const Hardware
 
 bool isShaderValidationEnabled(id<MTLDevice> device)
 {
-    static bool result = false;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
+    static bool result = [&] {
         // Workaround for rdar://141660277
         NSString* deviceName = NSStringFromClass([device class]);
-        if ((result = [deviceName containsString:@"Debug"] || [deviceName containsString:@"LegacySV"] || [deviceName containsString:@"CaptureMTLDevice"]))
+        bool result = [deviceName containsString:@"Debug"] || [deviceName containsString:@"LegacySV"] || [deviceName containsString:@"CaptureMTLDevice"];
+        if (result)
             WTFLogAlways("WebGPU: Using DEBUG Metal device: retaining references"); // NOLINT
-    });
+        return result;
+    }();
     return result;
+}
+
+#if ENABLE(WEBGPU_SWIFT)
+static std::optional<std::array<int, 4>> extractClangVersion()
+{
+    NSString* input = @(__clang_version__);
+    NSError *error = nil;
+    NSRegularExpression *regex = [NSRegularExpression
+        regularExpressionWithPattern:@"clang-([0-9]+)\\.([0-9]+)\\.([0-9]+)\\.([0-9]+)"
+        options:0
+        error:&error];
+
+    if (error)
+        return std::nullopt;
+
+    NSTextCheckingResult *match = [regex firstMatchInString:input options:0 range:NSMakeRange(0, input.length)];
+
+    if (match && match.numberOfRanges > 1) {
+        std::array<int, 4> result;
+        for (int i = 0; i < 4; ++i) {
+            NSRange clangRange = [match rangeAtIndex:i + 1];
+            NSString* substring = [input substringWithRange:clangRange];
+            result[i] = substring.intValue;
+        }
+        return result;
+    }
+
+    return std::nullopt;
+}
+
+static bool swiftCompilerSupportsWebGPU()
+{
+    auto maybeClangVersion = extractClangVersion();
+    if (!maybeClangVersion)
+        return false;
+
+    auto clangVersion = *maybeClangVersion;
+    if (clangVersion[0] == 1700
+        && clangVersion[1] >= 6
+        && (clangVersion[1] > 6 || clangVersion[2] >= 1)
+        && (clangVersion[1] > 6 || clangVersion[2] > 1 || clangVersion[3] >= 1))
+        return true;
+
+    if (clangVersion[0] == 2100
+        && clangVersion[1] >= 0
+        && (clangVersion[1] > 0 || clangVersion[2] >= 101)
+        && (clangVersion[1] > 0 || clangVersion[2] > 101 || clangVersion[3] >= 15))
+        return true;
+
+    if (clangVersion[0] > 2100)
+        return true;
+
+    return false;
+}
+#endif
+
+bool isWebGPUSwiftEnabled()
+{
+#if defined(ENABLE_LIBFUZZER) && ENABLE_LIBFUZZER && defined(ASAN_ENABLED) && ASAN_ENABLED
+    return true;
+#elif !ENABLE(WEBGPU_SWIFT)
+    return false;
+#else
+    static bool isWebGPUSwiftEnabled = [&] {
+        NSNumber* object = [[NSUserDefaults standardUserDefaults] objectForKey:@"WebKitWebGPUSwiftEnabled"];
+        bool isWebGPUSwiftEnabled;
+        if (object)
+            isWebGPUSwiftEnabled = object.boolValue;
+        else
+            isWebGPUSwiftEnabled = swiftCompilerSupportsWebGPU();
+
+        if (isWebGPUSwiftEnabled)
+            WTFLogAlways("WebGPU: using SWIFT backend"); // NOLINT
+        else
+            WTFLogAlways("WebGPU: using C++ backend"); // NOLINT
+        return isWebGPUSwiftEnabled;
+    }();
+    return isWebGPUSwiftEnabled;
+#endif
 }
 
 static HardwareCapabilities apple4(id<MTLDevice> device)
@@ -181,7 +264,7 @@ static HardwareCapabilities apple4(id<MTLDevice> device)
 
     return {
         defaultLimits(),
-        WTFMove(features),
+        WTF::move(features),
         baseCapabilities,
     };
 }
@@ -203,7 +286,7 @@ static HardwareCapabilities apple5(id<MTLDevice> device)
 
     return {
         defaultLimits(),
-        WTFMove(features),
+        WTF::move(features),
         baseCapabilities,
     };
 }
@@ -259,12 +342,12 @@ static HardwareCapabilities apple6(id<MTLDevice> device)
             .maxComputeWorkgroupSizeY =    1024,
             .maxComputeWorkgroupSizeZ =    1024,
             .maxComputeWorkgroupsPerDimension =    largeReasonableLimit(),
-            .maxStorageBuffersInFragmentStage = UINT32_MAX,
-            .maxStorageTexturesInFragmentStage = UINT32_MAX,
-            .maxStorageBuffersInVertexStage = UINT32_MAX,
-            .maxStorageTexturesInVertexStage = UINT32_MAX,
+            .maxStorageBuffersInFragmentStage = maxBindGroups * tier2LimitForBuffersAndTextures,
+            .maxStorageTexturesInFragmentStage = maxBindGroups * tier2LimitForBuffersAndTextures,
+            .maxStorageBuffersInVertexStage = maxBindGroups * tier2LimitForBuffersAndTextures,
+            .maxStorageTexturesInVertexStage = maxBindGroups * tier2LimitForBuffersAndTextures,
         },
-        WTFMove(features),
+        WTF::move(features),
         baseCapabilities,
     };
 }
@@ -319,12 +402,12 @@ static HardwareCapabilities apple7(id<MTLDevice> device)
             .maxComputeWorkgroupSizeY =    1024,
             .maxComputeWorkgroupSizeZ =    1024,
             .maxComputeWorkgroupsPerDimension =    largeReasonableLimit(),
-            .maxStorageBuffersInFragmentStage = UINT32_MAX,
-            .maxStorageTexturesInFragmentStage = UINT32_MAX,
-            .maxStorageBuffersInVertexStage = UINT32_MAX,
-            .maxStorageTexturesInVertexStage = UINT32_MAX,
+            .maxStorageBuffersInFragmentStage = maxBindGroups * tier2LimitForBuffersAndTextures,
+            .maxStorageTexturesInFragmentStage = maxBindGroups * tier2LimitForBuffersAndTextures,
+            .maxStorageBuffersInVertexStage = maxBindGroups * tier2LimitForBuffersAndTextures,
+            .maxStorageTexturesInVertexStage = maxBindGroups * tier2LimitForBuffersAndTextures,
         },
-        WTFMove(features),
+        WTF::move(features),
         baseCapabilities,
     };
 }
@@ -379,12 +462,12 @@ static HardwareCapabilities mac2(id<MTLDevice> device)
             .maxComputeWorkgroupSizeY =    1024,
             .maxComputeWorkgroupSizeZ =    1024,
             .maxComputeWorkgroupsPerDimension =    largeReasonableLimit(),
-            .maxStorageBuffersInFragmentStage = UINT32_MAX,
-            .maxStorageTexturesInFragmentStage = UINT32_MAX,
-            .maxStorageBuffersInVertexStage = UINT32_MAX,
-            .maxStorageTexturesInVertexStage = UINT32_MAX,
+            .maxStorageBuffersInFragmentStage = maxBindGroups * tier2LimitForBuffersAndTextures,
+            .maxStorageTexturesInFragmentStage = maxBindGroups * tier2LimitForBuffersAndTextures,
+            .maxStorageBuffersInVertexStage = maxBindGroups * tier2LimitForBuffersAndTextures,
+            .maxStorageTexturesInVertexStage = maxBindGroups * tier2LimitForBuffersAndTextures,
         },
-        WTFMove(features),
+        WTF::move(features),
         baseCapabilities,
     };
 }
@@ -477,14 +560,13 @@ static bool isPhysicalHardware()
 #if PLATFORM(IOS_FAMILY_SIMULATOR)
     return false;
 #else
-    static bool result = true;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
+    static bool result = [] {
         uint32_t isVM = 0;
         size_t size = sizeof(isVM);
         if (!sysctlbyname("kern.hv_vmm_present", &isVM, &size, NULL, 0))
-            result = isVM ? [[NSUserDefaults standardUserDefaults] boolForKey:@"WebKitAllowWebGPUOnVMs"] : true;
-    });
+            return isVM ? static_cast<bool>([[NSUserDefaults standardUserDefaults] boolForKey:@"WebKitAllowWebGPUOnVMs"]) : true;
+        return true;
+    }();
     return result;
 #endif
 }

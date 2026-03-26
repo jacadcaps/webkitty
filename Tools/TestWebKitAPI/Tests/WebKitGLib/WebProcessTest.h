@@ -71,7 +71,7 @@ static Watcher s_watcher;
 class WebProcessTest {
     WTF_DEPRECATED_MAKE_FAST_ALLOCATED(WebProcessTest);
 public:
-    virtual ~WebProcessTest() { }
+    virtual ~WebProcessTest() = default;
     virtual bool runTest(const char* testName, WebKitWebPage*) = 0;
 
     static void add(const String& testName, std::function<std::unique_ptr<WebProcessTest> ()>);

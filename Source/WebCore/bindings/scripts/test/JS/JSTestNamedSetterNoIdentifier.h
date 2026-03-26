@@ -20,8 +20,8 @@
 
 #pragma once
 
-#include "JSDOMWrapper.h"
 #include "TestNamedSetterNoIdentifier.h"
+#include <WebCore/JSDOMWrapper.h>
 #include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
@@ -32,7 +32,7 @@ public:
     static JSTestNamedSetterNoIdentifier* create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestNamedSetterNoIdentifier>&& impl)
     {
         SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
-        JSTestNamedSetterNoIdentifier* ptr = new (NotNull, JSC::allocateCell<JSTestNamedSetterNoIdentifier>(vm)) JSTestNamedSetterNoIdentifier(structure, *globalObject, WTFMove(impl));
+        JSTestNamedSetterNoIdentifier* ptr = new (NotNull, JSC::allocateCell<JSTestNamedSetterNoIdentifier>(vm)) JSTestNamedSetterNoIdentifier(structure, *globalObject, WTF::move(impl));
         ptr->finishCreation(vm);
         return ptr;
     }
@@ -43,7 +43,7 @@ public:
     static bool legacyPlatformObjectGetOwnProperty(JSC::JSObject*, JSC::JSGlobalObject*, JSC::PropertyName, JSC::PropertySlot&, bool ignoreNamedProperties);
     static bool getOwnPropertySlot(JSC::JSObject*, JSC::JSGlobalObject*, JSC::PropertyName, JSC::PropertySlot&);
     static bool getOwnPropertySlotByIndex(JSC::JSObject*, JSC::JSGlobalObject*, unsigned propertyName, JSC::PropertySlot&);
-    static void getOwnPropertyNames(JSC::JSObject*, JSC::JSGlobalObject*, JSC::PropertyNameArray&, JSC::DontEnumPropertiesMode);
+    static void getOwnPropertyNames(JSC::JSObject*, JSC::JSGlobalObject*, JSC::PropertyNameArrayBuilder&, JSC::DontEnumPropertiesMode);
     static bool put(JSC::JSCell*, JSC::JSGlobalObject*, JSC::PropertyName, JSC::JSValue, JSC::PutPropertySlot&);
     static bool putByIndex(JSC::JSCell*, JSC::JSGlobalObject*, unsigned propertyName, JSC::JSValue, bool shouldThrow);
     static bool defineOwnProperty(JSC::JSObject*, JSC::JSGlobalObject*, JSC::PropertyName, const JSC::PropertyDescriptor&, bool shouldThrow);
@@ -93,10 +93,8 @@ inline void* wrapperKey(TestNamedSetterNoIdentifier* wrappableObject)
 }
 
 JSC::JSValue toJS(JSC::JSGlobalObject*, JSDOMGlobalObject*, TestNamedSetterNoIdentifier&);
-inline JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestNamedSetterNoIdentifier* impl) { return impl ? toJS(lexicalGlobalObject, globalObject, *impl) : JSC::jsNull(); }
 JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject*, Ref<TestNamedSetterNoIdentifier>&&);
 ALWAYS_INLINE JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestNamedSetterNoIdentifier& impl) { return toJSNewlyCreated(lexicalGlobalObject, globalObject, Ref { impl }); }
-inline JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, RefPtr<TestNamedSetterNoIdentifier>&& impl) { return impl ? toJSNewlyCreated(lexicalGlobalObject, globalObject, impl.releaseNonNull()) : JSC::jsNull(); }
 
 template<> struct JSDOMWrapperConverterTraits<TestNamedSetterNoIdentifier> {
     using WrapperClass = JSTestNamedSetterNoIdentifier;

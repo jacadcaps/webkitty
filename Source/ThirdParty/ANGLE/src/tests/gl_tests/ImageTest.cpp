@@ -7,6 +7,10 @@
 //   Tests the correctness of eglImage.
 //
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include "test_utils/ANGLETest.h"
 #include "test_utils/MultiThreadSteps.h"
 #include "test_utils/gl_raii.h"
@@ -134,6 +138,7 @@ constexpr int AHARDWAREBUFFER_FORMAT_R8G8B8_UNORM    = 3;
 constexpr int AHARDWAREBUFFER_FORMAT_D24_UNORM       = 0x31;
 constexpr int AHARDWAREBUFFER_FORMAT_Y8Cr8Cb8_420_SP = 0x11;
 constexpr int AHARDWAREBUFFER_FORMAT_Y8Cb8Cr8_420    = 0x23;
+constexpr int AHARDWAREBUFFER_FORMAT_YCbCr_P210      = 0x3c;
 constexpr int AHARDWAREBUFFER_FORMAT_YV12            = 0x32315659;
 
 [[maybe_unused]] constexpr uint64_t ANGLE_AHARDWAREBUFFER_USAGE_FRONT_BUFFER = (1ULL << 32);
@@ -259,12 +264,12 @@ void main()
         return R"(#version 300 es
 precision highp float;
 uniform highp sampler3D tex3D;
-uniform uint layer;
+uniform float layer;
 in vec2 texcoord;
 out vec4 fragColor;
 void main()
 {
-    fragColor = texture(tex3D, vec3(texcoord.x, texcoord.y, float(layer)));
+    fragColor = texture(tex3D, vec3(texcoord.x, texcoord.y, layer));
 })";
     }
 
@@ -1019,7 +1024,8 @@ void main()
         if (!data.empty())
         {
             const bool isYUV = androidFormat == AHARDWAREBUFFER_FORMAT_Y8Cb8Cr8_420 ||
-                               androidFormat == AHARDWAREBUFFER_FORMAT_YV12;
+                               androidFormat == AHARDWAREBUFFER_FORMAT_YV12 ||
+                               androidFormat == AHARDWAREBUFFER_FORMAT_YCbCr_P210;
             writeAHBData(aHardwareBuffer, width, height, depth, isYUV, data);
         }
 
@@ -1251,10 +1257,15 @@ void main()
                              mTextureUniformLocation);
     }
 
-    void verifyResults3D(GLuint texture, const GLubyte data[4], uint32_t layerIndex = 0)
+    void verifyResults3D(GLuint texture,
+                         const GLubyte data[4],
+                         uint32_t layerIndex,
+                         uint32_t totalLayers)
     {
         glUseProgram(m3DTextureProgram);
-        glUniform1ui(m3DTextureLayerUniformLocation, layerIndex);
+        float layerInterval = 1.0f / totalLayers;
+        float layerCenter   = ((layerIndex + 1) * 1.0f / totalLayers) - layerInterval / 2.0f;
+        glUniform1f(m3DTextureLayerUniformLocation, layerCenter);
 
         verifyResultsTexture(texture, data, GL_TEXTURE_3D, m3DTextureProgram,
                              m3DTextureUniformLocation);
@@ -2983,7 +2994,7 @@ TEST_P(ImageTestES3, Source3DTarget3DStorageOrphan)
     EGLImageKHR image;
 
     createEGLImage3DTextureSource(1, 1, depth, GL_RGBA, GL_UNSIGNED_BYTE, attribs,
-                                  static_cast<void *>(&kLinearColor), source, &image);
+                                  static_cast<void *>(&kLinearColor3D), source, &image);
 
     // Create the target
     GLTexture target;
@@ -2992,7 +3003,7 @@ TEST_P(ImageTestES3, Source3DTarget3DStorageOrphan)
     for (size_t layer = 0; layer < depth; layer++)
     {
         // Expect that the target texture has the same color as the source texture
-        verifyResults3D(target, kLinearColor);
+        verifyResults3D(target, &kLinearColor3D[layer * 4], layer, depth);
     }
 
     // Try to orphan this target texture
@@ -4632,6 +4643,45 @@ TEST_P(ImageTestES3, SourceYUVAHBTargetExternalYUVSampleLinearFiltering)
     destroyAndroidHardwareBuffer(ahbSource);
 }
 
+// Test to verify that the image view is properly initialized in a program using
+// __samplerExternal2DY2YEXT sampler when sampling from the YUV image.
+TEST_P(ImageTestES3, SourceYUVAHBTargetExternal2DY2YSample)
+{
+    EGLWindow *window = getEGLWindow();
+
+    ANGLE_SKIP_TEST_IF(!hasOESExt() || !hasBaseExt() || !has2DTextureExt() || !hasYUVTargetExt());
+    ANGLE_SKIP_TEST_IF(!hasAndroidImageNativeBufferExt() || !hasAndroidHardwareBufferSupport());
+
+    ANGLE_SKIP_TEST_IF(!isAndroidHardwareBufferConfigurationSupported(
+        2, 2, 1, AHARDWAREBUFFER_FORMAT_YCbCr_P210, kDefaultAHBYUVUsage));
+
+    // Create the Image without data so we don't need ANGLE_AHARDWARE_BUFFER_LOCK_PLANES_SUPPORT
+    AHardwareBuffer *source;
+    EGLImageKHR image;
+    createEGLImageAndroidHardwareBufferSource(2, 2, 1, AHARDWAREBUFFER_FORMAT_YCbCr_P210,
+                                              kDefaultAHBYUVUsage, kDefaultAttribs, {}, &source,
+                                              &image);
+    ASSERT_GL_NO_ERROR();
+
+    // Create a texture target to bind the egl image
+    GLTexture texture;
+    createEGLImageTargetTextureExternal(image, texture);
+    glBindTexture(GL_TEXTURE_EXTERNAL_OES, texture);
+    ASSERT_GL_NO_ERROR();
+
+    // Use the program to sample YUV image directly in a shader
+    glUseProgram(mTextureYUVProgram);
+    glUniform1i(mTextureYUVUniformLocation, 0);
+
+    // Expect that the image view is created properly without any crashes or assertions
+    drawQuad(mTextureYUVProgram, "position", 0.5f);
+    ASSERT_GL_NO_ERROR();
+
+    // Clean up
+    eglDestroyImageKHR(window->getDisplay(), image);
+    destroyAndroidHardwareBuffer(source);
+}
+
 // Test rendering to a YUV AHB using EXT_yuv_target
 TEST_P(ImageTestES3, RenderToYUVAHB)
 {
@@ -4902,6 +4952,86 @@ TEST_P(ImageTestES3, PartialClearYUVAHB)
     EXPECT_PIXEL_COLOR_NEAR(4, 4, GLColor::black, 2.0);
 
     // Clean up
+    eglDestroyImageKHR(window->getDisplay(), image);
+    destroyAndroidHardwareBuffer(source);
+}
+
+// Test initial YUV AHB content is preserved during rendering by rendering to only half of the YUV
+// AHB.
+TEST_P(ImageTestES3, PartialRenderToYUVAHB)
+{
+    EGLWindow *window = getEGLWindow();
+
+    ANGLE_SKIP_TEST_IF(!hasOESExt() || !hasBaseExt() || !has2DTextureExt() || !hasYUVTargetExt());
+    ANGLE_SKIP_TEST_IF(!hasAndroidImageNativeBufferExt() || !hasAndroidHardwareBufferSupport());
+    ANGLE_SKIP_TEST_IF(!hasAhbLockPlanesSupport());
+
+    // 3 planes of data, initialize to a color
+    GLubyte dataY[8]  = {kYUVColorBlackY[0], kYUVColorBlackY[0], kYUVColorBlackY[0],
+                         kYUVColorBlackY[0], kYUVColorBlackY[0], kYUVColorBlackY[0],
+                         kYUVColorBlackY[0], kYUVColorBlackY[0]};
+    GLubyte dataCb[2] = {
+        kYUVColorBlackCb[0],
+        kYUVColorBlackCb[0],
+    };
+    GLubyte dataCr[2] = {
+        kYUVColorBlackCr[0],
+        kYUVColorBlackCr[0],
+    };
+
+    // Create the Image
+    AHardwareBuffer *source;
+    EGLImageKHR image;
+    createEGLImageAndroidHardwareBufferSource(
+        4, 2, 1, AHARDWAREBUFFER_FORMAT_Y8Cb8Cr8_420, kDefaultAHBUsage, kDefaultAttribs,
+        {{dataY, 1}, {dataCb, 1}, {dataCr, 1}}, &source, &image);
+
+    // Create a texture target to bind the egl image
+    GLTexture target;
+    createEGLImageTargetTextureExternal(image, target);
+
+    // Set up a framebuffer to render into the AHB
+    glViewport(0, 0, 4, 2);
+
+    GLFramebuffer fbo;
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_EXTERNAL_OES, target,
+                           0);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
+
+    // Set up draw to only render to the left half of AHB
+    GLint positionLocation              = glGetAttribLocation(mRenderYUVProgram, "position");
+    std::array<Vector3, 6> quadVertices = GetQuadVertices();
+    for (Vector3 &vertex : quadVertices)
+    {
+        vertex.x() = (vertex.x() * 0.5f) - 0.5f;
+        vertex.z() = 0.0f;
+    }
+    glVertexAttribPointer(positionLocation, 3, GL_FLOAT, GL_FALSE, 0, quadVertices.data());
+    glEnableVertexAttribArray(positionLocation);
+
+    glUseProgram(mRenderYUVProgram);
+    glUniform4f(mRenderYUVUniformLocation, kYUVColorRedY[0] / 255.0f, kYUVColorRedCb[0] / 255.0f,
+                kYUVColorRedCr[0] / 255.0f, 1.0f);
+
+    // Only draw to left half of AHB
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    ASSERT_GL_NO_ERROR();
+
+    // Finish before reading back AHB data
+    glFinish();
+
+    // Check left half of AHB is draw color
+    verifyResultAHB(source, {{kYUVColorRedY, 1}, {kYUVColorRedCb, 1}, {kYUVColorRedCr, 1}},
+                    AHBVerifyRegion::LeftHalf);
+
+    // Check right half of AHB is original color
+    verifyResultAHB(source, {{kYUVColorBlackY, 1}, {kYUVColorBlackCb, 1}, {kYUVColorBlackCr, 1}},
+                    AHBVerifyRegion::RightHalf);
+
+    // Clean up
+    glViewport(0, 0, getWindowWidth(), getWindowHeight());
     eglDestroyImageKHR(window->getDisplay(), image);
     destroyAndroidHardwareBuffer(source);
 }
@@ -5744,6 +5874,43 @@ TEST_P(ImageTestES3, RGBXAHBUploadDataColorspace)
 
     verifyResults2D(ahbTexture, kRed50Linear);
     verifyResultAHB(ahb, {{kRed50SRGB, sizeof(kRed50SRGB)}});
+
+    // Clean up
+    eglDestroyImageKHR(window->getDisplay(), ahbImage);
+    destroyAndroidHardwareBuffer(ahb);
+}
+
+// Test that RGBX data are preserved when importing from AHB and glTexSubImage is able to update
+// data using GL_RGBA.
+TEST_P(ImageTestES3, RGBXAHBUploadDataRGBA)
+{
+    EGLWindow *window = getEGLWindow();
+
+    ANGLE_SKIP_TEST_IF(!hasOESExt() || !hasBaseExt() || !has2DTextureExt());
+    ANGLE_SKIP_TEST_IF(!hasAndroidImageNativeBufferExt() || !hasAndroidHardwareBufferSupport());
+    ANGLE_SKIP_TEST_IF(!hasAhbLockPlanesSupport());
+
+    const GLubyte kGarbage[]            = {123, 123, 123, 123};
+    const GLubyte kRed50LinearNoAlpha[] = {128, 0, 0, 0};
+    const GLubyte kRed50Linear[]        = {128, 0, 0, 255};
+
+    // Create the Image
+    AHardwareBuffer *ahb;
+    EGLImageKHR ahbImage;
+    createEGLImageAndroidHardwareBufferSource(1, 1, 1, AHARDWAREBUFFER_FORMAT_R8G8B8X8_UNORM,
+                                              kDefaultAHBUsage, kDefaultAttribs, {{kGarbage, 4}},
+                                              &ahb, &ahbImage);
+
+    GLTexture ahbTexture;
+    createEGLImageTargetTexture2D(ahbImage, ahbTexture);
+
+    glBindTexture(GL_TEXTURE_2D, ahbTexture);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, kRed50LinearNoAlpha);
+    glFinish();
+
+    // Make sure the alpha channel is always 1.
+    verifyResults2D(ahbTexture, kRed50Linear);
+    verifyResultAHB(ahb, {{kRed50Linear, 4}});
 
     // Clean up
     eglDestroyImageKHR(window->getDisplay(), ahbImage);
@@ -10066,8 +10233,7 @@ void main()
 }
 
 ANGLE_INSTANTIATE_TEST_ES2_AND_ES3_AND(ImageTest,
-                                       ES3_VULKAN().enable(Feature::AllocateNonZeroMemory),
-                                       ES2_WEBGPU());
+                                       ES3_VULKAN().enable(Feature::AllocateNonZeroMemory));
 
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ImageTestES3);
 ANGLE_INSTANTIATE_TEST_ES3_AND(ImageTestES3, ES3_VULKAN().enable(Feature::AllocateNonZeroMemory));

@@ -22,6 +22,7 @@
 
 import hashlib
 import json
+import sys
 
 from webkitcorepy import string_utils
 from webkitflaskpy import Database
@@ -96,6 +97,10 @@ class IPCManager(object):
             if retry > 0:
                 self.databases[index].delete(key)
             return True
+        except json.JSONDecodeError:
+            sys.stderr.write(f"Failed to decode task {key} with content:\n")
+            sys.stderr.buffer.write(raw) if isinstance(raw, bytes) else sys.stderr.write(raw)
+            sys.stderr.write('\n')
         finally:
             if lock.local.token is not None:
                 lock.release()
@@ -106,7 +111,9 @@ class IPCManager(object):
         for i in indecies:
             for key in self.databases[i].scan_iter():
                 key = key.decode()
-                result |= self.dequeue(key, filter=filter, index=i)
+                if key.startswith('lock_'):
+                    continue
+                result |= bool(self.dequeue(key, filter=filter, index=i))
         return result
 
     def tasks(self, filter=None, index=None):
@@ -117,9 +124,16 @@ class IPCManager(object):
         else:
             for key in self.databases[index].scan_iter():
                 key = key.decode()
+                if key.startswith('lock_'):
+                    continue
                 raw = self.databases[index].get(key)
                 if not raw:
                     continue
-                data = json.loads(raw)[:3]
-                if not filter or filter(data):
-                    yield (key, data)
+                try:
+                    data = json.loads(raw)[:3]
+                    if not filter or filter(data):
+                        yield (key, data)
+                except json.JSONDecodeError:
+                    sys.stderr.write(f"Failed to decode task {key} with content:\n")
+                    sys.stderr.buffer.write(raw) if isinstance(raw, bytes) else sys.stderr.write(raw)
+                    sys.stderr.write('\n')

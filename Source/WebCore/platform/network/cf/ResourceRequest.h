@@ -26,7 +26,8 @@
 
 #pragma once
 
-#include "ResourceRequestBase.h"
+#include <WebCore/ResourceRequestBase.h>
+#include <optional>
 #include <wtf/RetainPtr.h>
 #include <wtf/TZoneMalloc.h>
 
@@ -55,17 +56,17 @@ class ResourceRequest : public ResourceRequestBase {
     WTF_MAKE_TZONE_ALLOCATED_EXPORT(ResourceRequest, WEBCORE_EXPORT);
 public:
     explicit ResourceRequest(String&& url)
-        : ResourceRequestBase(URL({ }, WTFMove(url)), ResourceRequestCachePolicy::UseProtocolCachePolicy)
+        : ResourceRequestBase(URL({ }, WTF::move(url)), ResourceRequestCachePolicy::UseProtocolCachePolicy)
     {
     }
 
     ResourceRequest(URL&& url)
-        : ResourceRequestBase(WTFMove(url), ResourceRequestCachePolicy::UseProtocolCachePolicy)
+        : ResourceRequestBase(WTF::move(url), ResourceRequestCachePolicy::UseProtocolCachePolicy)
     {
     }
 
     ResourceRequest(URL&& url, const String& referrer, ResourceRequestCachePolicy policy = ResourceRequestCachePolicy::UseProtocolCachePolicy)
-        : ResourceRequestBase(WTFMove(url), policy)
+        : ResourceRequestBase(WTF::move(url), policy)
     {
         setHTTPReferrer(referrer);
     }
@@ -78,9 +79,9 @@ public:
     WEBCORE_EXPORT ResourceRequest(NSURLRequest *);
 
     ResourceRequest(ResourceRequestBase&& base, String&& cachePartition, bool hiddenFromInspector)
-        : ResourceRequestBase(WTFMove(base))
+        : ResourceRequestBase(WTF::move(base))
     {
-        m_cachePartition = WTFMove(cachePartition);
+        m_cachePartition = WTF::move(cachePartition);
         m_hiddenFromInspector = hiddenFromInspector;
     }
 
@@ -92,6 +93,7 @@ public:
     
     bool encodingRequiresPlatformData() const { return m_httpBody || m_nsRequest; }
     WEBCORE_EXPORT NSURLRequest *nsURLRequest(HTTPBodyUpdatePolicy) const;
+    WEBCORE_EXPORT RetainPtr<NSURLRequest> protectedNSURLRequest(HTTPBodyUpdatePolicy) const;
 
     WEBCORE_EXPORT static CFStringRef isUserInitiatedKey();
     WEBCORE_EXPORT ResourceRequestPlatformData getResourceRequestPlatformData() const;

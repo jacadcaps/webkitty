@@ -41,13 +41,6 @@
 @class WebHistoryItem;
 @class WebResource;
 
-class WebFrameLoaderClient;
-
-namespace WTF {
-template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
-template<> struct IsDeprecatedWeakRefSmartPointerException<WebFrameLoaderClient> : std::true_type { };
-}
-
 namespace PAL {
 class SessionID;
 }
@@ -89,7 +82,7 @@ private:
 
     void convertMainResourceLoadToDownload(WebCore::DocumentLoader*, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&) final;
 
-    void assignIdentifierToInitialRequest(WebCore::ResourceLoaderIdentifier, WebCore::IsMainResourceLoad, WebCore::DocumentLoader*, const WebCore::ResourceRequest&) final;
+    void assignIdentifierToInitialRequest(WebCore::ResourceLoaderIdentifier, WebCore::DocumentLoader*, const WebCore::ResourceRequest&) final;
 
     void dispatchWillSendRequest(WebCore::DocumentLoader*, WebCore::ResourceLoaderIdentifier, WebCore::ResourceRequest&, const WebCore::ResourceResponse& redirectResponse) final;
     bool shouldUseCredentialStorage(WebCore::DocumentLoader*, WebCore::ResourceLoaderIdentifier) final;
@@ -104,11 +97,11 @@ private:
 
     void dispatchDidReceiveResponse(WebCore::DocumentLoader*, WebCore::ResourceLoaderIdentifier, const WebCore::ResourceResponse&) final;
     void dispatchDidReceiveContentLength(WebCore::DocumentLoader*, WebCore::ResourceLoaderIdentifier, int dataLength) final;
-    void dispatchDidFinishLoading(WebCore::DocumentLoader*, WebCore::IsMainResourceLoad, WebCore::ResourceLoaderIdentifier) final;
+    void dispatchDidFinishLoading(WebCore::DocumentLoader*, WebCore::ResourceLoaderIdentifier) final;
 #if ENABLE(DATA_DETECTION)
     void dispatchDidFinishDataDetection(NSArray *detectionResults) final;
 #endif
-    void dispatchDidFailLoading(WebCore::DocumentLoader*, WebCore::IsMainResourceLoad, WebCore::ResourceLoaderIdentifier, const WebCore::ResourceError&) final;
+    void dispatchDidFailLoading(WebCore::DocumentLoader*, WebCore::ResourceLoaderIdentifier, const WebCore::ResourceError&) final;
 
     void willCacheResponse(WebCore::DocumentLoader*, WebCore::ResourceLoaderIdentifier, NSCachedURLResponse*, CompletionHandler<void(NSCachedURLResponse *)>&&) const final;
 
@@ -136,15 +129,16 @@ private:
 
     void dispatchDecidePolicyForResponse(const WebCore::ResourceResponse&, const WebCore::ResourceRequest&, const String&, WebCore::FramePolicyFunction&&) final;
     void dispatchDecidePolicyForNewWindowAction(const WebCore::NavigationAction&, const WebCore::ResourceRequest&, WebCore::FormState*, const WTF::String& frameName, std::optional<WebCore::HitTestResult>&&, WebCore::FramePolicyFunction&&) final;
-    void dispatchDecidePolicyForNavigationAction(const WebCore::NavigationAction&, const WebCore::ResourceRequest&, const WebCore::ResourceResponse& redirectResponse, WebCore::FormState*, const String&, std::optional<WebCore::NavigationIdentifier>, std::optional<WebCore::HitTestResult>&&, bool, WebCore::IsPerformingHTTPFallback, WebCore::SandboxFlags, WebCore::PolicyDecisionMode, WebCore::FramePolicyFunction&&) final;
+    void dispatchDecidePolicyForNavigationAction(const WebCore::NavigationAction&, const WebCore::ResourceRequest&, const WebCore::ResourceResponse& redirectResponse, WebCore::FormState*, const String&, std::optional<WebCore::NavigationIdentifier>, std::optional<WebCore::HitTestResult>&&, bool, WebCore::NavigationUpgradeToHTTPSBehavior, WebCore::SandboxFlags, WebCore::PolicyDecisionMode, WebCore::FramePolicyFunction&&) final;
     void updateSandboxFlags(WebCore::SandboxFlags) { }
-    void updateOpener(const WebCore::Frame&) { }
+    void updateOpener(std::optional<WebCore::FrameIdentifier>) { }
+    void setPrinting(bool, WebCore::FloatSize, WebCore::FloatSize, float, WebCore::AdjustViewSize) { }
     void cancelPolicyCheck() final;
 
     void dispatchUnableToImplementPolicy(const WebCore::ResourceError&) final;
 
     void dispatchWillSendSubmitEvent(Ref<WebCore::FormState>&&) final;
-    void dispatchWillSubmitForm(WebCore::FormState&, CompletionHandler<void()>&&) final;
+    void dispatchWillSubmitForm(WebCore::FormState&, URL&&, String&&, CompletionHandler<void()>&&) final;
 
     void revertToProvisionalState(WebCore::DocumentLoader*) final;
     void setMainDocumentError(WebCore::DocumentLoader*, const WebCore::ResourceError&) final;
@@ -168,9 +162,6 @@ private:
     WebCore::ShouldGoToHistoryItem shouldGoToHistoryItem(WebCore::HistoryItem&, WebCore::IsSameDocumentNavigation, WebCore::ProcessSwapDisposition) const final;
     bool supportsAsyncShouldGoToHistoryItem() const final;
     void shouldGoToHistoryItemAsync(WebCore::HistoryItem&, CompletionHandler<void(WebCore::ShouldGoToHistoryItem)>&&) const final;
-
-    void didDisplayInsecureContent() final;
-    void didRunInsecureContent(WebCore::SecurityOrigin&) final;
 
     void loadStorageAccessQuirksIfNeeded() final { }
 
@@ -222,6 +213,7 @@ private:
     WebCore::IntPoint accessibilityRemoteFrameOffset() final { return { }; }
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
     void setIsolatedTree(Ref<WebCore::AXIsolatedTree>&&) final { }
+    RefPtr<WebCore::AXIsolatedTree> isolatedTree() const final { return nullptr; }
 #endif
 
     RetainPtr<WebFramePolicyListener> setUpPolicyListener(WebCore::FramePolicyFunction&&, WebCore::PolicyAction defaultPolicy, NSURL *appLinkURL, NSURL* referrerURL);
@@ -239,7 +231,7 @@ private:
 #endif
 
 #if ENABLE(CONTENT_FILTERING)
-    void contentFilterDidBlockLoad(WebCore::ContentFilterUnblockHandler) final;
+    void contentFilterDidBlockLoad(WebCore::ContentFilterUnblockHandler&&) final;
 #endif
 
     void prefetchDNS(const String&) final;

@@ -36,8 +36,6 @@ namespace TestWebKitAPI {
 namespace Curl {
 
 class OpenSSLHelperTests : public testing::Test {
-public:
-    OpenSSLHelperTests() { }
 };
 
 TEST(OpenSSLHelper, IPv6AddressCompression)

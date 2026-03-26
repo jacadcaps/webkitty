@@ -25,10 +25,14 @@
 
 internal import WebKit_Internal
 
+#if USE_APPLE_INTERNAL_SDK
 #if canImport(UIKit)
 @_weakLinked @_spi(Private) @_spi(ForUIKitOnly) internal import SwiftUI
 #else
 @_weakLinked @_spi(Private) @_spi(ForAppKitOnly) internal import SwiftUI
+#endif
+#else
+internal import SwiftUI_SPI
 #endif
 
 #if canImport(UIKit)

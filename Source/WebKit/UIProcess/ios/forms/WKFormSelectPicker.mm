@@ -36,6 +36,7 @@
 #import "WKFormSelectControl.h"
 #import "WKWebViewPrivateForTesting.h"
 #import "WebPageProxy.h"
+#import "WebPreferencesDefaultValues.h"
 #import <UIKit/UIKit.h>
 #import <WebCore/LocalizedStrings.h>
 #import <numbers>
@@ -697,11 +698,12 @@ static constexpr auto removeLineLimitForChildrenMenuOption = static_cast<UIMenuO
 - (void)contextMenuInteraction:(UIContextMenuInteraction *)interaction willEndForConfiguration:(UIContextMenuConfiguration *)configuration animator:(id <UIContextMenuInteractionAnimating>)animator
 {
     _isAnimatingContextMenuDismissal = YES;
-    [animator addCompletion:[weakSelf = WeakObjCPtr<WKSelectPicker>(self)] {
-        auto strongSelf = weakSelf.get();
-        if (strongSelf) {
-            [strongSelf->_view accessoryDone];
-            [strongSelf->_view.webView _didDismissContextMenu];
+    [animator addCompletion:[weakSelf = WeakObjCPtr<WKSelectPicker>(self), elementContext = _view.focusedElementInformation.elementContext] {
+        if (RetainPtr strongSelf = weakSelf.get()) {
+            RetainPtr view = strongSelf->_view;
+            if ([view _isSameAsFocusedElement:elementContext])
+                [view accessoryDone];
+            [[view webView] _didDismissContextMenu];
             strongSelf->_isAnimatingContextMenuDismissal = NO;
         }
     }];

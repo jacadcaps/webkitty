@@ -45,7 +45,7 @@ constexpr auto s_handInteractionPinchPressThreshold { 0.9f };
 std::unique_ptr<OpenXRInputSource> OpenXRInputSource::create(XrInstance instance, XrSession session, PlatformXR::XRHandedness handedness, PlatformXR::InputSourceHandle handle, OpenXRSystemProperties&& systemProperties)
 {
     auto input = std::unique_ptr<OpenXRInputSource>(new OpenXRInputSource(instance, session, handedness, handle));
-    if (XR_FAILED(input->initialize(WTFMove(systemProperties))))
+    if (XR_FAILED(input->initialize(WTF::move(systemProperties))))
         return nullptr;
     return input;
 }
@@ -64,10 +64,11 @@ OpenXRInputSource::~OpenXRInputSource()
         xrDestroyActionSet(m_actionSet);
     if (m_gripSpace != XR_NULL_HANDLE)
         xrDestroySpace(m_gripSpace);
-    if (m_pointerSpace != XR_NULL_HANDLE)
-        xrDestroySpace(m_pointerSpace);
+    if (m_aimSpace != XR_NULL_HANDLE)
+        xrDestroySpace(m_aimSpace);
 }
 
+IGNORE_CLANG_WARNINGS_BEGIN("unsafe-buffer-usage-in-libc-call")
 XrResult OpenXRInputSource::initialize(OpenXRSystemProperties&& systemProperties)
 {
     String handednessName = handednessToString(m_handedness);
@@ -84,8 +85,8 @@ XrResult OpenXRInputSource::initialize(OpenXRSystemProperties&& systemProperties
 
     RETURN_RESULT_IF_FAILED(createAction(XR_ACTION_TYPE_POSE_INPUT, makeString(prefix, "_grip"_s), m_gripAction));
     RETURN_RESULT_IF_FAILED(createActionSpace(m_gripAction, m_gripSpace));
-    RETURN_RESULT_IF_FAILED(createAction(XR_ACTION_TYPE_POSE_INPUT, makeString(prefix, "_pointer"_s), m_pointerAction));
-    RETURN_RESULT_IF_FAILED(createActionSpace(m_pointerAction, m_pointerSpace));
+    RETURN_RESULT_IF_FAILED(createAction(XR_ACTION_TYPE_POSE_INPUT, makeString(prefix, "_aim"_s), m_aimAction));
+    RETURN_RESULT_IF_FAILED(createActionSpace(m_aimAction, m_aimSpace));
 
 #if defined(XR_EXT_hand_interaction)
     if (OpenXRExtensions::singleton().isExtensionSupported(XR_EXT_HAND_INTERACTION_EXTENSION_NAME ""_span)) {
@@ -142,9 +143,23 @@ XrResult OpenXRInputSource::suggestBindings(SuggestedBindings& bindings) const
         }
     };
 
+    auto isInteractionPathSupported = [](const ASCIILiteral& path) {
+        if (path == handInteractionProfilePath) {
+#if defined(XR_EXT_hand_interaction)
+            return OpenXRExtensions::singleton().isExtensionSupported(XR_EXT_HAND_INTERACTION_EXTENSION_NAME ""_span);
+#else
+            return false;
+#endif
+        }
+        return true;
+    };
+
     for (const auto& profile : openXRInteractionProfiles) {
+        if (!isInteractionPathSupported(profile.path))
+            continue;
+
         CHECK_XRCMD(createBinding(profile.path, m_gripAction, makeString(m_subactionPathName, s_inputGripPath), bindings));
-        CHECK_XRCMD(createBinding(profile.path, m_pointerAction, makeString(m_subactionPathName, s_inputAimPath), bindings));
+        CHECK_XRCMD(createBinding(profile.path, m_aimAction, makeString(m_subactionPathName, s_inputAimPath), bindings));
 
 #if defined(XR_EXT_hand_interaction)
         if (OpenXRExtensions::singleton().isExtensionSupported(XR_EXT_HAND_INTERACTION_EXTENSION_NAME ""_span)) {
@@ -201,6 +216,7 @@ std::optional<PlatformXR::FrameData::HandJointsVector> OpenXRInputSource::collec
     }
 #endif
 
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
     XrHandJointLocationsEXT locations = createOpenXRStruct<XrHandJointLocationsEXT, XR_TYPE_HAND_JOINT_LOCATIONS_EXT>();
     Vector<XrHandJointLocationEXT, XR_HAND_JOINT_COUNT_EXT> jointLocations;
     locations.jointCount = XR_HAND_JOINT_COUNT_EXT;
@@ -213,9 +229,7 @@ std::optional<PlatformXR::FrameData::HandJointsVector> OpenXRInputSource::collec
     handJoints.reserveInitialCapacity(XR_HAND_JOINT_COUNT_EXT - 1);
     // WebXR does not define the palm joint, that is index 0 for OpenXR joints.
     for (size_t i = 1; i < XR_HAND_JOINT_COUNT_EXT; ++i) {
-        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
         auto jointLocation = locations.jointLocations[i];
-        WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         if (jointLocation.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) {
             PlatformXR::FrameData::InputSourceHandJoint joint;
             joint.pose.pose = XrPosefToPose(jointLocation.pose);
@@ -224,6 +238,7 @@ std::optional<PlatformXR::FrameData::HandJointsVector> OpenXRInputSource::collec
         } else
             handJoints.append(std::nullopt);
     }
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     return handJoints;
 }
 #endif
@@ -236,7 +251,7 @@ std::optional<PlatformXR::FrameData::InputSource> OpenXRInputSource::collectInpu
     data.targetRayMode = PlatformXR::XRTargetRayMode::TrackedPointer;
     data.profiles = m_profiles;
 
-    getPose(m_pointerSpace, localSpace, frameState, data.pointerOrigin);
+    getPose(m_aimSpace, localSpace, frameState, data.pointerOrigin);
     PlatformXR::FrameData::InputSourcePose gripPose;
     if (XR_SUCCEEDED(getPose(m_gripSpace, localSpace, frameState, gripPose)))
         data.gripOrigin = gripPose;
@@ -305,7 +320,7 @@ XrResult OpenXRInputSource::updateInteractionProfile()
     m_profiles.clear();
     for (auto& profile : openXRInteractionProfiles) {
         if (equalSpans(profile.path.span(), unsafeSpan(buffer))) {
-            m_usingHandInteractionProfile = equalSpans(profile.path.span(), handInteractionProfileName.span());
+            m_usingHandInteractionProfile = equalSpans(profile.path.span(), handInteractionProfilePath.span());
             LOG(XR, "Input source %s using interaction profile %s", m_subactionPathName.utf8().data(), profile.path.span().data());
             for (const auto& id : profile.profileIds)
                 m_profiles.append(String::fromUTF8(id));
@@ -339,6 +354,7 @@ XrResult OpenXRInputSource::createAction(XrActionType actionType, const String& 
 
     return xrCreateAction(m_actionSet, &createInfo, &action);
 }
+IGNORE_CLANG_WARNINGS_END
 
 XrResult OpenXRInputSource::createButtonActions(OpenXRButtonType type, const String& prefix, OpenXRButtonActions& actions) const
 {

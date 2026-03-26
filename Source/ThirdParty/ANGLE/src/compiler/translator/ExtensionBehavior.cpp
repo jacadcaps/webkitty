@@ -6,6 +6,10 @@
 // ExtensionBehavior.cpp: Extension name enumeration and data structures for storing extension
 // behavior.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include "compiler/translator/ExtensionBehavior.h"
 
 #include "common/debug.h"
@@ -36,6 +40,8 @@
     OP(EXT_conservative_depth,                         300, 320) \
     OP(EXT_draw_buffers,                               100, 100) \
     OP(EXT_frag_depth,                                 100, 100) \
+    OP(EXT_fragment_shading_rate,                      310, 320) \
+    OP(EXT_fragment_shading_rate_primitive,            310, 320) \
     OP(EXT_geometry_shader,                            310, 320) \
     OP(OES_geometry_shader,                            310, 320) \
     OP(OES_shader_io_blocks,                           310, 320) \
@@ -59,9 +65,8 @@
     OP(EXT_YUV_target,                                 300, 320) \
     OP(KHR_blend_equation_advanced,                    100, 320) \
     OP(NV_EGL_stream_consumer_external,                100, 320) \
-    OP(NV_shader_framebuffer_fetch,                    100, 100) \
     OP(NV_shader_noperspective_interpolation,          300, 320) \
-    OP(OES_EGL_image_external,                         100, 310) \
+    OP(OES_EGL_image_external,                         100, 320) \
     OP(OES_EGL_image_external_essl3,                   300, 320) \
     OP(OES_sample_variables,                           300, 320) \
     OP(OES_shader_multisample_interpolation,           300, 320) \

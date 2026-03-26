@@ -75,12 +75,12 @@ public RefCounted<Session>
 public:
     static Ref<Session> create(Ref<SessionHost>&& host)
     {
-        return adoptRef(*new Session(WTFMove(host)));
+        return adoptRef(*new Session(WTF::move(host)));
     }
 #if ENABLE(WEBDRIVER_BIDI)
     static Ref<Session> create(Ref<SessionHost>&& host, WeakPtr<WebSocketServer> bidiServer)
     {
-        return adoptRef(*new Session(WTFMove(host), WTFMove(bidiServer)));
+        return adoptRef(*new Session(WTF::move(host), WTF::move(bidiServer)));
     }
 #endif
     virtual ~Session();
@@ -208,8 +208,10 @@ private:
     RefPtr<JSON::Object> createElement(RefPtr<JSON::Value>&&);
     Ref<JSON::Object> createElement(const String& elementID);
     RefPtr<JSON::Object> createShadowRoot(RefPtr<JSON::Value>&&);
-    RefPtr<JSON::Object> extractElement(JSON::Value&);
-    String extractElementID(JSON::Value&);
+    RefPtr<JSON::Object> extractElement(const JSON::Value&);
+    String extractElementID(const JSON::Value&);
+    Expected<Ref<JSON::Value>, CommandResult> replaceReferences(Ref<JSON::Value>&&);
+    Expected<Ref<JSON::Value>, CommandResult> replaceReferences(Ref<JSON::Value>&&, HashSet<Ref<JSON::Value>>&);
     Ref<JSON::Value> handleScriptResult(Ref<JSON::Value>&&);
     void elementIsEditable(const String& elementID, Function<void(CommandResult&&)>&&);
 
@@ -298,7 +300,7 @@ private:
     String toInternalEventName(const String&);
 
     // Actual event handlers
-    void doLogEntryAdded(RefPtr<JSON::Object>&&);
+    RefPtr<JSON::Object> processLogEntryAdded(RefPtr<JSON::Object>&&);
 #endif
 };
 

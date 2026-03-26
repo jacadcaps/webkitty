@@ -37,22 +37,21 @@
 
 namespace WebCore {
 
-static NSBundle *passKitBundle()
+static NSBundle *passKitBundleSingleton()
 {
-    static NSBundle *passKitBundle;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        passKitBundle = [NSBundle bundleWithURL:[NSURL fileURLWithPath:[FileSystem::systemDirectoryPath() stringByAppendingPathComponent:@"Library/Frameworks/PassKit.framework"] isDirectory:YES]];
-    });
-    return passKitBundle;
+    static NeverDestroyed<RetainPtr<NSBundle>> passKitBundle = [] {
+        RetainPtr systemDirectoryPath = FileSystem::systemDirectoryPath();
+        return [NSBundle bundleWithURL:[NSURL fileURLWithPath:retainPtr([systemDirectoryPath stringByAppendingPathComponent:@"Library/Frameworks/PassKit.framework"]).get() isDirectory:YES]];
+    }();
+    return passKitBundle.get().get();
 }
 
 static RetainPtr<CGPDFPageRef> loadPassKitPDFPage(NSString *imageName)
 {
-    NSURL *url = [passKitBundle() URLForResource:imageName withExtension:@"pdf"];
+    RetainPtr<NSURL> url = [passKitBundleSingleton() URLForResource:imageName withExtension:@"pdf"];
     if (!url)
         return nullptr;
-    auto document = adoptCF(CGPDFDocumentCreateWithURL((CFURLRef)url));
+    auto document = adoptCF(CGPDFDocumentCreateWithURL((CFURLRef)url.get()));
     if (!document)
         return nullptr;
     if (!CGPDFDocumentGetNumberOfPages(document.get()))
@@ -62,21 +61,13 @@ static RetainPtr<CGPDFPageRef> loadPassKitPDFPage(NSString *imageName)
 
 static RetainPtr<CGPDFPageRef> applePayLogoWhite()
 {
-    static NeverDestroyed<RetainPtr<CGPDFPageRef>> logoPage;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        logoPage.get() = loadPassKitPDFPage(@"PayButtonLogoWhite");
-    });
+    static NeverDestroyed<RetainPtr<CGPDFPageRef>> logoPage = loadPassKitPDFPage(@"PayButtonLogoWhite");
     return logoPage;
 }
 
 static RetainPtr<CGPDFPageRef> applePayLogoBlack()
 {
-    static NeverDestroyed<RetainPtr<CGPDFPageRef>> logoPage;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        logoPage.get() = loadPassKitPDFPage(@"PayButtonLogoBlack");
-    });
+    static NeverDestroyed<RetainPtr<CGPDFPageRef>> logoPage = loadPassKitPDFPage(@"PayButtonLogoBlack");
     return logoPage;
 }
 

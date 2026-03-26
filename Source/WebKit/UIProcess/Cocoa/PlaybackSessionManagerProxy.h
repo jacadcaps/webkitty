@@ -29,6 +29,7 @@
 
 #include "MessageReceiver.h"
 #include "PlaybackSessionContextIdentifier.h"
+#include <WebCore/ImmersiveVideoMetadata.h>
 #include <WebCore/MediaSelectionOption.h>
 #include <WebCore/PlatformPlaybackSessionInterface.h>
 #include <WebCore/PlaybackSessionModel.h>
@@ -42,8 +43,6 @@
 #include <wtf/RefPtr.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/WeakHashSet.h>
-#include <WebCore/SpatialVideoMetadata.h>
-#include <WebCore/VideoProjectionMetadata.h>
 
 namespace WebKit {
 
@@ -72,6 +71,7 @@ public:
     uint32_t checkedPtrCountWithoutThreadCheck() const final { return CanMakeCheckedPtr::checkedPtrCountWithoutThreadCheck(); }
     void incrementCheckedPtrCount() const final { CanMakeCheckedPtr::incrementCheckedPtrCount(); }
     void decrementCheckedPtrCount() const final { CanMakeCheckedPtr::decrementCheckedPtrCount(); }
+    void setDidBeginCheckedPtrDeletion() final { CanMakeCheckedPtr::setDidBeginCheckedPtrDeletion(); }
 
     // PlaybackSessionModel
     void addClient(WebCore::PlaybackSessionModelClient&) final;
@@ -102,8 +102,7 @@ public:
     void supportsLinearMediaPlayerChanged(bool);
 #endif
 
-    void spatialVideoMetadataChanged(const std::optional<WebCore::SpatialVideoMetadata>&);
-    void videoProjectionMetadataChanged(const std::optional<WebCore::VideoProjectionMetadata>&);
+    void immersiveVideoMetadataChanged(const std::optional<WebCore::ImmersiveVideoMetadata>&);
 
     bool wirelessVideoPlaybackDisabled() const final { return m_wirelessVideoPlaybackDisabled; }
     const WebCore::VideoReceiverEndpoint& videoReceiverEndpoint() { return m_videoReceiverEndpoint; }
@@ -189,6 +188,9 @@ private:
     WebCore::AudioSessionSoundStageSize soundStageSize() const final { return m_soundStageSize; }
     void setSoundStageSize(WebCore::AudioSessionSoundStageSize) final;
 
+    bool prefersAutoDimming() const final { return m_prefersAutoDimming; }
+    void setPrefersAutoDimming(bool) final;
+
     void swapVideoReceiverEndpointsWith(PlaybackSessionModelContext&);
 
 #if !RELEASE_LOG_DISABLED
@@ -235,9 +237,9 @@ private:
 #if ENABLE(LINEAR_MEDIA_PLAYER)
     bool m_supportsLinearMediaPlayer { false };
 #endif
-    std::optional<WebCore::SpatialVideoMetadata> m_spatialVideoMetadata;
-    std::optional<WebCore::VideoProjectionMetadata> m_videoProjectionMetadata;
+    std::optional<WebCore::ImmersiveVideoMetadata> m_immersiveVideoMetadata;
 
+    bool m_prefersAutoDimming { true };
 #if !RELEASE_LOG_DISABLED
     uint64_t m_logIdentifier { 0 };
 #endif
@@ -259,7 +261,8 @@ public:
     void invalidate();
 
     bool canEnterVideoFullscreen() const { return !!m_controlsManagerContextId && m_controlsManagerContextIsVideo; }
-    RefPtr<WebCore::PlatformPlaybackSessionInterface> controlsManagerInterface();
+    WebCore::PlatformPlaybackSessionInterface* controlsManagerInterface();
+    RefPtr<WebCore::PlatformPlaybackSessionInterface> protectedControlsManagerInterface();
     void requestControlledElementID();
 
     bool isPaused(PlaybackSessionContextIdentifier) const;
@@ -282,7 +285,8 @@ private:
     ModelInterfaceTuple createModelAndInterface(PlaybackSessionContextIdentifier);
     const ModelInterfaceTuple& ensureModelAndInterface(PlaybackSessionContextIdentifier);
     Ref<PlaybackSessionModelContext> ensureModel(PlaybackSessionContextIdentifier);
-    Ref<WebCore::PlatformPlaybackSessionInterface> ensureInterface(PlaybackSessionContextIdentifier);
+    WebCore::PlatformPlaybackSessionInterface& ensureInterface(PlaybackSessionContextIdentifier);
+    Ref<WebCore::PlatformPlaybackSessionInterface> ensureProtectedInterface(PlaybackSessionContextIdentifier);
     void addClientForContext(PlaybackSessionContextIdentifier);
     void removeClientForContext(PlaybackSessionContextIdentifier);
 
@@ -316,8 +320,7 @@ private:
 #if ENABLE(LINEAR_MEDIA_PLAYER)
     void supportsLinearMediaPlayerChanged(PlaybackSessionContextIdentifier, bool);
 #endif
-    void spatialVideoMetadataChanged(PlaybackSessionContextIdentifier, const std::optional<WebCore::SpatialVideoMetadata>&);
-    void videoProjectionMetadataChanged(PlaybackSessionContextIdentifier, const std::optional<WebCore::VideoProjectionMetadata>&);
+    void immersiveVideoMetadataChanged(PlaybackSessionContextIdentifier, const std::optional<WebCore::ImmersiveVideoMetadata>&);
 
     // Messages to PlaybackSessionManager
 #if HAVE(PIP_SKIP_PREROLL)
@@ -356,6 +359,9 @@ private:
     void addNowPlayingMetadataObserver(PlaybackSessionContextIdentifier, const WebCore::NowPlayingMetadataObserver&);
     void removeNowPlayingMetadataObserver(PlaybackSessionContextIdentifier, const WebCore::NowPlayingMetadataObserver&);
     void setSoundStageSize(PlaybackSessionContextIdentifier, WebCore::AudioSessionSoundStageSize);
+
+    bool prefersAutoDimming() const;
+    void setPrefersAutoDimming(bool);
 
     void updateVideoControlsManager(PlaybackSessionContextIdentifier);
 

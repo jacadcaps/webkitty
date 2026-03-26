@@ -70,7 +70,7 @@ class RemoteXRSubImage final : public IPC::StreamMessageReceiver {
 public:
     static Ref<RemoteXRSubImage> create(GPUConnectionToWebProcess& gpuConnectionToWebProcess, WebCore::WebGPU::XRSubImage& xrSubImage, WebGPU::ObjectHeap& objectHeap, Ref<IPC::StreamServerConnection>&& streamConnection, RemoteGPU& gpu, WebGPUIdentifier identifier)
     {
-        return adoptRef(*new RemoteXRSubImage(gpuConnectionToWebProcess, xrSubImage, objectHeap, WTFMove(streamConnection), gpu, identifier));
+        return adoptRef(*new RemoteXRSubImage(gpuConnectionToWebProcess, xrSubImage, objectHeap, WTF::move(streamConnection), gpu, identifier));
     }
 
     virtual ~RemoteXRSubImage();
@@ -93,8 +93,6 @@ private:
 
     Ref<IPC::StreamServerConnection> protectedStreamConnection();
     Ref<RemoteGPU> protectedGPU() const;
-
-    RefPtr<IPC::Connection> connection() const;
 
     void didReceiveStreamMessage(IPC::StreamServerConnection&, IPC::Decoder&) final;
     void destruct();

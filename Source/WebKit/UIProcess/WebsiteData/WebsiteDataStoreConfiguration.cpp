@@ -94,7 +94,6 @@ WebsiteDataStoreConfiguration::WebsiteDataStoreConfiguration(const String& baseC
 
 void WebsiteDataStoreConfiguration::initializePaths()
 {
-    setApplicationCacheDirectory(WebsiteDataStore::defaultApplicationCacheDirectory(m_baseCacheDirectory));
     setCacheStorageDirectory(WebsiteDataStore::defaultCacheStorageDirectory(m_baseCacheDirectory));
     setNetworkCacheDirectory(WebsiteDataStore::defaultNetworkCacheDirectory(m_baseCacheDirectory));
     setMediaCacheDirectory(WebsiteDataStore::defaultMediaCacheDirectory(m_baseCacheDirectory));
@@ -119,6 +118,7 @@ void WebsiteDataStoreConfiguration::initializePaths()
 #if PLATFORM(COCOA)
     setCookieStorageFile(WebsiteDataStore::defaultCookieStorageFile(m_baseDataDirectory));
     setSearchFieldHistoryDirectory(WebsiteDataStore::defaultSearchFieldHistoryDirectory(m_baseDataDirectory));
+    setEnhancedSecurityDirectory(WebsiteDataStore::defaultEnhancedSecurityDirectory(m_baseDataDirectory));
 #endif
 
 #if ENABLE(CONTENT_EXTENSIONS)
@@ -179,6 +179,7 @@ Ref<WebsiteDataStoreConfiguration> WebsiteDataStoreConfiguration::copy() const
 #if HAVE(WEBCONTENTRESTRICTIONS_PATH_SPI)
     copy->m_webContentRestrictionsConfigurationFile = this->m_webContentRestrictionsConfigurationFile;
 #endif
+    copy->m_additionalDomainsWithUserInteractionForTesting = this->m_additionalDomainsWithUserInteractionForTesting;
 
     return copy;
 }
@@ -191,8 +192,6 @@ WebPushD::WebPushDaemonConnectionConfiguration WebsiteDataStoreConfiguration::we
 WebsiteDataStoreConfiguration::Directories WebsiteDataStoreConfiguration::Directories::isolatedCopy() const &
 {
     return {
-        crossThreadCopy(applicationCacheFlatFileSubdirectoryName),
-        crossThreadCopy(applicationCacheDirectory),
         crossThreadCopy(alternativeServicesDirectory),
         crossThreadCopy(cacheStorageDirectory),
         crossThreadCopy(cookieStorageFile),
@@ -218,39 +217,39 @@ WebsiteDataStoreConfiguration::Directories WebsiteDataStoreConfiguration::Direct
 #if ENABLE(CONTENT_EXTENSIONS)
         crossThreadCopy(resourceMonitorThrottlerDirectory),
 #endif
+        crossThreadCopy(enhancedSecurityDirectory),
     };
 }
 
 WebsiteDataStoreConfiguration::Directories WebsiteDataStoreConfiguration::Directories::isolatedCopy() &&
 {
     return {
-        crossThreadCopy(WTFMove(applicationCacheFlatFileSubdirectoryName)),
-        crossThreadCopy(WTFMove(applicationCacheDirectory)),
-        crossThreadCopy(WTFMove(alternativeServicesDirectory)),
-        crossThreadCopy(WTFMove(cacheStorageDirectory)),
-        crossThreadCopy(WTFMove(cookieStorageFile)),
-        crossThreadCopy(WTFMove(deviceIdHashSaltsStorageDirectory)),
+        crossThreadCopy(WTF::move(alternativeServicesDirectory)),
+        crossThreadCopy(WTF::move(cacheStorageDirectory)),
+        crossThreadCopy(WTF::move(cookieStorageFile)),
+        crossThreadCopy(WTF::move(deviceIdHashSaltsStorageDirectory)),
 #if ENABLE(ENCRYPTED_MEDIA)
-        crossThreadCopy(WTFMove(mediaKeysHashSaltsStorageDirectory)),
+        crossThreadCopy(WTF::move(mediaKeysHashSaltsStorageDirectory)),
 #endif
-        crossThreadCopy(WTFMove(generalStorageDirectory)),
-        crossThreadCopy(WTFMove(hstsStorageDirectory)),
-        crossThreadCopy(WTFMove(indexedDBDatabaseDirectory)),
-        crossThreadCopy(WTFMove(javaScriptConfigurationDirectory)),
-        crossThreadCopy(WTFMove(localStorageDirectory)),
-        crossThreadCopy(WTFMove(mediaCacheDirectory)),
-        crossThreadCopy(WTFMove(mediaKeysStorageDirectory)),
-        crossThreadCopy(WTFMove(networkCacheDirectory)),
-        crossThreadCopy(WTFMove(resourceLoadStatisticsDirectory)),
-        crossThreadCopy(WTFMove(searchFieldHistoryDirectory)),
-        crossThreadCopy(WTFMove(serviceWorkerRegistrationDirectory)),
-        crossThreadCopy(WTFMove(webSQLDatabaseDirectory)),
+        crossThreadCopy(WTF::move(generalStorageDirectory)),
+        crossThreadCopy(WTF::move(hstsStorageDirectory)),
+        crossThreadCopy(WTF::move(indexedDBDatabaseDirectory)),
+        crossThreadCopy(WTF::move(javaScriptConfigurationDirectory)),
+        crossThreadCopy(WTF::move(localStorageDirectory)),
+        crossThreadCopy(WTF::move(mediaCacheDirectory)),
+        crossThreadCopy(WTF::move(mediaKeysStorageDirectory)),
+        crossThreadCopy(WTF::move(networkCacheDirectory)),
+        crossThreadCopy(WTF::move(resourceLoadStatisticsDirectory)),
+        crossThreadCopy(WTF::move(searchFieldHistoryDirectory)),
+        crossThreadCopy(WTF::move(serviceWorkerRegistrationDirectory)),
+        crossThreadCopy(WTF::move(webSQLDatabaseDirectory)),
 #if ENABLE(ARKIT_INLINE_PREVIEW)
-        crossThreadCopy(WTFMove(modelElementCacheDirectory)),
+        crossThreadCopy(WTF::move(modelElementCacheDirectory)),
 #endif
 #if ENABLE(CONTENT_EXTENSIONS)
-        crossThreadCopy(WTFMove(resourceMonitorThrottlerDirectory)),
+        crossThreadCopy(WTF::move(resourceMonitorThrottlerDirectory)),
 #endif
+        crossThreadCopy(WTF::move(enhancedSecurityDirectory)),
     };
 }
 

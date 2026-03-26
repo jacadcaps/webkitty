@@ -25,10 +25,11 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
 #if ENABLE(GAMEPAD) && PLATFORM(MAC)
 
-#include "HIDElement.h"
-#include "SharedGamepadValue.h"
+#include <WebCore/HIDElement.h>
+#include <WebCore/SharedGamepadValue.h>
 #include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
@@ -92,7 +93,7 @@ class HIDGamepadHatswitch : public HIDGamepadElement {
 public:
     HIDGamepadHatswitch(const HIDElement& element, Vector<SharedGamepadValue>&& buttonValues)
         : HIDGamepadElement(element)
-        , m_buttonValues(WTFMove(buttonValues))
+        , m_buttonValues(WTF::move(buttonValues))
     {
     }
 

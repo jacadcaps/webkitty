@@ -32,6 +32,7 @@
 #include "StreamServerConnection.h"
 #include "WebGPUObjectHeap.h"
 #include <WebCore/WebGPUBindGroup.h>
+#include <WebCore/WebGPUDevice.h>
 #include <WebCore/WebGPUExternalTexture.h>
 #include <wtf/TZoneMallocInlines.h>
 
@@ -42,7 +43,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteBindGroup);
 RemoteBindGroup::RemoteBindGroup(WebCore::WebGPU::BindGroup& bindGroup, WebGPU::ObjectHeap& objectHeap, Ref<IPC::StreamServerConnection>&& streamConnection, RemoteGPU& gpu, WebGPUIdentifier identifier)
     : m_backing(bindGroup)
     , m_objectHeap(objectHeap)
-    , m_streamConnection(WTFMove(streamConnection))
+    , m_streamConnection(WTF::move(streamConnection))
     , m_gpu(gpu)
     , m_identifier(identifier)
 {
@@ -71,7 +72,7 @@ void RemoteBindGroup::stopListeningForIPC()
 
 void RemoteBindGroup::setLabel(String&& label)
 {
-    protectedBacking()->setLabel(WTFMove(label));
+    protectedBacking()->setLabel(WTF::move(label));
 }
 
 Ref<WebCore::WebGPU::BindGroup> RemoteBindGroup::protectedBacking()

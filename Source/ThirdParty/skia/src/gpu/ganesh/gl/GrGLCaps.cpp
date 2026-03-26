@@ -3973,8 +3973,15 @@ void GrGLCaps::applyDriverCorrectnessWorkarounds(const GrGLContextInfo& ctxInfo,
         fAllowSRGBCopyTexSubImage = true;
     }
 
-    // http://anglebug.com/6030
-    if (fMSFBOType == kES_EXT_MsToTexture_MSFBOType &&
+    // Originally, this condition disabled DMSAA on non-Intel (and some Intel) devices running over
+    // ANGLE D3D11 (http://anglebug.com/6030). ANGLE's D3D11 support for
+    // EXT_multisample_render_to_texture was incomplete and has been removed
+    // (http://crbug.com/443111620), which led to some significant performance regressions
+    // (http://crbug.com/466515405). Since ANGLE had always been advertising that extension, Ganesh
+    // was disabling DMSAA almost universally. The regression was triggered due to allocating very
+    // large MSAA attachments. To preserve prior behavior on ANGLE+D3D11, we will keep DMSAA
+    // disabled (although these techniques are used with Graphite on Dawn+D3D11).
+    if (/* fMSFBOType == kES_EXT_MsToTexture_MSFBOType && */
         ctxInfo.angleBackend() == GrGLANGLEBackend::kD3D11) {
         // As GL_EXT_multisampled_render_to_texture supporting issue,
         // fall back to default dmsaa path
@@ -4537,7 +4544,8 @@ void GrGLCaps::applyDriverCorrectnessWorkarounds(const GrGLContextInfo& ctxInfo,
     // GL_VERSION : OpenGL ES 3.2 build 1.13@5720833
     // GL_RENDERER: PowerVR Rogue GE8300
     // GL_VENDOR  : Imagination Technologies
-    if (ctxInfo.renderer() == GrGLRenderer::kPowerVRRogue) {
+    if (ctxInfo.renderer() == GrGLRenderer::kPowerVRRogue &&
+        driverVersion < GR_GL_DRIVER_VER(1, 15, 0)) {
         fShaderCaps->fRemoveConstFromFunctionParameters = true;
     }
 #ifdef SK_BUILD_FOR_WIN
@@ -4565,7 +4573,7 @@ void GrGLCaps::applyDriverCorrectnessWorkarounds(const GrGLContextInfo& ctxInfo,
     }
 
     // We disable srgb write control for Adreno4xx devices.
-    // see: https://bug.skia.org/5329
+    // see: skbug.com/40036502
     if (ctxInfo.renderer() == GrGLRenderer::kAdreno430 ||
         ctxInfo.renderer() == GrGLRenderer::kAdreno4xx_other) {
         fSRGBWriteControl = false;
@@ -4738,7 +4746,7 @@ void GrGLCaps::applyDriverCorrectnessWorkarounds(const GrGLContextInfo& ctxInfo,
     // GL_RENDERER: "Mali-T880"
     // GL_VERSION : "OpenGL ES 3.2 v1.r22p0-01rel0.f294e54ceb2cb2d81039204fa4b0402e"
     //
-    // This *didn't* reproduce on a Kevin ChromeOS device:
+    // This *didn't* reproduce on a Samsung Chromebook Plus device:
     // GL_VENDOR  : "ARM"
     // GL_RENDERER: "Mali-T860"
     // GL_VERSION : "OpenGL ES 3.2 v1.r26p0-01rel0.217d2597f6bd19b169343737782e56e3"
@@ -5170,6 +5178,11 @@ void GrGLCaps::didQueryImplementationReadSupport(GrGLFormat format,
 
 bool GrGLCaps::onAreColorTypeAndFormatCompatible(GrColorType ct,
                                                  const GrBackendFormat& format) const {
+    if (format.textureType() == GrTextureType::kExternal) {
+        // For lack of a better alternative, assume the external format matches the requested ct.
+        return true;
+    }
+
     GrGLFormat glFormat = GrBackendFormats::AsGLFormat(format);
     const auto& info = this->getFormatInfo(glFormat);
     for (int i = 0; i < info.fColorTypeInfoCount; ++i) {

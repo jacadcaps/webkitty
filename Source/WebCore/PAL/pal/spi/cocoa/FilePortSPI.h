@@ -25,18 +25,23 @@
 
 #pragma once
 
+#include <wtf/Compiler.h>
+#include <wtf/Platform.h>
+
 DECLARE_SYSTEM_HEADER
 
-#if USE(APPLE_INTERNAL_SDK)
+#if USE(APPLE_INTERNAL_SDK) && __has_include(<sys/fileport.h>)
 
-#include <System/sys/fileport.h>
+#include <sys/fileport.h>
 
 #else
 
-extern "C" {
+WTF_EXTERN_C_BEGIN
+
 int fileport_makeport(int, mach_port_t*);
 int fileport_makefd(mach_port_t);
-}
 
-#endif // #if USE(APPLE_INTERNAL_SDK)
+WTF_EXTERN_C_END
+
+#endif // #if USE(APPLE_INTERNAL_SDK) && __has_include(<sys/fileport.h>)
 

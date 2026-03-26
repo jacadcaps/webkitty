@@ -62,14 +62,14 @@ const GlobalObjectMethodTable* JSAPIGlobalObject::globalObjectMethodTable()
         &supportsRichSourceInfo,
         &shouldInterruptScript,
         &javaScriptRuntimeFlags,
-        nullptr, // queueMicrotaskToEventLoop
+        &queueMicrotaskToEventLoop,
         &shouldInterruptScriptBeforeTimeout,
         &moduleLoaderImportModule, // moduleLoaderImportModule
         &moduleLoaderResolve, // moduleLoaderResolve
         &moduleLoaderFetch, // moduleLoaderFetch
         &moduleLoaderCreateImportMetaProperties, // moduleLoaderCreateImportMetaProperties
         &moduleLoaderEvaluate, // moduleLoaderEvaluate
-        nullptr, // promiseRejectionTracker
+        &promiseRejectionTracker,
         &reportUncaughtExceptionAtEventLoop,
         &currentScriptExecutionOwner,
         &scriptExecutionStatus,
@@ -190,7 +190,7 @@ JSInternalPromise* JSAPIGlobalObject::moduleLoaderFetch(JSGlobalObject* globalOb
 
     if (![context moduleLoaderDelegate]) [[unlikely]] {
         scope.release();
-        promise->reject(globalObject, createError(globalObject, "No module loader provided."_s));
+        promise->reject(vm, globalObject, createError(globalObject, "No module loader provided."_s));
         return promise;
     }
 
@@ -202,20 +202,20 @@ JSInternalPromise* JSAPIGlobalObject::moduleLoaderFetch(JSGlobalObject* globalOb
         id script = valueToObject(context, toRef(globalObject, callFrame->argument(0)));
 
         auto rejectPromise = [&] (String message) {
-            strongPromise.get()->reject(globalObject, createTypeError(globalObject, message));
+            strongPromise.get()->reject(vm, globalObject, createTypeError(globalObject, message));
             return encodedJSUndefined();
         };
 
         if (![script isKindOfClass:[JSScript class]]) [[unlikely]]
             return rejectPromise("First argument of resolution callback is not a JSScript"_s);
 
-        JSScript* jsScript = static_cast<JSScript *>(script);
+        RetainPtr jsScript = static_cast<JSScript *>(script);
 
-        JSSourceCode* source = [jsScript jsSourceCode];
-        if ([jsScript type] != kJSScriptTypeModule) [[unlikely]]
+        JSSourceCode* source = [jsScript.get() jsSourceCode];
+        if ([jsScript.get() type] != kJSScriptTypeModule) [[unlikely]]
             return rejectPromise("The JSScript that was provided did not have expected type of kJSScriptTypeModule."_s);
 
-        NSURL *sourceURL = [jsScript sourceURL];
+        NSURL *sourceURL = [jsScript.get() sourceURL];
         String oldModuleKey { [sourceURL absoluteString] };
         if (Identifier::fromString(vm, oldModuleKey) != moduleKey) [[unlikely]]
             return rejectPromise(makeString("The same JSScript was provided for two different identifiers, previously: "_s, oldModuleKey, " and now: "_s, moduleKey.string()));
@@ -225,14 +225,14 @@ JSInternalPromise* JSAPIGlobalObject::moduleLoaderFetch(JSGlobalObject* globalOb
     });
 
     auto* reject = JSNativeStdFunction::create(vm, globalObject, 1, "reject"_s, [=] (JSGlobalObject*, CallFrame* callFrame) {
-        strongPromise.get()->reject(globalObject, callFrame->argument(0));
+        strongPromise.get()->reject(globalObject->vm(), globalObject, callFrame->argument(0));
         return encodedJSUndefined();
     });
 
     [[context moduleLoaderDelegate] context:context fetchModuleForIdentifier:[::JSValue valueWithJSValueRef:toRef(globalObject, key) inContext:context] withResolveHandler:[::JSValue valueWithJSValueRef:toRef(globalObject, resolve) inContext:context] andRejectHandler:[::JSValue valueWithJSValueRef:toRef(globalObject, reject) inContext:context]];
     if (context.exception) {
         scope.release();
-        promise->reject(globalObject, toJS(globalObject, [context.exception JSValueRef]));
+        promise->reject(vm, globalObject, toJS(globalObject, [context.exception JSValueRef]));
         context.exception = nil;
     }
     return promise;

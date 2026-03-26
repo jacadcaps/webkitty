@@ -25,7 +25,6 @@
 [Nested] enum class WebKit::InteractionInformationAtPosition::Selectability : uint8_t {
     Selectable,
     UnselectableDueToFocusableElement,
-    UnselectableDueToLargeElementBounds,
     UnselectableDueToUserSelectNoneOrQuirk,
     UnselectableDueToMediaControls,
 };
@@ -34,7 +33,7 @@ struct WebKit::InteractionInformationAtPosition {
     WebKit::InteractionInformationRequest request;
 
     bool canBeValid;
-    std::optional<bool> nodeAtPositionHasDoubleClickHandler;
+    std::optional<bool> hitNodeOrWindowHasDoubleClickListener;
 
     WebKit::InteractionInformationAtPosition::Selectability selectability;
 
@@ -85,16 +84,16 @@ struct WebKit::InteractionInformationAtPosition {
     RefPtr<WebCore::TextIndicator> textIndicator;
 #if ENABLE(DATA_DETECTION)
     String dataDetectorIdentifier;
-    [SecureCodingAllowed=[NSArray.class, PAL::getDDScannerResultClass()]] RetainPtr<NSArray> dataDetectorResults;
+    Vector<RetainPtr<DDScannerResult>> serializableDataDetectorResults();
     WebCore::IntRect dataDetectorBounds;
 #endif
-
-    std::optional<WebCore::ElementContext> elementContext;
-    std::optional<WebCore::ElementContext> hostImageOrVideoElementContext;
 
 #if ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
     Vector<WebCore::ElementAnimationContext> animationsAtPoint;
 #endif
+
+    std::optional<WebCore::ElementContext> elementContext;
+    std::optional<WebCore::ElementContext> hostImageOrVideoElementContext;
 };
 
 #endif

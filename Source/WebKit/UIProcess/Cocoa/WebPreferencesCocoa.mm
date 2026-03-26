@@ -75,14 +75,12 @@ bool WebPreferences::platformGetUInt32UserValueForKey(const String& key, uint32_
     if (!m_identifier)
         return false;
 
-    RetainPtr object = [[NSUserDefaults standardUserDefaults] objectForKey:makeKey(m_identifier, m_keyPrefix, key).get()];
-    if (!object)
-        return false;
-    if (![object respondsToSelector:@selector(intValue)])
-        return false;
+    if (RetainPtr object = dynamic_objc_cast<NSNumber>([[NSUserDefaults standardUserDefaults] objectForKey:makeKey(m_identifier, m_keyPrefix, key).get()])) {
+        userValue = [object intValue];
+        return true;
+    }
 
-    userValue = [object intValue];
-    return true;
+    return false;
 }
 
 bool WebPreferences::platformGetDoubleUserValueForKey(const String& key, double& userValue)
@@ -110,7 +108,7 @@ static RetainPtr<id> debugUserDefaultsValue(const String& identifier, const Stri
 
     if (!object) {
         // Allow debug preferences to be set globally, using the debug key prefix.
-        object = [standardUserDefaults objectForKey:[globalDebugKeyPrefix.createNSString() stringByAppendingString:key.createNSString().get()]];
+        object = [standardUserDefaults objectForKey:retainPtr([globalDebugKeyPrefix.createNSString() stringByAppendingString:key.createNSString().get()]).get()];
     }
 
     return object;

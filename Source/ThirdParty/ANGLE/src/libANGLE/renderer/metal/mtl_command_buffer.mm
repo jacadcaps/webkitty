@@ -8,6 +8,10 @@
 //      MTLCommandEncoder's wrappers.
 //
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_libc_calls
+#endif
+
 #include "libANGLE/renderer/metal/mtl_command_buffer.h"
 
 #include <cassert>
@@ -593,6 +597,26 @@ bool CommandQueue::waitUntilSerialCompleted(uint64_t serial, uint64_t timeoutNs)
     return true;
 }
 
+bool CommandQueue::isSerialScheduled(uint64_t serial) const
+{
+    return mScheduledBufferSerial.load() >= serial;
+}
+
+void CommandQueue::addCommandBufferScheduledCallback(uint64_t serial,
+                                                     std::function<void()> callback)
+{
+    std::lock_guard<std::mutex> lg(mLock);
+    if (isSerialScheduled(serial))
+    {
+        // Run the callback immediately if the command buffer for `serial` was already scheduled.
+        callback();
+    }
+    else
+    {
+        mCommandBufferScheduledCallbacks[serial].push_back(std::move(callback));
+    }
+}
+
 angle::ObjCPtr<id<MTLCommandBuffer>> CommandQueue::makeMetalCommandBuffer(uint64_t *queueSerialOut)
 {
     ANGLE_MTL_OBJC_SCOPE
@@ -613,6 +637,10 @@ angle::ObjCPtr<id<MTLCommandBuffer>> CommandQueue::makeMetalCommandBuffer(uint64
             addCommandBufferToTimeElapsedEntry(lg, timeElapsedEntry);
         }
 
+        [metalCmdBuffer addScheduledHandler:^(id<MTLCommandBuffer> buf) {
+          onCommandBufferScheduled(serial);
+        }];
+
         [metalCmdBuffer addCompletedHandler:^(id<MTLCommandBuffer> buf) {
           onCommandBufferCompleted(buf, serial, timeElapsedEntry);
         }];
@@ -630,6 +658,25 @@ void CommandQueue::onCommandBufferCommitted(id<MTLCommandBuffer> buf, uint64_t s
     ANGLE_MTL_LOG("Committed MTLCommandBuffer %llu:%p", serial, buf);
 
     mCommittedBufferSerial.storeMaxValue(serial);
+}
+
+void CommandQueue::onCommandBufferScheduled(uint64_t serial)
+{
+    std::vector<std::function<void()>> callbacks;
+    {
+        std::lock_guard<std::mutex> lg(mLock);
+        auto it = mCommandBufferScheduledCallbacks.find(serial);
+        if (it != mCommandBufferScheduledCallbacks.end())
+        {
+            callbacks = std::move(it->second);
+            mCommandBufferScheduledCallbacks.erase(it);
+        }
+        mScheduledBufferSerial.storeMaxValue(serial);
+    }
+    for (const auto &callback : callbacks)
+    {
+        callback();
+    }
 }
 
 void CommandQueue::onCommandBufferCompleted(id<MTLCommandBuffer> buf,
@@ -837,19 +884,17 @@ void CommandBuffer::wait(CommandBufferFinishOperation operation)
 
         case WaitUntilScheduled:
             // Only wait if we haven't already waited
-            if (mLastWaitOp == NoWait)
+            if (!mCmdQueue.isSerialScheduled(mQueueSerial))
             {
                 [get() waitUntilScheduled];
-                mLastWaitOp = WaitUntilScheduled;
             }
             break;
 
         case WaitUntilFinished:
             // Only wait if we haven't already waited until finished.
-            if (mLastWaitOp != WaitUntilFinished)
+            if (!mCmdQueue.isSerialCompleted(mQueueSerial))
             {
                 [get() waitUntilCompleted];
-                mLastWaitOp = WaitUntilFinished;
             }
             break;
     }
@@ -952,7 +997,6 @@ void CommandBuffer::restart()
     set(metalCmdBuffer);
     mQueueSerial = serial;
     mCommitted   = false;
-    mLastWaitOp  = mtl::NoWait;
 
     for (std::string &marker : mDebugGroups)
     {
@@ -1894,8 +1938,10 @@ RenderCommandEncoder &RenderCommandEncoder::setScissorRect(const MTLScissorRect 
         clampedRect.x      = (NSUInteger)roundf(adjustedOrigin.x);
         clampedRect.y      = (NSUInteger)roundf(adjustedOrigin.y);
         MTLSize screenSize = [map screenSize];
-        clampedRect.width  = std::min(screenSize.width, static_cast<NSUInteger>(roundf(adjustedSize.x)));
-        clampedRect.height = std::min(screenSize.height, static_cast<NSUInteger>(roundf(adjustedSize.y)));
+        clampedRect.width =
+            std::min(screenSize.width, static_cast<NSUInteger>(roundf(adjustedSize.x)));
+        clampedRect.height =
+            std::min(screenSize.height, static_cast<NSUInteger>(roundf(adjustedSize.y)));
     }
 
     mCommands.push(CmdType::SetScissorRect).push(clampedRect);

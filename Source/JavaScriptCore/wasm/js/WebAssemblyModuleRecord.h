@@ -25,11 +25,13 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if ENABLE(WEBASSEMBLY)
 
-#include "AbstractModuleRecord.h"
-#include "WasmCreationMode.h"
-#include "WasmModuleInformation.h"
+#include <JavaScriptCore/AbstractModuleRecord.h>
+#include <JavaScriptCore/WasmCreationMode.h>
+#include <JavaScriptCore/WasmModuleInformation.h>
 
 namespace JSC {
 

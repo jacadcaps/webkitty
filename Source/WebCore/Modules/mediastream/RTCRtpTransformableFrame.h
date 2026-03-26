@@ -26,7 +26,7 @@
 
 #if ENABLE(WEB_RTC)
 
-#include "RTCRtpScriptTransformer.h"
+#include <WebCore/RTCRtpScriptTransformer.h>
 #include <span>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/Vector.h>
@@ -78,6 +78,8 @@ public:
 
     void setTransformer(RTCRtpScriptTransformer&);
     bool isFromTransformer(RTCRtpScriptTransformer& transformer) const { return &transformer == m_transformer.get(); }
+
+    virtual bool isLibWebRTCRtpTransformableFrame() const { return false; }
 
 private:
     WeakPtr<RTCRtpScriptTransformer> m_transformer;

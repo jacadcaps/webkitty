@@ -35,10 +35,10 @@ from datetime import datetime, timezone
 from twisted.internet import defer
 
 from .factories import (APITestsFactory, BindingsFactory, BuildFactory, CommitQueueFactory, Factory, GTKBuildFactory,
-                        GTKTestsFactory, JSCBuildFactory, JSCBuildAndTestsFactory, JSCTestsFactory, MergeQueueFactory, SafeMergeQueueFactory, StressTestFactory,
-                        StyleFactory, TestFactory, tvOSBuildFactory, WPEBuildFactory, WPECairoBuildFactory, WPETestsFactory, WebKitPerlFactory, WebKitPyFactory, PlayStationBuildFactory,
+                        GTKTestsFactory, JSCBuildFactory, JSCBuildAndTestsFactory, JSCBuildO3AndTestsFactory, JSCTestsFactory, MergeQueueFactory, SafeMergeQueueFactory, StressTestFactory,
+                        StyleFactory, TestFactory, tvOSBuildFactory, WPEBuildFactory, WPECairoLibWebRTCBuildFactory, WPETestsFactory, WebKitPerlFactory, WebKitPyFactory, PlayStationBuildFactory,
                         WinBuildFactory, WinTestsFactory, iOSBuildFactory, iOSEmbeddedBuildFactory, iOSTestsFactory,  visionOSBuildFactory, visionOSEmbeddedBuildFactory, visionOSTestsFactory, macOSBuildFactory, macOSBuildOnlyFactory,
-                        macOSWK1Factory, macOSWK2Factory, ServicesFactory, SaferCPPStaticAnalyzerFactory, UnsafeMergeQueueFactory, WatchListFactory, watchOSBuildFactory)
+                        macOSWK1Factory, macOSWK2Factory, ServicesFactory, SaferCPPStaticAnalyzerFactory, UnsafeMergeQueueFactory, watchOSBuildFactory)
 
 from .utils import get_custom_suffix
 
@@ -111,7 +111,7 @@ def loadBuilderConfig(c, is_test_mode_enabled=False, setup_main_schedulers=True,
     forceScheduler = ForceScheduler(
         name='try_build',
         buttonName='Try Build',
-        reason=StringParameter(name='reason', default='Trying patch', size=20),
+        reason=StringParameter(name='reason', default='Trying pull request', size=20),
         builderNames=[str(builder['name']) for builder in config['builders']],
         # Disable default enabled input fields: branch, repository, project, additional properties
         codebases=[CodebaseParameter('',
@@ -120,7 +120,7 @@ def loadBuilderConfig(c, is_test_mode_enabled=False, setup_main_schedulers=True,
                    project=FixedParameter(name='project', default=''),
                    branch=FixedParameter(name='branch', default=''))],
         # Add custom properties needed
-        properties=[StringParameter(name='patch_id', label='Patch id (not bug number)', regex=r'^[4-9]\d{5}$', required=True, maxsize=6),
+        properties=[StringParameter(name='pr_number', label='Pull Request number (not bug number)', regex=r'^[0-9]{5,6}$', required=True, maxsize=6),
                     StringParameter(name='ews_revision', label='WebKit git hash to checkout before trying patch (optional)', required=False, maxsize=40)],
     )
     if setup_force_schedulers is True:

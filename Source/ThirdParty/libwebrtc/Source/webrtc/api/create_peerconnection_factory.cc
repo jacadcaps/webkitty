@@ -19,15 +19,12 @@
 #include "api/audio/builtin_audio_processing_builder.h"
 #include "api/audio_codecs/audio_decoder_factory.h"
 #include "api/audio_codecs/audio_encoder_factory.h"
+#include "api/create_modular_peer_connection_factory.h"
 #include "api/enable_media.h"
 #include "api/environment/environment_factory.h"
 #include "api/field_trials_view.h"
 #include "api/peer_connection_interface.h"
 #include "api/rtc_event_log/rtc_event_log_factory.h"
-#if defined(WEBRTC_WEBKIT_BUILD)
-#include "api/task_queue/default_task_queue_factory.h"
-#endif
-#include "api/transport/field_trial_based_config.h"
 #include "api/scoped_refptr.h"
 #include "api/video_codecs/video_decoder_factory.h"
 #include "api/video_codecs/video_encoder_factory.h"
@@ -47,30 +44,16 @@ scoped_refptr<PeerConnectionFactoryInterface> CreatePeerConnectionFactory(
     scoped_refptr<AudioMixer> audio_mixer,
     scoped_refptr<AudioProcessing> audio_processing,
     std::unique_ptr<AudioFrameProcessor> audio_frame_processor,
-    std::unique_ptr<FieldTrialsView> field_trials
-#if defined(WEBRTC_WEBKIT_BUILD)
-    , std::unique_ptr<TaskQueueFactory> task_queue_factory
-#endif
-  ) {
-  if (!field_trials) {
-    field_trials = std::make_unique<webrtc::FieldTrialBasedConfig>();
-  }
-
+    std::unique_ptr<FieldTrialsView> field_trials) {
   PeerConnectionFactoryDependencies dependencies;
   dependencies.network_thread = network_thread;
   dependencies.worker_thread = worker_thread;
   dependencies.signaling_thread = signaling_thread;
-#if defined(WEBRTC_WEBKIT_BUILD)
-  dependencies.task_queue_factory = task_queue_factory ? std::move(task_queue_factory) : CreateDefaultTaskQueueFactory(field_trials.get());
-#else
-  dependencies.task_queue_factory =
-      CreateDefaultTaskQueueFactory(field_trials.get());
-#endif
   dependencies.event_log_factory = std::make_unique<RtcEventLogFactory>();
   dependencies.env = CreateEnvironment(std::move(field_trials));
 
   if (network_thread) {
-    // TODO(bugs.webrtc.org/13145): Add an webrtc::SocketFactory* argument.
+    // TODO(bugs.webrtc.org/13145): Add an SocketFactory* argument.
     dependencies.socket_factory = network_thread->socketserver();
   }
   dependencies.adm = std::move(default_adm);

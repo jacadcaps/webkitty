@@ -57,7 +57,7 @@ class RemotePresentationContext final : public IPC::StreamMessageReceiver {
 public:
     static Ref<RemotePresentationContext> create(GPUConnectionToWebProcess& gpuConnectionToWebProcess, RemoteGPU& gpu, WebCore::WebGPU::PresentationContext& presentationContext, WebGPU::ObjectHeap& objectHeap, Ref<IPC::StreamServerConnection>&& streamConnection, WebGPUIdentifier identifier)
     {
-        return adoptRef(*new RemotePresentationContext(gpuConnectionToWebProcess, gpu, presentationContext, objectHeap, WTFMove(streamConnection), identifier));
+        return adoptRef(*new RemotePresentationContext(gpuConnectionToWebProcess, gpu, presentationContext, objectHeap, WTF::move(streamConnection), identifier));
     }
 
     virtual ~RemotePresentationContext();

@@ -114,7 +114,40 @@ static RetainPtr<TestWKWebView> createWebViewWithIPCTestingAPI()
     return adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 300, 300) configuration:configuration.get()]);
 }
 
+static RetainPtr<TestWKWebView> createWebViewWithIPCTestingAPIAndLockdownMode(bool lockdownModeEnabled)
+{
+    RetainPtr<WKWebViewConfiguration> configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+
+    for (_WKFeature *feature in [WKPreferences _features]) {
+        if ([feature.key isEqualToString:@"IPCTestingAPIEnabled"]) {
+            [[configuration preferences] _setEnabled:YES forFeature:feature];
+            break;
+        }
+    }
+
+    if (lockdownModeEnabled) {
+        [WKProcessPool _setCaptivePortalModeEnabledGloballyForTesting:YES];
+
+        RetainPtr<WKWebpagePreferences> webpagePreferences = adoptNS([[WKWebpagePreferences alloc] init]);
+        [webpagePreferences setLockdownModeEnabled:YES];
+        [configuration setDefaultWebpagePreferences:webpagePreferences.get()];
+    } else {
+        [WKProcessPool _setCaptivePortalModeEnabledGloballyForTesting:NO];
+
+        RetainPtr<WKWebpagePreferences> webpagePreferences = adoptNS([[WKWebpagePreferences alloc] init]);
+        [webpagePreferences setLockdownModeEnabled:NO];
+        [configuration setDefaultWebpagePreferences:webpagePreferences.get()];
+    }
+
+    return adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 300, 300) configuration:configuration.get()]);
+}
+
+// FIX ME: Re-enable this test once https://bugs.webkit.org/show_bug.cgi?id=300930 is resolved
+#if PLATFORM(MAC) && CPU(X86_64) && !defined(NDEBUG)
+TEST(IPCTestingAPI, DISABLED_CanDetectNilReplyBlocks)
+#else
 TEST(IPCTestingAPI, CanDetectNilReplyBlocks)
+#endif
 {
     auto webView = createWebViewWithIPCTestingAPI();
 
@@ -627,19 +660,222 @@ TEST(IPCTestingAPI, SerializedTypeInfo)
     NSDictionary *expectedDictionary = @{
         @"isOptionSet" : @1,
         @"size" : @1,
-        @"validValues" : @[@1, @2]
+        @"validValues" : @[@1, @2],
+        @"valueMap" : @[@{@"value": @1, @"name": @"ComputeSizes"}, @{@"value": @2, @"name": @"DoNotCreateProcesses"}]
     };
     NSDictionary *enumInfo = [webView objectByEvaluatingJavaScript:@"IPC.serializedEnumInfo"];
     EXPECT_TRUE([enumInfo[@"WebKit::WebsiteDataFetchOption"] isEqualToDictionary:expectedDictionary]);
     NSDictionary *expectedMouseEventButtonDictionary = @{
         @"isOptionSet" : @NO,
         @"size" : @1,
-        @"validValues" : @[@0, @1, @2, @254]
+        @"validValues" : @[@0, @1, @2, @3, @4, @254],
+        @"valueMap" : @[@{@"value": @0, @"name": @"Left"}, @{@"value": @1, @"name": @"Middle"}, @{@"value": @2, @"name": @"Right"}, @{@"value": @3, @"name": @"Back"}, @{@"value": @4, @"name": @"Forward"}, @{@"value": @254, @"name": @"None"}]
     };
     EXPECT_TRUE([enumInfo[@"WebKit::WebMouseEventButton"] isEqualToDictionary:expectedMouseEventButtonDictionary]);
 
     NSArray *objectIdentifiers = [webView objectByEvaluatingJavaScript:@"IPC.objectIdentifiers"];
     EXPECT_TRUE([objectIdentifiers containsObject:@"WebCore::PageIdentifier"]);
+}
+
+TEST(IPCTestingAPI, LockdownModeDisablesWebGL)
+{
+    auto webView = createWebViewWithIPCTestingAPIAndLockdownMode(true);
+
+    auto delegate = adoptNS([[IPCTestingAPIDelegate alloc] init]);
+    [webView setUIDelegate:delegate.get()];
+
+    done = false;
+    [webView synchronouslyLoadHTMLString:@"<!DOCTYPE html><script>"
+        "const canvas = document.createElement('canvas');"
+        "const gl = canvas.getContext('webgl');"
+        "alert(gl === null ? 'webgl_disabled' : 'webgl_enabled');"
+        "</script>"];
+    TestWebKitAPI::Util::run(&done);
+
+    EXPECT_TRUE([alertMessage isEqualToString:@"webgl_disabled"]);
+
+    [WKProcessPool _clearCaptivePortalModeEnabledGloballyForTesting];
+}
+
+TEST(IPCTestingAPI, LockdownModeDisabledAllowsWebGL)
+{
+    auto webView = createWebViewWithIPCTestingAPIAndLockdownMode(false);
+
+    auto delegate = adoptNS([[IPCTestingAPIDelegate alloc] init]);
+    [webView setUIDelegate:delegate.get()];
+
+    done = false;
+    [webView synchronouslyLoadHTMLString:@"<!DOCTYPE html><script>"
+        "const canvas = document.createElement('canvas');"
+        "const gl = canvas.getContext('webgl');"
+        "alert(gl !== null ? 'webgl_enabled' : 'webgl_disabled');"
+        "</script>"];
+    TestWebKitAPI::Util::run(&done);
+
+    EXPECT_TRUE([alertMessage isEqualToString:@"webgl_enabled"]);
+}
+
+TEST(IPCTestingAPI, LockdownModeDetection)
+{
+    // Test with lockdown mode enabled
+    {
+        auto webViewLockdown = createWebViewWithIPCTestingAPIAndLockdownMode(true);
+        auto delegate = adoptNS([[IPCTestingAPIDelegate alloc] init]);
+        [webViewLockdown setUIDelegate:delegate.get()];
+
+        [webViewLockdown synchronouslyLoadHTMLString:@"<!DOCTYPE html><html><body>Test</body></html>"];
+
+        NSString *webglResult = [webViewLockdown stringByEvaluatingJavaScript:@"(function() { try { const canvas = document.createElement('canvas'); return canvas.getContext('webgl') === null; } catch(e) { return true; } })()"];
+        NSLog(@"WebGL disabled in lockdown mode: %@", webglResult);
+
+        NSString *webgpuResult = [webViewLockdown stringByEvaluatingJavaScript:@"(function() { try { return typeof navigator.gpu === 'undefined'; } catch(e) { return true; } })()"];
+        NSLog(@"WebGPU disabled in lockdown mode: %@", webgpuResult);
+
+        NSString *speechResult = [webViewLockdown stringByEvaluatingJavaScript:@"(function() { try { return typeof webkitSpeechRecognition === 'undefined' && typeof SpeechRecognition === 'undefined'; } catch(e) { return true; } })()"];
+        NSLog(@"Speech Recognition disabled in lockdown mode: %@", speechResult);
+
+        NSString *disabledCountResult = [webViewLockdown stringByEvaluatingJavaScript:@"(function() { "
+            "let count = 0; "
+            "try { const canvas = document.createElement('canvas'); if (canvas.getContext('webgl') === null) count++; } catch(e) { count++; } "
+            "try { if (typeof navigator.gpu === 'undefined') count++; } catch(e) { count++; } "
+            "try { if (typeof webkitSpeechRecognition === 'undefined' && typeof SpeechRecognition === 'undefined') count++; } catch(e) { count++; } "
+            "return count; "
+            "})()"];
+
+        int disabledCount = [disabledCountResult intValue];
+        NSLog(@"Total disabled APIs in lockdown mode: %d", disabledCount);
+
+        EXPECT_GT(disabledCount, 0);
+    }
+
+    // Test with lockdown mode disabled
+    {
+        auto webViewNormal = createWebViewWithIPCTestingAPIAndLockdownMode(false);
+        auto delegate = adoptNS([[IPCTestingAPIDelegate alloc] init]);
+        [webViewNormal setUIDelegate:delegate.get()];
+
+        [webViewNormal synchronouslyLoadHTMLString:@"<!DOCTYPE html><html><body>Test</body></html>"];
+
+        NSLog(@"Testing normal mode - checking API availability directly...");
+
+        NSString *webglResult = [webViewNormal stringByEvaluatingJavaScript:@"(function() { try { const canvas = document.createElement('canvas'); return canvas.getContext('webgl') !== null; } catch(e) { return false; } })()"];
+        NSLog(@"WebGL available in normal mode: %@", webglResult);
+
+        NSString *webgpuResult = [webViewNormal stringByEvaluatingJavaScript:@"(function() { try { return typeof navigator.gpu !== 'undefined'; } catch(e) { return false; } })()"];
+        NSLog(@"WebGPU available in normal mode: %@", webgpuResult);
+
+        NSString *speechResult = [webViewNormal stringByEvaluatingJavaScript:@"(function() { try { return typeof webkitSpeechRecognition !== 'undefined' || typeof SpeechRecognition !== 'undefined'; } catch(e) { return false; } })()"];
+        NSLog(@"Speech Recognition available in normal mode: %@", speechResult);
+
+        NSString *availableCountResult = [webViewNormal stringByEvaluatingJavaScript:@"(function() { "
+            "let count = 0; "
+            "try { const canvas = document.createElement('canvas'); if (canvas.getContext('webgl') !== null) count++; } catch(e) { } "
+            "try { if (typeof navigator.gpu !== 'undefined') count++; } catch(e) { } "
+            "try { if (typeof webkitSpeechRecognition !== 'undefined' || typeof SpeechRecognition !== 'undefined') count++; } catch(e) { } "
+            "return count; "
+            "})()"];
+
+        int availableCount = [availableCountResult intValue];
+        NSLog(@"Total available APIs in normal mode: %d", availableCount);
+
+        NSLog(@"Normal mode API availability check completed (count: %d)", availableCount);
+    }
+
+    [WKProcessPool _setCaptivePortalModeEnabledGloballyForTesting:NO];
+}
+
+TEST(IPCTestingAPI, SpeechSynthesisWithFeatureFlag)
+{
+    // Test 1: Feature flag enabled - message should succeed
+    {
+        auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+        for (_WKFeature *feature in [WKPreferences _features]) {
+            if ([feature.key isEqualToString:@"IPCTestingAPIEnabled"])
+                [[configuration preferences] _setEnabled:YES forFeature:feature];
+            if ([feature.key isEqualToString:@"SpeechSynthesisAPIEnabled"])
+                [[configuration preferences] _setEnabled:YES forFeature:feature];
+        }
+        auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+
+        auto delegate = adoptNS([[IPCTestingAPIDelegate alloc] init]);
+        [webView setUIDelegate:delegate.get()];
+
+        NSURL *htmlURL = [NSBundle.test_resourcesBundle URLForResource:@"speechsynthesis_feature_test" withExtension:@"html"];
+        [webView loadRequest:[NSURLRequest requestWithURL:htmlURL]];
+
+        done = false;
+        TestWebKitAPI::Util::runFor(&done, 10_s);
+
+        NSLog(@"SpeechSynthesis feature test (enabled) result: %@", alertMessage.get());
+
+        EXPECT_TRUE(alertMessage.get() != nil);
+        EXPECT_TRUE([alertMessage containsString:@"speechsynthesis_message_sent_successfully"]);
+    }
+
+    // Test 2: Feature flag disabled - message should fail with cancel error
+    {
+        auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+        for (_WKFeature *feature in [WKPreferences _features]) {
+            if ([feature.key isEqualToString:@"IPCTestingAPIEnabled"])
+                [[configuration preferences] _setEnabled:YES forFeature:feature];
+            if ([feature.key isEqualToString:@"SpeechSynthesisAPIEnabled"])
+                [[configuration preferences] _setEnabled:NO forFeature:feature];
+        }
+        auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+
+        auto delegate = adoptNS([[IPCTestingAPIDelegate alloc] init]);
+        [webView setUIDelegate:delegate.get()];
+
+        NSURL *htmlURL = [NSBundle.test_resourcesBundle URLForResource:@"speechsynthesis_feature_test" withExtension:@"html"];
+        [webView loadRequest:[NSURLRequest requestWithURL:htmlURL]];
+
+        done = false;
+        TestWebKitAPI::Util::runFor(&done, 10_s);
+
+        NSLog(@"SpeechSynthesis feature test (disabled) result: %@", alertMessage.get());
+
+        EXPECT_TRUE(alertMessage.get() != nil);
+        EXPECT_TRUE([alertMessage containsString:@"speechsynthesis_enabledby_blocked"]
+            && [alertMessage containsString:@"Receiver cancelled the reply due to invalid destination or deserialization error"]);
+    }
+}
+
+TEST(IPCTestingAPI, SpeechSynthesisWithLockdownMode)
+{
+    [WKProcessPool _setCaptivePortalModeEnabledGloballyForTesting:YES];
+
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    for (_WKFeature *feature in [WKPreferences _features]) {
+        if ([feature.key isEqualToString:@"IPCTestingAPIEnabled"])
+            [[configuration preferences] _setEnabled:YES forFeature:feature];
+        if ([feature.key isEqualToString:@"SpeechSynthesisAPIEnabled"]) {
+            // Even with feature enabled, lockdown mode should disable it
+            [[configuration preferences] _setEnabled:YES forFeature:feature];
+        }
+    }
+
+    RetainPtr<WKWebpagePreferences> webpagePreferences = adoptNS([[WKWebpagePreferences alloc] init]);
+    [webpagePreferences setLockdownModeEnabled:YES];
+    [configuration setDefaultWebpagePreferences:webpagePreferences.get()];
+
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+
+    auto delegate = adoptNS([[IPCTestingAPIDelegate alloc] init]);
+    [webView setUIDelegate:delegate.get()];
+
+    NSURL *htmlURL = [NSBundle.test_resourcesBundle URLForResource:@"speechsynthesis_lockdown_test" withExtension:@"html"];
+    [webView loadRequest:[NSURLRequest requestWithURL:htmlURL]];
+
+    done = false;
+    TestWebKitAPI::Util::runFor(&done, 10_s);
+
+    NSLog(@"SpeechSynthesis lockdown test result: %@", alertMessage.get());
+
+    EXPECT_TRUE(alertMessage.get() != nil);
+    EXPECT_TRUE([alertMessage containsString:@"speechsynthesis_lockdown_correctly_blocked"]
+        && [alertMessage containsString:@"Receiver cancelled the reply due to invalid destination or deserialization error"]);
+
+    [WKProcessPool _setCaptivePortalModeEnabledGloballyForTesting:NO];
 }
 
 #endif

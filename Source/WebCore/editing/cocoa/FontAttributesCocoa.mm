@@ -39,10 +39,24 @@
 
 namespace WebCore {
 
-static NSString *cocoaTextListMarkerName(const Style::ListStyleType& styleType, bool ordered)
+static RetainPtr<NSString> cocoaTextListMarkerName(const Style::ListStyleType& styleType, bool ordered)
 {
+    // See https://developer.apple.com/documentation/appkit/nstextlist/init(markerformat:options:)
+    // for the description of the expected format string for a marker format.
+
     return WTF::switchOn(styleType,
-        [&](const Style::CounterStyle& counterStyle) {
+        [&](const Style::CounterStyle& counterStyle) -> RetainPtr<NSString> {
+            // Each of these keywords intrinsically denotes if the NSTextList is considered ordered or not,
+            // which may or may not be logically consistent with the semantics of an element's <ol> / <ul> tag,
+            // but *is* consistent with the list style type, which takes precedent per the specification.
+            //
+            // Consequently, a <ul> element with a list-style-type of `decimal` for example will have the
+            // following properties when converted to an NSTextList:
+            //
+            // - The marker format would be NSTextListMarkerDecimal aka `{decimal}`
+            // - The marker would be `n` where `n` is the list element ordinal
+            // - The list will be considered "ordered".
+
             if (counterStyle == CSSValueDisc)
                 return NSTextListMarkerDisc;
             if (counterStyle == CSSValueCircle)
@@ -74,8 +88,14 @@ static NSString *cocoaTextListMarkerName(const Style::ListStyleType& styleType, 
             // Fall back to default styles for ordered and unordered lists.
             return ordered ? NSTextListMarkerDecimal : NSTextListMarkerDisc;
         },
-        [&](const auto&) {
-            return ordered ? NSTextListMarkerDecimal : NSTextListMarkerDisc;
+        [&](const CSS::Keyword::None&) {
+            return retainPtr(ordered ? NSTextListMarkerDecimal : NSTextListMarkerDisc);
+        },
+        [&](const AtomString& identifier) {
+            // The marker for the marker format `{<identifier>}` is `n` where `n` is the item ordinal, and the list is considered ordered.
+            // The marker for the marker format `<identifier>` is `<identifier>`, and the list is considered unordered.
+            auto format = ordered ? makeString("{"_s, identifier, "}"_s) : identifier;
+            return format.createNSString();
         }
     );
 }
@@ -85,9 +105,9 @@ RetainPtr<NSTextList> TextList::createTextList() const
 #if PLATFORM(MAC)
     Class textListClass = NSTextList.class;
 #else
-    Class textListClass = PAL::getNSTextListClass();
+    Class textListClass = PAL::getNSTextListClassSingleton();
 #endif
-    auto result = adoptNS([[textListClass alloc] initWithMarkerFormat:cocoaTextListMarkerName(styleType, ordered) options:0]);
+    RetainPtr result = adoptNS([[textListClass alloc] initWithMarkerFormat:cocoaTextListMarkerName(styleType, ordered).get() options:0]);
     [result setStartingItemNumber:startingItemNumber];
     return result;
 }
@@ -95,7 +115,7 @@ RetainPtr<NSTextList> TextList::createTextList() const
 RetainPtr<NSDictionary> FontAttributes::createDictionary() const
 {
     NSMutableDictionary *attributes = [NSMutableDictionary dictionary];
-    if (RetainPtr cocoaFont = font ? bridge_cast(font->getCTFont()) : nil)
+    if (RetainPtr cocoaFont = font ? bridge_cast(font->ctFont()) : nil)
         attributes[NSFontAttributeName] = cocoaFont.get();
 
     if (foregroundColor.isValid())
@@ -115,7 +135,7 @@ RetainPtr<NSDictionary> FontAttributes::createDictionary() const
 #if PLATFORM(MAC)
     Class paragraphStyleClass = NSParagraphStyle.class;
 #else
-    Class paragraphStyleClass = PAL::getNSParagraphStyleClass();
+    Class paragraphStyleClass = PAL::getNSParagraphStyleClassSingleton();
 #endif
     auto style = adoptNS([[paragraphStyleClass defaultParagraphStyle] mutableCopy]);
 

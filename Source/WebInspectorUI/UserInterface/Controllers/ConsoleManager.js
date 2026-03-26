@@ -90,6 +90,10 @@ WI.ConsoleManager = class ConsoleManager extends WI.Object
 
     initializeTarget(target)
     {
+        // FIXME: <https://webkit.org/b/298911> Add Console support for FrameTarget.
+        if (target instanceof WI.FrameTarget)
+            return;
+
         // Intentionally defer ConsoleAgent initialization to the end. We do this so that any
         // previous initialization messages will have their responses arrive before a stream
         // of console message added events come in after enabling Console.
@@ -240,19 +244,24 @@ WI.ConsoleManager = class ConsoleManager extends WI.Object
         console.assert(false, "not reached");
     }
 
-    messageRepeatCountUpdated(count, timestamp)
+    messageRepeatCountUpdated(target, count, timestamp)
     {
         this._incrementMessageLevelCount(this._lastMessageLevel, 1);
 
-        this.dispatchEventToListeners(WI.ConsoleManager.Event.PreviousMessageRepeatCountUpdated, {count, timestamp});
+        this.dispatchEventToListeners(WI.ConsoleManager.Event.PreviousMessageRepeatCountUpdated, {target, count, timestamp});
     }
 
     requestClearMessages()
     {
         this._clearMessagesRequested = true;
 
-        for (let target of WI.targets)
+        for (let target of WI.targets) {
+            // FIXME: <https://webkit.org/b/298911> Add Console support for FrameTarget.
+            if (target instanceof WI.FrameTarget)
+                continue;
+
             target.ConsoleAgent.clearMessages();
+        }
     }
 
     initializeLogChannels(target)

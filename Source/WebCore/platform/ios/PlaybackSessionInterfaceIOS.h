@@ -25,13 +25,14 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
 #if PLATFORM(COCOA) && HAVE(AVKIT)
 
-#include "EventListener.h"
-#include "HTMLMediaElementEnums.h"
-#include "MediaPlayerIdentifier.h"
-#include "PlaybackSessionModel.h"
-#include "Timer.h"
+#include <WebCore/EventListener.h>
+#include <WebCore/HTMLMediaElementEnums.h>
+#include <WebCore/MediaPlayerIdentifier.h>
+#include <WebCore/PlaybackSessionModel.h>
+#include <WebCore/Timer.h>
 #include <functional>
 #include <objc/objc.h>
 #include <wtf/CheckedRef.h>
@@ -105,10 +106,11 @@ protected:
     WeakPtr<PlaybackSessionModel> m_playbackSessionModel;
 
     // CheckedPtr interface
-    uint32_t checkedPtrCount() const final;
-    uint32_t checkedPtrCountWithoutThreadCheck() const final;
-    void incrementCheckedPtrCount() const final;
-    void decrementCheckedPtrCount() const final;
+    uint32_t checkedPtrCount() const final { return CanMakeCheckedPtr::checkedPtrCount(); }
+    uint32_t checkedPtrCountWithoutThreadCheck() const final { return CanMakeCheckedPtr::checkedPtrCountWithoutThreadCheck(); }
+    void incrementCheckedPtrCount() const final { CanMakeCheckedPtr::incrementCheckedPtrCount(); }
+    void decrementCheckedPtrCount() const final { CanMakeCheckedPtr::decrementCheckedPtrCount(); }
+    void setDidBeginCheckedPtrDeletion() final { CanMakeCheckedPtr::setDidBeginCheckedPtrDeletion(); }
 
     WeakPtr<VideoPresentationInterfaceIOS> m_videoPresentationInterface;
 

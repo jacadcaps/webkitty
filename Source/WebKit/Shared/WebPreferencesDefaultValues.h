@@ -37,7 +37,7 @@
 #if defined(ENABLE_WEBGPU_BY_DEFAULT) && ENABLE_WEBGPU_BY_DEFAULT
 #define Webgpu_feature_status Stable
 #else
-#define Webgpu_feature_status Preview
+#define Webgpu_feature_status Unstable
 #endif
 
 #if defined(ENABLE_WEBGPU_BY_DEFAULT) && ENABLE_WEBGPU_BY_DEFAULT && defined(HAVE_SUPPORT_HDR_DISPLAY) && HAVE_SUPPORT_HDR_DISPLAY
@@ -66,10 +66,16 @@
 #define Backdropfilter_feature_status Testable
 #endif
 
-#if defined(ENABLE_MODEL_ELEMENT) && ENABLE_MODEL_ELEMENT && PLATFORM(VISION)
+#if defined(ENABLE_MODEL_ELEMENT) && ENABLE_MODEL_ELEMENT && (PLATFORM(VISION) || ENABLE(GPU_PROCESS_MODEL))
 #define Modelelement_feature_status Stable
 #else
 #define Modelelement_feature_status Testable
+#endif
+
+#if HAVE(COMPLETE_WEB_TRANSPORT)
+#define Web_transport_status Stable
+#else
+#define Web_transport_status Testable
 #endif
 
 namespace WebKit {
@@ -98,11 +104,13 @@ bool defaultScrollAnimatorEnabled();
 bool defaultPassiveWheelListenersAsDefaultOnDocument();
 bool defaultWheelEventGesturesBecomeNonBlocking();
 bool defaultAppleMailPaginationQuirkEnabled();
+bool defaultUseAppKitGestures();
 #endif
 
 #if ENABLE(MEDIA_STREAM)
 bool defaultCaptureAudioInGPUProcessEnabled();
 bool defaultManageCaptureStatusBarInGPUProcessEnabled();
+double defaultInactiveMediaCaptureStreamRepromptWithoutUserGestureIntervalInMinutes();
 #endif
 
 #if ENABLE(MEDIA_SOURCE) && PLATFORM(IOS_FAMILY)
@@ -111,6 +119,7 @@ bool defaultMediaSourceEnabled();
 
 #if ENABLE(MEDIA_SOURCE)
 bool defaultManagedMediaSourceEnabled();
+bool defaultMediaSourcePrefersDecompressionSession();
 #if ENABLE(WIRELESS_PLAYBACK_TARGET)
 bool defaultManagedMediaSourceNeedsAirPlay();
 #endif
@@ -140,6 +149,10 @@ bool defaultVisuallyContiguousBidiTextSelectionEnabled();
 bool defaultBidiContentAwarePasteEnabled();
 #endif
 
+#if PLATFORM(COCOA)
+bool defaultExtendedProofreadingEnabled();
+#endif
+
 bool defaultRunningBoardThrottlingEnabled();
 bool defaultShouldDropNearSuspendedAssertionAfterDelay();
 bool defaultShouldTakeNearSuspendedAssertion();
@@ -153,6 +166,7 @@ bool defaultUseGPUProcessForDOMRenderingEnabled();
 #if USE(LIBWEBRTC)
 bool defaultPeerConnectionEnabledAvailable();
 #endif
+bool defaultWebRTCSocketsServiceClassEnabled();
 
 #if ENABLE(WEB_PUSH_NOTIFICATIONS)
 bool defaultBuiltInNotificationsEnabled();
@@ -183,9 +197,15 @@ bool defaultIFrameResourceMonitoringEnabled();
 bool defaultPreferSpatialAudioExperience();
 #endif
 
+bool defaultRTCEncodedStreamsQuirkEnabled();
+
 bool defaultMutationEventsEnabled();
 
 bool defaultTrustedTypesEnabled();
+
+bool defaultGetBoundingClientRectZoomedEnabled();
+bool defaultFacebookLiveRecordingQuirkEnabled();
+bool defaultFontFaceSetConstructorEnabled();
 
 #if HAVE(MATERIAL_HOSTING)
 bool defaultHostedBlurMaterialInMediaControlsEnabled();
@@ -195,6 +215,14 @@ bool defaultIOSurfaceLosslessCompressionEnabled();
 
 #if ENABLE(UNIFIED_PDF)
 bool defaultUnifiedPDFEnabled();
+#endif
+
+bool defaultScrollbarColorEnabled();
+
+bool defaultAllowMultipleCommitLayerTreePending();
+
+#if ENABLE(VIDEO)
+bool defaultCaptionDisplaySettingsEnabled();
 #endif
 
 } // namespace WebKit

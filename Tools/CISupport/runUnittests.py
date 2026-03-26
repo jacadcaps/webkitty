@@ -53,10 +53,6 @@ def main():
         import webkitpy
         from webkitpy.autoinstalled import buildbot
 
-    # This is work-around for https://bugs.webkit.org/show_bug.cgi?id=222361
-    from buildbot.process.buildstep import BuildStep
-    BuildStep.warn_deprecated_if_oldstyle_subclass = lambda self, name: None
-
     return run_unittests(path)
 
 

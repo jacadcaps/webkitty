@@ -23,7 +23,7 @@
 
 #include "ActiveDOMObject.h"
 #include "ContextDestructionObserverInlines.h"
-#include "DocumentInlines.h"
+#include "DocumentSettingsValues.h"
 #include "ExtendedDOMClientIsoSubspaces.h"
 #include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMAttribute.h"
@@ -124,7 +124,7 @@ void JSTestEnabledForContextPrototype::finishCreation(VM& vm)
 const ClassInfo JSTestEnabledForContext::s_info = { "TestEnabledForContext"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestEnabledForContext) };
 
 JSTestEnabledForContext::JSTestEnabledForContext(Structure* structure, JSDOMGlobalObject& globalObject, Ref<TestEnabledForContext>&& impl)
-    : JSDOMWrapper<TestEnabledForContext>(structure, globalObject, WTFMove(impl))
+    : JSDOMWrapper<TestEnabledForContext>(structure, globalObject, WTF::move(impl))
 {
 }
 
@@ -158,7 +158,7 @@ JSValue JSTestEnabledForContext::getConstructor(VM& vm, const JSGlobalObject* gl
 
 void JSTestEnabledForContext::destroy(JSC::JSCell* cell)
 {
-    JSTestEnabledForContext* thisObject = static_cast<JSTestEnabledForContext*>(cell);
+    SUPPRESS_MEMORY_UNSAFE_CAST JSTestEnabledForContext* thisObject = static_cast<JSTestEnabledForContext*>(cell);
     thisObject->JSTestEnabledForContext::~JSTestEnabledForContext();
 }
 
@@ -212,7 +212,7 @@ bool JSTestEnabledForContextOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::U
 
 void JSTestEnabledForContextOwner::finalize(JSC::Handle<JSC::Unknown> handle, void* context)
 {
-    auto* jsTestEnabledForContext = static_cast<JSTestEnabledForContext*>(handle.slot()->asCell());
+    SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestEnabledForContext = static_cast<JSTestEnabledForContext*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
     uncacheWrapper(world, jsTestEnabledForContext->protectedWrapped().ptr(), jsTestEnabledForContext);
 }
@@ -226,7 +226,7 @@ extern "C" { extern void (*const __identifier("??_7TestEnabledForContext@WebCore
 extern "C" { extern void* _ZTVN7WebCore21TestEnabledForContextE[]; }
 #endif
 template<std::same_as<TestEnabledForContext> T>
-static inline void verifyVTable(TestEnabledForContext* ptr) 
+static inline void verifyVTable(TestEnabledForContext* ptr)
 {
     if constexpr (std::is_polymorphic_v<T>) {
         const void* actualVTablePointer = getVTablePointer<T>(ptr);
@@ -246,12 +246,13 @@ static inline void verifyVTable(TestEnabledForContext* ptr)
 #endif
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestEnabledForContext>&& impl)
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<TestEnabledForContext>&& impl)
 {
+    UNUSED_PARAM(lexicalGlobalObject);
 #if ENABLE(BINDING_INTEGRITY)
     verifyVTable<TestEnabledForContext>(impl.ptr());
 #endif
-    return createWrapper<TestEnabledForContext>(globalObject, WTFMove(impl));
+    return createWrapper<TestEnabledForContext>(globalObject, WTF::move(impl));
 }
 
 JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestEnabledForContext& impl)

@@ -31,6 +31,7 @@
 #include "StreamMessageReceiver.h"
 #include "WebGPUIdentifier.h"
 #include <WebCore/AlphaPremultiplication.h>
+#include <WebCore/PlatformXR.h>
 #include <WebCore/RenderingResourceIdentifier.h>
 #include <WebCore/WebGPUIntegralTypes.h>
 #include <wtf/Ref.h>
@@ -44,6 +45,7 @@
 
 namespace PlatformXR {
 struct FrameData;
+struct RateMapDescription;
 }
 
 namespace WebCore {
@@ -73,7 +75,7 @@ class RemoteXRProjectionLayer final : public IPC::StreamMessageReceiver {
 public:
     static Ref<RemoteXRProjectionLayer> create(WebCore::WebGPU::XRProjectionLayer& xrProjectionLayer, WebGPU::ObjectHeap& objectHeap, Ref<IPC::StreamServerConnection>&& streamConnection, RemoteGPU& gpu, WebGPUIdentifier identifier)
     {
-        return adoptRef(*new RemoteXRProjectionLayer(xrProjectionLayer, objectHeap, WTFMove(streamConnection), gpu, identifier));
+        return adoptRef(*new RemoteXRProjectionLayer(xrProjectionLayer, objectHeap, WTF::move(streamConnection), gpu, identifier));
     }
 
     virtual ~RemoteXRProjectionLayer();
@@ -97,12 +99,10 @@ private:
     Ref<IPC::StreamServerConnection> protectedStreamConnection();
     Ref<RemoteGPU> protectedGPU() const;
 
-    RefPtr<IPC::Connection> connection() const;
-
     void didReceiveStreamMessage(IPC::StreamServerConnection&, IPC::Decoder&) final;
     void destruct();
 #if PLATFORM(COCOA)
-    void startFrame(uint64_t frameIndex, MachSendRight&& colorBuffer, MachSendRight&& depthBuffer, MachSendRight&& completionSyncEvent, uint64_t reusableTextureIndex);
+    void startFrame(uint64_t frameIndex, MachSendRight&& colorBuffer, MachSendRight&& depthBuffer, MachSendRight&& completionSyncEvent, uint64_t reusableTextureIndex, PlatformXR::RateMapDescription&&);
 #endif
     void endFrame();
 

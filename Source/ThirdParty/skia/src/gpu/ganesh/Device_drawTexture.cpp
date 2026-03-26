@@ -271,7 +271,10 @@ void Device::drawEdgeAAImage(const SkImage* image,
     if (tm == SkTileMode::kClamp && !ib->isYUVA() && can_use_draw_texture(paint, sampling)) {
         // We've done enough checks above to allow us to pass ClampNearest() and not check for
         // scaling adjustments.
-        auto [view, ct] = skgpu::ganesh::AsView(rContext, image, skgpu::Mipmapped::kNo);
+        auto [view, ct] = skgpu::ganesh::AsView(rContext,
+                                                image,
+                                                skgpu::Mipmapped::kNo,
+                                                this->targetProxy());
         if (!view) {
             return;
         }
@@ -330,7 +333,9 @@ void Device::drawEdgeAAImage(const SkImage* image,
     if (canUseTextureCoordsAsLocalCoords) {
         textureMatrix = SkMatrix::I();
     } else {
-        if (!srcToDst.invert(&textureMatrix)) {
+        if (auto inv = srcToDst.invert()) {
+            textureMatrix = *inv;
+        } else {
             return;
         }
     }
@@ -409,7 +414,7 @@ void Device::drawSpecial(SkSpecialImage* special,
 
     SkRect src = SkRect::Make(special->subset());
     SkRect dst = SkRect::MakeWH(special->width(), special->height());
-    SkMatrix srcToDst = SkMatrix::RectToRect(src, dst);
+    SkMatrix srcToDst = SkMatrix::RectToRectOrIdentity(src, dst);
 
     SkSamplingOptions sampling = SkSamplingOptions(downgrade_to_filter(origSampling));
     GrAA aa = fSurfaceDrawContext->chooseAA(paint);
@@ -459,8 +464,8 @@ void Device::drawCoverageMask(const SkSpecialImage* mask,
     // local coords for evaluating the skpaint, whereas the provided 'maskToDevice'
     // just places the coverage mask.
     SkMatrix localToDevice = this->localToDevice();
-    SkMatrix deviceToLocal;
-    if (!localToDevice.invert(&deviceToLocal)) {
+    auto deviceToLocal = localToDevice.invert();
+    if (!deviceToLocal) {
         return;
     }
 
@@ -474,13 +479,13 @@ void Device::drawCoverageMask(const SkSpecialImage* mask,
 
     SkTileMode tileModes[] = {SkTileMode::kDecal, SkTileMode::kDecal};
 
-    SkMatrix deviceToMask;
-    if (!maskToDevice.invert(&deviceToMask)) {
+    auto deviceToMask = maskToDevice.invert();
+    if (!deviceToMask) {
         return;
     }
     // 'textureMaskSpace' needs to map from local coords -> mask coords -> texture coords.
     SkMatrix textureMaskSpace = localToDevice;
-    textureMaskSpace.postConcat(deviceToMask);
+    textureMaskSpace.postConcat(*deviceToMask);
     textureMaskSpace.postTranslate(mask->subset().fLeft, mask->subset().fTop);
 
     SkRect maskSubset = SkRect::Make(mask->subset());
@@ -500,7 +505,7 @@ void Device::drawCoverageMask(const SkSpecialImage* mask,
     SkCanvas::QuadAAFlags aaFlags = (aa == GrAA::kYes) ? SkCanvas::kAll_QuadAAFlags
                                                        : SkCanvas::kNone_QuadAAFlags;
 
-    SkMatrix maskToLocal = SkMatrix::Concat(deviceToLocal, maskToDevice);
+    SkMatrix maskToLocal = SkMatrix::Concat(*deviceToLocal, maskToDevice);
     SkRect maskRect = SkRect::MakeWH(mask->width(), mask->height());
     // 'local' are mask points transformed to get local space. 'localToDevice' may
     // have a perspective transform that 'maskToDevice' doesn't so this is necessary.
@@ -649,7 +654,10 @@ void Device::drawEdgeAAImageSet(const SkCanvas::ImageSetEntry set[], int count,
         // drawImageQuad and the proper effect to dynamically sample their planes.
         if (!image->isYUVA()) {
             std::tie(view, std::ignore) =
-                    skgpu::ganesh::AsView(this->recordingContext(), image, skgpu::Mipmapped::kNo);
+                    skgpu::ganesh::AsView(this->recordingContext(),
+                                          image,
+                                          skgpu::Mipmapped::kNo,
+                                          this->targetProxy());
             if (image->isAlphaOnly()) {
                 skgpu::Swizzle swizzle = skgpu::Swizzle::Concat(view.swizzle(),
                                                                 skgpu::Swizzle("aaaa"));
@@ -726,23 +734,28 @@ bool Device::drawBlurredRRect(const SkRRect& rrect, const SkPaint& paint, float 
 
     std::unique_ptr<GrFragmentProcessor> fp;
 
-    SkRRect devRRect;
-    bool devRRectIsValid = rrect.transform(localToDevice, &devRRect);
+    auto devRRect = rrect.transform(localToDevice);
 
-    bool devRRectIsCircle = devRRectIsValid && SkRRectPriv::IsCircle(devRRect);
+    bool devRRectIsRect = devRRect.has_value() && (*devRRect).isRect();
+    bool devRRectIsCircle = devRRect.has_value() && SkRRectPriv::IsCircle(*devRRect);
 
-    bool canBeRect = rrect.isRect() && localToDevice.preservesRightAngles();
+    bool canBeRect = (rrect.isRect() && localToDevice.preservesRightAngles()) || devRRectIsRect;
     bool canBeCircle = (SkRRectPriv::IsCircle(rrect) && localToDevice.isSimilarity()) ||
                        devRRectIsCircle;
 
     if (canBeRect || canBeCircle) {
         if (canBeRect) {
-            fp = GrBlurUtils::MakeRectBlur(context, *context->priv().caps()->shaderCaps(),
-                                rrect.rect(), localToDevice, deviceSigma);
+            fp = GrBlurUtils::MakeRectBlur(
+                    context,
+                    *context->priv().caps()->shaderCaps(),
+                    rrect.rect(),
+                    devRRectIsRect ? std::optional((*devRRect).rect()) : std::nullopt,
+                    localToDevice,
+                    deviceSigma);
         } else {
             SkRect devBounds;
             if (devRRectIsCircle) {
-                devBounds = devRRect.getBounds();
+                devBounds = devRRect->getBounds();
             } else {
                 SkPoint center = localToDevice.mapPoint(rrect.getBounds().center());
                 SkScalar radius = localToDevice.mapVector(0, rrect.width()/2.f).length();
@@ -781,17 +794,17 @@ bool Device::drawBlurredRRect(const SkRRect& rrect, const SkPaint& paint, float 
     if (!localToDevice.rectStaysRect()) {
         return false;
     }
-    if (!devRRectIsValid || !SkRRectPriv::AllCornersCircular(devRRect)) {
+    if (!devRRect.has_value() || !SkRRectPriv::AllCornersCircular(*devRRect)) {
         return false;
     }
 
-    SkMatrix deviceToLocal;
-    if (!localToDevice.invert(&deviceToLocal)){
+    auto deviceToLocal = localToDevice.invert();
+    if (!deviceToLocal) {
         return false;
     }
-    float localSigma = deviceToLocal.mapRadius(deviceSigma);
+    float localSigma = deviceToLocal->mapRadius(deviceSigma);
 
-    fp = GrBlurUtils::MakeRRectBlur(context, localSigma, deviceSigma, rrect, devRRect);
+    fp = GrBlurUtils::MakeRRectBlur(context, localSigma, deviceSigma, rrect, *devRRect);
     if (!fp) {
         return false;
     }

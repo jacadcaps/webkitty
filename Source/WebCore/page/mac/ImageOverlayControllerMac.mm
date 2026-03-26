@@ -34,7 +34,9 @@
 #import "DataDetection.h"
 #import "DataDetectionResultsStorage.h"
 #import "DataDetectorElementInfo.h"
+#import "DocumentView.h"
 #import "ElementInlines.h"
+#import "FrameDestructionObserverInlines.h"
 #import "GraphicsLayer.h"
 #import "GraphicsLayerClient.h"
 #import "HTMLElement.h"
@@ -42,6 +44,7 @@
 #import "ImageOverlay.h"
 #import "ImageOverlayDataDetectionResultIdentifier.h"
 #import "IntRect.h"
+#import "LocalFrameInlines.h"
 #import "LocalFrameView.h"
 #import "Page.h"
 #import "PlatformMouseEvent.h"
@@ -95,7 +98,7 @@ void ImageOverlayController::updateDataDetectorHighlights(const HTMLElement& ove
 
         // FIXME: We should teach DataDetectorHighlight to render quads instead of always falling back to axis-aligned bounding rects.
         auto highlight = adoptCF(PAL::softLink_DataDetectors_DDHighlightCreateWithRectsInVisibleRectWithStyleScaleAndDirection(nullptr, &elementBounds, 1, mainFrameView->visibleContentRect(), static_cast<DDHighlightStyle>(DDHighlightStyleBubbleStandard) | static_cast<DDHighlightStyle>(DDHighlightStyleStandardIconArrow), YES, NSWritingDirectionNatural, NO, YES, 0));
-        return ContainerAndHighlight { element, DataDetectorHighlight::createForImageOverlay(*this, WTFMove(highlight), *makeRangeSelectingNode(element.get())) };
+        return ContainerAndHighlight { element, DataDetectorHighlight::createForImageOverlay(*this, WTF::move(highlight), *makeRangeSelectingNode(element.get())) };
     });
 }
 
@@ -135,16 +138,13 @@ bool ImageOverlayController::platformHandleMouseEvent(const PlatformMouseEvent& 
     }
 
     if (event.type() == PlatformEvent::Type::MousePressed && mouseIsOverActiveDataDetectorHighlightButton)
-        return handleDataDetectorAction(*activeDataDetectorElement, mousePositionInContents);
+        return handleDataDetectorAction(*activeDataDetectorElement, flooredIntPoint(mousePositionInContents));
 
     return false;
 }
 
 bool ImageOverlayController::handleDataDetectorAction(const HTMLElement& element, const IntPoint& locationInContents)
 {
-    if (!m_page)
-        return false;
-
     RefPtr frame = element.document().frame();
     if (!frame)
         return false;
@@ -171,7 +171,7 @@ bool ImageOverlayController::handleDataDetectorAction(const HTMLElement& element
     if (!renderer)
         return false;
 
-    protectedPage()->chrome().client().handleClickForDataDetectionResult({ WTFMove(dataDetectionResult), frameView->contentsToWindow(renderer->absoluteBoundingBoxRect()) }, frameView->contentsToWindow(locationInContents));
+    protectedPage()->chrome().client().handleClickForDataDetectionResult({ WTF::move(dataDetectionResult), frameView->contentsToWindow(renderer->absoluteBoundingBoxRect()) }, frameView->contentsToWindow(locationInContents));
     return true;
 }
 
@@ -246,25 +246,16 @@ void ImageOverlayController::elementUnderMouseDidChange(LocalFrame& frame, Eleme
 
 void ImageOverlayController::scheduleRenderingUpdate(OptionSet<RenderingUpdateStep> requestedSteps)
 {
-    if (!m_page)
-        return;
-
     protectedPage()->scheduleRenderingUpdate(requestedSteps);
 }
 
 float ImageOverlayController::deviceScaleFactor() const
 {
-    if (!m_page)
-        return 1;
-
     return protectedPage()->deviceScaleFactor();
 }
 
 RefPtr<GraphicsLayer> ImageOverlayController::createGraphicsLayer(GraphicsLayerClient& client)
 {
-    if (!m_page)
-        return nullptr;
-
     return GraphicsLayer::create(protectedPage()->chrome().client().graphicsLayerFactory(), client);
 }
 

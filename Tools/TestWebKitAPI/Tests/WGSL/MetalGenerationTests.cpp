@@ -51,7 +51,7 @@ inline Expected<String, WGSL::FailedCheck> translate(const String& wgsl, const S
     });
     if (auto* maybeError = std::get_if<WGSL::Error>(&generationResult))
         return makeUnexpected(WGSL::FailedCheck { { *maybeError }, { } });
-    return { WTFMove(std::get<String>(generationResult)) };
+    return { WTF::move(std::get<String>(generationResult)) };
 }
 
 TEST(WGSLMetalGenerationTests, RedFrag)
@@ -79,7 +79,16 @@ using __UnpackedType = typename __UnpackedTypeImpl<T>::Type;
 template<typename T>
 using __PackedType = typename __PackedTypeImpl<T>::Type;
 
-[[fragment]] vec<float, 4> function0()
+struct __function0_FragmentOutput {
+    vec<float, 4> __value [[color(0)]];
+
+    template<typename T>
+    __function0_FragmentOutput(T value)
+        : __value(value)
+    { }
+};
+
+[[fragment]] __function0_FragmentOutput function0()
 {
     return vec<float, 4>(1., 0., 0., 1.);
 }

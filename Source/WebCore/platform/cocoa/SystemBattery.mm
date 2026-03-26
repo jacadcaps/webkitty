@@ -59,9 +59,10 @@ bool systemHasBattery()
             if (!powerSourcesList)
                 return false;
             for (CFIndex i = 0, count = CFArrayGetCount(powerSourcesList.get()); i < count; ++i) {
-                CFDictionaryRef description = IOPSGetPowerSourceDescription(powerSourcesInfo.get(), CFArrayGetValueAtIndex(powerSourcesList.get(), i));
-                CFTypeRef value = CFDictionaryGetValue(description, CFSTR(kIOPSTypeKey));
-                if (!value || CFEqual(value, CFSTR(kIOPSInternalBatteryType)))
+                RetainPtr valueAtIndex =  CFArrayGetValueAtIndex(powerSourcesList.get(), i);
+                RetainPtr description = IOPSGetPowerSourceDescription(powerSourcesInfo.get(), valueAtIndex.get());
+                RetainPtr value = CFDictionaryGetValue(description.get(), CFSTR(kIOPSTypeKey));
+                if (!value || CFEqual(value.get(), CFSTR(kIOPSInternalBatteryType)))
                     return true;
             }
             return false;
@@ -99,11 +100,12 @@ bool systemHasAC()
             if (!powerSourcesList)
                 return false;
             for (CFIndex i = 0, count = CFArrayGetCount(powerSourcesList.get()); i < count; ++i) {
-                CFDictionaryRef description = IOPSGetPowerSourceDescription(powerSourcesInfo.get(), CFArrayGetValueAtIndex(powerSourcesList.get(), i));
+                RetainPtr valueAtIndex = CFArrayGetValueAtIndex(powerSourcesList.get(), i);
+                RetainPtr description = IOPSGetPowerSourceDescription(powerSourcesInfo.get(), valueAtIndex.get());
                 if (!description)
                     continue;
-                CFTypeRef value = CFDictionaryGetValue(description, CFSTR(kIOPSPowerSourceStateKey));
-                if (value && CFEqual(value, CFSTR(kIOPSACPowerValue)))
+                RetainPtr value = CFDictionaryGetValue(description.get(), CFSTR(kIOPSPowerSourceStateKey));
+                if (value && CFEqual(value.get(), CFSTR(kIOPSACPowerValue)))
                     return true;
             }
             return false;
@@ -127,21 +129,21 @@ SystemBatteryStatusTestingOverrides& SystemBatteryStatusTestingOverrides::single
 
 void SystemBatteryStatusTestingOverrides::setHasBattery(std::optional<bool>&& hasBattery)
 {
-    m_hasBattery = WTFMove(hasBattery);
+    m_hasBattery = WTF::move(hasBattery);
     if (m_configurationChangedCallback)
         m_configurationChangedCallback(false);
 }
 
 void SystemBatteryStatusTestingOverrides::setHasAC(std::optional<bool>&& hasAC)
 {
-    m_hasAC = WTFMove(hasAC);
+    m_hasAC = WTF::move(hasAC);
     if (m_configurationChangedCallback)
         m_configurationChangedCallback(false);
 }
 
 void SystemBatteryStatusTestingOverrides::setConfigurationChangedCallback(std::function<void(bool)>&& callback)
 {
-    m_configurationChangedCallback = WTFMove(callback);
+    m_configurationChangedCallback = WTF::move(callback);
 }
 
 void SystemBatteryStatusTestingOverrides::resetOverridesToDefaultValues()

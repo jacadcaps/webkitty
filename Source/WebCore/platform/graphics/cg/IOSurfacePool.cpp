@@ -52,10 +52,12 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(IOSurfacePool);
 IOSurfacePool::IOSurfacePool()
     : m_collectionTimer(RunLoop::mainSingleton(), "IOSurfacePool::CollectionTimer"_s, this, &IOSurfacePool::collectionTimerFired)
 {
+    DUMP_POOL_STATISTICS(stream << "IOSurfacePool [" << m_poolIdentifier << "] constructor.");
 }
 
 IOSurfacePool::~IOSurfacePool()
 {
+    DUMP_POOL_STATISTICS(stream << "IOSurfacePool [" << m_poolIdentifier << "] destructor.");
     callOnMainRunLoopAndWait([&] {
         discardAllSurfaces();
     });
@@ -92,6 +94,7 @@ void IOSurfacePool::willAddSurface(IOSurface& surface, bool inUse)
 {
     CachedSurfaceDetails& details = m_surfaceDetails.add(&surface, CachedSurfaceDetails()).iterator->value;
     details.resetLastUseTime();
+    details.inCurrentlyUsedSurfaceCache = inUse;
 
     size_t surfaceBytes = surface.totalBytes();
 
@@ -124,7 +127,7 @@ std::unique_ptr<IOSurface> IOSurfacePool::takeSurface(IntSize size, const Destin
     CachedSurfaceMap::iterator mapIter = m_cachedSurfaces.find(size);
 
     if (mapIter == m_cachedSurfaces.end()) {
-        DUMP_POOL_STATISTICS(stream << "IOSurfacePool::takeSurface - failed to find surface matching size " << size << " color space " << colorSpace << " format " << format << "\n" << poolStatistics());
+        DUMP_POOL_STATISTICS(stream << "IOSurfacePool::takeSurface [" << m_poolIdentifier << "] - failed to find surface matching size " << size << " color space " << colorSpace << " format " << format << "\n" << poolStatistics());
         return nullptr;
     }
 
@@ -132,7 +135,7 @@ std::unique_ptr<IOSurface> IOSurfacePool::takeSurface(IntSize size, const Destin
         if (!surfaceMatchesParameters(*surfaceIter->get(), size, colorSpace, format, useLosslessCompression))
             continue;
 
-        auto surface = WTFMove(*surfaceIter);
+        auto surface = WTF::move(*surfaceIter);
         mapIter->value.remove(surfaceIter);
 
         didUseSurfaceOfSize(size);
@@ -146,7 +149,7 @@ std::unique_ptr<IOSurface> IOSurfacePool::takeSurface(IntSize size, const Destin
 
         surface->setVolatile(false);
 
-        DUMP_POOL_STATISTICS(stream << "IOSurfacePool::takeSurface - taking surface " << surface.get() << " with size " << size << " color space " << colorSpace << " format " << format << "\n" << poolStatistics());
+        DUMP_POOL_STATISTICS(stream << "IOSurfacePool::takeSurface [" << m_poolIdentifier << "] - taking surface " << surface.get() << " with size " << size << " color space " << colorSpace << " format " << format << "\n" << poolStatistics());
         return surface;
     }
 
@@ -157,17 +160,17 @@ std::unique_ptr<IOSurface> IOSurfacePool::takeSurface(IntSize size, const Destin
         if (surfaceIter->get()->isInUse())
             continue;
         
-        auto surface = WTFMove(*surfaceIter);
+        auto surface = WTF::move(*surfaceIter);
         m_inUseSurfaces.remove(surfaceIter);
         didRemoveSurface(*surface, true);
 
         surface->setVolatile(false);
 
-        DUMP_POOL_STATISTICS(stream << "IOSurfacePool::takeSurface - taking surface " << surface.get() << " with size " << size << " color space " << colorSpace << " format " << format << "\n" << poolStatistics());
+        DUMP_POOL_STATISTICS(stream << "IOSurfacePool::takeSurface [" << m_poolIdentifier << "] - taking surface " << surface.get() << " with size " << size << " color space " << colorSpace << " format " << format << "\n" << poolStatistics());
         return surface;
     }
 
-    DUMP_POOL_STATISTICS(stream << "IOSurfacePool::takeSurface - failing\n" << poolStatistics());
+    DUMP_POOL_STATISTICS(stream << "IOSurfacePool::takeSurface [" << m_poolIdentifier << "] - failing\n" << poolStatistics());
     return nullptr;
 }
 
@@ -195,21 +198,21 @@ void IOSurfacePool::addSurface(std::unique_ptr<IOSurface>&& surface)
     willAddSurface(*surface, surfaceIsInUse);
 
     if (surfaceIsInUse) {
-        m_inUseSurfaces.prepend(WTFMove(surface));
+        m_inUseSurfaces.prepend(WTF::move(surface));
         scheduleCollectionTimer();
-        DUMP_POOL_STATISTICS(stream << "addSurface - in-use\n" << poolStatistics());
+        DUMP_POOL_STATISTICS(stream << "IOSurfacePool::addSurface [" << m_poolIdentifier << "] - in-use\n" << poolStatistics());
         return;
     }
 
-    insertSurfaceIntoPool(WTFMove(surface));
-    DUMP_POOL_STATISTICS(stream << "addSurface\n" << poolStatistics());
+    insertSurfaceIntoPool(WTF::move(surface));
+    DUMP_POOL_STATISTICS(stream << "IOSurfacePool::addSurface [" << m_poolIdentifier << "]\n" << poolStatistics());
 }
 
 void IOSurfacePool::insertSurfaceIntoPool(std::unique_ptr<IOSurface> surface)
 {
     IntSize surfaceSize = surface->size();
     auto insertedTuple = m_cachedSurfaces.add(surfaceSize, CachedSurfaceQueue());
-    insertedTuple.iterator->value.prepend(WTFMove(surface));
+    insertedTuple.iterator->value.prepend(WTF::move(surface));
     if (!insertedTuple.isNewEntry)
         m_sizesInPruneOrder.removeLast(surfaceSize);
     m_sizesInPruneOrder.append(surfaceSize);
@@ -254,11 +257,11 @@ void IOSurfacePool::tryEvictOldestCachedSurface()
 
 void IOSurfacePool::evict(size_t additionalSize)
 {
-    DUMP_POOL_STATISTICS(stream << "before evict\n" << poolStatistics());
+    DUMP_POOL_STATISTICS(stream << "IOSurfacePool::evict [" << m_poolIdentifier << "] - before evict\n" << poolStatistics());
 
     if (additionalSize >= m_maximumBytesCached) {
         discardAllSurfacesInternal();
-        DUMP_POOL_STATISTICS(stream << "after evict all\n" << poolStatistics());
+        DUMP_POOL_STATISTICS(stream << "IOSurfacePool::evict [" << m_poolIdentifier << "] - after evict all\n" << poolStatistics());
         return;
     }
 
@@ -279,7 +282,7 @@ void IOSurfacePool::evict(size_t additionalSize)
     while (m_inUseBytesCached > maximumInUseBytes || m_bytesCached > targetSize)
         tryEvictInUseSurface();
 
-    DUMP_POOL_STATISTICS(stream << "after evict\n" << poolStatistics());
+    DUMP_POOL_STATISTICS(stream << "IOSurfacePool::evict [" << m_poolIdentifier << "] - after evict\n" << poolStatistics());
 }
 
 void IOSurfacePool::collectInUseSurfaces()
@@ -288,15 +291,17 @@ void IOSurfacePool::collectInUseSurfaces()
     for (CachedSurfaceQueue::iterator surfaceIter = m_inUseSurfaces.begin(); surfaceIter != m_inUseSurfaces.end(); ++surfaceIter) {
         IOSurface* surface = surfaceIter->get();
         if (surface->isInUse()) {
-            newInUseSurfaces.append(WTFMove(*surfaceIter));
+            newInUseSurfaces.append(WTF::move(*surfaceIter));
             continue;
         }
+        if (auto it = m_surfaceDetails.find(surface); it != m_surfaceDetails.end())
+            it->value.inCurrentlyUsedSurfaceCache = false;
 
         m_inUseBytesCached -= surface->totalBytes();
-        insertSurfaceIntoPool(WTFMove(*surfaceIter));
+        insertSurfaceIntoPool(WTF::move(*surfaceIter));
     }
 
-    m_inUseSurfaces = WTFMove(newInUseSurfaces);
+    m_inUseSurfaces = WTF::move(newInUseSurfaces);
 }
 
 bool IOSurfacePool::markOlderSurfacesPurgeable()
@@ -307,6 +312,11 @@ bool IOSurfacePool::markOlderSurfacesPurgeable()
     for (auto& surfaceAndDetails : m_surfaceDetails) {
         if (surfaceAndDetails.value.hasMarkedPurgeable)
             continue;
+
+        if (surfaceAndDetails.value.inCurrentlyUsedSurfaceCache) {
+            markedAllSurfaces = false;
+            continue;
+        }
 
         if (markTime - surfaceAndDetails.value.lastUseTime < surfaceAgeBeforeMarkingPurgeable) {
             markedAllSurfaces = false;
@@ -330,7 +340,7 @@ void IOSurfacePool::collectionTimerFired()
         m_collectionTimer.stop();
 
     platformGarbageCollectNow();
-    DUMP_POOL_STATISTICS(stream << "collectionTimerFired\n" << poolStatistics());
+    DUMP_POOL_STATISTICS(stream << "IOSurfacePool::collectionTimerFired [" << m_poolIdentifier << "]\n" << poolStatistics());
 }
 
 void IOSurfacePool::scheduleCollectionTimer()
@@ -361,7 +371,7 @@ String IOSurfacePool::poolStatistics() const
 {
 #if ENABLE_IOSURFACE_POOL_STATISTICS
     TextStream stream;
-    stream << "Process " << getpid() << " IOSurfacePool Statistics:\n";
+    stream << "Process " << getpid() << " IOSurfacePool [" << m_poolIdentifier << "] Statistics:\n";
 
     unsigned totalSurfaces = 0;
     size_t totalSize = 0;
@@ -384,7 +394,7 @@ String IOSurfacePool::poolStatistics() const
         totalSize += queueSize;
         totalPurgeableSize += queuePurgeableSize;
 
-        stream << "   " << keyAndSurfaces.key << ": " << keyAndSurfaces.value.size() << " surfaces for " << queueSize / (1024.0 * 1024.0) << " MB (" << queuePurgeableSize / (1024.0 * 1024.0) << " MB purgeable)\n";
+        stream << "   " << keyAndSurfaces.key << ": " << keyAndSurfaces.value.size() << " surfaces for " << queueSize / (1024.0 * 1024.0) << " MB (" << queuePurgeableSize / (1024.0 * 1024.0) << " MB (" << (queuePurgeableSize * 100.0) / queueSize << "%) purgeable)\n";
     }
 
     size_t inUseSize = 0;
@@ -400,7 +410,7 @@ String IOSurfacePool::poolStatistics() const
     ASSERT(m_bytesCached == totalSize);
     ASSERT(m_bytesCached <= m_maximumBytesCached);
 
-    stream << "   TOTAL: " << totalSurfaces << " surfaces for " << totalSize / (1024.0 * 1024.0) << " MB (" << totalPurgeableSize / (1024.0 * 1024.0) << " MB purgeable)\n";
+    stream << "   TOTAL: " << totalSurfaces << " surfaces for " << totalSize / (1024.0 * 1024.0) << " MB (" << totalPurgeableSize / (1024.0 * 1024.0) << " MB (" << (totalPurgeableSize * 100.0) / totalSize << "%) purgeable)\n";
     return stream.release();
 #else
     return emptyString();

@@ -66,9 +66,9 @@ def load_password(name, default=None):
         passwords = json.load(open('passwords.json'))
         return passwords.get(name, default)
     except FileNotFoundError as e:
-        _log.error('ERROR: passwords.json missing: {}, using default value for {}\n'.format(e, name))
+        _log.error(f'Using default value for {name}, {e}')
     except Exception as e:
-        _log.error('Error in finding {} in passwords.json'.format(name))
+        _log.error(f'Error in finding {name} in passwords.json: {e}')
     return default
 
 

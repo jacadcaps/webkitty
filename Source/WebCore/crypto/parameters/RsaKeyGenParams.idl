@@ -24,7 +24,8 @@
  */
 
 [
-    ImplementedAs=CryptoAlgorithmRsaKeyGenParams
+    ImplementedAs=CryptoAlgorithmRsaKeyGenParams,
+    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary RsaKeyGenParams : CryptoAlgorithmParameters {
     // The length, in bits, of the RSA modulus
     required [EnforceRange] unsigned long modulusLength;

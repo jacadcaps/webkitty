@@ -33,14 +33,8 @@
 import sys
 
 from webkitpy.layout_tests.run_webkit_tests import main
-
-if sys.platform.startswith('linux'):
-    import os
-    top_level_directory = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..'))
-    sys.path.insert(0, os.path.join(top_level_directory, 'Tools', 'flatpak'))
-
-    import flatpakutils
-    flatpakutils.run_in_sandbox_if_available(sys.argv)
+from webkitpy.port.linux_container_sdk_utils import maybe_use_container_sdk_root_dir
+maybe_use_container_sdk_root_dir()
 
 if __name__ == '__main__':
     sys.exit(main(sys.argv[1:], sys.stdout, sys.stderr))

@@ -24,7 +24,7 @@ import sys
 import time
 import unittest
 
-from webkitcorepy import OutputCapture, run, TimeoutExpired, Timeout, Thread
+from webkitcorepy import mocks, OutputCapture, run, TimeoutExpired, Timeout, Thread
 
 
 class SubprocessUtils(unittest.TestCase):
@@ -81,3 +81,23 @@ class SubprocessUtils(unittest.TestCase):
         with OutputCapture(), self.assertRaises(TimeoutExpired):
             with Timeout(1):
                 run([sys.executable, '-c', 'import time;time.sleep(2)'])
+
+    def test_input(self):
+        def callback(*args, **kwargs):
+            print(kwargs['input'])
+            return mocks.ProcessCompletion(returncode=0)
+
+        with OutputCapture() as captured, mocks.Subprocess('command', generator=callback):
+            run(['command'], input=b'stdin content')
+
+        self.assertEqual(captured.stdout.getvalue(), "b'stdin content'\n")
+
+    def test_input_text(self):
+        def callback(*args, **kwargs):
+            print(kwargs['input'])
+            return mocks.ProcessCompletion(returncode=0)
+
+        with OutputCapture() as captured, mocks.Subprocess('command', generator=callback):
+            run(['command'], input='stdin content', text=True)
+
+        self.assertEqual(captured.stdout.getvalue(), "stdin content\n")

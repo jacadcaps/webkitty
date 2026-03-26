@@ -39,6 +39,11 @@ public:
 
     ~MockRealtimeAudioSourceGStreamer();
 
+    using MockRealtimeAudioSource::ref;
+    using MockRealtimeAudioSource::deref;
+    void virtualRef() const final { MockRealtimeAudioSource::ref(); }
+    void virtualDeref() const final { MockRealtimeAudioSource::deref(); }
+
     // GStreamerCapturerObserver
     void captureEnded() final;
     void captureDeviceUpdated(const GStreamerCaptureDevice&) final;
@@ -62,6 +67,7 @@ private:
 
     std::optional<GStreamerAudioStreamDescription> m_streamFormat;
     GRefPtr<GstCaps> m_caps;
+    GstAudioInfo m_info;
     Vector<float> m_bipBopBuffer;
     uint32_t m_maximiumFrameCount;
     uint64_t m_samplesEmitted { 0 };

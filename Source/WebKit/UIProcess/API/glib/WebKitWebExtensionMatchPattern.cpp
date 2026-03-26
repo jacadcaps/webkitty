@@ -43,7 +43,7 @@ using namespace WebKit;
 struct _WebKitWebExtensionMatchPattern {
 #if ENABLE(WK_WEB_EXTENSIONS)
     explicit _WebKitWebExtensionMatchPattern(RefPtr<WebExtensionMatchPattern>&& matchPattern)
-        : matchPattern(WTFMove(matchPattern))
+        : matchPattern(WTF::move(matchPattern))
     {
     }
 
@@ -67,6 +67,24 @@ G_DEFINE_BOXED_TYPE(WebKitWebExtensionMatchPattern, webkit_web_extension_match_p
 #if ENABLE(WK_WEB_EXTENSIONS)
 
 /**
+ * webkit_web_extension_match_pattern_register_custom_url_scheme:
+ * @urlScheme: The custom URL scheme to register
+ *
+ * Registers a custom URL scheme that can be used in match patterns.
+ * 
+ * This method should be used to register any custom URL schemes used by the app for the extension base URLs,
+ * other than `webkit-extension`, or if extensions should have access to other supported URL schemes when using `<all_urls>`.
+ *
+ * Since: 2.52
+ */
+void webkit_web_extension_match_pattern_register_custom_url_scheme(const gchar* urlScheme)
+{
+    g_return_if_fail(WTF::URLParser::maybeCanonicalizeScheme(String::fromUTF8(urlScheme)));
+
+    WebKit::WebExtensionMatchPattern::registerCustomURLScheme(String::fromUTF8(urlScheme));
+}
+
+/**
  * webkit_web_extension_match_pattern_register_custom_URL_scheme:
  * @urlScheme: The custom URL scheme to register
  *
@@ -76,6 +94,8 @@ G_DEFINE_BOXED_TYPE(WebKitWebExtensionMatchPattern, webkit_web_extension_match_p
  * other than `webkit-extension`, or if extensions should have access to other supported URL schemes when using `<all_urls>`.
  *
  * Since: 2.48
+ * 
+ * Deprecated: 2.52: Use webkit_web_extension_match_pattern_register_custom_url_scheme() instead.
  */
 void webkit_web_extension_match_pattern_register_custom_URL_scheme(const gchar* urlScheme)
 {
@@ -89,9 +109,8 @@ WebKitWebExtensionMatchPattern* webkitWebExtensionMatchPatternCreate(const RefPt
     if (!apiMatchPattern)
         return nullptr;
 
-    ASSERT(API::Object::unwrap(static_cast<void*>(apiMatchPattern.get()))->type() == API::Object::Type::WebExtensionMatchPattern);
     WebKitWebExtensionMatchPattern* matchPattern = static_cast<WebKitWebExtensionMatchPattern*>(fastMalloc(sizeof(WebKitWebExtensionMatchPattern)));
-    new (matchPattern) WebKitWebExtensionMatchPattern(static_pointer_cast<WebExtensionMatchPattern>(apiMatchPattern));
+    new (matchPattern) WebKitWebExtensionMatchPattern(apiMatchPattern.copyRef());
     return matchPattern;
 }
 
@@ -418,7 +437,7 @@ WebKitWebExtensionMatchPattern* webkit_web_extension_match_pattern_new_with_sche
     return nullptr;
 }
 
-void webkit_web_extension_match_pattern_register_custom_URL_scheme(const gchar* urlScheme)
+void webkit_web_extension_match_pattern_register_custom_url_scheme(const gchar* urlScheme)
 {
     return;
 }

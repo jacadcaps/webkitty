@@ -87,8 +87,8 @@ static void checkURLArgument(NSURL *url)
     if (!directory)
         [NSException raise:NSInvalidArgumentException format:@"Directory is nil"];
 
-    NSString *path = directory.path;
-    API::Object::constructInWrapper<WebKit::WebsiteDataStoreConfiguration>(self, path, path);
+    RetainPtr<NSString> path = directory.path;
+    API::Object::constructInWrapper<WebKit::WebsiteDataStoreConfiguration>(self, path.get(), path.get());
 
     return self;
 }
@@ -314,35 +314,20 @@ static void checkURLArgument(NSURL *url)
 
 - (NSURL *)applicationCacheDirectory
 {
-    return [NSURL fileURLWithPath:_configuration->applicationCacheDirectory().createNSString().get() isDirectory:YES];
+    return nil;
 }
 
 - (void)setApplicationCacheDirectory:(NSURL *)url
 {
-    if (!_configuration->isPersistent())
-        [NSException raise:NSInvalidArgumentException format:@"Cannot set applicationCacheDirectory on a non-persistent _WKWebsiteDataStoreConfiguration."];
-
-    if (_configuration->identifier())
-        [NSException raise:NSGenericException format:@"Cannot set applicationCacheDirectory on a _WKWebsiteDataStoreConfiguration created with identifier"];
-
-    checkURLArgument(url);
-    _configuration->setApplicationCacheDirectory(url.path);
 }
 
 - (NSString *)applicationCacheFlatFileSubdirectoryName
 {
-    return _configuration->applicationCacheFlatFileSubdirectoryName().createNSString().autorelease();
+    return nil;
 }
 
 - (void)setApplicationCacheFlatFileSubdirectoryName:(NSString *)name
 {
-    if (!_configuration->isPersistent())
-        [NSException raise:NSInvalidArgumentException format:@"Cannot set applicationCacheFlatFileSubdirectoryName on a non-persistent _WKWebsiteDataStoreConfiguration."];
-
-    if (_configuration->identifier())
-        [NSException raise:NSGenericException format:@"Cannot set applicationCacheFlatFileSubdirectoryName on a _WKWebsiteDataStoreConfiguration created with identifier"];
-
-    _configuration->setApplicationCacheFlatFileSubdirectoryName(name);
 }
 
 - (NSURL *)mediaCacheDirectory
@@ -775,7 +760,7 @@ static WebKit::UnifiedOriginStorageLevel toUnifiedOriginStorageLevel(_WKUnifiedO
 
 - (void)setProxyConfiguration:(NSDictionary *)configuration
 {
-    _configuration->setProxyConfiguration((__bridge CFDictionaryRef)adoptNS([configuration copy]).get());
+    Ref { *_configuration }->setProxyConfiguration((__bridge CFDictionaryRef)adoptNS([configuration copy]).get());
 }
 
 - (NSURL *)standaloneApplicationURL
@@ -864,6 +849,16 @@ static WebKit::UnifiedOriginStorageLevel toUnifiedOriginStorageLevel(_WKUnifiedO
         enabled = [defaultTrackingPreventionEnabledOverride boolValue];
 
     _configuration->setDefaultTrackingPreventionEnabledOverride(enabled);
+}
+
+- (NSString *)additionalDomainsWithUserInteractionForTesting
+{
+    return _configuration->additionalDomainsWithUserInteractionForTesting().createNSString().autorelease();
+}
+
+- (void)setAdditionalDomainsWithUserInteractionForTesting:(NSString *)domains
+{
+    _configuration->setAdditionalDomainsWithUserInteractionForTesting(domains);
 }
 
 - (NSUUID *)identifier

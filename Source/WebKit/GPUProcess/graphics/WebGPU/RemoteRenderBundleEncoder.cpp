@@ -41,7 +41,7 @@
 #include <WebCore/WebGPURenderPipeline.h>
 #include <wtf/TZoneMallocInlines.h>
 
-#define MESSAGE_CHECK(assertion) MESSAGE_CHECK_OPTIONAL_CONNECTION_BASE(assertion, connection())
+#define MESSAGE_CHECK(assertion) MESSAGE_CHECK_BASE(assertion, m_streamConnection)
 
 namespace WebKit {
 
@@ -50,7 +50,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteRenderBundleEncoder);
 RemoteRenderBundleEncoder::RemoteRenderBundleEncoder(GPUConnectionToWebProcess& gpuConnectionToWebProcess, RemoteGPU& gpu, WebCore::WebGPU::RenderBundleEncoder& renderBundleEncoder, WebGPU::ObjectHeap& objectHeap, Ref<IPC::StreamServerConnection>&& streamConnection, WebGPUIdentifier identifier)
     : m_backing(renderBundleEncoder)
     , m_objectHeap(objectHeap)
-    , m_streamConnection(WTFMove(streamConnection))
+    , m_streamConnection(WTF::move(streamConnection))
     , m_identifier(identifier)
     , m_gpuConnectionToWebProcess(gpuConnectionToWebProcess)
     , m_gpu(gpu)
@@ -59,14 +59,6 @@ RemoteRenderBundleEncoder::RemoteRenderBundleEncoder(GPUConnectionToWebProcess& 
 }
 
 RemoteRenderBundleEncoder::~RemoteRenderBundleEncoder() = default;
-
-RefPtr<IPC::Connection> RemoteRenderBundleEncoder::connection() const
-{
-    RefPtr connection = m_gpuConnectionToWebProcess.get();
-    if (!connection)
-        return nullptr;
-    return &connection->connection();
-}
 
 void RemoteRenderBundleEncoder::destruct()
 {
@@ -151,7 +143,7 @@ void RemoteRenderBundleEncoder::setBindGroup(WebCore::WebGPU::Index32 index, std
     std::optional<Vector<WebCore::WebGPU::BufferDynamicOffset>>&& dynamicOffsets)
 {
     if (!bindGroup) {
-        protectedBacking()->setBindGroup(index, nullptr, WTFMove(dynamicOffsets));
+        protectedBacking()->setBindGroup(index, nullptr, WTF::move(dynamicOffsets));
         return;
     }
 
@@ -160,12 +152,12 @@ void RemoteRenderBundleEncoder::setBindGroup(WebCore::WebGPU::Index32 index, std
     if (!convertedBindGroup)
         return;
 
-    protectedBacking()->setBindGroup(index, convertedBindGroup.get(), WTFMove(dynamicOffsets));
+    protectedBacking()->setBindGroup(index, convertedBindGroup.get(), WTF::move(dynamicOffsets));
 }
 
 void RemoteRenderBundleEncoder::pushDebugGroup(String&& groupLabel)
 {
-    protectedBacking()->pushDebugGroup(WTFMove(groupLabel));
+    protectedBacking()->pushDebugGroup(WTF::move(groupLabel));
 }
 
 void RemoteRenderBundleEncoder::popDebugGroup()
@@ -175,7 +167,7 @@ void RemoteRenderBundleEncoder::popDebugGroup()
 
 void RemoteRenderBundleEncoder::insertDebugMarker(String&& markerLabel)
 {
-    protectedBacking()->insertDebugMarker(WTFMove(markerLabel));
+    protectedBacking()->insertDebugMarker(WTF::move(markerLabel));
 }
 
 void RemoteRenderBundleEncoder::finish(const WebGPU::RenderBundleDescriptor& descriptor, WebGPUIdentifier identifier)
@@ -192,7 +184,7 @@ void RemoteRenderBundleEncoder::finish(const WebGPU::RenderBundleDescriptor& des
 
 void RemoteRenderBundleEncoder::setLabel(String&& label)
 {
-    protectedBacking()->setLabel(WTFMove(label));
+    protectedBacking()->setLabel(WTF::move(label));
 }
 
 Ref<WebCore::WebGPU::RenderBundleEncoder> RemoteRenderBundleEncoder::protectedBacking() const

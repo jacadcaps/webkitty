@@ -501,7 +501,7 @@ SkCodec::Result SkWuffsCodec::onStartIncrementalDecode(const SkImageInfo&      d
     // supports...
     fIncrDecOnePass = (pixelFormat != WUFFS_BASE__PIXEL_FORMAT__INVALID) &&
                       // ...and no color profile (as Wuffs does not support them)...
-                      (!getEncodedInfo().profile()) &&
+                      (!getEncodedInfo().colorProfile()) &&
                       // ...and we use the identity transform (as Wuffs does
                       // not support scaling).
                       (this->dimensions() == dstInfo.dimensions());
@@ -723,7 +723,7 @@ SkCodec::Result SkWuffsCodec::onIncrementalDecodeTwoPass() {
         // Currently, this is only used for GIF, which will never have an ICC profile. When it is
         // used for other formats that might have one, we will need to transform from profiles that
         // do not have corresponding SkColorSpaces.
-        SkASSERT(!getEncodedInfo().profile());
+        SkASSERT(!getEncodedInfo().colorProfile());
 
         auto srcInfo =
             getInfo().makeWH(dirty_rect.width(), dirty_rect.height()).makeAlphaType(alphaType);
@@ -734,10 +734,10 @@ SkCodec::Result SkWuffsCodec::onIncrementalDecodeTwoPass() {
             paint.setBlendMode(SkBlendMode::kSrc);
         }
 
-        SkDraw draw;
+        skcpu::Draw draw;
         draw.fDst.reset(dstInfo(), fIncrDecDst, fIncrDecRowBytes);
-        SkMatrix matrix = SkMatrix::RectToRect(SkRect::Make(this->dimensions()),
-                                               SkRect::Make(this->dstInfo().dimensions()));
+        SkMatrix matrix = SkMatrix::RectToRectOrIdentity(SkRect::Make(this->dimensions()),
+                                                        SkRect::Make(this->dstInfo().dimensions()));
         draw.fCTM = &matrix;
         SkRasterClip rc(SkIRect::MakeSize(this->dstInfo().dimensions()));
         draw.fRC = &rc;
@@ -1012,7 +1012,7 @@ std::unique_ptr<SkCodec> MakeFromStream(std::unique_ptr<SkStream> stream,
         // Some clients (e.g. Android) need to be able to seek the stream, but may
         // not provide a seekable stream. Copy the stream to one that can seek.
         if (!canSeek) {
-            auto data = SkCopyStreamToData(stream.get());
+            auto data = SkStreamPriv::CopyStreamToData(stream.get());
             stream = std::make_unique<SkMemoryStream>(std::move(data));
             canSeek = true;
         }
@@ -1110,7 +1110,7 @@ std::unique_ptr<SkCodec> Decode(std::unique_ptr<SkStream> stream,
     return MakeFromStream(std::move(stream), policy, outResult);
 }
 
-std::unique_ptr<SkCodec> Decode(sk_sp<SkData> data,
+std::unique_ptr<SkCodec> Decode(sk_sp<const SkData> data,
                                 SkCodec::Result* outResult,
                                 SkCodecs::DecodeContext ctx) {
     if (!data) {

@@ -20,6 +20,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <iterator>
 #include <vector>
 
 #include <openssl/bio.h>
@@ -415,7 +416,8 @@ class TLSFuzzer {
     }
 
     const uint8_t *bufp = kCertificateDER;
-    bssl::UniquePtr<X509> cert(d2i_X509(NULL, &bufp, sizeof(kCertificateDER)));
+    bssl::UniquePtr<X509> cert(
+        d2i_X509(nullptr, &bufp, sizeof(kCertificateDER)));
     if (!cert ||
         !SSL_CTX_use_certificate(ctx_.get(), cert.get()) ||
         !SSL_CTX_set_ocsp_response(ctx_.get(), kOCSPResponse,
@@ -451,10 +453,10 @@ class TLSFuzzer {
 
     static const uint16_t kGroups[] = {
         SSL_GROUP_X25519_MLKEM768, SSL_GROUP_X25519_KYBER768_DRAFT00,
-        SSL_GROUP_X25519,          SSL_GROUP_SECP256R1,
-        SSL_GROUP_SECP384R1,       SSL_GROUP_SECP521R1};
-    if (!SSL_CTX_set1_group_ids(ctx_.get(), kGroups,
-                                OPENSSL_ARRAY_SIZE(kGroups))) {
+        SSL_GROUP_MLKEM1024,       SSL_GROUP_X25519,
+        SSL_GROUP_SECP256R1,       SSL_GROUP_SECP384R1,
+        SSL_GROUP_SECP521R1};
+    if (!SSL_CTX_set1_group_ids(ctx_.get(), kGroups, std::size(kGroups))) {
       return false;
     }
 

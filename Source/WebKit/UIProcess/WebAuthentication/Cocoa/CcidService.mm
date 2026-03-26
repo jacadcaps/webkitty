@@ -107,7 +107,7 @@ void CcidService::platformStartDiscovery()
 
 void CcidService::onValidCard(RetainPtr<TKSmartCard>&& smartCard)
 {
-    m_connection = WebKit::CcidConnection::create(WTFMove(smartCard), *this);
+    m_connection = WebKit::CcidConnection::create(WTF::move(smartCard), *this);
 }
 
 void CcidService::updateSlots(NSArray *slots)
@@ -119,9 +119,11 @@ void CcidService::updateSlots(NSArray *slots)
         auto it = m_slotObservers.find(name);
         if (it == m_slotObservers.end()) {
             [[TKSmartCardSlotManager defaultManager] getSlotWithName:nsName reply:makeBlockPtr([this, protectedThis = Ref { *this }, name](TKSmartCardSlot * _Nullable slot) mutable {
-                auto slotObserver = adoptNS([[_WKSmartCardSlotStateObserver alloc] initWithService:this slot:WTFMove(slot)]);
-                m_slotObservers.add(name, slotObserver);
+                auto slotObserver = adoptNS([[_WKSmartCardSlotStateObserver alloc] initWithService:this slot:WTF::move(slot)]);
                 [slot addObserver:slotObserver.get() forKeyPath:@"state" options:NSKeyValueObservingOptionNew | NSKeyValueObservingOptionInitial context:nil];
+                callOnMainRunLoop([this, protectedThis = WTF::move(protectedThis), name, slotObserver = WTF::move(slotObserver)] () mutable {
+                    m_slotObservers.add(name, slotObserver);
+                });
             }).get()];
         }
     }
@@ -144,7 +146,7 @@ void CcidService::updateSlots(NSArray *slots)
     if (!(self = [super init]))
         return nil;
 
-    m_service = WTFMove(service);
+    m_service = WTF::move(service);
 
     return self;
 }
@@ -158,7 +160,7 @@ void CcidService::updateSlots(NSArray *slots)
     callOnMainRunLoop([service = m_service, change = retainPtr(change)] () mutable {
         if (!service)
             return;
-        service->updateSlots(change.get()[NSKeyValueChangeNewKey]);
+        service->updateSlots(retainPtr(change.get()[NSKeyValueChangeNewKey]).get());
     });
 }
 @end
@@ -169,8 +171,8 @@ void CcidService::updateSlots(NSArray *slots)
     if (!(self = [super init]))
         return nil;
 
-    m_service = WTFMove(service);
-    m_slot = WTFMove(slot);
+    m_service = WTF::move(service);
+    m_slot = WTF::move(slot);
 
     return self;
 }
@@ -189,10 +191,10 @@ void CcidService::updateSlots(NSArray *slots)
         return;
     case TKSmartCardSlotStateValidCard: {
         RetainPtr smartCard = [object makeSmartCard];
-        callOnMainRunLoop([service = m_service, smartCard = WTFMove(smartCard)] () mutable {
+        callOnMainRunLoop([service = m_service, smartCard = WTF::move(smartCard)] () mutable {
             if (!service)
                 return;
-            service->onValidCard(WTFMove(smartCard));
+            service->onValidCard(WTF::move(smartCard));
         });
         break;
     }

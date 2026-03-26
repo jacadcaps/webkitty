@@ -34,10 +34,10 @@
 #include "WebPage.h"
 #include "WebPageProxyMessages.h"
 #include <WebCore/DocumentInlines.h>
+#include <WebCore/DocumentPage.h>
 #include <WebCore/FrameDestructionObserverInlines.h>
 #include <WebCore/FrameLoader.h>
 #include <WebCore/LocalFrame.h>
-#include <WebCore/Page.h>
 #include <WebCore/SecurityOrigin.h>
 #include <WebCore/SecurityOriginData.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -135,7 +135,7 @@ void MediaKeySystemPermissionRequestManager::mediaKeySystemWasGranted(MediaKeySy
     if (!request)
         return;
 
-    request->allow(WTFMove(mediaKeysHashSalt));
+    request->allow(WTF::move(mediaKeysHashSalt));
 }
 
 void MediaKeySystemPermissionRequestManager::mediaKeySystemWasDenied(MediaKeySystemRequestIdentifier requestID, String&& message)
@@ -144,7 +144,7 @@ void MediaKeySystemPermissionRequestManager::mediaKeySystemWasDenied(MediaKeySys
     if (!request)
         return;
 
-    request->deny(WTFMove(message));
+    request->deny(WTF::move(message));
 }
 
 void MediaKeySystemPermissionRequestManager::ref() const

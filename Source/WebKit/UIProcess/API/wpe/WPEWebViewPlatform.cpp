@@ -48,10 +48,10 @@
 #endif
 
 #if USE(SKIA)
+#include "ViewSnapshotStore.h"
+
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
-IGNORE_CLANG_WARNINGS_BEGIN("cast-align")
 #include <skia/core/SkPixmap.h>
-IGNORE_CLANG_WARNINGS_END
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 #endif
 
@@ -124,8 +124,8 @@ ViewPlatform::ViewPlatform(WPEDisplay* display, const API::PageConfiguration& co
         auto& webView = *reinterpret_cast<ViewPlatform*>(userData);
         webView.toplevelStateChanged(previousState, wpe_view_get_toplevel_state(view));
     }), this);
-#if USE(GBM)
-    g_signal_connect(m_wpeView.get(), "preferred-dma-buf-formats-changed", G_CALLBACK(+[](WPEView*, gpointer userData) {
+#if USE(GBM) || OS(ANDROID)
+    g_signal_connect(m_wpeView.get(), "preferred-buffer-formats-changed", G_CALLBACK(+[](WPEView*, gpointer userData) {
         auto& webView = *reinterpret_cast<ViewPlatform*>(userData);
         webView.page().preferredBufferFormatsDidChange();
     }), this);
@@ -141,7 +141,7 @@ ViewPlatform::ViewPlatform(WPEDisplay* display, const API::PageConfiguration& co
     m_backingStore = AcceleratedBackingStore::create(*m_pageProxy, m_wpeView.get());
 
     auto& pageConfiguration = m_pageProxy->configuration();
-    m_pageProxy->initializeWebPage(pageConfiguration.openedSite(), pageConfiguration.initialSandboxFlags());
+    m_pageProxy->initializeWebPage(pageConfiguration.openedSite(), pageConfiguration.initialSandboxFlags(), pageConfiguration.initialReferrerPolicy());
 
     WebCore::SystemSettings::singleton().addObserver([this](const auto& state) {
         if (state.darkMode)
@@ -230,7 +230,7 @@ WebPageProxy* ViewPlatform::platformWebPageProxyForGamepadInput()
     GUniquePtr<GList> toplevels(wpe_toplevel_list());
     for (GList* iter = toplevels.get(); iter; iter = g_list_next(iter)) {
         auto* toplevel = WPE_TOPLEVEL(iter->data);
-        if (wpe_toplevel_get_state(toplevel) != WPE_TOPLEVEL_STATE_ACTIVE)
+        if (!(wpe_toplevel_get_state(toplevel) & WPE_TOPLEVEL_STATE_ACTIVE))
             continue;
 
         WPEView* view = nullptr;
@@ -411,7 +411,6 @@ gboolean ViewPlatform::handleEvent(WPEEvent* event)
         m_touchEvents.set(wpe_event_touch_get_sequence_id(event), event);
         page().handleTouchEvent(nullptr, NativeWebTouchEvent(event, touchPointsForEvent(event)));
 #endif
-        handleGesture(event);
         return TRUE;
     case WPE_EVENT_TOUCH_UP:
     case WPE_EVENT_TOUCH_CANCEL: {
@@ -419,9 +418,8 @@ gboolean ViewPlatform::handleEvent(WPEEvent* event)
         m_touchEvents.set(wpe_event_touch_get_sequence_id(event), event);
         auto points = touchPointsForEvent(event);
         m_touchEvents.remove(wpe_event_touch_get_sequence_id(event));
-        page().handleTouchEvent(nullptr, NativeWebTouchEvent(event, WTFMove(points)));
+        page().handleTouchEvent(nullptr, NativeWebTouchEvent(event, WTF::move(points)));
 #endif
-        handleGesture(event);
         return TRUE;
     }
     case WPE_EVENT_TOUCH_MOVE:
@@ -429,7 +427,6 @@ gboolean ViewPlatform::handleEvent(WPEEvent* event)
         m_touchEvents.set(wpe_event_touch_get_sequence_id(event), event);
         page().handleTouchEvent(nullptr, NativeWebTouchEvent(event, touchPointsForEvent(event)));
 #endif
-        handleGesture(event);
         return TRUE;
     };
     return FALSE;
@@ -441,7 +438,8 @@ void ViewPlatform::handleGesture(WPEEvent* event)
     if (!gestureController)
         return;
 
-    wpe_gesture_controller_handle_event(gestureController, event);
+    if (!wpe_gesture_controller_handle_event(gestureController, event))
+        return;
 
     if (wpe_event_get_event_type(event) == WPE_EVENT_TOUCH_DOWN)
         return;
@@ -482,12 +480,19 @@ void ViewPlatform::handleGesture(WPEEvent* event)
         break;
     case WPE_GESTURE_DRAG:
         if (double x, y, dx, dy; wpe_gesture_controller_get_gesture_position(gestureController, &x, &y) && wpe_gesture_controller_get_gesture_delta(gestureController, &dx, &dy)) {
+            auto phase = wpe_gesture_controller_is_drag_begin(gestureController)
+                ? WebWheelEvent::Phase::Began
+                : (wpe_event_get_event_type(event) == WPE_EVENT_TOUCH_UP) ? WebWheelEvent::Phase::Ended : WebWheelEvent::Phase::Changed;
+
+            // The last WPE_EVENT_TOUCH_UP will normally be preceded by a WPE_EVENT_TOUCH_MOVE with both
+            // reporting the same position. In case a platform implementation would not do that, the deltas
+            // are non-zero and cause a jump at the end of the gesture. Resetting the delta avoids the jump.
+            if (phase == WebWheelEvent::Phase::Ended)
+                dx = dy = 0;
+
             GRefPtr<WPEEvent> simulatedScrollEvent = adoptGRef(wpe_event_scroll_new(
                 m_wpeView.get(), WPE_INPUT_SOURCE_TOUCHSCREEN, 0, static_cast<WPEModifiers>(0), dx, dy, TRUE, FALSE, x, y
             ));
-            auto phase = wpe_gesture_controller_is_drag_begin(gestureController)
-                ? WebWheelEvent::Phase::PhaseBegan
-                : (wpe_event_get_event_type(event) == WPE_EVENT_TOUCH_UP) ? WebWheelEvent::Phase::PhaseEnded : WebWheelEvent::Phase::PhaseChanged;
             page().handleNativeWheelEvent(WebKit::NativeWebWheelEvent(simulatedScrollEvent.get(), phase));
         }
     }
@@ -495,7 +500,7 @@ void ViewPlatform::handleGesture(WPEEvent* event)
 
 void ViewPlatform::synthesizeCompositionKeyPress(const String& text, std::optional<Vector<WebCore::CompositionUnderline>>&& underlines, std::optional<EditingRange>&& selectionRange)
 {
-    page().handleKeyboardEvent(WebKit::NativeWebKeyboardEvent(text, WTFMove(underlines), WTFMove(selectionRange)));
+    page().handleKeyboardEvent(WebKit::NativeWebKeyboardEvent(text, WTF::move(underlines), WTF::move(selectionRange)));
 }
 
 void ViewPlatform::setCursor(const WebCore::Cursor& cursor)
@@ -659,7 +664,7 @@ void ViewPlatform::dispatchPendingNextPresentationUpdateCallbacks()
 
 void ViewPlatform::callAfterNextPresentationUpdate(CompletionHandler<void()>&& callback)
 {
-    m_nextPresentationUpdateCallbacks.insert(0, WTFMove(callback));
+    m_nextPresentationUpdateCallbacks.insert(0, WTF::move(callback));
     if (!m_bufferRenderedID) {
         m_bufferRenderedID = g_signal_connect_after(m_wpeView.get(), "buffer-rendered", G_CALLBACK(+[](WPEView* view, WPEBuffer*, gpointer userData) {
             auto& webView = *reinterpret_cast<ViewPlatform*>(userData);
@@ -667,6 +672,13 @@ void ViewPlatform::callAfterNextPresentationUpdate(CompletionHandler<void()>&& c
         }), this);
     }
 }
+
+#if USE(SKIA)
+Expected<Ref<ViewSnapshot>, String> ViewPlatform::takeViewSnapshot(std::optional<WebCore::IntRect>&& clipRect)
+{
+    return m_backingStore->takeSnapshot(WTF::move(clipRect));
+}
+#endif
 
 } // namespace WKWPE
 

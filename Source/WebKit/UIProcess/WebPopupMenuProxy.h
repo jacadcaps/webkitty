@@ -70,6 +70,8 @@ public:
 
     void invalidate() { m_client = nullptr; }
 
+    virtual bool isWebPopupMenuProxyMac() const { return false; }
+
 protected:
     explicit WebPopupMenuProxy(Client& client)
         : m_client(&client)

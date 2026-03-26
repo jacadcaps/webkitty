@@ -33,6 +33,7 @@
 #import <pal/spi/cocoa/FoundationSPI.h>
 #import <pal/spi/mac/NSSpellCheckerSPI.h>
 #import <wtf/CheckedArithmetic.h>
+#import <wtf/CrossThreadCopier.h>
 #import <wtf/NeverDestroyed.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/cocoa/VectorCocoa.h>
@@ -42,6 +43,7 @@ static NSString* const WebAutomaticSpellingCorrectionEnabled = @"WebAutomaticSpe
 static NSString* const WebContinuousSpellCheckingEnabled = @"WebContinuousSpellCheckingEnabled";
 static NSString* const WebGrammarCheckingEnabled = @"WebGrammarCheckingEnabled";
 static NSString* const WebSmartInsertDeleteEnabled = @"WebSmartInsertDeleteEnabled";
+static NSString* const WebSmartListsEnabled = @"WebSmartListsEnabled";
 static NSString* const WebAutomaticQuoteSubstitutionEnabled = @"WebAutomaticQuoteSubstitutionEnabled";
 static NSString* const WebAutomaticDashSubstitutionEnabled = @"WebAutomaticDashSubstitutionEnabled";
 static NSString* const WebAutomaticLinkDetectionEnabled = @"WebAutomaticLinkDetectionEnabled";
@@ -95,11 +97,19 @@ static bool shouldGrammarCheckingBeEnabled()
     return [defaults boolForKey:WebGrammarCheckingEnabled];
 }
 
+static bool shouldSmartListsBeEnabled()
+{
+    RetainPtr defaults = [NSUserDefaults standardUserDefaults];
+    if (![defaults objectForKey:WebSmartListsEnabled])
+        return true; // The Smart Lists preference should be true by default.
+
+    return [defaults boolForKey:WebSmartListsEnabled];
+}
+
 static OptionSet<TextCheckerState>& mutableState()
 {
-    static OptionSet<TextCheckerState> state;
-    static std::once_flag onceFlag;
-    std::call_once(onceFlag, [&] {
+    static OptionSet<TextCheckerState> state = [&] {
+        OptionSet<TextCheckerState> state;
         if ([[NSUserDefaults standardUserDefaults] boolForKey:WebContinuousSpellCheckingEnabled] && TextChecker::isContinuousSpellCheckingAllowed())
             state.add(TextCheckerState::ContinuousSpellCheckingEnabled);
 
@@ -120,7 +130,11 @@ static OptionSet<TextCheckerState>& mutableState()
 
         if ([[NSUserDefaults standardUserDefaults] boolForKey:WebAutomaticLinkDetectionEnabled])
             state.add(TextCheckerState::AutomaticLinkDetectionEnabled);
-    });
+
+        if (shouldSmartListsBeEnabled())
+            state.add(TextCheckerState::SmartListsEnabled);
+        return state;
+    }();
     return state;
 }
 
@@ -141,6 +155,7 @@ void TextChecker::setTestingMode(bool enabled)
         [[NSUserDefaults standardUserDefaults] setBool:state().contains(TextCheckerState::AutomaticDashSubstitutionEnabled) forKey:WebAutomaticDashSubstitutionEnabled];
         [[NSUserDefaults standardUserDefaults] setBool:state().contains(TextCheckerState::AutomaticLinkDetectionEnabled) forKey:WebAutomaticLinkDetectionEnabled];
         [[NSUserDefaults standardUserDefaults] setBool:state().contains(TextCheckerState::AutomaticTextReplacementEnabled) forKey:WebAutomaticTextReplacementEnabled];
+        [[NSUserDefaults standardUserDefaults] setBool:state().contains(TextCheckerState::SmartListsEnabled) forKey:WebSmartListsEnabled];
         [[NSUserDefaults standardUserDefaults] setBool:isSmartInsertDeleteEnabled() forKey:WebSmartInsertDeleteEnabled];
     }
     testingModeEnabled = enabled;
@@ -279,6 +294,16 @@ void TextChecker::setSmartInsertDeleteEnabled(bool flag)
         [[NSUserDefaults standardUserDefaults] setBool:flag forKey:WebSmartInsertDeleteEnabled];
 }
 
+void TextChecker::setSmartListsEnabled(bool smartListsEnabled)
+{
+    if (state().contains(TextCheckerState::SmartListsEnabled) == smartListsEnabled)
+        return;
+
+    mutableState().set(TextCheckerState::SmartListsEnabled, smartListsEnabled);
+    if (!testingModeEnabled)
+        [[NSUserDefaults standardUserDefaults] setBool:smartListsEnabled forKey:WebSmartListsEnabled];
+}
+
 void TextChecker::didChangeAutomaticTextReplacementEnabled()
 {
     mutableState().set(TextCheckerState::AutomaticTextReplacementEnabled, shouldAutomaticTextReplacementBeEnabled());
@@ -301,6 +326,11 @@ void TextChecker::didChangeAutomaticDashSubstitutionEnabled()
 {
     mutableState().set(TextCheckerState::AutomaticDashSubstitutionEnabled, shouldAutomaticDashSubstitutionBeEnabled());
     [[NSSpellChecker sharedSpellChecker] updatePanels];
+}
+
+void TextChecker::didChangeSmartListsEnabled()
+{
+    mutableState().set(TextCheckerState::SmartListsEnabled, shouldSmartListsBeEnabled());
 }
 
 bool TextChecker::substitutionsPanelIsShowing()
@@ -365,7 +395,7 @@ Vector<TextCheckingResult> TextChecker::checkTextOfParagraph(SpellDocumentTag sp
             TextCheckingResult result;
             result.type = TextCheckingType::Spelling;
             result.range = resultRange;
-            results.append(WTFMove(result));
+            results.append(WTF::move(result));
         } else if (resultType == NSTextCheckingTypeGrammar && checkingTypes.contains(TextCheckingType::Grammar)) {
             TextCheckingResult result;
             RetainPtr details = [incomingResult grammarDetails];
@@ -384,7 +414,7 @@ Vector<TextCheckingResult> TextChecker::checkTextOfParagraph(SpellDocumentTag sp
                 detail.userDescription = [incomingDetail objectForKey:NSGrammarUserDescription];
                 RetainPtr<NSArray> guesses = [incomingDetail objectForKey:NSGrammarCorrections];
                 detail.guesses = makeVector<String>(guesses.get());
-                result.details.append(WTFMove(detail));
+                result.details.append(WTF::move(detail));
             }
             results.append(result);
         } else if (resultType == NSTextCheckingTypeLink && checkingTypes.contains(TextCheckingType::Link)) {
@@ -392,25 +422,25 @@ Vector<TextCheckingResult> TextChecker::checkTextOfParagraph(SpellDocumentTag sp
             result.type = TextCheckingType::Link;
             result.range = resultRange;
             result.replacement = [[incomingResult URL] absoluteString];
-            results.append(WTFMove(result));
+            results.append(WTF::move(result));
         } else if (resultType == NSTextCheckingTypeQuote && checkingTypes.contains(TextCheckingType::Quote)) {
             TextCheckingResult result;
             result.type = TextCheckingType::Quote;
             result.range = resultRange;
             result.replacement = [incomingResult replacementString];
-            results.append(WTFMove(result));
+            results.append(WTF::move(result));
         } else if (resultType == NSTextCheckingTypeDash && checkingTypes.contains(TextCheckingType::Dash)) {
             TextCheckingResult result;
             result.type = TextCheckingType::Dash;
             result.range = resultRange;
             result.replacement = [incomingResult replacementString];
-            results.append(WTFMove(result));
+            results.append(WTF::move(result));
         } else if (resultType == NSTextCheckingTypeReplacement && checkingTypes.contains(TextCheckingType::Replacement)) {
             TextCheckingResult result;
             result.type = TextCheckingType::Replacement;
             result.range = resultRange;
             result.replacement = [incomingResult replacementString];
-            results.append(WTFMove(result));
+            results.append(WTF::move(result));
         } else if (resultType == NSTextCheckingTypeCorrection && checkingTypes.contains(TextCheckingType::Correction)) {
             TextCheckingResult result;
             result.type = TextCheckingType::Correction;
@@ -432,10 +462,10 @@ Vector<TextCheckingResult> TextChecker::checkTextOfParagraph(SpellDocumentTag sp
                     detail.userDescription = [incomingDetail objectForKey:NSGrammarUserDescription];
                     RetainPtr<NSArray> guesses = [incomingDetail objectForKey:NSGrammarCorrections];
                     detail.guesses = makeVector<String>(guesses.get());
-                    result.details.append(WTFMove(detail));
+                    result.details.append(WTF::move(detail));
                 }
             }
-            results.append(WTFMove(result));
+            results.append(WTF::move(result));
         }
     }
 
@@ -504,7 +534,7 @@ void TextChecker::getGuessesForWord(SpellDocumentTag spellDocumentTag, const Str
         [checker checkString:context.createNSString().get() range:NSMakeRange(0, context.length()) types:NSTextCheckingTypeOrthography options:options inSpellDocumentWithTag:spellDocumentTag orthography:&orthography wordCount:0];
         language = [checker languageForWordRange:NSMakeRange(0, context.length()) inString:context.createNSString().get() orthography:orthography];
     }
-    guesses = makeVector<String>([checker guessesForWordRange:NSMakeRange(0, word.length()) inString:word.createNSString().get() language:language.get() inSpellDocumentWithTag:spellDocumentTag]);
+    guesses = makeVector<String>(retainPtr([checker guessesForWordRange:NSMakeRange(0, word.length()) inString:word.createNSString().get() language:language.get() inSpellDocumentWithTag:spellDocumentTag]).get());
 }
 
 void TextChecker::learnWord(SpellDocumentTag, const String& word)
@@ -520,6 +550,46 @@ void TextChecker::ignoreWord(SpellDocumentTag spellDocumentTag, const String& wo
 void TextChecker::requestCheckingOfString(Ref<TextCheckerCompletion>&&, int32_t)
 {
     notImplemented();
+}
+
+static Vector<TextCheckingResult> convertExtendedCheckingResults(NSArray<NSTextCheckingResult *> *incomingResults)
+{
+    Vector<TextCheckingResult> results;
+    for (NSTextCheckingResult *incomingResult in incomingResults) {
+        NSTextCheckingType resultType = [incomingResult resultType];
+        auto resultRange = incomingResult.range;
+        if (resultType == NSTextCheckingTypeGrammar) {
+            TextCheckingResult result;
+            RetainPtr details = [incomingResult grammarDetails];
+            result.type = TextCheckingType::Grammar;
+            result.range = resultRange;
+            result.details.reserveInitialCapacity(details.get().count);
+            for (NSDictionary *incomingDetail in details.get()) {
+                GrammarDetail detail;
+                RetainPtr detailRangeAsNSValue = [incomingDetail objectForKey:NSGrammarRange];
+                NSRange detailNSRange = [detailRangeAsNSValue rangeValue];
+                detail.range = detailNSRange;
+                detail.userDescription = [incomingDetail objectForKey:NSGrammarUserDescription];
+                RetainPtr<NSArray> guesses = [incomingDetail objectForKey:NSGrammarCorrections];
+                detail.guesses = makeVector<String>(guesses.get());
+                result.details.append(WTF::move(detail));
+            }
+            results.append(result);
+        }
+    }
+    return results;
+}
+
+void TextChecker::requestExtendedCheckingOfString(Ref<TextCheckerCompletion>&& textCheckerCompletion, int32_t insertionPoint)
+{
+    RetainPtr textString = textCheckerCompletion->textCheckingRequestData().text().createNSString();
+    NSRange range = NSMakeRange(0, textCheckerCompletion->textCheckingRequestData().text().length());
+    [[NSSpellChecker sharedSpellChecker] requestGrammarCheckingOfString:textString.get() range:range language:nil options:@{ NSTextCheckingInsertionPointKey : @(insertionPoint), @"ProofreadingReview": @1 } completionHandler:makeBlockPtr([textCompletion = WTF::move(textCheckerCompletion)](NSInteger sequenceNumber, NSArray<NSTextCheckingResult *> *incomingResults) mutable {
+        auto results = convertExtendedCheckingResults(incomingResults);
+        callOnMainRunLoop([textCompletion = WTF::move(textCompletion), results = crossThreadCopy(WTF::move(results))] {
+            textCompletion->didFinishCheckingText(results);
+        });
+    }).get()];
 }
 
 } // namespace WebKit

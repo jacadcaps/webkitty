@@ -22,9 +22,12 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
+import re
 import argparse
 
 from webkitpy.safer_cpp.checkers import Checker
+
+EXPECTATION_LINE_RE = r'(\s*\[\s*(?P<platform>\w+)\s*\]\s*)?(?P<path>.+)'
 
 
 def parser():
@@ -58,6 +61,11 @@ def parser():
         dest='unexpected_results_file',
         default=None,
         help='Path to unexpected results file'
+    )
+    parser.add_argument(
+        '--platform',
+        default=None,
+        help='Mac or iOS'
     )
     return parser.parse_args()
 
@@ -108,32 +116,86 @@ def update_expectations_from_file(unexpected_results, project, add=False):
     print(f'Please add any changes to your commit using `git add` and `git commit --amend`.')
 
 
-def modify_expectations_for_checker(checker, unexpected_contents, project, add=False):
+def modify_expectations_for_checker(checker, unexpected_contents, project, add, platform):
+    if platform:
+        platform = platform.lower()
+    if platform != None and platform != 'mac' and platform != 'ios':
+        print(f'Unknown platform: {platform}')
+        return
+
     path_to_expectations = checker.expectations_path(project)
+    expectation_relpath = os.path.relpath(path_to_expectations)
     checker_name = checker.name()
+    expectation_map = {}
     with open(path_to_expectations) as expectations_file:
-        expectations = expectations_file.readlines()
-        prev_len = len(expectations)
-    for line in unexpected_contents:
-        if not add:
-            try:
-                expectations.remove(f'{line}\n')
-            except ValueError:
-                print(f'Error: {line} is not in {os.path.relpath(path_to_expectations)}!')
-        elif line not in expectations:
-            expectations.append(f'{line}\n')
-        else:
-            print(f'Error: {line} is already in {os.path.relpath(path_to_expectations)}!\n')
-    with open(path_to_expectations, 'w') as expectations_file:
-        expectations_file.writelines(sorted(expectations))
-    print(f'Updated expectations for {checker_name}!')
-    if not add:
-        print(f'Removed {prev_len - len(expectations)} fixed files.\n')
+        expectation_line_re = re.compile(EXPECTATION_LINE_RE)
+        comments = []
+        for line in expectations_file.read().splitlines():
+            if line.startswith('//') or line.startswith('#'):
+                comments.append(line)
+                continue
+            match = expectation_line_re.match(line)
+            if not match:
+                print(f'Unexpected line in {expectation_relpath}: {line}')
+                continue
+            expectation_platform = match.group('platform')
+            path = match.group('path')
+            if path in expectation_map:
+                print(f'Conflicting or duplicate line in {expectation_relpath}: {path}')
+                continue
+            expectation_map[match.group('path')] = {'platform': expectation_platform, 'comments': comments}
+            comments = []
+
+    count = 0
+    if add:
+        for path in unexpected_contents:
+            if path in expectation_map:
+                expectation_platform = expectation_map[path]['platform']
+                lowercase_platform = expectation_platform.lower() if expectation_platform else None
+                if lowercase_platform == platform:
+                    print(f'Path is already present in {expectation_relpath}: {path}')
+                    continue
+                if lowercase_platform != 'mac' and lowercase_platform != 'ios':
+                    print(f'Unexpected platform in {expectation_relpath}: {expectation_platform}')
+                    continue
+                expectation_map[path]['platform'] = None
+            count += 1
+        print(f'Added {count} files with issues.\n')
     else:
-        print(f'Added {len(expectations) - prev_len} files with issues.\n')
+        for path in unexpected_contents:
+            if path not in expectation_map:
+                print(f'Path not found in {expectation_relpath}: {path}')
+                continue
+            if platform:
+                expectation_platform = expectation_map[path]['platform']
+                lowercase_platform = expectation_platform.lower() if expectation_platform else None
+                if lowercase_platform != platform:
+                    platform_name = 'Mac' if platform == 'mac' else 'iOS'
+                    print(f'Expectation not found in {expectation_relpath}: {path} for {platform_name}')
+                    continue # Expectation is for another platform. We're done
+                if expectation_platform == None:
+                    expectation_map[path]['platform'] = 'Mac' if platform == 'ios' else 'iOS'
+                else:
+                    del expectation_map[path]
+            else:
+                del expectation_map[path]
+            count += 1
+        print(f'Removed {count} fixed files.\n')
+
+    lines = []
+    for path in sorted(expectation_map.keys()):
+        platform = expectation_map[path]['platform']
+        for comment in expectation_map[path]['comments']:
+            lines.append(f'{comment}\n')
+        lines.append(f'[ {platform} ] {path}\n' if platform else f'{path}\n')
+
+    with open(path_to_expectations, 'w') as expectations_file:
+        expectations_file.writelines(lines)
+
+    print(f'Updated expectations for {checker_name}!')
 
 
-def update_expectations(args, project, add=False):
+def update_expectations(args, project, add, platform):
     if not project:
         print(f'Could not find a project to update. Please pass in the --project argument.')
         return
@@ -141,7 +203,7 @@ def update_expectations(args, project, add=False):
     for checker in Checker.enumerate():
         files_per_checker = args[checker.name()]
         if files_per_checker:
-            modify_expectations_for_checker(checker, files_per_checker, project, add)
+            modify_expectations_for_checker(checker, files_per_checker, project, add, platform)
     print(f'Please add any changes to your commit using `git add` and `git commit --amend`.')
 
 
@@ -182,7 +244,7 @@ def main():
     if args.unexpected_results_file:
         update_expectations_from_file(args.unexpected_results_file, args.project, args.add)
     else:
-        update_expectations(vars(args), args.project, args.add)
+        update_expectations(vars(args), args.project, args.add, args.platform)
 
 
 if __name__ == '__main__':

@@ -47,8 +47,8 @@ SOFT_LINK_CLASS(CoreLocation, CLLocation)
 SOFT_LINK_CONSTANT(CoreLocation, kCLLocationAccuracyBest, double)
 SOFT_LINK_CONSTANT(CoreLocation, kCLLocationAccuracyHundredMeters, double)
 
-#define kCLLocationAccuracyBest getkCLLocationAccuracyBest()
-#define kCLLocationAccuracyHundredMeters getkCLLocationAccuracyHundredMeters()
+#define kCLLocationAccuracyBest getkCLLocationAccuracyBestSingleton()
+#define kCLLocationAccuracyHundredMeters getkCLLocationAccuracyHundredMetersSingleton()
 
 @interface WebCLLocationManager : NSObject<CLLocationManagerDelegate>
 @end
@@ -146,8 +146,8 @@ SOFT_LINK_CONSTANT(CoreLocation, kCLLocationAccuracyHundredMeters, double)
         return;
     }
 
-    NSString *errorMessage = [error localizedDescription];
-    _client->errorOccurred(_websiteIdentifier, errorMessage);
+    RetainPtr<NSString> errorMessage = [error localizedDescription];
+    _client->errorOccurred(_websiteIdentifier, errorMessage.get());
 }
 
 @end
@@ -180,7 +180,7 @@ public:
 
     void check(const RegistrableDomain& registrableDomain, CompletionHandler<void(bool)>&& completionHandler)
     {
-        m_completionHandler = WTFMove(completionHandler);
+        m_completionHandler = WTF::move(completionHandler);
         m_provider = makeUnique<CoreLocationGeolocationProvider>(registrableDomain, *this, CoreLocationGeolocationProvider::Mode::AuthorizationOnly);
     }
 
@@ -214,7 +214,7 @@ private:
 void CoreLocationGeolocationProvider::requestAuthorization(const RegistrableDomain& registrableDomain, CompletionHandler<void(bool)>&& completionHandler)
 {
     auto authorizationChecker = AuthorizationChecker::create();
-    authorizationChecker->check(registrableDomain, [authorizationChecker, completionHandler = WTFMove(completionHandler)](bool authorized) mutable {
+    authorizationChecker->check(registrableDomain, [authorizationChecker, completionHandler = WTF::move(completionHandler)](bool authorized) mutable {
         completionHandler(authorized);
     });
 }

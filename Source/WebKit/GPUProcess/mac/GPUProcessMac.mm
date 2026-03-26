@@ -42,6 +42,7 @@
 #import <wtf/BlockPtr.h>
 #import <wtf/MemoryPressureHandler.h>
 #import <wtf/ProcessPrivilege.h>
+#import <wtf/darwin/DispatchExtras.h>
 #import <wtf/text/WTFString.h>
 
 namespace WebKit {
@@ -67,7 +68,9 @@ void GPUProcess::initializeProcessName(const AuxiliaryProcessInitializationParam
 void GPUProcess::updateProcessName()
 {
 #if !PLATFORM(MACCATALYST)
-    RetainPtr applicationName = adoptNS([[NSString alloc] initWithFormat:WEB_UI_NSSTRING(@"%@ Graphics and Media", "visible name of the GPU process. The argument is the application name."), m_uiProcessName.createNSString().get()]);
+ALLOW_NONLITERAL_FORMAT_BEGIN
+    RetainPtr applicationName = adoptNS([[NSString alloc] initWithFormat:WEB_UI_STRING("%@ Graphics and Media", "visible name of the GPU process. The argument is the application name.").createNSString().get(), m_uiProcessName.createNSString().get()]);
+ALLOW_NONLITERAL_FORMAT_END
     RetainPtr asn = _LSGetCurrentApplicationASN();
     auto result = _LSSetApplicationInformationItem(kLSDefaultSessionID, asn.get(), _kLSDisplayNameKey, (CFStringRef)applicationName.get(), nullptr);
     ASSERT_UNUSED(result, result == noErr);
@@ -108,17 +111,17 @@ void GPUProcess::setScreenProperties(const WebCore::ScreenProperties& screenProp
 
 void GPUProcess::openDirectoryCacheInvalidated(SandboxExtension::Handle&& handle)
 {
-    auto cacheInvalidationHandler = [handle = WTFMove(handle)] () mutable {
-        AuxiliaryProcess::openDirectoryCacheInvalidated(WTFMove(handle));
+    auto cacheInvalidationHandler = [handle = WTF::move(handle)] () mutable {
+        AuxiliaryProcess::openDirectoryCacheInvalidated(WTF::move(handle));
     };
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), makeBlockPtr(WTFMove(cacheInvalidationHandler)).get());
+    dispatch_async(globalDispatchQueueSingleton(QOS_CLASS_UTILITY, 0), makeBlockPtr(WTF::move(cacheInvalidationHandler)).get());
 }
 #endif // PLATFORM(MAC)
 
 #if HAVE(POWERLOG_TASK_MODE_QUERY)
 void GPUProcess::enablePowerLogging(SandboxExtension::Handle&& handle)
 {
-    SandboxExtension::consumePermanently(WTFMove(handle));
+    SandboxExtension::consumePermanently(WTF::move(handle));
 }
 #endif // HAVE(POWERLOG_TASK_MODE_QUERY)
 

@@ -7,29 +7,82 @@
 //    Implements the PoolAllocator.
 //
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include "common/PoolAlloc.h"
 
 #include <stdint.h>
-#include <utility>
 
+#include "common/aligned_memory.h"
 #include "common/platform.h"
 
 #if defined(ANGLE_WITH_ASAN)
 #    include <sanitizer/asan_interface.h>
 #endif
-#if !defined(ANGLE_DISABLE_POOL_ALLOC)
-#    include "common/aligned_memory.h"
-#endif
 
 namespace angle
 {
 
-constexpr size_t kPoolAllocatorPageSize = 16 * 1024;
+// The PoolAllocator memory is aligned by starting with an aligned pointer
+// and reserving aligned size amount of memory.
+// This is, as opposed to aligning the current pointer and reserving the
+// exact amount.
+// The layout is:
+//   [client][pad][client][pad]...
+// With ANGLE_POOL_ALLOC_GUARD_BLOCKS, the layout is:
+//   [guard][client][pad/guard][guard][client][pad/guard]
+// ANGLE_POOL_ALLOC_GUARD_BLOCKS asserts that guards and pads are not overwritten
+// by the client.
 
-PoolAllocator::PoolAllocator(size_t alignment) : mAlignment(alignment)
+#if defined(ANGLE_POOL_ALLOC_GUARD_BLOCKS)
+constexpr uint8_t kGuardFillValue = 0xfe;
+#endif
+
+class PoolAllocator::Segment
 {
-    ASSERT(gl::isPow2(mAlignment) && mAlignment < kPoolAllocatorPageSize);
-    ANGLE_ALLOC_PROFILE(ALIGNMENT, mAlignment);
+  public:
+    Segment() = default;
+    explicit Segment(Span<uint8_t> data) : mData(data) {}
+    Segment(Segment &&other) : mData(std::exchange(other.mData, {})) {}
+    ~Segment()
+    {
+        uint8_t *data = mData.data();
+        if (data != nullptr)
+        {
+            size_t size = mData.size();
+            ANGLE_UNUSED_VARIABLE(size);
+            ANGLE_ALLOC_PROFILE(POOL_DEALLOCATION, data, size, size > kSegmentSize);
+            AlignedFree(data);
+        }
+    }
+    Segment &operator=(Segment &&other)
+    {
+        mData = std::exchange(other.mData, {});
+        return *this;
+    }
+    static Segment Allocate(size_t size)
+    {
+        ANGLE_ALLOC_PROFILE(POOL_ALLOCATION, size, size > kSegmentSize);
+        uint8_t *result = reinterpret_cast<uint8_t *>(AlignedAlloc(size, kAlignment));
+        if (ANGLE_UNLIKELY(result == nullptr))
+        {
+            return {};
+        }
+        return Segment{{result, size}};
+    }
+    uint8_t *data() const { return mData.data(); }
+
+  private:
+    Span<uint8_t> mData;
+};
+
+PoolAllocator::PoolAllocator() = default;
+
+PoolAllocator::~PoolAllocator()
+{
+    reset();
 }
 
 void PoolAllocator::lock()
@@ -44,178 +97,80 @@ void PoolAllocator::unlock()
     mLocked = false;
 }
 
-#if !defined(ANGLE_DISABLE_POOL_ALLOC)
+#if defined(ANGLE_POOL_ALLOC_GUARD_BLOCKS)
 
-namespace
+void PoolAllocator::addGuard(Span<uint8_t> guardData)
 {
-
-inline Span<uint8_t> AllocatePageMemory(size_t size, size_t alignment)
-{
-    ANGLE_ALLOC_PROFILE(PAGE_ALLOCATION, size);
-    uint8_t *result = reinterpret_cast<uint8_t *>(AlignedAlloc(size, alignment));
-    if (ANGLE_UNLIKELY(result == nullptr))
-    {
-        return {};
-    }
-    return {result, size};
-}
-
-inline void DeallocatePageMemory(uint8_t *memory, size_t size)
-{
-    ANGLE_ALLOC_PROFILE(PAGE_DEALLOCATION, memory, size);
-    AlignedFree(memory);
-}
-
-#    if defined(ANGLE_POOL_ALLOC_GUARD_BLOCKS)
-
-constexpr uint8_t kGuardFillValue = 0xfe;
-constexpr uint8_t kDataFillValue  = 0xcd;
-
-#    endif
-
-}  // anonymous namespace.
-
-class PoolAllocator::PageHeader
-{
-  public:
-    PageHeader(PageHeader *next, size_t size) : next(next), size(size) {}
-
-    PageHeader *next;
-    size_t size;
-};
-
-#    if defined(ANGLE_POOL_ALLOC_GUARD_BLOCKS)
-
-size_t PoolAllocator::adjustAllocationExtent(size_t alignedSize) const
-{
-    size_t adjustedSize = alignedSize;
-    if (mAlignment != 1)
-    {
-        adjustedSize += 2 * mAlignment;
-    }
-    return adjustedSize;
-}
-
-void PoolAllocator::addGuard(Span<uint8_t> alignedData, size_t size)
-{
-    if (!alignedData.empty())
-    {
-        memset(alignedData.data(), kDataFillValue, alignedData.size());
-        Span<uint8_t> alignmentGuard = alignedData.subspan(size);
-        if (!alignmentGuard.empty())
-        {
-            mGuards.push_back(alignmentGuard);
-        }
-    }
-
-    if (mAlignment != 1)
-    {
-        Span guard = bump(mAlignment);
-        memset(guard.data(), kGuardFillValue, guard.size());
-        mGuards.push_back(guard);
-    }
-}
-
-#    endif
-
-PoolAllocator::~PoolAllocator()
-{
-    reset();
-    PageHeader *page = mUnusedPages;
-    while (page)
-    {
-        PageHeader *next = page->next;
-        DeallocatePageMemory(reinterpret_cast<uint8_t *>(page), page->size);
-        page = next;
-    }
-}
-
-void PoolAllocator::reset()
-{
-#    if defined(ANGLE_POOL_ALLOC_GUARD_BLOCKS)
-    for (Span<uint8_t> guard : mGuards)
-    {
-        uint8_t expectedValue = reinterpret_cast<uintptr_t>(guard.data()) % mAlignment != 0
-                                    ? kDataFillValue
-                                    : kGuardFillValue;
-        for (uint8_t value : guard)
-        {
-            ASSERT(value == expectedValue);
-        }
-    }
-    mGuards.clear();
-#    endif
-    mMemory          = {};
-    PageHeader *page = std::exchange(mPages, nullptr);
-    while (page)
-    {
-        PageHeader *next = page->next;
-        if (page->size > kPoolAllocatorPageSize)
-        {
-            DeallocatePageMemory(reinterpret_cast<uint8_t *>(page), page->size);
-        }
-        else
-        {
-#    if defined(ANGLE_WITH_ASAN)
-            // Clear any container annotations left over from when the memory
-            // was last used. (crbug.com/1419798)
-            __asan_unpoison_memory_region(page, page->size);
-#    endif
-            page->next   = mUnusedPages;
-            mUnusedPages = page;
-        }
-        page = next;
-    }
-}
-
-bool PoolAllocator::allocateNewPage(size_t numBytes)
-{
-    size_t headerSize = rx::roundUpPow2(sizeof(PageHeader), mAlignment);
-    size_t pageExtent = rx::roundUpPow2(numBytes + headerSize, kPoolAllocatorPageSize);
-    if (mUnusedPages != nullptr && mUnusedPages->size >= pageExtent)
-    {
-        PageHeader *page = mUnusedPages;
-        mUnusedPages     = page->next;
-        mMemory    = {reinterpret_cast<uint8_t *>(page) + headerSize, page->size - headerSize};
-        page->next = mPages;
-        mPages     = page;
-        return true;
-    }
-
-    Span<uint8_t> memory =
-        AllocatePageMemory(pageExtent, std::max(mAlignment, alignof(PageHeader)));
-    if (ANGLE_UNLIKELY(memory.empty()))
-    {
-        return false;
-    }
-    mMemory = memory;
-    mPages  = new (bump(headerSize).data()) PageHeader(mPages, pageExtent);
-    return true;
-}
-
-#else  // !defined(ANGLE_DISABLE_POOL_ALLOC)
-
-PoolAllocator::~PoolAllocator() = default;
-
-void PoolAllocator::reset()
-{
-    mAllocations.clear();
-}
-
-void *PoolAllocator::allocate(size_t numBytes)
-{
-    ASSERT(!mLocked);
-    uint8_t *alloc = new (std::nothrow) uint8_t[numBytes + mAlignment - 1];
-    if (ANGLE_UNLIKELY(!alloc))
-    {
-        return nullptr;
-    }
-    mAllocations.push_back(std::unique_ptr<uint8_t[]>(alloc));
-    uintptr_t intAlloc = reinterpret_cast<uintptr_t>(alloc);
-    intAlloc           = rx::roundUpPow2<uintptr_t>(intAlloc, mAlignment);
-    return reinterpret_cast<void *>(intAlloc);
+    memset(guardData.data(), kGuardFillValue, guardData.size());
+    mGuards.push_back(guardData);
 }
 
 #endif
+
+void PoolAllocator::reset()
+{
+#if defined(ANGLE_POOL_ALLOC_GUARD_BLOCKS)
+    for (Span<uint8_t> guard : mGuards)
+    {
+        for (uint8_t value : guard)
+        {
+            ASSERT(value == kGuardFillValue);
+        }
+    }
+    mGuards.clear();
+#endif
+#if !defined(ANGLE_DISABLE_POOL_ALLOC)
+    mCurrentPool    = {};
+    mUnusedSegments = std::exchange(mPoolSegments, {});
+#    if defined(ANGLE_WITH_ASAN)
+    for (auto &segment : mUnusedSegments)
+    {
+        // Clear any container annotations left over from when the memory
+        // was last used. (crbug.com/1419798)
+        __asan_unpoison_memory_region(segment.data(), kSegmentSize);
+    }
+#    endif
+#endif
+    mSingleObjectSegments.clear();
+}
+
+#if !defined(ANGLE_DISABLE_POOL_ALLOC)
+
+bool PoolAllocator::allocateNewPoolSegment()
+{
+    Segment segment;
+    if (!mUnusedSegments.empty())
+    {
+        segment = std::move(mUnusedSegments.back());
+        mUnusedSegments.pop_back();
+    }
+    else
+    {
+        segment = Segment::Allocate(kSegmentSize);
+        if (ANGLE_UNLIKELY(segment.data() == nullptr))
+        {
+            return false;
+        }
+    }
+
+    mCurrentPool = {segment.data(), kSegmentSize};
+    mPoolSegments.push_back(std::move(segment));
+    return true;
+}
+
+#endif
+
+Span<uint8_t> PoolAllocator::allocateSingleObject(size_t size)
+{
+    Segment segment = Segment::Allocate(size);
+    if (ANGLE_UNLIKELY(segment.data() == nullptr))
+    {
+        return {};
+    }
+    Span<uint8_t> result{segment.data(), size};
+    mSingleObjectSegments.push_back(std::move(segment));
+    ANGLE_ALLOC_PROFILE(LOCAL_BUMP_ALLOCATION, result, true);
+    return result;
+}
 
 }  // namespace angle

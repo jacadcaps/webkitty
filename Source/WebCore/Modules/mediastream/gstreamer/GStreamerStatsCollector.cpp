@@ -23,6 +23,7 @@
 #if ENABLE(WEB_RTC) && USE(GSTREAMER_WEBRTC)
 
 #include "GStreamerCommon.h"
+#include "GStreamerWebRTCUtils.h"
 #include "JSDOMMapLike.h"
 #include "JSRTCStatsReport.h"
 
@@ -40,9 +41,17 @@ GST_DEBUG_CATEGORY(webkit_webrtc_stats_debug);
 
 namespace WebCore {
 
+GStreamerStatsCollector::GStreamerStatsCollector()
+{
+    static std::once_flag debugRegisteredFlag;
+    std::call_once(debugRegisteredFlag, [] {
+        GST_DEBUG_CATEGORY_INIT(webkit_webrtc_stats_debug, "webkitwebrtcstats", 0, "WebKit WebRTC Stats");
+    });
+}
+
 RTCStatsReport::Stats::Stats(Type type, const GstStructure* structure)
     : type(type)
-    , id(gstStructureGetString(structure, "id"_s).toString())
+    , id(gstStructureGetString(structure, "id"_s).span())
 {
     if (auto value = gstStructureGet<double>(structure, "timestamp"_s))
         timestamp = Seconds::fromMicroseconds(*value).milliseconds();
@@ -50,9 +59,9 @@ RTCStatsReport::Stats::Stats(Type type, const GstStructure* structure)
 
 RTCStatsReport::RtpStreamStats::RtpStreamStats(Type type, const GstStructure* structure)
     : Stats(type, structure)
-    , kind(gstStructureGetString(structure, "kind"_s).toString())
-    , transportId(gstStructureGetString(structure, "transport-id"_s).toString())
-    , codecId(gstStructureGetString(structure, "codec-id"_s).toString())
+    , kind(gstStructureGetString(structure, "kind"_s).span())
+    , transportId(gstStructureGetString(structure, "transport-id"_s).span())
+    , codecId(gstStructureGetString(structure, "codec-id"_s).span())
 {
     if (auto value = gstStructureGet<unsigned>(structure, "ssrc"_s))
         ssrc = *value;
@@ -67,8 +76,8 @@ RTCStatsReport::SentRtpStreamStats::SentRtpStreamStats(Type type, const GstStruc
 
 RTCStatsReport::CodecStats::CodecStats(const GstStructure* structure)
     : Stats(Type::Codec, structure)
-    , mimeType(gstStructureGetString(structure, "mime-type"_s).toString())
-    , sdpFmtpLine(gstStructureGetString(structure, "sdp-fmtp-line"_s).toString())
+    , mimeType(gstStructureGetString(structure, "mime-type"_s).span())
+    , sdpFmtpLine(gstStructureGetString(structure, "sdp-fmtp-line"_s).span())
 {
     clockRate = gstStructureGet<unsigned>(structure, "clock-rate"_s);
     channels = gstStructureGet<unsigned>(structure, "channels"_s);
@@ -100,7 +109,7 @@ RTCStatsReport::ReceivedRtpStreamStats::ReceivedRtpStreamStats(Type type, const 
 
 RTCStatsReport::RemoteInboundRtpStreamStats::RemoteInboundRtpStreamStats(const GstStructure* structure)
     : ReceivedRtpStreamStats(Type::RemoteInboundRtp, structure)
-    , localId(gstStructureGetString(structure, "local-id"_s).toString())
+    , localId(gstStructureGetString(structure, "local-id"_s).span())
 {
     roundTripTime = gstStructureGet<double>(structure, "round-trip-time"_s);
     fractionLost = gstStructureGet<double>(structure, "fraction-lost"_s);
@@ -112,7 +121,7 @@ RTCStatsReport::RemoteInboundRtpStreamStats::RemoteInboundRtpStreamStats(const G
 
 RTCStatsReport::RemoteOutboundRtpStreamStats::RemoteOutboundRtpStreamStats(const GstStructure* structure)
     : SentRtpStreamStats(Type::RemoteOutboundRtp, structure)
-    , localId(gstStructureGetString(structure, "local-id"_s).toString())
+    , localId(gstStructureGetString(structure, "local-id"_s).span())
 {
     remoteTimestamp = gstStructureGet<double>(structure, "remote-timestamp"_s);
 
@@ -133,15 +142,21 @@ RTCStatsReport::InboundRtpStreamStats::InboundRtpStreamStats(const GstStructure*
     pliCount = gstStructureGet<unsigned>(structure, "pli-count"_s);
     nackCount = gstStructureGet<unsigned>(structure, "nack-count"_s);
 
-    decoderImplementation = "GStreamer"_s;
+    // This should be exposed only if allowed (due to fingerprinting).
+    // if (kind == "video"_s)
+    //     decoderImplementation = gstStructureGetString(structure, "decoder-implementation"_s).span();
 
+    framesPerSecond = gstStructureGet<double>(structure, "frames-per-second"_s);
+    totalDecodeTime = gstStructureGet<double>(structure, "total-decode-time"_s);
     framesDecoded = gstStructureGet<uint64_t>(structure, "frames-decoded"_s);
     framesDropped = gstStructureGet<uint64_t>(structure, "frames-dropped"_s);
     frameWidth = gstStructureGet<unsigned>(structure, "frame-width"_s);
     frameHeight = gstStructureGet<unsigned>(structure, "frame-height"_s);
+    framesReceived = gstStructureGet<uint64_t>(structure, "frames-received"_s);
+    keyFramesDecoded = gstStructureGet<uint64_t>(structure, "key-frames-decoded"_s);
 
     if (auto identifier = gstStructureGetString(structure, "track-identifier"_s))
-        trackIdentifier = identifier.toString();
+        trackIdentifier = identifier.span();
 
     // FIXME:
     // stats.fractionLost =
@@ -157,7 +172,7 @@ RTCStatsReport::InboundRtpStreamStats::InboundRtpStreamStats(const GstStructure*
 
 RTCStatsReport::OutboundRtpStreamStats::OutboundRtpStreamStats(const GstStructure* structure)
     : SentRtpStreamStats(Type::OutboundRtp, structure)
-    , remoteId(gstStructureGetString(structure, "remote-id"_s).toString())
+    , remoteId(gstStructureGetString(structure, "remote-id"_s).span())
 {
     firCount = gstStructureGet<unsigned>(structure, "fir-count"_s);
     pliCount = gstStructureGet<unsigned>(structure, "pli-count"_s);
@@ -171,9 +186,9 @@ RTCStatsReport::OutboundRtpStreamStats::OutboundRtpStreamStats(const GstStructur
     framesPerSecond = gstStructureGet<double>(structure, "frames-per-second"_s);
 
     if (auto midValue = gstStructureGetString(structure, "mid"_s))
-        mid = midValue.toString();
+        mid = midValue.span();
     if (auto ridValue = gstStructureGetString(structure, "rid"_s))
-        rid = ridValue.toString();
+        rid = ridValue.span();
 }
 
 RTCStatsReport::PeerConnectionStats::PeerConnectionStats(const GstStructure* structure)
@@ -185,11 +200,36 @@ RTCStatsReport::PeerConnectionStats::PeerConnectionStats(const GstStructure* str
 
 RTCStatsReport::TransportStats::TransportStats(const GstStructure* structure)
     : Stats(Type::Transport, structure)
-    , selectedCandidatePairId(gstStructureGetString(structure, "selected-candidate-pair-id"_s).toString())
+    , selectedCandidatePairId(gstStructureGetString(structure, "selected-candidate-pair-id"_s).span())
 {
-    // FIXME: This field is required, GstWebRTC doesn't provide it, so hard-code a value here.
-    dtlsState = RTCDtlsTransportState::Connected;
+    // https://gitlab.freedesktop.org/gstreamer/gstreamer/-/commit/9e38ee7526ecbb12320d1aef29a0c74b815eb4ef
+    if (gst_structure_has_field_typed(structure, "dtls-state", GST_TYPE_WEBRTC_DTLS_TRANSPORT_STATE)) {
+        GstWebRTCDTLSTransportState state;
+        gst_structure_get(structure, "dtls-state", GST_TYPE_WEBRTC_DTLS_TRANSPORT_STATE, &state, nullptr);
+        dtlsState = toRTCDtlsTransportState(state);
+    } else {
+        // Our GStreamer version is likely too old, but this field being required, hard-code it to Connected.
+        dtlsState = RTCDtlsTransportState::Connected;
+    }
 
+    // https://gitlab.freedesktop.org/gstreamer/gstreamer/-/commit/9e38ee7526ecbb12320d1aef29a0c74b815eb4ef
+#if GST_CHECK_VERSION(1, 27, 0)
+    if (gst_structure_has_field_typed(structure, "dtls-role", GST_TYPE_WEBRTC_DTLS_ROLE)) {
+        GstWebRTCDTLSRole role;
+        gst_structure_get(structure, "dtls-role", GST_TYPE_WEBRTC_DTLS_ROLE, &role, nullptr);
+        switch (role) {
+        case GST_WEBRTC_DTLS_ROLE_CLIENT:
+            dtlsRole = DtlsRole::Client;
+            break;
+        case GST_WEBRTC_DTLS_ROLE_SERVER:
+            dtlsRole = DtlsRole::Server;
+            break;
+        case GST_WEBRTC_DTLS_ROLE_UNKNOWN:
+            dtlsRole = DtlsRole::Unknown;
+            break;
+        }
+    }
+#endif
     // FIXME
     // stats.bytesSent =
     // stats.bytesReceived =
@@ -201,38 +241,52 @@ RTCStatsReport::TransportStats::TransportStats(const GstStructure* structure)
     // stats.srtpCipher =
 }
 
-static inline RTCIceCandidateType iceCandidateType(StringView type)
-{
-    if (type == "host"_s)
-        return RTCIceCandidateType::Host;
-    if (type == "srflx"_s)
-        return RTCIceCandidateType::Srflx;
-    if (type == "prflx"_s)
-        return RTCIceCandidateType::Prflx;
-    if (type == "relay"_s)
-        return RTCIceCandidateType::Relay;
-    ASSERT_NOT_REACHED();
-    return RTCIceCandidateType::Host;
-}
-
 RTCStatsReport::IceCandidateStats::IceCandidateStats(GstWebRTCStatsType statsType, const GstStructure* structure)
     : Stats(statsType == GST_WEBRTC_STATS_REMOTE_CANDIDATE ? Type::RemoteCandidate : Type::LocalCandidate, structure)
-    , transportId(gstStructureGetString(structure, "transport-id"_s).toString())
-    , address(gstStructureGetString(structure, "address"_s).toString())
-    , protocol(gstStructureGetString(structure, "protocol"_s).toString())
-    , url(gstStructureGetString(structure, "url"_s).toString())
+    , transportId(gstStructureGetString(structure, "transport-id"_s).span())
+    , protocol(gstStructureGetString(structure, "protocol"_s).span())
+    , url(gstStructureGetString(structure, "url"_s).span())
+    , foundation(gstStructureGetString(structure, "foundation"_s).span())
+    , usernameFragment(gstStructureGetString(structure, "username-fragment"_s).span())
 {
+    // NOTE: We have the address field in the structure but we don't expose it for privacy reasons.
+    // Covered by test: webrtc/candidate-stats.html
     port = gstStructureGet<unsigned>(structure, "port"_s);
     priority = gstStructureGet<unsigned>(structure, "priority"_s);
 
-    if (auto value = gstStructureGetString(structure, "candidate-type"_s))
-        candidateType = iceCandidateType(value);
+#if GST_CHECK_VERSION(1, 27, 0)
+    GstWebRTCICETcpCandidateType gstTcpType;
+    if (gst_structure_get(structure, "tcp-type", &gstTcpType, nullptr)) {
+        switch (gstTcpType) {
+        case GST_WEBRTC_ICE_TCP_CANDIDATE_TYPE_ACTIVE:
+            tcpType = RTCIceTcpCandidateType::Active;
+            break;
+        case GST_WEBRTC_ICE_TCP_CANDIDATE_TYPE_PASSIVE:
+            tcpType = RTCIceTcpCandidateType::Passive;
+            break;
+        case GST_WEBRTC_ICE_TCP_CANDIDATE_TYPE_SO:
+            tcpType = RTCIceTcpCandidateType::So;
+            break;
+        case GST_WEBRTC_ICE_TCP_CANDIDATE_TYPE_NONE:
+            break;
+        };
+    }
+#endif
+
+    candidateType = RTCIceCandidateType::Host;
+
+    auto value = gstStructureGetString(structure, "candidate-type"_s);
+    if (!value) [[unlikely]]
+        return;
+
+    if (auto iceCandidateType = toRTCIceCandidateType(StringView::fromLatin1(value.utf8())))
+        candidateType = *iceCandidateType;
 }
 
 RTCStatsReport::IceCandidatePairStats::IceCandidatePairStats(const GstStructure* structure)
     : Stats(Type::CandidatePair, structure)
-    , localCandidateId(gstStructureGetString(structure, "local-candidate-id"_s).toString())
-    , remoteCandidateId(gstStructureGetString(structure, "remote-candidate-id"_s).toString())
+    , localCandidateId(gstStructureGetString(structure, "local-candidate-id"_s).span())
+    , remoteCandidateId(gstStructureGetString(structure, "remote-candidate-id"_s).span())
 {
     // FIXME
     // stats.transportId =
@@ -259,6 +313,44 @@ RTCStatsReport::IceCandidatePairStats::IceCandidatePairStats(const GstStructure*
     // stats.consentResponsesSent =
 }
 
+RTCStatsReport::CertificateStats::CertificateStats(const GstStructure* structure)
+    : Stats(Type::Certificate, structure)
+    , fingerprint(gstStructureGetString(structure, "fingerprint"_s).span())
+    , fingerprintAlgorithm(gstStructureGetString(structure, "fingerprint-algorithm"_s).span())
+    , base64Certificate(gstStructureGetString(structure, "base64-certificate"_s).span())
+
+{
+    // FIXME: Fill issuerCertificateId if present.
+}
+
+RTCStatsReport::MediaSourceStats::MediaSourceStats(Type type, const GstStructure* structure)
+    : Stats(type, structure)
+    , trackIdentifier(gstStructureGetString(structure, "track-identifier"_s).span())
+    , kind(gstStructureGetString(structure, "kind"_s).span())
+{
+}
+
+RTCStatsReport::AudioSourceStats::AudioSourceStats(const GstStructure* structure)
+    : MediaSourceStats(Type::MediaSource, structure)
+    , audioLevel(gstStructureGet<double>(structure, "audio-level"_s))
+    , totalAudioEnergy(gstStructureGet<double>(structure, "total-audio-energy"_s))
+    , totalSamplesDuration(gstStructureGet<double>(structure, "total-samples-duration"_s))
+{
+    /* FIXME:
+        std::optional<double> echoReturnLoss;
+        std::optional<double> echoReturnLossEnhancement;
+     */
+}
+
+RTCStatsReport::VideoSourceStats::VideoSourceStats(const GstStructure* structure)
+    : MediaSourceStats(Type::MediaSource, structure)
+    , width(gstStructureGet<unsigned>(structure, "width"_s))
+    , height(gstStructureGet<unsigned>(structure, "height"_s))
+    , frames(gstStructureGet<unsigned>(structure, "frames"_s))
+    , framesPerSecond(gstStructureGet<double>(structure, "frames-per-second"_s))
+{
+}
+
 struct ReportHolder : public ThreadSafeRefCounted<ReportHolder> {
     WTF_MAKE_TZONE_ALLOCATED_INLINE(ReportHolder);
     WTF_MAKE_NONCOPYABLE(ReportHolder);
@@ -275,39 +367,53 @@ static gboolean fillReportCallback(const GValue* value, Ref<ReportHolder>& repor
         return TRUE;
 
     const GstStructure* structure = gst_value_get_structure(value);
-    GstWebRTCStatsType statsType;
-    if (!gst_structure_get(structure, "type", GST_TYPE_WEBRTC_STATS_TYPE, &statsType, nullptr))
-        return TRUE;
 
     if (!reportHolder->adapter) [[unlikely]]
         return TRUE;
 
     auto& report = *reportHolder->adapter;
 
+    if (auto webkitStatsType = gstStructureGetString(structure, "webkit-stats-type"_s)) {
+        if (webkitStatsType == "audio-source-stats"_s) {
+            RTCStatsReport::AudioSourceStats stats(structure);
+            report.set<IDLDOMString, IDLDictionary<RTCStatsReport::AudioSourceStats>>(stats.id, WTF::move(stats));
+            return TRUE;
+        }
+        if (webkitStatsType == "video-source-stats"_s) {
+            RTCStatsReport::VideoSourceStats stats(structure);
+            report.set<IDLDOMString, IDLDictionary<RTCStatsReport::VideoSourceStats>>(stats.id, WTF::move(stats));
+            return TRUE;
+        }
+    }
+
+    GstWebRTCStatsType statsType;
+    if (!gst_structure_get(structure, "type", GST_TYPE_WEBRTC_STATS_TYPE, &statsType, nullptr))
+        return TRUE;
+
     switch (statsType) {
     case GST_WEBRTC_STATS_CODEC: {
         RTCStatsReport::CodecStats stats(structure);
-        report.set<IDLDOMString, IDLDictionary<RTCStatsReport::CodecStats>>(stats.id, WTFMove(stats));
+        report.set<IDLDOMString, IDLDictionary<RTCStatsReport::CodecStats>>(stats.id, WTF::move(stats));
         break;
     }
     case GST_WEBRTC_STATS_INBOUND_RTP: {
         RTCStatsReport::InboundRtpStreamStats stats(structure);
-        report.set<IDLDOMString, IDLDictionary<RTCStatsReport::InboundRtpStreamStats>>(stats.id, WTFMove(stats));
+        report.set<IDLDOMString, IDLDictionary<RTCStatsReport::InboundRtpStreamStats>>(stats.id, WTF::move(stats));
         break;
     }
     case GST_WEBRTC_STATS_OUTBOUND_RTP: {
         RTCStatsReport::OutboundRtpStreamStats stats(structure);
-        report.set<IDLDOMString, IDLDictionary<RTCStatsReport::OutboundRtpStreamStats>>(stats.id, WTFMove(stats));
+        report.set<IDLDOMString, IDLDictionary<RTCStatsReport::OutboundRtpStreamStats>>(stats.id, WTF::move(stats));
         break;
     }
     case GST_WEBRTC_STATS_REMOTE_INBOUND_RTP: {
         RTCStatsReport::RemoteInboundRtpStreamStats stats(structure);
-        report.set<IDLDOMString, IDLDictionary<RTCStatsReport::RemoteInboundRtpStreamStats>>(stats.id, WTFMove(stats));
+        report.set<IDLDOMString, IDLDictionary<RTCStatsReport::RemoteInboundRtpStreamStats>>(stats.id, WTF::move(stats));
         break;
     }
     case GST_WEBRTC_STATS_REMOTE_OUTBOUND_RTP: {
         RTCStatsReport::RemoteOutboundRtpStreamStats stats(structure);
-        report.set<IDLDOMString, IDLDictionary<RTCStatsReport::RemoteOutboundRtpStreamStats>>(stats.id, WTFMove(stats));
+        report.set<IDLDOMString, IDLDictionary<RTCStatsReport::RemoteOutboundRtpStreamStats>>(stats.id, WTF::move(stats));
         break;
     }
     case GST_WEBRTC_STATS_CSRC:
@@ -315,12 +421,12 @@ static gboolean fillReportCallback(const GValue* value, Ref<ReportHolder>& repor
         break;
     case GST_WEBRTC_STATS_PEER_CONNECTION: {
         RTCStatsReport::PeerConnectionStats stats(structure);
-        report.set<IDLDOMString, IDLDictionary<RTCStatsReport::PeerConnectionStats>>(stats.id, WTFMove(stats));
+        report.set<IDLDOMString, IDLDictionary<RTCStatsReport::PeerConnectionStats>>(stats.id, WTF::move(stats));
         break;
     }
     case GST_WEBRTC_STATS_TRANSPORT: {
         RTCStatsReport::TransportStats stats(structure);
-        report.set<IDLDOMString, IDLDictionary<RTCStatsReport::TransportStats>>(stats.id, WTFMove(stats));
+        report.set<IDLDOMString, IDLDictionary<RTCStatsReport::TransportStats>>(stats.id, WTF::move(stats));
         break;
     }
     case GST_WEBRTC_STATS_STREAM:
@@ -331,74 +437,49 @@ static gboolean fillReportCallback(const GValue* value, Ref<ReportHolder>& repor
         break;
     case GST_WEBRTC_STATS_LOCAL_CANDIDATE:
     case GST_WEBRTC_STATS_REMOTE_CANDIDATE:
-        if (webkitGstCheckVersion(1, 22, 0)) {
+        if (gst_check_version(1, 22, 0)) {
             RTCStatsReport::IceCandidateStats stats(statsType, structure);
-            report.set<IDLDOMString, IDLDictionary<RTCStatsReport::IceCandidateStats>>(stats.id, WTFMove(stats));
+            report.set<IDLDOMString, IDLDictionary<RTCStatsReport::IceCandidateStats>>(stats.id, WTF::move(stats));
         }
         break;
     case GST_WEBRTC_STATS_CANDIDATE_PAIR:
-        if (webkitGstCheckVersion(1, 22, 0)) {
+        if (gst_check_version(1, 22, 0)) {
             RTCStatsReport::IceCandidatePairStats stats(structure);
-            report.set<IDLDOMString, IDLDictionary<RTCStatsReport::IceCandidatePairStats>>(stats.id, WTFMove(stats));
+            report.set<IDLDOMString, IDLDictionary<RTCStatsReport::IceCandidatePairStats>>(stats.id, WTF::move(stats));
         }
         break;
-    case GST_WEBRTC_STATS_CERTIFICATE:
-        // FIXME: Missing certificate stats support
+    case GST_WEBRTC_STATS_CERTIFICATE: {
+        // https://gitlab.freedesktop.org/gstreamer/gstreamer/-/merge_requests/10313
+        RTCStatsReport::CertificateStats stats(structure);
+        report.set<IDLDOMString, IDLDictionary<RTCStatsReport::CertificateStats>>(stats.id, WTF::move(stats));
         break;
+    }
     }
 
     return TRUE;
 }
 
 struct CallbackHolder {
-    RefPtr<GStreamerStatsCollector> collector;
-    GStreamerStatsCollector::CollectorCallback callback;
+    GStreamerStatsCollector::StatsCallback callback;
     GStreamerStatsCollector::PreprocessCallback preprocessCallback;
     GRefPtr<GstPad> pad;
 };
 
 WEBKIT_DEFINE_ASYNC_DATA_STRUCT(CallbackHolder)
 
-void GStreamerStatsCollector::getStats(CollectorCallback&& callback, const GRefPtr<GstPad>& pad, PreprocessCallback&& preprocessCallback)
+void GStreamerStatsCollector::gatherStats(StatsCallback&& callback, const GRefPtr<GstPad>& pad, PreprocessCallback&& preprocessCallback)
 {
-    static auto s_maximumReportAge = 300_ms;
-    static std::once_flag debugRegisteredFlag;
-    std::call_once(debugRegisteredFlag, [] {
-        GST_DEBUG_CATEGORY_INIT(webkit_webrtc_stats_debug, "webkitwebrtcstats", 0, "WebKit WebRTC Stats");
-        auto expirationTime = StringView::fromLatin1(std::getenv("WEBKIT_GST_WEBRTC_STATS_CACHE_EXPIRATION_TIME_MS"));
-        if (expirationTime.isEmpty())
-            return;
-
-        if (auto milliseconds = WTF::parseInteger<int>(expirationTime))
-            s_maximumReportAge = Seconds::fromMilliseconds(*milliseconds);
-    });
-
-    if (!m_webrtcBin) {
+    auto webrtcBin = m_webrtcBin.get();
+    if (!webrtcBin) {
         callback(nullptr);
         return;
     }
 
-    auto now = MonotonicTime::now();
-    if (!pad) {
-        if (m_cachedGlobalReport && (now - m_cachedGlobalReport->generationTime < s_maximumReportAge)) {
-            GST_TRACE_OBJECT(m_webrtcBin.get(), "Returning cached global stats report");
-            callback(m_cachedGlobalReport->report.get());
-            return;
-        }
-    } else if (auto report = m_cachedReportsPerPad.getOptional(pad)) {
-        if (now - report->generationTime < s_maximumReportAge) {
-            GST_TRACE_OBJECT(m_webrtcBin.get(), "Returning cached stats report for pad %" GST_PTR_FORMAT, pad.get());
-            callback(report->report.get());
-            return;
-        }
-    }
-
     auto* holder = createCallbackHolder();
-    holder->collector = this;
-    holder->callback = WTFMove(callback);
-    holder->preprocessCallback = WTFMove(preprocessCallback);
+    holder->callback = WTF::move(callback);
+    holder->preprocessCallback = WTF::move(preprocessCallback);
     holder->pad = pad;
-    g_signal_emit_by_name(m_webrtcBin.get(), "get-stats", pad.get(), gst_promise_new_with_change_func([](GstPromise* rawPromise, gpointer userData) mutable {
+    g_signal_emit_by_name(webrtcBin.get(), "get-stats", pad.get(), gst_promise_new_with_change_func([](GstPromise* rawPromise, gpointer userData) mutable {
         auto promise = adoptGRef(rawPromise);
         auto* holder = static_cast<CallbackHolder*>(userData);
         if (gst_promise_wait(promise.get()) != GST_PROMISE_RESULT_REPLIED) {
@@ -420,26 +501,66 @@ void GStreamerStatsCollector::getStats(CollectorCallback&& callback, const GRefP
             return;
         }
 
-        callOnMainThreadAndWait([holder, stats] mutable {
-            auto preprocessedStats = holder->preprocessCallback(holder->pad, stats);
-            if (!preprocessedStats)
-                return;
-            auto report = RTCStatsReport::create([stats = WTFMove(preprocessedStats)](auto& mapAdapter) mutable {
-                auto holder = adoptRef(*new ReportHolder(&mapAdapter));
-                gstStructureForeach(stats.get(), [&](auto, const auto value) -> bool {
-                    return fillReportCallback(value, holder);
-                });
-            });
-            CachedReport cachedReport;
-            cachedReport.generationTime = MonotonicTime::now();
-            cachedReport.report = report.ptr();
-            if (holder->pad)
-                holder->collector->m_cachedReportsPerPad.set(holder->pad, WTFMove(cachedReport));
-            else
-                holder->collector->m_cachedGlobalReport = WTFMove(cachedReport);
-            holder->callback(WTFMove(report));
+        callOnMainThreadAndWait([holder, stats] {
+            holder->callback(holder->preprocessCallback(holder->pad, stats));
         });
     }, holder, reinterpret_cast<GDestroyNotify>(destroyCallbackHolder)));
+}
+
+void GStreamerStatsCollector::getStats(CollectorCallback&& callback, const GRefPtr<GstPad>& pad, PreprocessCallback&& preprocessCallback)
+{
+    static auto s_maximumReportAge = 300_ms;
+    static std::once_flag onceFlag;
+    std::call_once(onceFlag, [] {
+        auto expirationTime = StringView::fromLatin1(std::getenv("WEBKIT_GST_WEBRTC_STATS_CACHE_EXPIRATION_TIME_MS"));
+        if (expirationTime.isEmpty())
+            return;
+
+        if (auto milliseconds = WTF::parseInteger<int>(expirationTime))
+            s_maximumReportAge = Seconds::fromMilliseconds(*milliseconds);
+    });
+
+    auto webrtcBin = m_webrtcBin.get();
+    if (!webrtcBin) {
+        callback(nullptr);
+        return;
+    }
+
+    auto now = MonotonicTime::now();
+    if (!pad) {
+        if (m_cachedGlobalReport && (now - m_cachedGlobalReport->generationTime < s_maximumReportAge)) {
+            GST_TRACE_OBJECT(webrtcBin.get(), "Returning cached global stats report");
+            callback(m_cachedGlobalReport->report.get());
+            return;
+        }
+    } else if (auto report = m_cachedReportsPerPad.getOptional(pad)) {
+        if (now - report->generationTime < s_maximumReportAge) {
+            GST_TRACE_OBJECT(webrtcBin.get(), "Returning cached stats report for pad %" GST_PTR_FORMAT, pad.get());
+            callback(report->report.get());
+            return;
+        }
+    }
+
+    gatherStats([this, pad = GRefPtr(pad), callback = WTF::move(callback)](auto&& stats) mutable {
+        if (!stats) {
+            callback(nullptr);
+            return;
+        }
+        auto report = RTCStatsReport::create([stats = WTF::move(stats)](auto& mapAdapter) mutable {
+            auto holder = adoptRef(*new ReportHolder(&mapAdapter));
+            gstStructureForeach(stats.get(), [&](auto, const auto value) -> bool {
+                return fillReportCallback(value, holder);
+            });
+        });
+        CachedReport cachedReport;
+        cachedReport.generationTime = MonotonicTime::now();
+        cachedReport.report = report.ptr();
+        if (pad)
+            m_cachedReportsPerPad.set(pad, WTF::move(cachedReport));
+        else
+            m_cachedGlobalReport = WTF::move(cachedReport);
+        callback(WTF::move(report));
+    }, pad, WTF::move(preprocessCallback));
 }
 
 void GStreamerStatsCollector::invalidateCache()
@@ -447,6 +568,37 @@ void GStreamerStatsCollector::invalidateCache()
     ASSERT(isMainThread());
     m_cachedGlobalReport = std::nullopt;
     m_cachedReportsPerPad.clear();
+}
+
+void GStreamerStatsCollector::gatherDecoderImplementationName(const GRefPtr<GstPad>& pad, PreprocessCallback&& preprocessCallback, Function<void(String&&)>&& callback)
+{
+    gatherStats([callback = WTF::move(callback)](auto&& stats) mutable {
+        if (!stats) {
+            callback({ });
+            return;
+        }
+        auto decoderImplementation = emptyString();
+        gstStructureForeach(stats.get(), [&](auto, const auto value) -> bool {
+            if (!GST_VALUE_HOLDS_STRUCTURE(value)) [[unlikely]]
+                return true;
+
+            const GstStructure* structure = gst_value_get_structure(value);
+            GstWebRTCStatsType statsType;
+            if (!gst_structure_get(structure, "type", GST_TYPE_WEBRTC_STATS_TYPE, &statsType, nullptr)) [[unlikely]]
+                return true;
+
+            if (statsType != GST_WEBRTC_STATS_INBOUND_RTP)
+                return true;
+
+            auto kind = gstStructureGetString(structure, "kind"_s);
+            if (kind != "video"_s)
+                return true;
+
+            decoderImplementation = gstStructureGetString(structure, "decoder-implementation"_s).span();
+            return false;
+        });
+        callback(WTF::move(decoderImplementation));
+    }, pad, WTF::move(preprocessCallback));
 }
 
 #undef GST_CAT_DEFAULT

@@ -27,7 +27,7 @@
 
 #if HAVE(SHAPE_DETECTION_API_IMPLEMENTATION) && HAVE(VISION)
 
-#include "FaceDetectorInterface.h"
+#include <WebCore/FaceDetectorInterface.h>
 #include <wtf/TZoneMalloc.h>
 
 namespace WebCore::ShapeDetection {
@@ -52,7 +52,7 @@ private:
     FaceDetectorImpl& operator=(const FaceDetectorImpl&) = delete;
     FaceDetectorImpl& operator=(FaceDetectorImpl&&) = delete;
 
-    void detect(Ref<ImageBuffer>&&, CompletionHandler<void(Vector<DetectedFace>&&)>&&) final;
+    void detect(const NativeImage&, CompletionHandler<void(Vector<DetectedFace>&&)>&&) final;
 
     uint16_t m_maxDetectedFaces { std::numeric_limits<uint16_t>::max() };
 };

@@ -29,10 +29,8 @@ import tarfile
 
 MYDIR = os.path.normpath(os.path.join(os.path.dirname(__file__)))
 top_level_directory = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..'))
-sys.path.insert(0, os.path.join(top_level_directory, 'Tools', 'flatpak'))
 sys.path.insert(0, os.path.join(top_level_directory, 'Tools', 'jhbuild'))
 sys.path.insert(0, os.path.join(top_level_directory, 'Tools', 'Scripts', 'webkitpy'))
-import flatpakutils
 
 
 # Executes the command and returns 0 if it was sucessful, otherwise returns a number => 1
@@ -94,9 +92,6 @@ def main():
                         help='Select universal if the bundle was created with "--syslibs=bundle-all" or select distro-specific otherwise')
     parser.add_argument('bundle_path', action='store', help='Path to the compressed bundle file')
     options = parser.parse_args()
-
-    if options.bundle_type == 'distro-specific':
-        flatpakutils.run_in_sandbox_if_available([sys.argv[0], '--flatpak-' + options.platform] + sys.argv[1:])
 
     return tests_webdriver_minibroser(options.platform, options.bundle_type, options.bundle_path)
 

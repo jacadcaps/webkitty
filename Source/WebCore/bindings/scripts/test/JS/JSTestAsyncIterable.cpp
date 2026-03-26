@@ -29,6 +29,7 @@
 #include "JSDOMBinding.h"
 #include "JSDOMConstructorNotConstructable.h"
 #include "JSDOMConvertInterface.h"
+#include "JSDOMConvertOptional.h"
 #include "JSDOMExceptionHandling.h"
 #include "JSDOMGlobalObjectInlines.h"
 #include "JSDOMOperation.h"
@@ -53,8 +54,6 @@ using namespace JSC;
 
 // Functions
 
-static JSC_DECLARE_HOST_FUNCTION(jsTestAsyncIterablePrototypeFunction_entries);
-static JSC_DECLARE_HOST_FUNCTION(jsTestAsyncIterablePrototypeFunction_keys);
 static JSC_DECLARE_HOST_FUNCTION(jsTestAsyncIterablePrototypeFunction_values);
 
 // Attributes
@@ -114,10 +113,8 @@ template<> void JSTestAsyncIterableDOMConstructor::initializeProperties(VM& vm, 
 
 /* Hash table for prototype */
 
-static const std::array<HashTableValue, 4> JSTestAsyncIterablePrototypeTableValues {
+static const std::array<HashTableValue, 2> JSTestAsyncIterablePrototypeTableValues {
     HashTableValue { "constructor"_s, static_cast<unsigned>(PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestAsyncIterableConstructor, 0 } },
-    HashTableValue { "entries"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestAsyncIterablePrototypeFunction_entries, 0 } },
-    HashTableValue { "keys"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestAsyncIterablePrototypeFunction_keys, 0 } },
     HashTableValue { "values"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestAsyncIterablePrototypeFunction_values, 0 } },
 };
 
@@ -127,14 +124,14 @@ void JSTestAsyncIterablePrototype::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
     reifyStaticProperties(vm, JSTestAsyncIterable::info(), JSTestAsyncIterablePrototypeTableValues, *this);
-    putDirect(vm, vm.propertyNames->asyncIteratorSymbol, getDirect(vm, vm.propertyNames->builtinNames().entriesPublicName()), static_cast<unsigned>(JSC::PropertyAttribute::DontEnum));
+    putDirect(vm, vm.propertyNames->asyncIteratorSymbol, getDirect(vm, vm.propertyNames->builtinNames().valuesPublicName()), static_cast<unsigned>(JSC::PropertyAttribute::DontEnum));
     JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
 }
 
 const ClassInfo JSTestAsyncIterable::s_info = { "TestAsyncIterable"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestAsyncIterable) };
 
 JSTestAsyncIterable::JSTestAsyncIterable(Structure* structure, JSDOMGlobalObject& globalObject, Ref<TestAsyncIterable>&& impl)
-    : JSDOMWrapper<TestAsyncIterable>(structure, globalObject, WTFMove(impl))
+    : JSDOMWrapper<TestAsyncIterable>(structure, globalObject, WTF::move(impl))
 {
 }
 
@@ -159,7 +156,7 @@ JSValue JSTestAsyncIterable::getConstructor(VM& vm, const JSGlobalObject* global
 
 void JSTestAsyncIterable::destroy(JSC::JSCell* cell)
 {
-    JSTestAsyncIterable* thisObject = static_cast<JSTestAsyncIterable*>(cell);
+    SUPPRESS_MEMORY_UNSAFE_CAST JSTestAsyncIterable* thisObject = static_cast<JSTestAsyncIterable*>(cell);
     thisObject->JSTestAsyncIterable::~JSTestAsyncIterable();
 }
 
@@ -202,9 +199,9 @@ public:
         return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
     }
 
-    static TestAsyncIterableIterator* create(JSC::VM& vm, JSC::Structure* structure, JSTestAsyncIterable& iteratedObject, IterationKind kind)
+    static TestAsyncIterableIterator* create(JSC::VM& vm, JSC::Structure* structure, JSTestAsyncIterable& iteratedObject, IterationKind kind, InternalIterator&& iterator)
     {
-        auto* instance = new (NotNull, JSC::allocateCell<TestAsyncIterableIterator>(vm)) TestAsyncIterableIterator(structure, iteratedObject, kind);
+        auto* instance = new (NotNull, JSC::allocateCell<TestAsyncIterableIterator>(vm)) TestAsyncIterableIterator(structure, iteratedObject, kind, WTF::move(iterator));
         instance->finishCreation(vm);
         return instance;
     }
@@ -213,8 +210,8 @@ public:
     JSC::JSBoundFunction* createOnFulfilledFunction(JSC::JSGlobalObject*);
     JSC::JSBoundFunction* createOnRejectedFunction(JSC::JSGlobalObject*);
 private:
-    TestAsyncIterableIterator(JSC::Structure* structure, JSTestAsyncIterable& iteratedObject, IterationKind kind)
-        : Base(structure, iteratedObject, kind)
+    TestAsyncIterableIterator(JSC::Structure* structure, JSTestAsyncIterable& iteratedObject, IterationKind kind, InternalIterator&& iterator)
+        : Base(structure, iteratedObject, kind, WTF::move(iterator))
     {
     }
 };
@@ -229,29 +226,16 @@ const JSC::ClassInfo TestAsyncIterableIterator::s_info = { "TestAsyncIterable It
 template<>
 const JSC::ClassInfo TestAsyncIterableIteratorPrototype::s_info = { "TestAsyncIterable Iterator"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(TestAsyncIterableIteratorPrototype) };
 
-static inline EncodedJSValue jsTestAsyncIterablePrototypeFunction_entriesCaller(JSGlobalObject*, CallFrame*, JSTestAsyncIterable* thisObject)
+static inline EncodedJSValue jsTestAsyncIterablePrototypeFunction_valuesCaller(JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame, JSTestAsyncIterable* thisObject)
 {
-    return JSValue::encode(iteratorCreate<TestAsyncIterableIterator>(*thisObject, IterationKind::Values));
-}
-
-JSC_DEFINE_HOST_FUNCTION(jsTestAsyncIterablePrototypeFunction_entries, (JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame))
-{
-    return IDLOperation<JSTestAsyncIterable>::call<jsTestAsyncIterablePrototypeFunction_entriesCaller>(*lexicalGlobalObject, *callFrame, "entries");
-}
-
-static inline EncodedJSValue jsTestAsyncIterablePrototypeFunction_keysCaller(JSGlobalObject*, CallFrame*, JSTestAsyncIterable* thisObject)
-{
-    return JSValue::encode(iteratorCreate<TestAsyncIterableIterator>(*thisObject, IterationKind::Keys));
-}
-
-JSC_DEFINE_HOST_FUNCTION(jsTestAsyncIterablePrototypeFunction_keys, (JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame))
-{
-    return IDLOperation<JSTestAsyncIterable>::call<jsTestAsyncIterablePrototypeFunction_keysCaller>(*lexicalGlobalObject, *callFrame, "keys");
-}
-
-static inline EncodedJSValue jsTestAsyncIterablePrototypeFunction_valuesCaller(JSGlobalObject*, CallFrame*, JSTestAsyncIterable* thisObject)
-{
-    return JSValue::encode(iteratorCreate<TestAsyncIterableIterator>(*thisObject, IterationKind::Values));
+    UNUSED_PARAM(callFrame);
+    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto throwScope = DECLARE_THROW_SCOPE(vm);
+    EnsureStillAliveScope argument0 = callFrame->argument(0);
+    auto optionConversionResult = convert<IDLOptional<IDLInterface<TestNode>>>(*lexicalGlobalObject, argument0.value(), [](JSC::JSGlobalObject& lexicalGlobalObject, JSC::ThrowScope& scope) { throwArgumentTypeError(lexicalGlobalObject, scope, 0, "option"_s, "TestAsyncIterable"_s, "jsTestAsyncIterablePrototypeFunction_values"_s, "TestNode"_s); });
+    if (optionConversionResult.hasException(throwScope)) [[unlikely]]
+       return encodedJSValue();
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(iteratorCreate<TestAsyncIterableIterator>(*thisObject, *lexicalGlobalObject, throwScope, IterationKind::Values, optionConversionResult.releaseReturnValue())));
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsTestAsyncIterablePrototypeFunction_values, (JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame))
@@ -291,7 +275,7 @@ bool JSTestAsyncIterableOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unkno
 
 void JSTestAsyncIterableOwner::finalize(JSC::Handle<JSC::Unknown> handle, void* context)
 {
-    auto* jsTestAsyncIterable = static_cast<JSTestAsyncIterable*>(handle.slot()->asCell());
+    SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestAsyncIterable = static_cast<JSTestAsyncIterable*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
     uncacheWrapper(world, jsTestAsyncIterable->protectedWrapped().ptr(), jsTestAsyncIterable);
 }
@@ -305,7 +289,7 @@ extern "C" { extern void (*const __identifier("??_7TestAsyncIterable@WebCore@@6B
 extern "C" { extern void* _ZTVN7WebCore17TestAsyncIterableE[]; }
 #endif
 template<std::same_as<TestAsyncIterable> T>
-static inline void verifyVTable(TestAsyncIterable* ptr) 
+static inline void verifyVTable(TestAsyncIterable* ptr)
 {
     if constexpr (std::is_polymorphic_v<T>) {
         const void* actualVTablePointer = getVTablePointer<T>(ptr);
@@ -325,12 +309,13 @@ static inline void verifyVTable(TestAsyncIterable* ptr)
 #endif
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestAsyncIterable>&& impl)
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<TestAsyncIterable>&& impl)
 {
+    UNUSED_PARAM(lexicalGlobalObject);
 #if ENABLE(BINDING_INTEGRITY)
     verifyVTable<TestAsyncIterable>(impl.ptr());
 #endif
-    return createWrapper<TestAsyncIterable>(globalObject, WTFMove(impl));
+    return createWrapper<TestAsyncIterable>(globalObject, WTF::move(impl));
 }
 
 JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestAsyncIterable& impl)

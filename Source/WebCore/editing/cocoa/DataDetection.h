@@ -25,11 +25,13 @@
 
 #pragma once
 
+#import <wtf/Platform.h>
+
 #if ENABLE(DATA_DETECTION)
 
-#import "DataDetectorType.h"
-#import "FloatRect.h"
-#import "SimpleRange.h"
+#import <WebCore/DataDetectorType.h>
+#import <WebCore/FloatRect.h>
+#import <WebCore/SimpleRange.h>
 #import <wtf/OptionSet.h>
 
 #import <wtf/RetainPtr.h>
@@ -81,6 +83,7 @@ public:
     WEBCORE_EXPORT static bool requiresExtendedContext(Element&);
 #endif
     WEBCORE_EXPORT static std::optional<std::pair<Ref<HTMLElement>, IntRect>> findDataDetectionResultElementInImageOverlay(const FloatPoint& location, const HTMLElement& imageOverlayHost);
+    static Vector<SimpleRange> detectRanges(const SimpleRange&, OptionSet<DataDetectorType>, unsigned maximumResultCount = 100);
 
 #if ENABLE(IMAGE_ANALYSIS)
     static Ref<HTMLDivElement> createElementForImageOverlay(Document&, const TextRecognitionDataDetector&);

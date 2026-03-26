@@ -35,7 +35,6 @@
 #import <WebCore/ContainerNodeInlines.h>
 #import <WebCore/Document.h>
 #import <WebCore/DocumentFullscreen.h>
-#import <WebCore/DocumentInlines.h>
 #import <WebCore/Element.h>
 #import <WebCore/FloatRect.h>
 #import <WebCore/HTMLElement.h>
@@ -141,7 +140,7 @@ static NSRect convertRectToScreen(NSWindow *window, NSRect rect)
 
 - (void)setElement:(RefPtr<WebCore::Element>&&)element
 {
-    _element = WTFMove(element);
+    _element = WTF::move(element);
 }
 
 - (BOOL)isFullScreen
@@ -240,7 +239,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     _savedScale = [_webView _viewScaleFactor];
     [_webView _scaleWebView:1 atOrigin:NSMakePoint(0, 0)];
-    _didEnterFullscreen = WTFMove(didEnterFullscreen);
+    _didEnterFullscreen = WTF::move(didEnterFullscreen);
     willEnterFullscreen([self _manager]->willEnterFullscreen(*_element, WebCore::HTMLMediaElementEnums::VideoFullscreenModeStandard));
     [self _manager]->setAnimatingFullscreen(true);
     [self _document]->updateLayout();
@@ -341,7 +340,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     [webWindow setAnimationBehavior:animationBehavior];
 
     [self _startExitFullScreenAnimationWithDuration:defaultAnimationDuration];
-    _exitCompletionHandler = WTFMove(completionHandler);
+    _exitCompletionHandler = WTF::move(completionHandler);
 }
 
 - (void)finishedExitFullScreenAnimation:(bool)completed

@@ -7,6 +7,7 @@ list(APPEND WTF_SOURCES
     glib/Application.cpp
     glib/ChassisType.cpp
     glib/FileSystemGlib.cpp
+    glib/GMallocString.cpp
     glib/GRefPtr.cpp
     glib/GSocketMonitor.cpp
     glib/GSpanExtras.cpp
@@ -30,8 +31,10 @@ list(APPEND WTF_SOURCES
 )
 
 list(APPEND WTF_PUBLIC_HEADERS
+    glib/ActivityObserver.h
     glib/Application.h
     glib/ChassisType.h
+    glib/GMallocString.h
     glib/GMutexLocker.h
     glib/GRefPtr.h
     glib/GSocketMonitor.h
@@ -63,7 +66,7 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
 
         unix/MemoryPressureHandlerUnix.cpp
     )
-elseif (CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
+elseif (CMAKE_SYSTEM_NAME MATCHES "FreeBSD" OR CMAKE_SYSTEM_NAME MATCHES "QNX")
     list(APPEND WTF_SOURCES
         generic/MemoryFootprintGeneric.cpp
 
@@ -77,9 +80,7 @@ else ()
 endif ()
 
 list(APPEND WTF_LIBRARIES
-    ${GLIB_GIO_LIBRARIES}
-    ${GLIB_GOBJECT_LIBRARIES}
-    ${GLIB_LIBRARIES}
+    GLib::Gio
     Threads::Threads
     ZLIB::ZLIB
 )
@@ -87,11 +88,6 @@ list(APPEND WTF_LIBRARIES
 if (ENABLE_JOURNALD_LOG)
     list(APPEND WTF_LIBRARIES Journald::Journald)
 endif ()
-
-list(APPEND WTF_SYSTEM_INCLUDE_DIRECTORIES
-    ${GIO_UNIX_INCLUDE_DIRS}
-    ${GLIB_INCLUDE_DIRS}
-)
 
 if (USE_LIBBACKTRACE)
     list(APPEND WTF_LIBRARIES

@@ -24,6 +24,9 @@
 
 #pragma once
 
+// FIXME: Remove the `__has_feature(modules)` condition when possible.
+#if !__has_feature(modules)
+
 #if HAVE(REPLAYKIT)
 
 #import <ReplayKit/ReplayKit.h>
@@ -34,3 +37,5 @@ SOFT_LINK_FRAMEWORK_FOR_HEADER(PAL, ReplayKit)
 SOFT_LINK_CLASS_FOR_HEADER(PAL, RPScreenRecorder)
 
 #endif // HAVE(REPLAYKIT)
+
+#endif // !__has_feature(modules)

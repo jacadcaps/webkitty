@@ -49,6 +49,10 @@ WebCore::MouseButton platform(WebMouseEventButton button)
         return WebCore::MouseButton::Middle;
     case WebMouseEventButton::Right:
         return WebCore::MouseButton::Right;
+    case WebMouseEventButton::Back:
+        return WebCore::MouseButton::Back;
+    case WebMouseEventButton::Forward:
+        return WebCore::MouseButton::Forward;
     default:
         RELEASE_ASSERT_NOT_REACHED();
     }
@@ -65,6 +69,10 @@ WebMouseEventButton kit(WebCore::MouseButton button)
         return WebMouseEventButton::Middle;
     case WebCore::MouseButton::Right:
         return WebMouseEventButton::Right;
+    case WebCore::MouseButton::Back:
+        return WebMouseEventButton::Back;
+    case WebCore::MouseButton::Forward:
+        return WebMouseEventButton::Forward;
     default:
         RELEASE_ASSERT_NOT_REACHED();
     }
@@ -252,7 +260,7 @@ public:
         m_buttons = webEvent.buttons();
 
         m_position = webEvent.position();
-        m_movementDelta = WebCore::IntPoint(webEvent.deltaX(), webEvent.deltaY());
+        m_movementDelta = WebCore::DoublePoint(webEvent.deltaX(), webEvent.deltaY());
         m_unadjustedMovementDelta = webEvent.unadjustedMovementDelta();
         m_globalPosition = webEvent.globalPosition();
         m_clickCount = webEvent.clickCount();
@@ -292,6 +300,32 @@ WebCore::PlatformMouseEvent platform(const WebMouseEvent& webEvent)
     return WebKit2PlatformMouseEvent(webEvent);
 }
 
+#if ENABLE(KINETIC_SCROLLING)
+static WebCore::PlatformWheelEventPhase platform(WebWheelEvent::Phase webPhase)
+{
+    switch (webPhase) {
+    case WebWheelEvent::Phase::None:
+        return WebCore::PlatformWheelEventPhase::None;
+    case WebWheelEvent::Phase::Began:
+        return WebCore::PlatformWheelEventPhase::Began;
+    case WebWheelEvent::Phase::Stationary:
+        return WebCore::PlatformWheelEventPhase::Stationary;
+    case WebWheelEvent::Phase::Changed:
+        return WebCore::PlatformWheelEventPhase::Changed;
+    case WebWheelEvent::Phase::Ended:
+        return WebCore::PlatformWheelEventPhase::Ended;
+    case WebWheelEvent::Phase::Cancelled:
+        return WebCore::PlatformWheelEventPhase::Cancelled;
+    case WebWheelEvent::Phase::MayBegin:
+        return WebCore::PlatformWheelEventPhase::MayBegin;
+    case WebWheelEvent::Phase::WillBegin:
+        return WebCore::PlatformWheelEventPhase::WillBegin;
+    }
+    ASSERT_NOT_REACHED();
+    return WebCore::PlatformWheelEventPhase::None;
+}
+#endif
+
 class WebKit2PlatformWheelEvent : public WebCore::PlatformWheelEvent {
 public:
     WebKit2PlatformWheelEvent(const WebWheelEvent& webEvent)
@@ -308,13 +342,13 @@ public:
         m_deltaY = webEvent.delta().height();
         m_wheelTicksX = webEvent.wheelTicks().width();
         m_wheelTicksY = webEvent.wheelTicks().height();
-        m_granularity = (webEvent.granularity() == WebWheelEvent::ScrollByPageWheelEvent) ? WebCore::ScrollByPageWheelEvent : WebCore::ScrollByPixelWheelEvent;
+        m_granularity = (webEvent.granularity() == WebWheelEvent::Granularity::ScrollByPageWheelEvent) ? WebCore::PlatformWheelEventGranularity::ScrollByPageWheelEvent : WebCore::PlatformWheelEventGranularity::ScrollByPixelWheelEvent;
         m_directionInvertedFromDevice = webEvent.directionInvertedFromDevice();
 #if ENABLE(KINETIC_SCROLLING)
-        m_phase = static_cast<WebCore::PlatformWheelEventPhase>(webEvent.phase());
-        m_momentumPhase = static_cast<WebCore::PlatformWheelEventPhase>(webEvent.momentumPhase());
+        m_phase = platform(webEvent.phase());
+        m_momentumPhase = platform(webEvent.momentumPhase());
 #endif
-#if PLATFORM(COCOA) || PLATFORM(GTK) || USE(LIBWPE)
+#if PLATFORM(COCOA) || PLATFORM(GTK) || USE(LIBWPE) || ENABLE(WPE_PLATFORM)
         m_hasPreciseScrollingDeltas = webEvent.hasPreciseScrollingDeltas();
 #endif
 #if PLATFORM(COCOA)
@@ -348,10 +382,10 @@ public:
         m_code = webEvent.code();
         m_keyIdentifier = webEvent.keyIdentifier();
         m_windowsVirtualKeyCode = webEvent.windowsVirtualKeyCode();
-#if USE(APPKIT) || PLATFORM(IOS_FAMILY) || PLATFORM(GTK) || USE(LIBWPE)
+#if USE(APPKIT) || PLATFORM(IOS_FAMILY) || PLATFORM(GTK) || USE(LIBWPE) || ENABLE(WPE_PLATFORM)
         m_handledByInputMethod = webEvent.handledByInputMethod();
 #endif
-#if PLATFORM(GTK) || USE(LIBWPE)
+#if PLATFORM(GTK) || USE(LIBWPE) || ENABLE(WPE_PLATFORM)
         m_preeditUnderlines = webEvent.preeditUnderlines();
         if (auto preeditSelectionRange = webEvent.preeditSelectionRange()) {
             m_preeditSelectionRangeStart = preeditSelectionRange->location;
@@ -406,9 +440,9 @@ static WebCore::PlatformTouchPoint::TouchType webPlatformTouchTypeToPlatform(con
 class WebKit2PlatformTouchPoint : public WebCore::PlatformTouchPoint {
 public:
 WebKit2PlatformTouchPoint(const WebPlatformTouchPoint& webTouchPoint)
-    : PlatformTouchPoint(webTouchPoint.identifier(), webTouchPoint.locationInRootView(), webTouchPoint.locationInViewport(), touchEventType(webTouchPoint)
+    : PlatformTouchPoint(webTouchPoint.identifier(), DoublePoint(webTouchPoint.locationInRootView()), DoublePoint(webTouchPoint.locationInViewport()), touchEventType(webTouchPoint)
 #if ENABLE(IOS_TOUCH_EVENTS)
-        , webTouchPoint.radiusX(), webTouchPoint.radiusY(), webTouchPoint.rotationAngle(), webTouchPoint.force(), webTouchPoint.altitudeAngle(), webTouchPoint.azimuthAngle(), webPlatformTouchTypeToPlatform(webTouchPoint.touchType())
+        , webTouchPoint.radiusX(), webTouchPoint.radiusY(), webTouchPoint.rotationAngle(), webTouchPoint.twist(), webTouchPoint.force(), webTouchPoint.altitudeAngle(), webTouchPoint.azimuthAngle(), webPlatformTouchTypeToPlatform(webTouchPoint.touchType())
 #endif
     )
 {
@@ -445,8 +479,7 @@ public:
 
         m_screenPos = webTouchPoint.screenPosition();
         m_pos = webTouchPoint.position();
-        m_radiusX = webTouchPoint.radius().width();
-        m_radiusY = webTouchPoint.radius().height();
+        m_radius = webTouchPoint.radius();
         m_force = webTouchPoint.force();
         m_rotationAngle = webTouchPoint.rotationAngle();
     }
@@ -520,22 +553,24 @@ WebCore::PlatformGestureEvent platform(const WebGestureEvent& webEvent)
 #endif
 
 #if PLATFORM(GTK) || PLATFORM(WPE) || USE(LIBWPE)
-WallTime wallTimeForEventTimeInMilliseconds(uint64_t timestamp)
+MonotonicTime monotonicTimeForEventTimeInMilliseconds(uint64_t timestamp)
 {
+    // This function corrects a fixed offset between GTK and WPE timestamps and
+    // MonotonicTime, but it also introduces an error. It will break if the
+    // aforementioned offset is not constant, which could happen if timestamps
+    // are based on anything other than CLOCK_MONOTONIC.
     if (!timestamp)
-        return WallTime::now();
+        return MonotonicTime::now();
 
-    // GTK and WPE events provide a timestamp as uint32_t, which is too small for full millisecond timestamps since
-    // the epoch. They are expected to be just timestamps with monotonic behavior to be compared among themselves,
-    // not against WallTime-like measurements. Thus the need to define a reference origin based on the first event
-    // received.
-    static WallTime firstEventWallTime;
+    static MonotonicTime firstEventMonotonicTime;
     static uint64_t firstEventTimestamp = 0;
     if (!firstEventTimestamp) {
         firstEventTimestamp = timestamp;
-        firstEventWallTime = WallTime::now();
+        // The introduced error is the mismatch between the generation of the
+        // first timestamp and this call:
+        firstEventMonotonicTime = MonotonicTime::now();
     }
-    return firstEventWallTime + Seconds::fromMilliseconds(timestamp - firstEventTimestamp);
+    return firstEventMonotonicTime + Seconds::fromMilliseconds(timestamp - firstEventTimestamp);
 }
 #endif
 

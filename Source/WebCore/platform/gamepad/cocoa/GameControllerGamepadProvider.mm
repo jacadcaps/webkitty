@@ -138,25 +138,26 @@ void GameControllerGamepadProvider::controllerDidConnect(GCController *controlle
         m_gamepadVector.grow(index + 1);
 
     m_gamepadVector[index] = gamepad.get();
-    m_gamepadMap.set((__bridge CFTypeRef)controller, WTFMove(gamepad));
+    m_gamepadMap.set((__bridge CFTypeRef)controller, WTF::move(gamepad));
 
 
+    CheckedRef gamepadRef = *m_gamepadVector[index];
     if (visibility == ConnectionVisibility::Invisible) {
-        m_invisibleGamepads.add(*m_gamepadVector[index]);
+        m_invisibleGamepads.add(gamepadRef);
         return;
     }
 
     makeInvisibleGamepadsVisible();
 
-    for (auto& client : m_clients)
-        client.platformGamepadConnected(*m_gamepadVector[index], EventMakesGamepadsVisible::Yes);
+    for (Ref client : m_clients)
+        client->platformGamepadConnected(gamepadRef, EventMakesGamepadsVisible::Yes);
 }
 
 void GameControllerGamepadProvider::controllerDidDisconnect(GCController *controller)
 {
     LOG(Gamepad, "GameControllerGamepadProvider controller %p removed", controller);
 
-    auto removedGamepad = m_gamepadMap.take((__bridge CFTypeRef)controller);
+    std::unique_ptr removedGamepad = m_gamepadMap.take((__bridge CFTypeRef)controller);
     ASSERT(removedGamepad);
 
     // FIXME (rdar://155968049) - We may get disconnect notifications for a no-longer-connected controller.
@@ -170,10 +171,10 @@ void GameControllerGamepadProvider::controllerDidDisconnect(GCController *contro
     if (i != notFound)
         m_gamepadVector[i] = nullptr;
 
-    m_invisibleGamepads.remove(*removedGamepad.get());
+    m_invisibleGamepads.remove(*removedGamepad);
 
-    for (auto& client : m_clients)
-        client.platformGamepadDisconnected(*removedGamepad);
+    for (Ref client : m_clients)
+        client->platformGamepadDisconnected(*removedGamepad);
 }
 
 void GameControllerGamepadProvider::prewarmGameControllerDevicesIfNecessary()
@@ -183,7 +184,7 @@ void GameControllerGamepadProvider::prewarmGameControllerDevicesIfNecessary()
         return;
 
     LOG(Gamepad, "GameControllerGamepadProvider explicitly starting GameController framework monitoring");
-    [getGCControllerClass() __openXPC_and_CBApplicationDidBecomeActive__];
+    [getGCControllerClassSingleton() __openXPC_and_CBApplicationDidBecomeActive__];
 
     init_GameController_GCInputButtonA();
     init_GameController_GCInputButtonB();
@@ -216,20 +217,22 @@ void GameControllerGamepadProvider::startMonitoringGamepads(GamepadProviderClien
     prewarmGameControllerDevicesIfNecessary();
 
     if (canLoad_GameController_GCControllerDidConnectNotification()) {
-        m_connectObserver = [[NSNotificationCenter defaultCenter] addObserverForName:get_GameController_GCControllerDidConnectNotification() object:nil queue:nil usingBlock:^(NSNotification *notification) {
-            LOG(Gamepad, "GameControllerGamepadProvider notified of new GCController %p", notification.object);
-            GameControllerGamepadProvider::singleton().controllerDidConnect(notification.object, ConnectionVisibility::Visible);
+        m_connectObserver = [[NSNotificationCenter defaultCenter] addObserverForName:get_GameController_GCControllerDidConnectNotificationSingleton() object:nil queue:nil usingBlock:^(NSNotification *notification) {
+            RetainPtr<id> object = notification.object;
+            LOG(Gamepad, "GameControllerGamepadProvider notified of new GCController %p", object.get());
+            GameControllerGamepadProvider::singleton().controllerDidConnect(object.get(), ConnectionVisibility::Visible);
         }];
     }
 
     if (canLoad_GameController_GCControllerDidDisconnectNotification()) {
-        m_disconnectObserver = [[NSNotificationCenter defaultCenter] addObserverForName:get_GameController_GCControllerDidDisconnectNotification() object:nil queue:nil usingBlock:^(NSNotification *notification) {
-            LOG(Gamepad, "GameControllerGamepadProvider notified of disconnected GCController %p", notification.object);
-            GameControllerGamepadProvider::singleton().controllerDidDisconnect(notification.object);
+        m_disconnectObserver = [[NSNotificationCenter defaultCenter] addObserverForName:get_GameController_GCControllerDidDisconnectNotificationSingleton() object:nil queue:nil usingBlock:^(NSNotification *notification) {
+            RetainPtr<id> object = notification.object;
+            LOG(Gamepad, "GameControllerGamepadProvider notified of disconnected GCController %p", object.get());
+            GameControllerGamepadProvider::singleton().controllerDidDisconnect(object.get());
         }];
     }
 
-    auto *controllers = [getGCControllerClass() controllers];
+    auto *controllers = [getGCControllerClassSingleton() controllers];
     if (!controllers || !controllers.count)
         LOG(Gamepad, "GameControllerGamepadProvider has no initial GCControllers attached");
 
@@ -274,9 +277,9 @@ void GameControllerGamepadProvider::gamepadHadInput(GameControllerGamepad&, bool
 
 void GameControllerGamepadProvider::makeInvisibleGamepadsVisible()
 {
-    for (auto& gamepad : m_invisibleGamepads) {
-        for (auto& client : m_clients)
-            client.platformGamepadConnected(gamepad, EventMakesGamepadsVisible::Yes);
+    for (CheckedRef gamepad : m_invisibleGamepads) {
+        for (Ref client : m_clients)
+            client->platformGamepadConnected(gamepad, EventMakesGamepadsVisible::Yes);
     }
 
     m_invisibleGamepads.clear();
@@ -302,7 +305,7 @@ void GameControllerGamepadProvider::playEffect(unsigned gamepadIndex, const Stri
     if (!gamepad || gamepad->id() != gamepadID)
         return completionHandler(false);
 
-    gamepad->playEffect(type, parameters, WTFMove(completionHandler));
+    gamepad->playEffect(type, parameters, WTF::move(completionHandler));
 }
 
 void GameControllerGamepadProvider::stopEffects(unsigned gamepadIndex, const String& gamepadID, CompletionHandler<void()>&& completionHandler)
@@ -313,7 +316,7 @@ void GameControllerGamepadProvider::stopEffects(unsigned gamepadIndex, const Str
     if (!gamepad || gamepad->id() != gamepadID)
         return completionHandler();
 
-    gamepad->stopEffects(WTFMove(completionHandler));
+    gamepad->stopEffects(WTF::move(completionHandler));
 }
 
 } // namespace WebCore

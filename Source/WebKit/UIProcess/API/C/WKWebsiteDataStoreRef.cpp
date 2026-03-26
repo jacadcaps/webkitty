@@ -56,7 +56,7 @@ WKTypeID WKWebsiteDataStoreGetTypeID()
 
 WKWebsiteDataStoreRef WKWebsiteDataStoreGetDefaultDataStore()
 {
-    return WebKit::toAPI(WebKit::WebsiteDataStore::defaultDataStore().ptr());
+    return WebKit::toAPI(WebKit::WebsiteDataStore::protectedDefaultDataStore().get());
 }
 
 WKWebsiteDataStoreRef WKWebsiteDataStoreCreateNonPersistentDataStore()
@@ -85,7 +85,7 @@ void WKWebsiteDataStoreRemoveITPDataForDomain(WKWebsiteDataStoreRef dataStoreRef
     WebKit::WebsiteDataRecord dataRecord;
     dataRecord.types.add(WebKit::WebsiteDataType::ResourceLoadStatistics);
     dataRecord.addResourceLoadStatisticsRegistrableDomain(WebCore::RegistrableDomain::uncheckedCreateFromHost(WebKit::toProtectedImpl(host)->string()));
-    Vector<WebKit::WebsiteDataRecord> dataRecords = { WTFMove(dataRecord) };
+    Vector<WebKit::WebsiteDataRecord> dataRecords = { WTF::move(dataRecord) };
 
     OptionSet<WebKit::WebsiteDataType> dataTypes = WebKit::WebsiteDataType::ResourceLoadStatistics;
     WebKit::toProtectedImpl(dataStoreRef)->removeData(dataTypes, dataRecords, [context, callback] {
@@ -443,7 +443,7 @@ void WKWebsiteDataStoreStatisticsHasIsolatedSession(WKWebsiteDataStoreRef dataSt
 void WKWebsiteDataStoreHasAppBoundSession(WKWebsiteDataStoreRef dataStoreRef, void* context, WKWebsiteDataStoreHasAppBoundSessionFunction callback)
 {
 #if ENABLE(APP_BOUND_DOMAINS)
-    WebKit::toImpl(dataStoreRef)->hasAppBoundSession([context, callback](bool hasAppBoundSession) {
+    WebKit::toProtectedImpl(dataStoreRef)->hasAppBoundSession([context, callback](bool hasAppBoundSession) {
         callback(hasAppBoundSession, context);
     });
 #else
@@ -467,7 +467,7 @@ void WKWebsiteDataStoreSetResourceLoadStatisticsShouldBlockThirdPartyCookiesForT
         case kWKThirdPartyCookieBlockingPolicyAllOnlyOnSitesWithoutUserInteraction:
             blockingMode = WebCore::ThirdPartyCookieBlockingMode::AllOnSitesWithoutUserInteraction;
             break;
-#if HAVE(ALLOW_ONLY_PARTITIONED_COOKIES)
+#if ENABLE(OPT_IN_PARTITIONED_COOKIES)
         case kWKThirdPartyCookieBlockingPolicyAllExceptPartitioned:
             blockingMode = WebCore::ThirdPartyCookieBlockingMode::AllExceptPartitioned;
             break;
@@ -520,14 +520,11 @@ void WKWebsiteDataStoreSetAppBoundDomainsForTesting(WKArrayRef originURLsRef, vo
     HashSet<WebCore::RegistrableDomain> domains;
     domains.reserveInitialCapacity(newSize);
     for (size_t i = 0; i < newSize; ++i) {
-        auto* originURL = originURLsArray->at<API::URL>(i);
-        if (!originURL)
-            continue;
-        
-        domains.add(WebCore::RegistrableDomain { URL { originURL->string() } });
+        if (RefPtr originURL = originURLsArray->at<API::URL>(i))
+            domains.add(WebCore::RegistrableDomain { URL { originURL->string() } });
     }
 
-    WebKit::WebsiteDataStore::setAppBoundDomainsForTesting(WTFMove(domains), [context, completionHandler] {
+    WebKit::WebsiteDataStore::setAppBoundDomainsForTesting(WTF::move(domains), [context, completionHandler] {
         completionHandler(context);
     });
 #else
@@ -552,7 +549,7 @@ void WKWebsiteDataStoreSetManagedDomainsForTesting(WKArrayRef originURLsRef, voi
         domains.add(WebCore::RegistrableDomain { URL { originURL->string() } });
     }
 
-    WebKit::WebsiteDataStore::setManagedDomainsForTesting(WTFMove(domains), [context, completionHandler] {
+    WebKit::WebsiteDataStore::setManagedDomainsForTesting(WTF::move(domains), [context, completionHandler] {
         completionHandler(context);
     });
 #else
@@ -608,7 +605,7 @@ void WKWebsiteDataStoreRemoveFetchCacheForOrigin(WKWebsiteDataStoreRef dataStore
 {
     WebKit::WebsiteDataRecord dataRecord;
     dataRecord.add(WebKit::WebsiteDataType::DOMCache, WebKit::toImpl(origin)->securityOrigin());
-    Vector<WebKit::WebsiteDataRecord> dataRecords = { WTFMove(dataRecord) };
+    Vector<WebKit::WebsiteDataRecord> dataRecords = { WTF::move(dataRecord) };
 
     OptionSet<WebKit::WebsiteDataType> dataTypes = WebKit::WebsiteDataType::DOMCache;
     WebKit::toProtectedImpl(dataStoreRef)->removeData(dataTypes, dataRecords, [context, callback] {
@@ -650,7 +647,7 @@ void WKWebsiteDataStoreGetFetchCacheOrigins(WKWebsiteDataStoreRef dataStoreRef, 
             for (const auto& origin : dataRecord.origins)
                 securityOrigins.append(API::SecurityOrigin::create(origin.securityOrigin()));
         }
-        callback(WebKit::toAPI(API::Array::create(WTFMove(securityOrigins)).ptr()), context);
+        callback(WebKit::toAPI(API::Array::create(WTF::move(securityOrigins)).ptr()), context);
     });
 }
 
@@ -740,7 +737,7 @@ void WKWebsiteDataStoreSetOriginQuotaRatioEnabled(WKWebsiteDataStoreRef dataStor
 void WKWebsiteDataStoreClearAppBoundSession(WKWebsiteDataStoreRef dataStoreRef, void* context, WKWebsiteDataStoreClearAppBoundSessionFunction completionHandler)
 {
 #if ENABLE(APP_BOUND_DOMAINS)
-    WebKit::toImpl(dataStoreRef)->clearAppBoundSession([context, completionHandler] {
+    WebKit::toProtectedImpl(dataStoreRef)->clearAppBoundSession([context, completionHandler] {
         completionHandler(context);
     });
 #else
@@ -752,7 +749,7 @@ void WKWebsiteDataStoreClearAppBoundSession(WKWebsiteDataStoreRef dataStoreRef, 
 void WKWebsiteDataStoreReinitializeAppBoundDomains(WKWebsiteDataStoreRef dataStoreRef)
 {
 #if ENABLE(APP_BOUND_DOMAINS)
-    WebKit::toImpl(dataStoreRef)->reinitializeAppBoundDomains();
+    WebKit::toProtectedImpl(dataStoreRef)->reinitializeAppBoundDomains();
 #else
     UNUSED_PARAM(dataStoreRef);
 #endif
@@ -797,9 +794,26 @@ void WKWebsiteDataStoreResetResourceMonitorThrottler(WKWebsiteDataStoreRef dataS
 #endif
 }
 
-void WKWebsiteDataStoreSetStorageAccessPermissionForTesting(WKWebsiteDataStoreRef dataStoreRef, bool granted, WKStringRef topFrame, WKStringRef subFrame, void* context, WKWebsiteDataStoreSetStorageAccessPermissionForTestingFunction completionHandler)
+void WKWebsiteDataStoreSetStorageAccessPermissionForTesting(WKWebsiteDataStoreRef dataStoreRef, WKPageRef pageRef, bool granted, WKStringRef topFrame, WKStringRef subFrame, void* context, WKWebsiteDataStoreSetStorageAccessPermissionForTestingFunction completionHandler)
 {
-    WebKit::toProtectedImpl(dataStoreRef)->setStorageAccessPermissionForTesting(granted, WebKit::toProtectedImpl(topFrame)->string(), WebKit::toProtectedImpl(subFrame)->string(), [context, completionHandler] {
+    Ref callbackAggregator = CallbackAggregator::create([context, completionHandler] {
         completionHandler(context);
     });
+
+    Ref store = *WebKit::toImpl(dataStoreRef);
+    if (!granted)
+        store->clearResourceLoadStatisticsInWebProcesses([callbackAggregator] { });
+    store->setStorageAccessPermissionForTesting(granted, WebKit::toImpl(pageRef)->identifier(), WebKit::toProtectedImpl(topFrame)->string(), WebKit::toProtectedImpl(subFrame)->string(), [callbackAggregator] { });
+}
+
+void WKWebsiteDataStoreSetStorageAccessForTesting(WKWebsiteDataStoreRef dataStoreRef, bool blocked, void* context, WKWebsiteDataStoreSetStorageAccessForTestingFunction completionHandler)
+{
+    Ref callbackAggregator = CallbackAggregator::create([context, completionHandler] {
+        completionHandler(context);
+    });
+
+    Ref store = *WebKit::toImpl(dataStoreRef);
+    if (blocked)
+        store->clearStorageAccessForTesting([callbackAggregator] { });
+    store->setResourceLoadStatisticsShouldBlockThirdPartyCookiesForTesting(blocked, WebCore::ThirdPartyCookieBlockingMode::All, [callbackAggregator] { });
 }

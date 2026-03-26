@@ -353,7 +353,7 @@ void LegacyTileGrid::invalidateTiles(const IntRect& dirtyRect)
         // For large invalidates, iterate over live tiles.
         TileMap::iterator end = m_tiles.end();
         for (TileMap::iterator it = m_tiles.begin(); it != end; ++it) {
-            LegacyTileGridTile* tile = it->value.get();
+            Ref tile = it->value.get();
             if (!tile->rect().intersects(dirtyRect))
                continue;
             tile->invalidateRect(dirtyRect);

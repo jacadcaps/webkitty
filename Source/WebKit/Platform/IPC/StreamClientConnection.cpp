@@ -25,11 +25,17 @@
 
 #include "config.h"
 #include "StreamClientConnection.h"
+#include <wtf/RuntimeApplicationChecks.h>
 #include <wtf/TZoneMallocInlines.h>
+
+#if PLATFORM(COCOA)
+#include <CoreFoundation/CoreFoundation.h>
+#endif
 
 namespace IPC {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(StreamClientConnection);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(StreamClientConnection::DedicatedConnectionClient);
 
 // FIXME(http://webkit.org/b/238986): Workaround for not being able to deliver messages from the dedicated connection to the work queue the client uses.
 
@@ -41,18 +47,21 @@ StreamClientConnection::DedicatedConnectionClient::DedicatedConnectionClient(Str
 
 void StreamClientConnection::DedicatedConnectionClient::didReceiveMessage(Connection& connection, Decoder& decoder)
 {
-    m_receiver->didReceiveMessage(connection, decoder);
+    if (RefPtr receiver = m_receiver.get())
+        receiver->didReceiveMessage(connection, decoder);
 }
 
-bool StreamClientConnection::DedicatedConnectionClient::didReceiveSyncMessage(Connection& connection, Decoder& decoder, UniqueRef<Encoder>& replyEncoder)
+void StreamClientConnection::DedicatedConnectionClient::didReceiveSyncMessage(Connection& connection, Decoder& decoder, UniqueRef<Encoder>& replyEncoder)
 {
-    return m_receiver->didReceiveSyncMessage(connection, decoder, replyEncoder);
+    if (RefPtr receiver = m_receiver.get())
+        receiver->didReceiveSyncMessage(connection, decoder, replyEncoder);
 }
 
 void StreamClientConnection::DedicatedConnectionClient::didClose(Connection& connection)
 {
     // Client is expected to listen to Connection::didClose() from the connection it sent to the dedicated connection to.
-    m_receiver->didClose(connection);
+    if (RefPtr receiver = m_receiver.get())
+        receiver->didClose(connection);
 }
 
 void StreamClientConnection::DedicatedConnectionClient::didReceiveInvalidMessage(Connection&, MessageName, const Vector<uint32_t>&)
@@ -74,18 +83,18 @@ std::optional<StreamClientConnection::StreamConnectionPair> StreamClientConnecti
     // For Connection, "client" means the connection which was established by receiving it through IPC and creating IPC::Connection out from the identifier.
     // The "Client" in StreamClientConnection means the party that mostly does sending, e.g. untrusted party.
     // The "Server" in StreamServerConnection means the party that mostly does receiving, e.g. the trusted party which holds the destination object to communicate with.
-    auto dedicatedConnection = Connection::createServerConnection(WTFMove(connectionIdentifiers->server));
-    auto clientConnection = adoptRef(*new StreamClientConnection(WTFMove(dedicatedConnection), WTFMove(*buffer), defaultTimeoutDuration));
+    auto dedicatedConnection = Connection::createServerConnection(WTF::move(connectionIdentifiers->server));
+    auto clientConnection = adoptRef(*new StreamClientConnection(WTF::move(dedicatedConnection), WTF::move(*buffer), defaultTimeoutDuration));
     StreamServerConnection::Handle serverHandle {
-        WTFMove(connectionIdentifiers->client),
+        WTF::move(connectionIdentifiers->client),
         clientConnection->m_buffer.createHandle()
     };
-    return StreamClientConnection::StreamConnectionPair { WTFMove(clientConnection), WTFMove(serverHandle) };
+    return StreamClientConnection::StreamConnectionPair { WTF::move(clientConnection), WTF::move(serverHandle) };
 }
 
 StreamClientConnection::StreamClientConnection(Ref<Connection> connection, StreamClientConnectionBuffer&& buffer, Seconds defaultTimeoutDuration)
-    : m_connection(WTFMove(connection))
-    , m_buffer(WTFMove(buffer))
+    : m_connection(WTF::move(connection))
+    , m_buffer(WTF::move(buffer))
     , m_defaultTimeoutDuration(defaultTimeoutDuration)
 {
 }
@@ -97,7 +106,7 @@ StreamClientConnection::~StreamClientConnection()
 
 void StreamClientConnection::setSemaphores(IPC::Semaphore&& wakeUp, IPC::Semaphore&& clientWait)
 {
-    m_buffer.setSemaphores(WTFMove(wakeUp), WTFMove(clientWait));
+    m_buffer.setSemaphores(WTF::move(wakeUp), WTF::move(clientWait));
 }
 
 bool StreamClientConnection::hasSemaphores() const
@@ -113,7 +122,7 @@ void StreamClientConnection::setMaxBatchSize(unsigned size)
 
 void StreamClientConnection::open(Connection::Client& receiver, SerialFunctionDispatcher& dispatcher)
 {
-    m_dedicatedConnectionClient.emplace(*this, receiver);
+    lazyInitialize(m_dedicatedConnectionClient, makeUniqueWithoutRefCountedCheck<DedicatedConnectionClient>(*this, receiver));
     m_connection->open(Ref { *m_dedicatedConnectionClient }.get(), dispatcher);
 }
 
@@ -121,7 +130,7 @@ Error StreamClientConnection::flushSentMessages()
 {
     auto timeout = defaultTimeout();
     wakeUpServer(WakeUpServer::Yes);
-    return m_connection->flushSentMessages(WTFMove(timeout));
+    return m_connection->flushSentMessages(WTF::move(timeout));
 }
 
 void StreamClientConnection::invalidate()
@@ -165,5 +174,42 @@ void StreamClientConnection::removeWorkQueueMessageReceiver(ReceiverName name, u
 {
     m_connection->removeWorkQueueMessageReceiver(name, destinationID);
 }
+
+#if ENABLE(CORE_IPC_SIGNPOSTS)
+
+static bool streamingIPCSignpostsEnabled = false;
+
+void StreamClientConnection::forceEnableSignposts()
+{
+    streamingIPCSignpostsEnabled = true;
+}
+
+bool StreamClientConnection::signpostsEnabled()
+{
+    static bool hasReadPreferences = false;
+    if (!hasReadPreferences) [[unlikely]] {
+        if (!isInAuxiliaryProcess() && CFPreferencesGetAppBooleanValue(CFSTR("WebKitDebugStreamingIPCSignposts"), kCFPreferencesCurrentApplication, nullptr))
+            streamingIPCSignpostsEnabled = true;
+        hasReadPreferences = true;
+    }
+
+    return streamingIPCSignpostsEnabled;
+}
+
+uintptr_t StreamClientConnection::generateSignpostIdentifier()
+{
+    static std::atomic<uintptr_t> identifier;
+    return ++identifier;
+}
+
+void StreamClientConnection::emitSendSignpost(MessageName messageName)
+{
+    // Signposts can turn in to log message IPCs when emitted from WebContent. Don't emit a signpost
+    // for log messages to avoid an infinite number of signposts.
+    if (signpostsEnabled() && receiverName(messageName) != IPC::ReceiverName::LogStream) [[unlikely]]
+        WTFEmitSignpost(generateSignpostIdentifier(), StreamClientConnection, "send: %" PUBLIC_LOG_STRING, description(messageName).characters());
+}
+
+#endif
 
 }

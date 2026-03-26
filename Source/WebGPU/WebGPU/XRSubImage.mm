@@ -87,7 +87,6 @@ void XRSubImage::update(const XRProjectionLayer& projectionLayer)
             colorTexture = [colorTexture newTextureViewWithPixelFormat:Texture::pixelFormat(colorFormat)];
 
         WGPUTextureDescriptor colorTextureDescriptor = {
-            .nextInChain = nullptr,
             .label = "color texture",
             .usage = WGPUTextureUsage_RenderAttachment,
             .dimension = WGPUTextureDimension_2D,
@@ -102,9 +101,10 @@ void XRSubImage::update(const XRProjectionLayer& projectionLayer)
             .viewFormatCount = 1,
             .viewFormats = &targetColorFormat,
         };
-        auto newTexture = Texture::create(colorTexture, colorTextureDescriptor, { colorFormat }, *device);
+        Ref newTexture = Texture::create(colorTexture, colorTextureDescriptor, { colorFormat }, *device);
         newTexture->updateCompletionEvent(sharedEvent);
-        m_colorTextures.set(currentTextureIndex, newTexture.ptr());
+        newTexture->setRasterizationRateMaps(projectionLayer.rasterizationRateMaps());
+        m_colorTextures.set(currentTextureIndex, WTF::move(newTexture));
     } else
         texture->updateCompletionEvent(sharedEvent);
 
@@ -116,7 +116,6 @@ void XRSubImage::update(const XRProjectionLayer& projectionLayer)
         }
 
         WGPUTextureDescriptor depthTextureDescriptor = {
-            .nextInChain = nullptr,
             .label = "depth texture",
             .usage = WGPUTextureUsage_RenderAttachment,
             .dimension = WGPUTextureDimension_2D,
@@ -137,16 +136,12 @@ void XRSubImage::update(const XRProjectionLayer& projectionLayer)
 
 Texture* XRSubImage::colorTexture()
 {
-    if (auto it = m_colorTextures.find(m_currentTextureIndex); it != m_colorTextures.end())
-        return it->value.get();
-    return nullptr;
+    return m_colorTextures.get(m_currentTextureIndex);
 }
 
 Texture* XRSubImage::depthTexture()
 {
-    if (auto it = m_depthTextures.find(m_currentTextureIndex); it != m_depthTextures.end())
-        return it->value.get();
-    return nullptr;
+    return m_depthTextures.get(m_currentTextureIndex);
 }
 
 RefPtr<XRSubImage> XRBinding::getViewSubImage(XRProjectionLayer& projectionLayer)

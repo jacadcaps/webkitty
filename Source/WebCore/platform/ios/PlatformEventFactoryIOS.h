@@ -25,14 +25,19 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
 #if PLATFORM(IOS_FAMILY)
 
-#include "PlatformKeyboardEvent.h"
-#include "PlatformMouseEvent.h"
-#include "PlatformWheelEvent.h"
+#include <WebCore/PlatformKeyboardEvent.h>
+#include <WebCore/PlatformMouseEvent.h>
+#include <WebCore/PlatformWheelEvent.h>
 
 #if USE(APPLE_INTERNAL_SDK)
+// FIXME: Properly support using WKA in modules.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnon-modular-include-in-module"
 #include <WebKitAdditions/PlatformTouchEventIOS.h>
+#pragma clang diagnostic pop
 #endif
 
 OBJC_CLASS WebEvent;

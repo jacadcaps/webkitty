@@ -25,8 +25,8 @@
 
 #pragma once
 
-#include "CAAudioStreamDescription.h"
-#include "PlatformRawAudioData.h"
+#include <WebCore/CAAudioStreamDescription.h>
+#include <WebCore/PlatformRawAudioData.h>
 #include <wtf/Forward.h>
 
 #if ENABLE(WEB_CODECS) && USE(AVFOUNDATION)
@@ -42,7 +42,7 @@ class PlatformRawAudioDataCocoa final : public PlatformRawAudioData {
 public:
     static Ref<PlatformRawAudioData> create(Ref<MediaSampleAVFObjC>&& sample)
     {
-        return adoptRef(*new PlatformRawAudioDataCocoa(WTFMove(sample)));
+        return adoptRef(*new PlatformRawAudioDataCocoa(WTF::move(sample)));
     }
     AudioSampleFormat format() const final;
     size_t sampleRate() const final;

@@ -46,8 +46,12 @@ void SystemSettings::updateSettings(const SystemSettings::State& state)
     if (state.darkMode)
         m_state.darkMode = state.darkMode;
 
-    if (state.fontName)
+    if (state.fontName) {
         m_state.fontName = state.fontName;
+        m_state.fontFamily = state.fontFamily;
+        m_state.fontSize = state.fontSize;
+        m_state.fontWeight = state.fontWeight;
+    }
 
     if (state.xftHinting)
         m_state.xftHinting = state.xftHinting;
@@ -151,7 +155,7 @@ String SystemSettings::defaultSystemFont() const
 
 void SystemSettings::addObserver(Function<void(const SystemSettings::State&)>&& handler, void* context)
 {
-    m_observers.add(context, WTFMove(handler));
+    m_observers.add(context, WTF::move(handler));
 }
 
 void SystemSettings::removeObserver(void* context)

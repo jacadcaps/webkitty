@@ -26,6 +26,7 @@
 #import "config.h"
 #import "IOSMouseEventTestHarness.h"
 
+#import "UIKitTestingHelpers.h"
 #import <wtf/MonotonicTime.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 
@@ -117,6 +118,12 @@ MouseEventTestHarness::MouseEventTestHarness(TestWKWebView *webView)
     m_unusedEvent = adoptNS([UIEvent new]);
 }
 
+MouseEventTestHarness::~MouseEventTestHarness()
+{
+    [m_mouseTouchGestureRecognizer _clearOverriddenStateForTesting];
+    [m_hoverGestureRecognizer _clearOverriddenStateForTesting];
+}
+
 void MouseEventTestHarness::mouseMove(CGFloat x, CGFloat y)
 {
     // FIXME(262757): This test helper should handle mouse drags.
@@ -130,7 +137,7 @@ void MouseEventTestHarness::mouseMove(CGFloat x, CGFloat y)
 
     bool shouldBeginGesture = std::exchange(m_needsToDispatchHoverGestureBegan, false);
     [m_activeTouch setPhase:shouldBeginGesture ? UITouchPhaseRegionEntered : UITouchPhaseRegionMoved];
-    m_hoverGestureRecognizer.state = shouldBeginGesture ? UIGestureRecognizerStateBegan : UIGestureRecognizerStateChanged;
+    [m_hoverGestureRecognizer _setStateForTesting:shouldBeginGesture ? UIGestureRecognizerStateBegan : UIGestureRecognizerStateChanged];
     [m_mouseInteraction _hoverGestureRecognized:m_hoverGestureRecognizer];
 }
 
@@ -140,6 +147,7 @@ void MouseEventTestHarness::mouseDown(UIEventButtonMask buttons, UIKeyModifierFl
     [m_activeTouch setTapCount:1];
     m_buttonMask = buttons;
     m_modifierFlags = modifierFlags;
+    [m_mouseTouchGestureRecognizer _setStateForTesting:UIGestureRecognizerStateBegan];
     [m_mouseTouchGestureRecognizer touchesBegan:activeTouches() withEvent:m_unusedEvent.get()];
     EXPECT_EQ(m_mouseTouchGestureRecognizer.state, UIGestureRecognizerStateBegan);
 }
@@ -149,6 +157,7 @@ void MouseEventTestHarness::mouseUp()
     [m_activeTouch setPhase:UITouchPhaseEnded];
     [m_activeTouch setTapCount:0];
     m_buttonMask = 0;
+    [m_mouseTouchGestureRecognizer _setStateForTesting:UIGestureRecognizerStateEnded];
     [m_mouseTouchGestureRecognizer touchesEnded:activeTouches() withEvent:m_unusedEvent.get()];
     m_modifierFlags = 0;
     EXPECT_EQ(m_mouseTouchGestureRecognizer.state, UIGestureRecognizerStateEnded);
@@ -159,9 +168,10 @@ void MouseEventTestHarness::mouseCancel()
     [m_activeTouch setPhase:UITouchPhaseCancelled];
     [m_activeTouch setTapCount:0];
     m_buttonMask = 0;
+    [m_mouseTouchGestureRecognizer _setStateForTesting:UIGestureRecognizerStateCancelled];
     [m_mouseTouchGestureRecognizer touchesCancelled:activeTouches() withEvent:m_unusedEvent.get()];
     m_modifierFlags = 0;
-    EXPECT_TRUE(m_mouseTouchGestureRecognizer.state == UIGestureRecognizerStateCancelled || m_mouseTouchGestureRecognizer.state == UIGestureRecognizerStateFailed);
+    EXPECT_EQ(m_mouseTouchGestureRecognizer.state, UIGestureRecognizerStateCancelled);
 }
 
 };

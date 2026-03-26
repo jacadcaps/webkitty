@@ -51,11 +51,16 @@ void WebExtensionAPIPermissions::getAll(Ref<WebExtensionCallbackHandler>&& callb
 {
     // Documentation: https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/permissions/getAll
 
-    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::PermissionsGetAll(), [protectedThis = Ref { *this }, callback = WTFMove(callback)](Vector<String> permissions, Vector<String> origins) {
-        callback->call(@{
-            permissionsKey: createNSArray(permissions).get(),
-            originsKey: createNSArray(origins).get()
-        });
+    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::PermissionsGetAll(), [protectedThis = Ref { *this }, callback = WTF::move(callback)](Vector<String> permissions, Vector<String> origins) {
+        auto globalContext = callback->globalContext();
+
+        auto permissionsValue = fromArray(globalContext, WTF::move(permissions));
+        auto originsValue = fromArray(globalContext, WTF::move(origins));
+
+        callback->call(fromObject(globalContext, {
+            { permissionsKey, permissionsValue },
+            { originsKey, originsValue }
+        }));
     }, extensionContext().identifier());
 }
 
@@ -73,8 +78,8 @@ void WebExtensionAPIPermissions::contains(NSDictionary *details, Ref<WebExtensio
     if (!validatePermissionsDetails(permissions, origins, matchPatterns, apiName, outExceptionString))
         return;
 
-    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::PermissionsContains(permissions, origins), [protectedThis = Ref { *this }, callback = WTFMove(callback)](bool containsPermissions) {
-        callback->call(containsPermissions ? @YES : @NO);
+    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::PermissionsContains(permissions, origins), [protectedThis = Ref { *this }, callback = WTF::move(callback)](bool containsPermissions) {
+        callback->call(JSValueMakeBoolean(callback->globalContext(), containsPermissions));
     }, extensionContext().identifier());
 }
 
@@ -110,8 +115,8 @@ void WebExtensionAPIPermissions::request(NSDictionary *details, Ref<WebExtension
         return;
     }
 
-    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::PermissionsRequest(permissions, origins), [protectedThis = Ref { *this }, callback = WTFMove(callback)](bool success) {
-        callback->call(success ? @YES : @NO);
+    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::PermissionsRequest(permissions, origins), [protectedThis = Ref { *this }, callback = WTF::move(callback)](bool success) {
+        callback->call(JSValueMakeBoolean(callback->globalContext(), success));
     }, extensionContext().identifier());
 }
 
@@ -139,8 +144,8 @@ void WebExtensionAPIPermissions::remove(NSDictionary *details, Ref<WebExtensionC
         return;
     }
 
-    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::PermissionsRemove(permissions, origins), [protectedThis = Ref { *this }, callback = WTFMove(callback)](bool success) {
-        callback->call(success ? @YES : @NO);
+    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::PermissionsRemove(permissions, origins), [protectedThis = Ref { *this }, callback = WTF::move(callback)](bool success) {
+        callback->call(JSValueMakeBoolean(callback->globalContext(), success));
     }, extensionContext().identifier());
 }
 

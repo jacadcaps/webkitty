@@ -32,13 +32,8 @@ import optparse
 import os
 import sys
 from webkitpy.common.system import executive
-
-if sys.platform.startswith('linux'):
-    top_level_directory = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..'))
-    sys.path.insert(0, os.path.join(top_level_directory, 'Tools', 'flatpak'))
-
-    import flatpakutils
-    flatpakutils.run_in_sandbox_if_available(sys.argv)
+from webkitpy.port.linux_container_sdk_utils import maybe_use_container_sdk_root_dir
+maybe_use_container_sdk_root_dir()
 
 def main(argv):
     """Runs WebCore bindings code generators on test IDL files and compares

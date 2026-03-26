@@ -19,7 +19,7 @@
 
 #include "config.h"
 #include "WebViewTest.h"
-#include <WebCore/GtkVersioning.h>
+#include <WebKit/GtkVersioning.h>
 #include <glib/gstdio.h>
 #include <wtf/glib/GRefPtr.h>
 
@@ -294,7 +294,7 @@ static void testPrintOperationCloseAfterPrint(CloseAfterPrintTest* test, gconstp
         g_test_skip("no suitable printer found");
         return;
     }
-    test->m_printer = WTFMove(printer);
+    test->m_printer = WTF::move(printer);
     test->loadHtml("<html><body onLoad=\"w = window.open();w.print();w.close();\"></body></html>", 0);
     test->waitUntilPrintFinishedAndViewClosed();
 }

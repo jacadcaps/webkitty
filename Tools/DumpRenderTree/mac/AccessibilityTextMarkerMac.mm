@@ -24,8 +24,8 @@
  */
 
 #import "config.h"
-
 #import "AccessibilityTextMarker.h"
+
 #import "DumpRenderTree.h"
 
 #if PLATFORM(MAC)
@@ -42,9 +42,7 @@ AccessibilityTextMarker::AccessibilityTextMarker(const AccessibilityTextMarker& 
 {
 }
 
-AccessibilityTextMarker::~AccessibilityTextMarker()
-{
-}
+AccessibilityTextMarker::~AccessibilityTextMarker() = default;
 
 bool AccessibilityTextMarker::isEqual(AccessibilityTextMarker* other)
 {
@@ -52,7 +50,7 @@ bool AccessibilityTextMarker::isEqual(AccessibilityTextMarker* other)
 }
 
 id AccessibilityTextMarker::platformTextMarker() const
-{ 
+{
     return m_textMarker.get();
 }
 
@@ -68,9 +66,7 @@ AccessibilityTextMarkerRange::AccessibilityTextMarkerRange(const AccessibilityTe
 {
 }
 
-AccessibilityTextMarkerRange::~AccessibilityTextMarkerRange()
-{
-}
+AccessibilityTextMarkerRange::~AccessibilityTextMarkerRange() = default;
 
 bool AccessibilityTextMarkerRange::isEqual(AccessibilityTextMarkerRange* other)
 {

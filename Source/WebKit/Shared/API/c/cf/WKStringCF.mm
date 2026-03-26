@@ -29,23 +29,13 @@
 #import "WKAPICast.h"
 #import "WKNSString.h"
 #import <objc/runtime.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
 #import <wtf/text/WTFString.h>
-
-static inline Class wkNSStringClass()
-{
-    static dispatch_once_t once;
-    static Class wkNSStringClass;
-    dispatch_once(&once, ^{
-        wkNSStringClass = [WKNSString class];
-    });
-    return wkNSStringClass;
-}
 
 WKStringRef WKStringCreateWithCFString(CFStringRef cfString)
 {
-    // Since WKNSString is an internal class with no subclasses, we can do a simple equality check.
-    if (object_getClass((__bridge NSString *)cfString) == wkNSStringClass())
-        return WebKit::toAPI(RefPtr { downcast<API::String>(&[(WKNSString *)(__bridge NSString *)CFRetain(cfString) _apiObject]) }.get());
+    if (RetainPtr wkNSString = dynamic_objc_cast<WKNSString>(bridge_cast(cfString)))
+        return WebKit::toAPI(RefPtr { downcast<API::String>(&[wkNSString.leakRef() _apiObject]) }.get());
     String string(cfString);
     return WebKit::toCopiedAPI(string);
 }
@@ -61,7 +51,7 @@ CFStringRef WKStringCopyCFString(CFAllocatorRef allocatorRef, WKStringRef string
     // expects to be called on the thread running WebCore.
     if (string.is8Bit()) {
         auto characters = string.span8();
-        return CFStringCreateWithBytes(allocatorRef, characters.data(), characters.size(), kCFStringEncodingISOLatin1, true);
+        return CFStringCreateWithBytes(allocatorRef, byteCast<UInt8>(characters.data()), characters.size(), kCFStringEncodingISOLatin1, true);
     }
     auto characters = string.span16();
     return CFStringCreateWithCharacters(allocatorRef, reinterpret_cast<const UniChar*>(characters.data()), characters.size());

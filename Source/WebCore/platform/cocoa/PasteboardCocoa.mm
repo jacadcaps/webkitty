@@ -59,13 +59,13 @@ enum class ImageType {
 static ImageType cocoaTypeToImageType(const String& cocoaType)
 {
 #if PLATFORM(MAC)
-    if (cocoaType == String(legacyTIFFPasteboardType()))
+    if (cocoaType == String(legacyTIFFPasteboardTypeSingleton()))
         return ImageType::TIFF;
 #endif
     if (cocoaType == String(UTTypeTIFF.identifier))
         return ImageType::TIFF;
 #if PLATFORM(MAC)
-    if (cocoaType == String(legacyPNGPasteboardType())) // NSPNGPboardType
+    if (cocoaType == String(legacyPNGPasteboardTypeSingleton())) // NSPNGPboardType
         return ImageType::PNG;
 #endif
     if (cocoaType == String(UTTypePNG.identifier))
@@ -159,7 +159,7 @@ Pasteboard::FileContentState Pasteboard::fileContentState()
 
         auto indexOfURL = cocoaTypes.findIf([](auto& cocoaType) {
 #if PLATFORM(MAC)
-            if (cocoaType == String(legacyURLPasteboardType()))
+            if (cocoaType == String(legacyURLPasteboardTypeSingleton()))
                 return true;
 #endif
             return cocoaType == String(UTTypeURL.identifier);
@@ -207,9 +207,9 @@ Vector<String> Pasteboard::typesForLegacyUnsafeBindings()
 #if PLATFORM(MAC)
 static Ref<SharedBuffer> convertTIFFToPNG(FragmentedSharedBuffer& tiffBuffer)
 {
-    auto image = adoptNS([[NSBitmapImageRep alloc] initWithData: tiffBuffer.makeContiguous()->createNSData().get()]);
-    NSData *pngData = [image representationUsingType:bitmapPNGFileType() properties:@{ }];
-    return SharedBuffer::create(pngData);
+    RetainPtr image = adoptNS([[NSBitmapImageRep alloc] initWithData: tiffBuffer.makeContiguous()->createNSData().get()]);
+    RetainPtr<NSData> pngData = [image representationUsingType:bitmapPNGFileType() properties:@{ }];
+    return SharedBuffer::create(pngData.get());
 }
 #endif
 

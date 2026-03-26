@@ -52,6 +52,7 @@
 #import "WebProcessProxy.h"
 #import <WebCore/LocalizedStrings.h>
 #import <wtf/BlockPtr.h>
+#import <wtf/darwin/DispatchExtras.h>
 
 #if PLATFORM(IOS_FAMILY)
 #import "UIKitSPI.h"
@@ -172,7 +173,7 @@ using namespace WebKit;
     if (extensionContext->canOpenNewWindow()) {
         WebExtensionWindowParameters windowParameters;
         windowParameters.focused = true;
-        windowParameters.tabs = { WTFMove(tabParameters) };
+        windowParameters.tabs = { WTF::move(tabParameters) };
         windowParameters.type = windowFeatures._wantsPopup ? WebExtensionWindow::Type::Popup : WebExtensionWindow::Type::Normal;
         windowParameters.state = windowFeatures._fullscreenDisplay.boolValue ? WebExtensionWindow::State::Fullscreen : WebExtensionWindow::State::Normal;
 
@@ -657,7 +658,7 @@ void WebExtensionAction::propertiesDidChange()
 
     m_updatePending = true;
 
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, updateThrottleDuration.nanosecondsAs<int64_t>()), dispatch_get_main_queue(), makeBlockPtr([this, protectedThis = Ref { *this }]() {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, updateThrottleDuration.nanosecondsAs<int64_t>()), mainDispatchQueueSingleton(), makeBlockPtr([this, protectedThis = Ref { *this }]() {
         m_updatePending = false;
 
         RefPtr extensionContext = m_extensionContext.get();
@@ -707,7 +708,7 @@ void WebExtensionAction::propertiesDidChange()
     }).get());
 }
 
-WebExtensionAction* WebExtensionAction::fallbackAction() const
+RefPtr<WebExtensionAction> WebExtensionAction::fallbackAction() const
 {
     RefPtr extensionContext = this->extensionContext();
     if (!extensionContext)
@@ -715,11 +716,11 @@ WebExtensionAction* WebExtensionAction::fallbackAction() const
 
     // Tab actions whose tab references have not dropped fallback to the window action.
     if (RefPtr tab = this->tab())
-        return extensionContext->getAction(tab->window().get()).ptr();
+        return extensionContext->getAction(tab->window().get());
 
     // Window actions and tab actions whose tab references have dropped fallback to the default action.
     if (m_window.has_value() || m_tab.has_value())
-        return &extensionContext->defaultAction();
+        return extensionContext->defaultAction();
 
     // Default actions have no fallback.
     return nullptr;
@@ -750,13 +751,13 @@ RefPtr<WebCore::Icon> WebExtensionAction::icon(WebCore::FloatSize idealSize)
 #if ENABLE(WK_WEB_EXTENSIONS_ICON_VARIANTS)
         if (m_customIconVariants) {
             result = extensionContext->protectedExtension()->bestIconVariant(m_customIconVariants, WebCore::FloatSize(idealSize), [&](Ref<API::Error> error) {
-                extensionContext->recordError(::WebKit::wrapper(error));
+                extensionContext->recordError(error);
             });
         } else
 #endif // ENABLE(WK_WEB_EXTENSIONS_ICON_VARIANTS)
         if (m_customIcons) {
             result = extensionContext->protectedExtension()->bestIcon(m_customIcons, WebCore::FloatSize(idealSize), [&](Ref<API::Error> error) {
-                extensionContext->recordError(::WebKit::wrapper(error));
+                extensionContext->recordError(error);
             });
         }
 
@@ -785,7 +786,7 @@ void WebExtensionAction::setIcons(RefPtr<JSON::Object> icons)
     if (m_customIcons == icons)
         return;
 
-    m_customIcons = icons->size() ? icons : nullptr;
+    m_customIcons = icons && icons->size() ? icons : nullptr;
 #if ENABLE(WK_WEB_EXTENSIONS_ICON_VARIANTS)
     m_customIconVariants = nullptr;
 #endif
@@ -800,7 +801,7 @@ void WebExtensionAction::setIconVariants(RefPtr<JSON::Array> iconVariants)
     if (m_customIconVariants == iconVariants)
         return;
 
-    m_customIconVariants = iconVariants->length() ? iconVariants : nullptr;
+    m_customIconVariants = iconVariants && iconVariants->length() ? iconVariants : nullptr;
     m_customIcons = nullptr;
 
     clearIconCache();
@@ -1061,7 +1062,7 @@ void WebExtensionAction::popupDidFinishDocumentLoad()
         return;
 
     // Delay showing the popup until a minimum size or a timeout is reached.
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, popoverShowTimeout.nanosecondsAs<int64_t>()), dispatch_get_main_queue(), makeBlockPtr([this, protectedThis = Ref { *this }] {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, popoverShowTimeout.nanosecondsAs<int64_t>()), mainDispatchQueueSingleton(), makeBlockPtr([this, protectedThis = Ref { *this }] {
         if (popupPresented() || !hasPopupWebView() || !presentsPopupWhenReady() || !extensionContext())
             return;
 
@@ -1091,7 +1092,7 @@ void WebExtensionAction::readyToPresentPopup()
     if (RefPtr extensionController = extensionContext()->extensionController())
         extensionController->setShowingActionPopup(true);
 
-    dispatch_async(dispatch_get_main_queue(), makeBlockPtr([this, protectedThis = Ref { *this }]() {
+    dispatch_async(mainDispatchQueueSingleton(), makeBlockPtr([this, protectedThis = Ref { *this }]() {
         if (!extensionContext() || !popupPresented())
             return;
 

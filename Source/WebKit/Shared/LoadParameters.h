@@ -34,8 +34,10 @@
 #include <WebCore/AdvancedPrivacyProtections.h>
 #include <WebCore/FrameLoaderTypes.h>
 #include <WebCore/NavigationIdentifier.h>
+#include <WebCore/NavigationRequester.h>
 #include <WebCore/OwnerPermissionsPolicyData.h>
 #include <WebCore/PublicSuffixStore.h>
+#include <WebCore/ReferrerPolicy.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/ShouldTreatAsContinuingLoad.h>
 #include <WebCore/SubstituteData.h>
@@ -78,6 +80,7 @@ struct LoadParameters {
     WebCore::SubstituteData::SessionHistoryVisibility sessionHistoryVisibility { WebCore::SubstituteData::SessionHistoryVisibility::Visible };
     String clientRedirectSourceForHistory;
     WebCore::SandboxFlags effectiveSandboxFlags;
+    WebCore::ReferrerPolicy effectiveReferrerPolicy { WebCore::ReferrerPolicy::EmptyString };
     std::optional<WebCore::OwnerPermissionsPolicyData> ownerPermissionsPolicy;
     std::optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain;
     std::optional<NetworkResourceLoadIdentifier> existingNetworkResourceLoadIdentifierToResume;
@@ -87,11 +90,12 @@ struct LoadParameters {
     std::optional<double> dataDetectionReferenceDate;
 #endif
     bool isRequestFromClientOrUserInput { false };
-    bool isPerformingHTTPFallback { false };
+    WebCore::NavigationUpgradeToHTTPSBehavior navigationUpgradeToHTTPSBehavior { WebCore::NavigationUpgradeToHTTPSBehavior::BasedOnPolicy };
     bool isHandledByAboutSchemeHandler { false };
 
     std::optional<OptionSet<WebCore::AdvancedPrivacyProtections>> advancedPrivacyProtections;
     uint64_t requiredCookiesVersion { 0 };
+    std::optional<WebCore::NavigationRequester> requester;
 };
 
 } // namespace WebKit

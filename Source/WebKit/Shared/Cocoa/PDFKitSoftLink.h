@@ -53,7 +53,7 @@ SOFT_LINK_CONSTANT_FOR_HEADER(WebKit, PDFKit, PDFAnnotationWidgetSubtypeChoice, 
 SOFT_LINK_CONSTANT_FOR_HEADER(WebKit, PDFKit, PDFAnnotationWidgetSubtypeSignature, NSString *)
 SOFT_LINK_CONSTANT_FOR_HEADER(WebKit, PDFKit, PDFAnnotationWidgetSubtypeText, NSString *)
 
-SPECIALIZE_OBJC_TYPE_TRAITS(PDFActionResetForm, WebKit::getPDFActionResetFormClass())
-SPECIALIZE_OBJC_TYPE_TRAITS(PDFActionNamed, WebKit::getPDFActionNamedClass())
+SPECIALIZE_OBJC_TYPE_TRAITS(PDFActionResetForm, WebKit::getPDFActionResetFormClassSingleton())
+SPECIALIZE_OBJC_TYPE_TRAITS(PDFActionNamed, WebKit::getPDFActionNamedClassSingleton())
 
 #endif // HAVE(PDFKIT)

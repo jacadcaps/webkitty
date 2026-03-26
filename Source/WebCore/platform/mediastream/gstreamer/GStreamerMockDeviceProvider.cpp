@@ -32,12 +32,20 @@
 using namespace WebCore;
 
 struct _GStreamerMockDeviceProviderPrivate {
+    ~_GStreamerMockDeviceProviderPrivate();
 };
 
 GST_DEBUG_CATEGORY_STATIC(webkitGstMockDeviceProviderDebug);
 #define GST_CAT_DEFAULT webkitGstMockDeviceProviderDebug
 
 WEBKIT_DEFINE_TYPE_WITH_CODE(GStreamerMockDeviceProvider, webkit_mock_device_provider, GST_TYPE_DEVICE_PROVIDER, GST_DEBUG_CATEGORY_INIT(webkitGstMockDeviceProviderDebug, "webkitmockdeviceprovider", 0, "Mock Device Provider"))
+
+static GStreamerMockDeviceProvider* s_provider = nullptr;
+
+_GStreamerMockDeviceProviderPrivate::~_GStreamerMockDeviceProviderPrivate()
+{
+    s_provider = nullptr;
+}
 
 static GList* webkitMockDeviceProviderProbe(GstDeviceProvider* provider)
 {
@@ -60,13 +68,6 @@ static GList* webkitMockDeviceProviderProbe(GstDeviceProvider* provider)
     return devices;
 }
 
-static GStreamerMockDeviceProvider* s_provider = nullptr;
-
-GStreamerMockDeviceProvider* webkitGstMockDeviceProviderSingleton()
-{
-    return s_provider;
-}
-
 void webkitGstMockDeviceProviderSwitchDefaultDevice(const CaptureDevice& oldDevice, const CaptureDevice& newDevice)
 {
     if (!s_provider) {
@@ -80,9 +81,9 @@ void webkitGstMockDeviceProviderSwitchDefaultDevice(const CaptureDevice& oldDevi
         auto device = GST_DEVICE_CAST(it->data);
         GUniquePtr<GstStructure> properties(gst_device_get_properties(device));
         auto persistentId = gstStructureGetString(properties.get(), "persistent-id"_s);
-        if (persistentId == oldDevice.persistentId())
+        if (equal(oldDevice.persistentId(), persistentId.span()))
             oldGstDevice = device;
-        else if (persistentId == newDevice.persistentId())
+        else if (equal(newDevice.persistentId(), persistentId.span()))
             newGstDevice = device;
         if (oldGstDevice && newGstDevice)
             break;
@@ -117,17 +118,10 @@ static void webkitMockDeviceProviderConstructed(GObject* object)
     s_provider = WEBKIT_MOCK_DEVICE_PROVIDER(object);
 }
 
-static void webkitMockDeviceProviderFinalize(GObject* object)
-{
-    s_provider = nullptr;
-    G_OBJECT_CLASS(webkit_mock_device_provider_parent_class)->finalize(object);
-}
-
 static void webkit_mock_device_provider_class_init(GStreamerMockDeviceProviderClass* klass)
 {
     auto gobjectClass = G_OBJECT_CLASS(klass);
     gobjectClass->constructed = webkitMockDeviceProviderConstructed;
-    gobjectClass->finalize = webkitMockDeviceProviderFinalize;
 
     auto providerClass = GST_DEVICE_PROVIDER_CLASS(klass);
     providerClass->probe = GST_DEBUG_FUNCPTR(webkitMockDeviceProviderProbe);

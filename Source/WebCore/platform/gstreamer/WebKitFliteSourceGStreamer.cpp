@@ -114,9 +114,12 @@ static void webkitFliteSrcConstructed(GObject* object)
     WebKitFliteSrcPrivate* priv = src->priv;
 
     /* We operate in time */
-    gst_base_src_set_format(GST_BASE_SRC(src), GST_FORMAT_TIME);
-    gst_base_src_set_blocksize(GST_BASE_SRC(src), -1);
-    gst_base_src_set_automatic_eos(GST_BASE_SRC(src), FALSE);
+    auto baseSrc = GST_BASE_SRC_CAST(src);
+    gst_base_src_set_format(baseSrc, GST_FORMAT_TIME);
+    gst_base_src_set_blocksize(baseSrc, -1);
+    gst_base_src_set_automatic_eos(baseSrc, FALSE);
+    gst_base_src_set_do_timestamp(baseSrc, TRUE);
+    gst_base_src_set_live(baseSrc, TRUE);
 
     DataMutexLocker members { priv->dataMutex };
     members->adapter = adoptGRef(gst_adapter_new());
@@ -222,19 +225,19 @@ static Vector<GUniquePtr<cst_voice>>& fliteVoices()
         const unsigned voiceRegisterFunctionCount = sizeof(voiceRegisterFunctions) / sizeof(VoiceRegisterFunction);
         for (unsigned i = 0; i < voiceRegisterFunctionCount; ++i) {
             GUniquePtr<cst_voice> voice(voiceRegisterFunctions[i](nullptr));
-            voices.append(WTFMove(voice));
+            voices.append(WTF::move(voice));
         }
     });
     return voices;
 }
 
-static cst_voice* fliteVoice(const char* name)
+static cst_voice* fliteVoice(const String& name)
 {
     if (!name)
         return nullptr;
 
     for (auto& voice : fliteVoices()) {
-        if (String::fromUTF8(voice->name) == String::fromUTF8(name))
+        if (equal(name, byteCast<char8_t>(unsafeSpan(voice->name))))
             return voice.get();
     }
 
@@ -266,7 +269,7 @@ void webKitFliteSrcSetUtterance(WebKitFliteSrc* src, const PlatformSpeechSynthes
 
     cst_voice* voice = nullptr;
     if (platformSpeechSynthesisVoice && !platformSpeechSynthesisVoice->name().isEmpty())
-        voice = fliteVoice(platformSpeechSynthesisVoice->name().utf8().data());
+        voice = fliteVoice(platformSpeechSynthesisVoice->name());
 
     // We use the first registered voice as default, where no voice is specified.
     priv->currentVoice = voice ? voice : fliteVoices()[0].get();

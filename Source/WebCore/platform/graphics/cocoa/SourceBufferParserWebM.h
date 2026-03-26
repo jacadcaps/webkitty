@@ -27,11 +27,12 @@
 
 #if ENABLE(MEDIA_SOURCE)
 
-#include "LibWebRTCMacros.h"
-#include "MediaSample.h"
-#include "SharedBuffer.h"
-#include "SourceBufferParser.h"
 #include <CoreAudio/CoreAudioTypes.h>
+#include <WebCore/LibWebRTCMacros.h>
+#include <WebCore/MediaSample.h>
+#include <WebCore/MediaSamplesBlock.h>
+#include <WebCore/SharedBuffer.h>
+#include <WebCore/SourceBufferParser.h>
 #include <pal/spi/cf/CoreMediaSPI.h>
 #include <webm/callback.h>
 #include <webm/common/vp9_header_parser.h>
@@ -52,7 +53,7 @@ class WebmParser;
 namespace WebCore {
 
 class PacketDurationParser;
-struct TrackInfo;
+class TrackInfo;
 template<typename> class ExceptionOr;
 
 class WebMParser
@@ -122,6 +123,7 @@ public:
         Vorbis,
         Opus,
         PCM,
+        AV1,
     };
 
     using ConsumeFrameDataResult = Variant<MediaTime, webm::Status>;
@@ -150,8 +152,8 @@ public:
         RefPtr<TrackInfo> formatDescription() const { return m_formatDescription.copyRef(); }
         void setFormatDescription(Ref<TrackInfo>&& description)
         {
-            m_formatDescription = WTFMove(description);
-            m_formatDescription->trackID = track().track_uid.value();
+            m_formatDescription = WTF::move(description);
+            m_formatDescription->setTrackID(track().track_uid.value());
         }
 
         WebMParser& parser() const { return m_parser; }
@@ -184,7 +186,7 @@ public:
         {
             if (!m_processedMediaSamples.size())
                 return;
-            m_parser.provideMediaData(WTFMove(m_processedMediaSamples));
+            m_parser.provideMediaData(WTF::move(m_processedMediaSamples));
             resetCompletedFramesState();
         }
 
@@ -345,7 +347,7 @@ public:
     using DidParseTrimmingDataCallback = Function<void(uint64_t trackID, const MediaTime& discardPadding)>;
     void setDidParseTrimmingDataCallback(DidParseTrimmingDataCallback&& callback)
     {
-        m_didParseTrimmingDataCallback = WTFMove(callback);
+        m_didParseTrimmingDataCallback = WTF::move(callback);
     }
 
     void flushPendingAudioSamples();

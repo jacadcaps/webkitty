@@ -28,6 +28,7 @@
 #import "DeprecatedGlobalValues.h"
 #import "HTTPServer.h"
 #import "PlatformUtilities.h"
+#import "SiteIsolationUtilities.h"
 #import "Test.h"
 #import "TestNavigationDelegate.h"
 #import "TestProtocol.h"
@@ -722,6 +723,10 @@ static bool navigationComplete;
 TEST(WKNavigation, WillGoToBackForwardListItem)
 {
     auto webView = adoptNS([[WKWebView alloc] init]);
+    // FIXME: Page cache is currently disabled under site isolation; see rdar://161762363.
+    if (isSiteIsolationEnabled(webView.get()))
+        return;
+
     auto delegate = adoptNS([[BackForwardDelegate alloc] init]);
     [webView setNavigationDelegate:delegate.get()];
     [webView loadRequest:[NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"]]];
@@ -798,6 +803,12 @@ static bool didRejectNavigation = false;
 TEST(WKNavigation, ShouldGoToBackForwardListItem)
 {
     auto webView = adoptNS([[WKWebView alloc] init]);
+
+    // FIXME: Page cache is currently disabled under site isolation; see rdar://161762363.
+    // This test relies on the back forward cache. Once it is enabled, remove this early return.
+    if (isSiteIsolationEnabled(webView.get()))
+        return;
+
     auto delegate = adoptNS([[BackForwardDelegateWithShouldGo alloc] init]);
     [webView setNavigationDelegate:delegate.get()];
     [webView loadRequest:[NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"]]];
@@ -2625,13 +2636,14 @@ TEST(WKNavigation, HTTPSFirstWithHTTPRedirect)
     didFailNavigation = false;
     loadCount = 0;
 
-    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://site.example/secure2"]]];
+    // Encourage a process swap to ensure consistency of the test with and without Enhanced Security enabled
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://different.example/secure2"]]];
     TestWebKitAPI::Util::run(&finishedSuccessfully);
 
     EXPECT_EQ(errorCode, 0);
     EXPECT_FALSE(didFailNavigation);
-    EXPECT_EQ(loadCount, 23);
-    EXPECT_WK_STREQ(@"http://site2.example/secure3", [webView URL].absoluteString);
+    EXPECT_EQ(loadCount, 22);
+    EXPECT_WK_STREQ(@"http://site2.example/secure2", [webView URL].absoluteString);
 }
 
 TEST(WKNavigation, DISABLED_PreferredHTTPSPolicyAutomaticHTTPFallbackRedirectNo3SecondTimeout)
@@ -3221,6 +3233,318 @@ TEST(WKNavigation, PreferredHTTPSPolicyAutomaticHTTPFallbackLocalHostIPAddress)
     EXPECT_WK_STREQ(url, [webView URL].absoluteString);
 }
 
+TEST(WKNavigation, PreferredHTTPSPolicyAutomaticHTTPFallbackAfterTerminateProcess)
+{
+    using namespace TestWebKitAPI;
+    HTTPServer httpsServer({
+        { "/secure"_s, { { }, "hi"_s } }
+    }, HTTPServer::Protocol::HttpsProxy);
+    HTTPServer httpServer({
+        { "http://site.example/secure"_s, { "Welcome"_s } }
+    }, HTTPServer::Protocol::Http);
+
+    auto storeConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] initNonPersistentConfiguration]);
+    [storeConfiguration setProxyConfiguration:@{
+        (NSString *)kCFStreamPropertyHTTPProxyHost: @"127.0.0.1",
+        (NSString *)kCFStreamPropertyHTTPProxyPort: @(httpServer.port()),
+        (NSString *)kCFStreamPropertyHTTPSProxyHost: @"127.0.0.1",
+        (NSString *)kCFStreamPropertyHTTPSProxyPort: @(httpsServer.port())
+    }];
+    auto dataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:storeConfiguration.get()]);
+    auto configuration = adoptNS([WKWebViewConfiguration new]);
+    [configuration setWebsiteDataStore:dataStore.get()];
+    configuration.get().defaultWebpagePreferences.preferredHTTPSNavigationPolicy = WKWebpagePreferencesUpgradeToHTTPSPolicyAutomaticFallbackToHTTP;
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectZero configuration:configuration.get()]);
+
+    __block int errorCode { 0 };
+    __block bool finishedSuccessfully { false };
+    __block int loadCount { 0 };
+    auto delegate = adoptNS([TestNavigationDelegate new]);
+    delegate.get().decidePolicyForNavigationAction = ^(WKNavigationAction *action, void (^completionHandler)(WKNavigationActionPolicy)) {
+        ++loadCount;
+        completionHandler(WKNavigationActionPolicyAllow);
+    };
+
+    delegate.get().didFailProvisionalNavigation = ^(WKWebView *, WKNavigation *, NSError *error) {
+        errorCode = error.code;
+    };
+
+    delegate.get().didFinishNavigation = ^(WKWebView *, WKNavigation *) {
+        finishedSuccessfully = true;
+    };
+    [webView setNavigationDelegate:delegate.get()];
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"http://site.example/secure"]]];
+    TestWebKitAPI::Util::run(&finishedSuccessfully);
+
+    EXPECT_EQ(errorCode, 0);
+    EXPECT_TRUE(finishedSuccessfully);
+    EXPECT_EQ(loadCount, 2);
+
+    __block bool doneEvaluatingJavaScript { false };
+    [webView evaluateJavaScript:@"window.location.protocol" completionHandler:^(id value, NSError *error) {
+        EXPECT_NULL(error);
+        EXPECT_TRUE([value isKindOfClass:[NSString class]]);
+        EXPECT_WK_STREQ(@"http:", value);
+        doneEvaluatingJavaScript = true;
+    }];
+    TestWebKitAPI::Util::run(&doneEvaluatingJavaScript);
+
+    doneEvaluatingJavaScript = false;
+    [webView evaluateJavaScript:@"window.location.toString()" completionHandler:^(id value, NSError *error) {
+        EXPECT_NULL(error);
+        EXPECT_TRUE([value isKindOfClass:[NSString class]]);
+        auto url = [NSURL URLWithString:(NSString *)value];
+        EXPECT_WK_STREQ(@"http", url.scheme);
+        EXPECT_WK_STREQ(@"http://site.example/secure", value);
+        doneEvaluatingJavaScript = true;
+    }];
+    TestWebKitAPI::Util::run(&doneEvaluatingJavaScript);
+
+    doneEvaluatingJavaScript = false;
+    [webView evaluateJavaScript:@"window.hasOwnProperty('crypto')" completionHandler:^(id value, NSError *error) {
+        EXPECT_NULL(error);
+        EXPECT_TRUE([value boolValue]);
+        doneEvaluatingJavaScript = true;
+    }];
+    TestWebKitAPI::Util::run(&doneEvaluatingJavaScript);
+
+    doneEvaluatingJavaScript = false;
+    [webView evaluateJavaScript:@"window.crypto.hasOwnProperty('subtle')" completionHandler:^(id value, NSError *error) {
+        EXPECT_NULL(error);
+        EXPECT_FALSE([value boolValue]);
+        doneEvaluatingJavaScript = true;
+    }];
+    TestWebKitAPI::Util::run(&doneEvaluatingJavaScript);
+
+    doneEvaluatingJavaScript = false;
+    [webView evaluateJavaScript:@"window.location.href" completionHandler:^(id value, NSError *error) {
+        EXPECT_NULL(error);
+        EXPECT_TRUE([value isKindOfClass:[NSString class]]);
+        EXPECT_WK_STREQ(@"http://site.example/secure", (NSString *)value);
+        doneEvaluatingJavaScript = true;
+    }];
+    TestWebKitAPI::Util::run(&doneEvaluatingJavaScript);
+    EXPECT_WK_STREQ(@"http://site.example/secure", [webView URL].absoluteString);
+
+    kill([webView _webProcessIdentifier], 9);
+    TestWebKitAPI::Util::spinRunLoop(500);
+
+    errorCode = 0;
+    finishedSuccessfully = false;
+    loadCount = 0;
+
+    [webView reload];
+    TestWebKitAPI::Util::run(&finishedSuccessfully);
+
+    EXPECT_EQ(errorCode, 0);
+    EXPECT_TRUE(finishedSuccessfully);
+    EXPECT_EQ(loadCount, 1);
+
+    doneEvaluatingJavaScript = false;
+    [webView evaluateJavaScript:@"window.location.protocol" completionHandler:^(id value, NSError *error) {
+        EXPECT_NULL(error);
+        EXPECT_TRUE([value isKindOfClass:[NSString class]]);
+        EXPECT_WK_STREQ(@"http:", value);
+        doneEvaluatingJavaScript = true;
+    }];
+    TestWebKitAPI::Util::run(&doneEvaluatingJavaScript);
+
+    doneEvaluatingJavaScript = false;
+    [webView evaluateJavaScript:@"window.location.toString()" completionHandler:^(id value, NSError *error) {
+        EXPECT_NULL(error);
+        EXPECT_TRUE([value isKindOfClass:[NSString class]]);
+        auto url = [NSURL URLWithString:(NSString *)value];
+        EXPECT_WK_STREQ(@"http", url.scheme);
+        EXPECT_WK_STREQ(@"http://site.example/secure", value);
+        doneEvaluatingJavaScript = true;
+    }];
+    TestWebKitAPI::Util::run(&doneEvaluatingJavaScript);
+
+    doneEvaluatingJavaScript = false;
+    [webView evaluateJavaScript:@"window.hasOwnProperty('crypto')" completionHandler:^(id value, NSError *error) {
+        EXPECT_NULL(error);
+        EXPECT_TRUE([value boolValue]);
+        doneEvaluatingJavaScript = true;
+    }];
+    TestWebKitAPI::Util::run(&doneEvaluatingJavaScript);
+
+    doneEvaluatingJavaScript = false;
+    [webView evaluateJavaScript:@"window.crypto.hasOwnProperty('subtle')" completionHandler:^(id value, NSError *error) {
+        EXPECT_NULL(error);
+        EXPECT_FALSE([value boolValue]);
+        doneEvaluatingJavaScript = true;
+    }];
+    TestWebKitAPI::Util::run(&doneEvaluatingJavaScript);
+
+    doneEvaluatingJavaScript = false;
+    [webView evaluateJavaScript:@"window.location.href" completionHandler:^(id value, NSError *error) {
+        EXPECT_NULL(error);
+        EXPECT_TRUE([value isKindOfClass:[NSString class]]);
+        EXPECT_WK_STREQ(@"http://site.example/secure", (NSString *)value);
+        doneEvaluatingJavaScript = true;
+    }];
+    TestWebKitAPI::Util::run(&doneEvaluatingJavaScript);
+    EXPECT_WK_STREQ(@"http://site.example/secure", [webView URL].absoluteString);
+}
+
+TEST(WKNavigation, PreferredHTTPSPolicyAutomaticHTTPFallbackAfterSessionRestore)
+{
+    using namespace TestWebKitAPI;
+    HTTPServer httpsServer({
+        { "/secure"_s, { { }, "hi"_s } }
+    }, HTTPServer::Protocol::HttpsProxy);
+    HTTPServer httpServer({
+        { "http://site.example/secure"_s, { "Welcome"_s } }
+    }, HTTPServer::Protocol::Http);
+
+    auto storeConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] initNonPersistentConfiguration]);
+    [storeConfiguration setProxyConfiguration:@{
+        (NSString *)kCFStreamPropertyHTTPProxyHost: @"127.0.0.1",
+        (NSString *)kCFStreamPropertyHTTPProxyPort: @(httpServer.port()),
+        (NSString *)kCFStreamPropertyHTTPSProxyHost: @"127.0.0.1",
+        (NSString *)kCFStreamPropertyHTTPSProxyPort: @(httpsServer.port())
+    }];
+    auto dataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:storeConfiguration.get()]);
+    auto configuration = adoptNS([WKWebViewConfiguration new]);
+    [configuration setWebsiteDataStore:dataStore.get()];
+    configuration.get().defaultWebpagePreferences.preferredHTTPSNavigationPolicy = WKWebpagePreferencesUpgradeToHTTPSPolicyAutomaticFallbackToHTTP;
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectZero configuration:configuration.get()]);
+
+    __block int errorCode { 0 };
+    __block bool finishedSuccessfully { false };
+    __block int loadCount { 0 };
+    auto delegate = adoptNS([TestNavigationDelegate new]);
+    delegate.get().decidePolicyForNavigationAction = ^(WKNavigationAction *action, void (^completionHandler)(WKNavigationActionPolicy)) {
+        ++loadCount;
+        completionHandler(WKNavigationActionPolicyAllow);
+    };
+
+    delegate.get().didFailProvisionalNavigation = ^(WKWebView *, WKNavigation *, NSError *error) {
+        errorCode = error.code;
+    };
+
+    delegate.get().didFinishNavigation = ^(WKWebView *, WKNavigation *) {
+        finishedSuccessfully = true;
+    };
+    [webView setNavigationDelegate:delegate.get()];
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"http://site.example/secure"]]];
+    TestWebKitAPI::Util::run(&finishedSuccessfully);
+
+    EXPECT_EQ(errorCode, 0);
+    EXPECT_TRUE(finishedSuccessfully);
+    EXPECT_EQ(loadCount, 2);
+
+    __block bool doneEvaluatingJavaScript { false };
+    [webView evaluateJavaScript:@"window.location.protocol" completionHandler:^(id value, NSError *error) {
+        EXPECT_NULL(error);
+        EXPECT_TRUE([value isKindOfClass:[NSString class]]);
+        EXPECT_WK_STREQ(@"http:", value);
+        doneEvaluatingJavaScript = true;
+    }];
+    TestWebKitAPI::Util::run(&doneEvaluatingJavaScript);
+
+    doneEvaluatingJavaScript = false;
+    [webView evaluateJavaScript:@"window.location.toString()" completionHandler:^(id value, NSError *error) {
+        EXPECT_NULL(error);
+        EXPECT_TRUE([value isKindOfClass:[NSString class]]);
+        auto url = [NSURL URLWithString:(NSString *)value];
+        EXPECT_WK_STREQ(@"http", url.scheme);
+        EXPECT_WK_STREQ(@"http://site.example/secure", value);
+        doneEvaluatingJavaScript = true;
+    }];
+    TestWebKitAPI::Util::run(&doneEvaluatingJavaScript);
+
+    doneEvaluatingJavaScript = false;
+    [webView evaluateJavaScript:@"window.hasOwnProperty('crypto')" completionHandler:^(id value, NSError *error) {
+        EXPECT_NULL(error);
+        EXPECT_TRUE([value boolValue]);
+        doneEvaluatingJavaScript = true;
+    }];
+    TestWebKitAPI::Util::run(&doneEvaluatingJavaScript);
+
+    doneEvaluatingJavaScript = false;
+    [webView evaluateJavaScript:@"window.crypto.hasOwnProperty('subtle')" completionHandler:^(id value, NSError *error) {
+        EXPECT_NULL(error);
+        EXPECT_FALSE([value boolValue]);
+        doneEvaluatingJavaScript = true;
+    }];
+    TestWebKitAPI::Util::run(&doneEvaluatingJavaScript);
+
+    doneEvaluatingJavaScript = false;
+    [webView evaluateJavaScript:@"window.location.href" completionHandler:^(id value, NSError *error) {
+        EXPECT_NULL(error);
+        EXPECT_TRUE([value isKindOfClass:[NSString class]]);
+        EXPECT_WK_STREQ(@"http://site.example/secure", (NSString *)value);
+        doneEvaluatingJavaScript = true;
+    }];
+    TestWebKitAPI::Util::run(&doneEvaluatingJavaScript);
+    EXPECT_WK_STREQ(@"http://site.example/secure", [webView URL].absoluteString);
+
+    errorCode = 0;
+    finishedSuccessfully = false;
+    loadCount = 0;
+
+    auto sessionState = [webView _sessionState];
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"about:blank"]]];
+    TestWebKitAPI::Util::run(&finishedSuccessfully);
+    errorCode = 0;
+    finishedSuccessfully = false;
+    loadCount = 0;
+
+    [webView _restoreSessionState:sessionState andNavigate:YES];
+    TestWebKitAPI::Util::run(&finishedSuccessfully);
+
+    EXPECT_EQ(errorCode, 0);
+    EXPECT_TRUE(finishedSuccessfully);
+    EXPECT_EQ(loadCount, 1);
+
+    doneEvaluatingJavaScript = false;
+    [webView evaluateJavaScript:@"window.location.protocol" completionHandler:^(id value, NSError *error) {
+        EXPECT_NULL(error);
+        EXPECT_TRUE([value isKindOfClass:[NSString class]]);
+        EXPECT_WK_STREQ(@"http:", value);
+        doneEvaluatingJavaScript = true;
+    }];
+    TestWebKitAPI::Util::run(&doneEvaluatingJavaScript);
+
+    doneEvaluatingJavaScript = false;
+    [webView evaluateJavaScript:@"window.location.toString()" completionHandler:^(id value, NSError *error) {
+        EXPECT_NULL(error);
+        EXPECT_TRUE([value isKindOfClass:[NSString class]]);
+        auto url = [NSURL URLWithString:(NSString *)value];
+        EXPECT_WK_STREQ(@"http", url.scheme);
+        EXPECT_WK_STREQ(@"http://site.example/secure", value);
+        doneEvaluatingJavaScript = true;
+    }];
+    TestWebKitAPI::Util::run(&doneEvaluatingJavaScript);
+
+    doneEvaluatingJavaScript = false;
+    [webView evaluateJavaScript:@"window.hasOwnProperty('crypto')" completionHandler:^(id value, NSError *error) {
+        EXPECT_NULL(error);
+        EXPECT_TRUE([value boolValue]);
+        doneEvaluatingJavaScript = true;
+    }];
+    TestWebKitAPI::Util::run(&doneEvaluatingJavaScript);
+
+    doneEvaluatingJavaScript = false;
+    [webView evaluateJavaScript:@"window.crypto.hasOwnProperty('subtle')" completionHandler:^(id value, NSError *error) {
+        EXPECT_NULL(error);
+        EXPECT_FALSE([value boolValue]);
+        doneEvaluatingJavaScript = true;
+    }];
+    TestWebKitAPI::Util::run(&doneEvaluatingJavaScript);
+
+    doneEvaluatingJavaScript = false;
+    [webView evaluateJavaScript:@"window.location.href" completionHandler:^(id value, NSError *error) {
+        EXPECT_NULL(error);
+        EXPECT_TRUE([value isKindOfClass:[NSString class]]);
+        EXPECT_WK_STREQ(@"http://site.example/secure", (NSString *)value);
+        doneEvaluatingJavaScript = true;
+    }];
+    TestWebKitAPI::Util::run(&doneEvaluatingJavaScript);
+    EXPECT_WK_STREQ(@"http://site.example/secure", [webView URL].absoluteString);
+}
+
 TEST(WKNavigation, PreferredHTTPSPolicyUserMediatedHTTPFallbackInitialLoad)
 {
     using namespace TestWebKitAPI;
@@ -3687,13 +4011,14 @@ TEST(WKNavigation, PreferredHTTPSPolicyAutomaticHTTPFallbackWithHTTPRedirect)
     didFailNavigation = false;
     loadCount = 0;
 
-    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://site.example/secure2"]]];
+    // Encourage a process swap to ensure consistency of the test with and without Enhanced Security enabled
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://different.example/secure2"]]];
     TestWebKitAPI::Util::run(&finishedSuccessfully);
 
     EXPECT_EQ(errorCode, 0);
     EXPECT_FALSE(didFailNavigation);
-    EXPECT_EQ(loadCount, 23);
-    EXPECT_WK_STREQ(@"http://site2.example/secure3", [webView URL].absoluteString);
+    EXPECT_EQ(loadCount, 22);
+    EXPECT_WK_STREQ(@"http://site2.example/secure2", [webView URL].absoluteString);
 }
 
 TEST(WKNavigation, PreferredHTTPSPolicyNoFallbackRedirectNoHTTPDowngradeRedirect)
@@ -4090,6 +4415,51 @@ TEST(WKNavigation, GeneratePageLoadTiming)
     [webView loadRequest:request];
     TestWebKitAPI::Util::run(&done);
 }
+
+TEST(WKNavigation, GeneratePageLoadTimingWithNoSubresources)
+{
+    using namespace TestWebKitAPI;
+    HTTPServer server({
+        { "/index.html"_s, { "Hello world!"_s } },
+    }, HTTPServer::Protocol::HttpsProxy);
+
+    auto storeConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] initNonPersistentConfiguration]);
+    [storeConfiguration setHTTPSProxy:[NSURL URLWithString:[NSString stringWithFormat:@"https://127.0.0.1:%d/", server.port()]]];
+    [storeConfiguration setAllowsHSTSWithUntrustedRootCertificate:YES];
+    auto viewConfiguration = adoptNS([WKWebViewConfiguration new]);
+    [viewConfiguration setWebsiteDataStore:adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:storeConfiguration.get()]).get()];
+
+    RetainPtr window = adoptNS([[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 400, 400) styleMask:0 backing:NSBackingStoreBuffered defer:NO]);
+    RetainPtr webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 400, 400) configuration:viewConfiguration.get()]);
+
+    auto delegate = adoptNS([TestNavigationDelegate new]);
+    [webView setNavigationDelegate:delegate.get()];
+    [window.get().contentView addSubview:webView.get()];
+
+    [window.get() makeKeyAndOrderFront:nil];
+    EXPECT_TRUE([window.get() isVisible]);
+
+    __block NSDate *beforeStart = [NSDate now];
+    __block bool done = false;
+    delegate.get().didGeneratePageLoadTiming = ^(_WKPageLoadTiming *timing) {
+        NSDate *afterEnd = [NSDate now];
+        EXPECT_EQ([beforeStart compare:timing.navigationStart], NSOrderedAscending);
+        EXPECT_EQ([timing.navigationStart compare:afterEnd], NSOrderedAscending);
+        EXPECT_EQ([timing.navigationStart compare:timing.firstVisualLayout], NSOrderedAscending);
+        EXPECT_EQ([timing.firstVisualLayout compare:afterEnd], NSOrderedAscending);
+        EXPECT_EQ([timing.navigationStart compare:timing.firstMeaningfulPaint], NSOrderedAscending);
+        EXPECT_EQ([timing.firstMeaningfulPaint compare:afterEnd], NSOrderedAscending);
+        EXPECT_EQ([timing.navigationStart compare:timing.documentFinishedLoading], NSOrderedAscending);
+        EXPECT_EQ([timing.documentFinishedLoading compare:afterEnd], NSOrderedAscending);
+        EXPECT_EQ([timing.navigationStart compare:timing.allSubresourcesFinishedLoading], NSOrderedAscending);
+        EXPECT_EQ([timing.allSubresourcesFinishedLoading compare:afterEnd], NSOrderedAscending);
+        done = true;
+    };
+
+    auto request = [NSURLRequest requestWithURL:[NSURL URLWithString:@"http://example.com/index.html"]];
+    [webView loadRequest:request];
+    TestWebKitAPI::Util::run(&done);
+}
 #endif // PLATFORM(MAC)
 
 struct PrivateTokenTestSetupState {
@@ -4197,7 +4567,7 @@ PrivateTokenTestSetupState setupWebViewForPrivateTokenTests(bool& didDecideServi
     };
     [webView setNavigationDelegate:navigationDelegate.get()];
 
-    return { webView, WTFMove(server), storeConfiguration, dataStore, websiteDataStoreDelegate, navigationDelegate };
+    return { webView, WTF::move(server), storeConfiguration, dataStore, websiteDataStoreDelegate, navigationDelegate };
 }
 
 #if HAVE(ALLOW_PRIVATE_ACCESS_TOKENS_FOR_THIRD_PARTY)
@@ -4492,3 +4862,271 @@ TEST(WKNavigation, FrameNavigationWithPrivateTokenPermissionAndAllowOriginsAndWi
     didReceiveAllowPrivateToken = false;
 }
 #endif
+
+@interface NSURLSessionTask ()
+@property (nonatomic, copy) NSArray<NSHTTPCookie*>* (^_cookieTransformCallback)(NSArray<NSHTTPCookie*>* cookies);
+@end
+
+
+@interface NSURLSessionConfiguration ()
+@property BOOL _usesNWLoader;
+@end
+
+@interface SessionDelegate : NSObject <NSURLSessionDelegate>
+@end
+
+@implementation SessionDelegate
+
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition disposition, NSURLCredential *credential))completionHandler
+{
+    completionHandler(NSURLSessionAuthChallengeUseCredential, [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust]);
+}
+@end
+
+TEST(Navigation, CookieTransformOnRedirect)
+{
+    using namespace TestWebKitAPI;
+    HTTPServer httpsServer({
+        { "/page1"_s, { 302, {{ "Location"_s, "https://site.example/page2"_s }, { "Set-Cookie"_s, "Test_Redirect=1;"_s }}, "redirecting..."_s } },
+        { "/page2"_s, { 200, {{ "Set-Cookie"_s, "Test=1;"_s }}, "body"_s } }
+    }, HTTPServer::Protocol::HttpsProxy);
+    HTTPServer httpServer({
+        { "http://site.example/page1"_s, { 302, {{ "Location"_s, "http://site.example/page2"_s }, { "Set-Cookie"_s, "Test_Redirect=1;"_s }}, "redirecting..."_s } },
+        { "http://site.example/page2"_s, { 200, {{ "Set-Cookie"_s, "Test=1;"_s }}, "body"_s } },
+        { "http://site.example/page3"_s, { 302, {{ "Location"_s, "https://site.example/page2"_s }, { "Set-Cookie"_s, "Test_Redirect=1;"_s }}, "redirecting..."_s } }
+    }, HTTPServer::Protocol::Http);
+
+    // Partially copied from SessionSet::initializeEphemeralStatelessSessionIfNeeded.
+    RetainPtr configuration = [NSURLSessionConfiguration ephemeralSessionConfiguration];
+    configuration.get().HTTPCookieAcceptPolicy = NSHTTPCookieAcceptPolicyAlways;
+    configuration.get().URLCredentialStorage = nil;
+    configuration.get().URLCache = nil;
+    configuration.get().connectionProxyDictionary = @{
+        (NSString *)kCFStreamPropertyHTTPProxyHost: @"127.0.0.1",
+        (NSString *)kCFStreamPropertyHTTPProxyPort: @(httpServer.port()),
+        (NSString *)kCFStreamPropertyHTTPSProxyHost: @"127.0.0.1",
+        (NSString *)kCFStreamPropertyHTTPSProxyPort: @(httpsServer.port())
+    };
+    configuration.get()._usesNWLoader = YES;
+
+    RetainPtr delegate = adoptNS([SessionDelegate new]);
+    RetainPtr session = [NSURLSession sessionWithConfiguration:configuration.get() delegate:delegate.get() delegateQueue:[NSOperationQueue mainQueue]];
+
+    __block unsigned transformCallbackCount = 0;
+    __block bool done = false;
+    RetainPtr task = [session dataTaskWithURL:[NSURL URLWithString:@"https://site.example/page1"] completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        EXPECT_NULL(error);
+        EXPECT_NOT_NULL(data);
+        EXPECT_NOT_NULL(response);
+        done = true;
+    }];
+    task.get()._cookieTransformCallback = ^(NSArray<NSHTTPCookie*> *cookiesSetInResponse) {
+        EXPECT_EQ(cookiesSetInResponse.count, 1u);
+        if (!transformCallbackCount)
+            EXPECT_WK_STREQ(cookiesSetInResponse[0].name, @"Test_Redirect");
+        else
+            EXPECT_WK_STREQ(cookiesSetInResponse[0].name, @"Test");
+        transformCallbackCount++;
+        return cookiesSetInResponse;
+    };
+    [task resume];
+
+    TestWebKitAPI::Util::run(&done);
+    EXPECT_EQ(transformCallbackCount, 2u);
+
+    done = false;
+    transformCallbackCount = 0;
+
+    task = [session dataTaskWithURL:[NSURL URLWithString:@"http://site.example/page1"] completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        EXPECT_NULL(error);
+        EXPECT_NOT_NULL(data);
+        EXPECT_NOT_NULL(response);
+        done = true;
+    }];
+    task.get()._cookieTransformCallback = ^(NSArray<NSHTTPCookie*> *cookiesSetInResponse) {
+        EXPECT_EQ(cookiesSetInResponse.count, 1u);
+        if (!transformCallbackCount)
+            EXPECT_WK_STREQ(cookiesSetInResponse[0].name, @"Test_Redirect");
+        else
+            EXPECT_WK_STREQ(cookiesSetInResponse[0].name, @"Test");
+        transformCallbackCount++;
+        return cookiesSetInResponse;
+    };
+    [task resume];
+
+    TestWebKitAPI::Util::run(&done);
+    EXPECT_EQ(transformCallbackCount, 2u);
+
+    done = false;
+    transformCallbackCount = 0;
+
+    task = [session dataTaskWithURL:[NSURL URLWithString:@"http://site.example/page3"] completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        EXPECT_NULL(error);
+        EXPECT_NOT_NULL(data);
+        EXPECT_NOT_NULL(response);
+        done = true;
+    }];
+    task.get()._cookieTransformCallback = ^(NSArray<NSHTTPCookie*> *cookiesSetInResponse) {
+        EXPECT_EQ(cookiesSetInResponse.count, 1u);
+        if (!transformCallbackCount)
+            EXPECT_WK_STREQ(cookiesSetInResponse[0].name, @"Test_Redirect");
+        else
+            EXPECT_WK_STREQ(cookiesSetInResponse[0].name, @"Test");
+        transformCallbackCount++;
+        return cookiesSetInResponse;
+    };
+    [task resume];
+
+    TestWebKitAPI::Util::run(&done);
+    EXPECT_EQ(transformCallbackCount, 2u);
+}
+
+TEST(WKNavigation, AllowResourceLoadFromBlockedPortWithCustomScheme)
+{
+    using namespace TestWebKitAPI;
+    HTTPServer httpsServer({
+        { "/page1"_s, { 302, {{ "Location"_s, "custom://site.example:0/"_s } }, "redirecting..."_s } },
+    }, HTTPServer::Protocol::HttpsProxy);
+
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    auto handler = adoptNS([TestURLSchemeHandler new]);
+    __block unsigned requestsSchemeHandled = 0;
+    [handler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
+        NSString *responseString = nil;
+        if ([task.request.URL.absoluteString isEqualToString:@"custom://site.example:0/"])
+            responseString = @"<script src='custom://site.example:0/script.js'></script>";
+        else if ([task.request.URL.absoluteString isEqualToString:@"custom://site.example:0/script.js"])
+            responseString = @"alert('This resource was loaded');";
+        ASSERT(responseString);
+        requestsSchemeHandled++;
+        auto response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:responseString.length textEncodingName:nil]);
+        [task didReceiveResponse:response.get()];
+        [task didReceiveData:[responseString dataUsingEncoding:NSUTF8StringEncoding]];
+        [task didFinish];
+    }];
+    [configuration setURLSchemeHandler:handler.get() forURLScheme:@"custom"];
+
+    auto storeConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] initNonPersistentConfiguration]);
+    [storeConfiguration setProxyConfiguration:@{
+        (NSString *)kCFStreamPropertyHTTPSProxyHost: @"127.0.0.1",
+        (NSString *)kCFStreamPropertyHTTPSProxyPort: @(httpsServer.port())
+    }];
+    auto dataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:storeConfiguration.get()]);
+    [configuration setWebsiteDataStore:dataStore.get()];
+
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectZero configuration:configuration.get()]);
+    auto navDelegate = adoptNS([TestNavigationDelegate new]);
+    [navDelegate allowAnyTLSCertificate];
+    [webView setNavigationDelegate:navDelegate.get()];
+    auto uiDelegate = adoptNS([TestUIDelegate new]);
+    [webView setUIDelegate:uiDelegate.get()];
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://site.example/page1"]]];
+    EXPECT_WK_STREQ([uiDelegate waitForAlert], "This resource was loaded");
+    EXPECT_EQ(requestsSchemeHandled, 2u);
+}
+
+TEST(Navigation, FormResubmited)
+{
+    using namespace TestWebKitAPI;
+    std::optional<bool> requestHadSecFetchSiteCrossOrigin { false };
+    bool didReceiveForm { false };
+    auto httpsServer = HTTPServer(HTTPServer::UseCoroutines::Yes, [&](Connection connection) -> ConnectionTask {
+        while (1) {
+            auto request = co_await connection.awaitableReceiveHTTPRequest();
+            auto path = HTTPServer::parsePath(request);
+
+            if (path == "/main.html"_s) {
+                co_await connection.awaitableSend(HTTPResponse({ { "Content-Type"_s, "text/html"_s } }, ""
+                    "<html><body>"
+                    "<form action='https://example1.com/submit' method='POST' id='form'>"
+                    "  <input type='text' id='name' name='name' value='value'/>"
+                    "  <input type='submit'/>"
+                    "</form>"
+                    "<script>"
+                    "window.didSubmit = false;"
+                    "onload = () => alert('Ready');"
+                    "function submitForm()"
+                    "{"
+                    "  form.submit();"
+                    "}"
+                    "</script>"
+                    "</body></html>"_s).serialize());
+                continue;
+            }
+
+            if (path == "/submit"_s) {
+                didReceiveForm = true;
+                requestHadSecFetchSiteCrossOrigin = contains(request.span(), "Sec-Fetch-Site: cross-site"_span);
+                if (requestHadSecFetchSiteCrossOrigin) {
+                    co_await connection.awaitableSend(HTTPResponse({ 403, { }, ""_s }).serialize());
+                    continue;
+                }
+
+                co_await connection.awaitableSend(HTTPResponse({ { "Content-Type"_s, "text/html"_s } }, ""
+                    "<html><body>"
+                    "<script>"
+                    "window.didSubmit = true;"
+                    "</script>"
+                    "</body></html>"_s).serialize());
+                continue;
+            }
+
+            EXPECT_FALSE(true);
+        }
+    }, HTTPServer::Protocol::HttpsProxy);
+
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    auto storeConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] initNonPersistentConfiguration]);
+    [storeConfiguration setProxyConfiguration:@{
+        (NSString *)kCFStreamPropertyHTTPSProxyHost: @"127.0.0.1",
+        (NSString *)kCFStreamPropertyHTTPSProxyPort: @(httpsServer.port())
+    }];
+    auto dataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:storeConfiguration.get()]);
+    [configuration setWebsiteDataStore:dataStore.get()];
+
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectZero configuration:configuration.get()]);
+    auto navDelegate = adoptNS([TestNavigationDelegate new]);
+    [navDelegate allowAnyTLSCertificate];
+
+    __block bool didCommitNavigation = false;
+    navDelegate.get().didCommitNavigation = ^(WKWebView *, WKNavigation *) {
+        didCommitNavigation = true;
+    };
+
+    [webView setNavigationDelegate:navDelegate.get()];
+    auto uiDelegate = adoptNS([TestUIDelegate new]);
+    [webView setUIDelegate:uiDelegate.get()];
+
+    // Load main page from same origin as form submission
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://example1.com/main.html"]]];
+    EXPECT_WK_STREQ([uiDelegate waitForAlert], "Ready");
+
+    // Submit form - same origin.
+    didReceiveForm = false;
+    requestHadSecFetchSiteCrossOrigin = { };
+    [webView evaluateJavaScript:@"submitForm();" completionHandler:nil];
+    TestWebKitAPI::Util::run(&didReceiveForm);
+    EXPECT_FALSE(requestHadSecFetchSiteCrossOrigin.value_or(true));
+
+    // Load main page from different origin as form submission
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://example2.com/main.html"]]];
+    EXPECT_WK_STREQ([uiDelegate waitForAlert], "Ready");
+
+    // Submit form - cross origin
+    didReceiveForm = false;
+    didCommitNavigation = false;
+    requestHadSecFetchSiteCrossOrigin = { };
+    [webView evaluateJavaScript:@"submitForm();" completionHandler:nil];
+    TestWebKitAPI::Util::run(&didCommitNavigation);
+
+    EXPECT_TRUE(didReceiveForm);
+    EXPECT_TRUE(requestHadSecFetchSiteCrossOrigin.value_or(false));
+
+    // Submit form via reload - cross origin
+    didReceiveForm = false;
+    requestHadSecFetchSiteCrossOrigin = { };
+    [webView reload];
+    TestWebKitAPI::Util::run(&didReceiveForm);
+
+    EXPECT_TRUE(requestHadSecFetchSiteCrossOrigin.value_or(false));
+}

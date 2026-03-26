@@ -28,7 +28,7 @@
 #include "BufferAndBackendInfo.h"
 #include "BufferIdentifierSet.h"
 #include "ImageBufferBackendHandle.h"
-#include "RemoteImageBufferSetIdentifier.h"
+#include "ImageBufferSetIdentifier.h"
 #include "RemoteImageBufferSetProxy.h"
 #include <WebCore/FloatRect.h>
 #include <WebCore/ImageBuffer.h>
@@ -134,7 +134,7 @@ public:
     float scale() const { return m_parameters.scale; }
     WebCore::ContentsFormat contentsFormat() const { return m_parameters.contentsFormat; }
     WebCore::DestinationColorSpace colorSpace() const { return m_parameters.colorSpace; }
-    WebCore::ImageBufferPixelFormat pixelFormat() const;
+    WebCore::PixelFormat pixelFormat() const;
     Type type() const { return m_parameters.type; }
     bool isOpaque() const { return m_parameters.isOpaque; }
     unsigned bytesPerPixel() const;
@@ -149,8 +149,6 @@ public:
 
     virtual bool hasFrontBuffer() const = 0;
     virtual bool frontBufferMayBeVolatile() const = 0;
-
-    virtual void encodeBufferAndBackendInfos(IPC::Encoder&) const = 0;
 
     Vector<std::unique_ptr<ThreadSafeImageBufferSetFlusher>> takePendingFlushers();
 
@@ -167,11 +165,10 @@ public:
 
     virtual void clearBackingStore();
 
-    virtual std::optional<ImageBufferBackendHandle> frontBufferHandle() const = 0;
 #if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
     virtual std::optional<WebCore::DynamicContentScalingDisplayList> displayListHandle() const  { return std::nullopt; }
 #endif
-    virtual std::optional<RemoteImageBufferSetIdentifier> bufferSetIdentifier() const { return std::nullopt; }
+    virtual std::optional<ImageBufferSetIdentifier> bufferSetIdentifier() const = 0;
 
     virtual void dump(WTF::TextStream&) const = 0;
 
@@ -236,19 +233,19 @@ public:
 
     void dump(WTF::TextStream&) const;
 
-    std::optional<RemoteImageBufferSetIdentifier> bufferSetIdentifier() { return m_bufferSet; }
+    std::optional<ImageBufferSetIdentifier> bufferSetIdentifier() { return m_bufferSet; }
     void setBackendHandle(BufferSetBackendHandle&);
 
     std::optional<WebCore::RenderingResourceIdentifier> contentsRenderingResourceIdentifier() const { return m_contentsRenderingResourceIdentifier; };
 
 private:
-    friend struct IPC::ArgumentCoder<RemoteLayerBackingStoreProperties, void>;
+    friend struct IPC::ArgumentCoder<RemoteLayerBackingStoreProperties>;
 
     LayerContentsBufferInfo lookupCachedBuffer(RemoteLayerTreeNode&);
 
     std::optional<ImageBufferBackendHandle> m_bufferHandle;
 
-    std::optional<RemoteImageBufferSetIdentifier> m_bufferSet;
+    std::optional<ImageBufferSetIdentifier> m_bufferSet;
 
     std::optional<BufferAndBackendInfo> m_frontBufferInfo;
     std::optional<BufferAndBackendInfo> m_backBufferInfo;

@@ -57,6 +57,12 @@ def main(argv, stdout, stderr):
         print('{} cannot run API tests'.format(port.operating_system()), file=stderr)
         return EXCEPTIONAL_EXIT_STATUS
 
+    # Add site-isolation results report flavor for API tests when ran
+    if options.site_isolation:
+        if options.result_report_flavor:
+            raise RuntimeError('--site-isolation implicitly sets the result flavor, this should not be overridden')
+        options.result_report_flavor = 'site-isolation'
+
     try:
         return run(port, options, args, stderr)
     except KeyboardInterrupt:
@@ -132,8 +138,7 @@ def parse_args(args):
         optparse.make_option('--iterations', type='int', default=1, help='Number of times to run the set of tests (e.g. ABCABCABC)'),
         optparse.make_option('--repeat-each', type='int', default=1, help='Number of times to run each test (e.g. AAABBBCCC)'),
 
-        # FIXME: Remove the default, API tests should be multiprocess
-        optparse.make_option('--child-processes', default=1,
+        optparse.make_option('--child-processes', default=None,
                              help='Number of processes to run in parallel.'),
 
         # FIXME: Default should be false, API tests should not be forced to run singly
@@ -142,8 +147,12 @@ def parse_args(args):
 
         optparse.make_option('--force', action='store_true', default=False,
                              help='Run all tests, even DISABLED tests'),
+        optparse.make_option('-f', '--fully-parallel', action='store_true', default=False,
+                             help='Force all tests to run in parallel (without grouping shards)'),
         optparse.make_option('--additional-env-var', type='string', action='append', default=[],
                              help='Passes that environment variable to the tests (--additional-env-var=NAME=VALUE)'),
+        optparse.make_option('--test-parallel-safety', type='string', action='append', default=[],
+                             help='Run specified test(s) constantly in parallel against all allowlist tests to test parallel safety'),
 
         optparse.make_option('--site-isolation', action='store_true', default=False,
                              help='Enable Site Isolation'),

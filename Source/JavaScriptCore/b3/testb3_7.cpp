@@ -423,7 +423,7 @@ void testReduceStrengthTruncConstant(Type64 filler, Type32 value)
     reduceStrength(proc);
 
     CHECK_EQ(root->last()->opcode(), Return);
-    if constexpr (std::is_same_v<B3ContType, ConstDoubleValue>) {
+    if constexpr (std::same_as<B3ContType, ConstDoubleValue>) {
         CHECK_EQ(root->last()->child(0)->opcode(), ConstFloat);
         CHECK_EQ(std::bit_cast<int32_t>(root->last()->child(0)->asFloat()), std::bit_cast<int32_t>(value));
     } else
@@ -2047,7 +2047,7 @@ static void testFMaxMin()
         BasicBlock* root = proc.addBlock();
         Value* a;
         Value* b;
-        if (std::is_same_v<FloatType, float>) {
+        if constexpr (std::same_as<FloatType, float>) {
             a = root->appendNew<ConstFloatValue>(proc, Origin(), arg1);
             b = root->appendNew<ConstFloatValue>(proc, Origin(), arg2);
         } else {
@@ -2086,10 +2086,10 @@ static void testFMaxMin()
     runMinTest(-inf, 0, -inf);
     runMinTest(-inf, inf, -inf);
     runMinTest(inf, 42.0, 42.0);
-    if constexpr (std::is_same_v<FloatType, float>) {
+    if constexpr (std::same_as<FloatType, float>) {
         runMinTest(0.0, std::nanf(""), std::nanf(""));
         runMinTest(std::nanf(""), 42.0, std::nanf(""));
-    } else if constexpr (std::is_same_v<FloatType, double>) {
+    } else if constexpr (std::same_as<FloatType, double>) {
         runMinTest(0.0, std::nan(""), std::nan(""));
         runMinTest(std::nan(""), 42.0, std::nan(""));
     }
@@ -2105,10 +2105,10 @@ static void testFMaxMin()
     runMaxTest(-inf, 0, 0);
     runMaxTest(-inf, inf, inf);
     runMaxTest(inf, 42.0, inf);
-    if constexpr (std::is_same_v<FloatType, float>) {
+    if constexpr (std::same_as<FloatType, float>) {
         runMaxTest(0.0, std::nanf(""), std::nanf(""));
         runMaxTest(std::nanf(""), 42.0, std::nanf(""));
-    } else if constexpr (std::is_same_v<FloatType, double>) {
+    } else if constexpr (std::same_as<FloatType, double>) {
         runMaxTest(0.0, std::nan(""), std::nan(""));
         runMaxTest(std::nan(""), 42.0, std::nan(""));
     }
@@ -2197,7 +2197,7 @@ void testVectorXorOrAllOnesToVectorAndXor()
     Value* address = arguments[0];
     Value* constant = root->appendNew<Const128Value>(proc, Origin(), vectorAllOnes());
     Value* input0 = root->appendNew<MemoryValue>(proc, Load, V128, Origin(), address);
-    Value* input1 = root->appendNew<MemoryValue>(proc, Load, V128, Origin(), address, sizeof(v128_t));
+    Value* input1 = root->appendNew<MemoryValue>(proc, Load, V128, Origin(), address, static_cast<int32_t>(sizeof(v128_t)));
     Value* result0 = root->appendNew<SIMDValue>(proc, Origin(), VectorXor, B3::V128, SIMDLane::v128, SIMDSignMode::None, input0, constant);
     Value* result1 = root->appendNew<SIMDValue>(proc, Origin(), VectorXor, B3::V128, SIMDLane::v128, SIMDSignMode::None, input1, constant);
     Value* result = root->appendNew<SIMDValue>(proc, Origin(), VectorOr, B3::V128, SIMDLane::v128, SIMDSignMode::None, result0, result1);
@@ -2226,7 +2226,7 @@ void testVectorXorAndAllOnesToVectorOrXor()
     Value* address = arguments[0];
     Value* constant = root->appendNew<Const128Value>(proc, Origin(), vectorAllOnes());
     Value* input0 = root->appendNew<MemoryValue>(proc, Load, V128, Origin(), address);
-    Value* input1 = root->appendNew<MemoryValue>(proc, Load, V128, Origin(), address, sizeof(v128_t));
+    Value* input1 = root->appendNew<MemoryValue>(proc, Load, V128, Origin(), address, static_cast<int32_t>(sizeof(v128_t)));
     Value* result0 = root->appendNew<SIMDValue>(proc, Origin(), VectorXor, B3::V128, SIMDLane::v128, SIMDSignMode::None, input0, constant);
     Value* result1 = root->appendNew<SIMDValue>(proc, Origin(), VectorXor, B3::V128, SIMDLane::v128, SIMDSignMode::None, input1, constant);
     Value* result = root->appendNew<SIMDValue>(proc, Origin(), VectorAnd, B3::V128, SIMDLane::v128, SIMDSignMode::None, result0, result1);
@@ -2681,7 +2681,7 @@ void testVectorMulHigh()
 
         Value* address = arguments[0];
         Value* input0 = root->appendNew<MemoryValue>(proc, Load, V128, Origin(), address);
-        Value* input1 = root->appendNew<MemoryValue>(proc, Load, V128, Origin(), address, sizeof(v128_t));
+        Value* input1 = root->appendNew<MemoryValue>(proc, Load, V128, Origin(), address, static_cast<int32_t>(sizeof(v128_t)));
         Value* result = root->appendNew<SIMDValue>(proc, Origin(), VectorMulHigh, B3::V128, lane, signMode, input0, input1);
         root->appendNew<MemoryValue>(proc, Store, Origin(), result, address);
         root->appendNewControlValue(proc, Return, Origin());
@@ -2736,7 +2736,7 @@ void testVectorMulLow()
 
         Value* address = arguments[0];
         Value* input0 = root->appendNew<MemoryValue>(proc, Load, V128, Origin(), address);
-        Value* input1 = root->appendNew<MemoryValue>(proc, Load, V128, Origin(), address, sizeof(v128_t));
+        Value* input1 = root->appendNew<MemoryValue>(proc, Load, V128, Origin(), address, static_cast<int32_t>(sizeof(v128_t)));
         Value* result = root->appendNew<SIMDValue>(proc, Origin(), VectorMulLow, B3::V128, lane, signMode, input0, input1);
         root->appendNew<MemoryValue>(proc, Store, Origin(), result, address);
         root->appendNewControlValue(proc, Return, Origin());
@@ -2795,6 +2795,38 @@ void testInt52RoundTripBinary()
         for (auto rhs : int32Operands())
             CHECK_EQ(invoke<int32_t>(*code, lhs.value, rhs.value), static_cast<int32_t>(((static_cast<int64_t>(lhs.value) << 12) + (static_cast<int64_t>(rhs.value) << 12)) >> 12));
     }
+}
+
+// Test that Trunc(SShr(Add(@a, unaligned-constant), $12)) produces the correct
+// result when the constant is not 12-bit aligned. This pattern arises from
+// WebAssembly's i32.wrap_i64(i64.shr_s(i64.add(@a, C), 12)) with arbitrary
+// 64-bit values.
+void testTruncSShrAddUnalignedConstant()
+{
+    // Use constant 2048 which is NOT 12-bit aligned (lower 12 bits are non-zero).
+    int64_t constant = 2048;
+
+    Procedure proc;
+    BasicBlock* root = proc.addBlock();
+    auto arguments = cCallArgumentValues<int64_t>(proc, root);
+    Value* argA = arguments[0];
+    Value* node = root->appendNew<Value>(proc, Add, Origin(), argA, root->appendNew<Const64Value>(proc, Origin(), constant));
+    Value* shifted = root->appendNew<Value>(proc, SShr, Origin(), node, root->appendNew<Const32Value>(proc, Origin(), 12));
+    Value* result = root->appendNew<Value>(proc, Trunc, Origin(), shifted);
+    root->appendNew<Value>(proc, Return, Origin(), result);
+    auto code = compileProc(proc);
+
+    // a=2048, C=2048: (2048+2048)>>12 = 4096>>12 = 1
+    CHECK_EQ(invoke<int32_t>(*code, static_cast<int64_t>(2048)), static_cast<int32_t>((2048LL + constant) >> 12));
+    // a=0
+    CHECK_EQ(invoke<int32_t>(*code, static_cast<int64_t>(0)), static_cast<int32_t>((0LL + constant) >> 12));
+    // a=4095
+    CHECK_EQ(invoke<int32_t>(*code, static_cast<int64_t>(4095)), static_cast<int32_t>((4095LL + constant) >> 12));
+    // a=4096
+    CHECK_EQ(invoke<int32_t>(*code, static_cast<int64_t>(4096)), static_cast<int32_t>((4096LL + constant) >> 12));
+    // Large values
+    CHECK_EQ(invoke<int32_t>(*code, static_cast<int64_t>(100000)), static_cast<int32_t>((100000LL + constant) >> 12));
+    CHECK_EQ(invoke<int32_t>(*code, static_cast<int64_t>(-2048)), static_cast<int32_t>((-2048LL + constant) >> 12));
 }
 
 #endif // ENABLE(B3_JIT)

@@ -142,6 +142,8 @@ _AUTO_GENERATED_FILES = [
     'Source/WebCore/css/scripts/test/TestCSSPropertiesResults/CSSPropertyNames.h',
     'Source/WebCore/css/scripts/test/TestCSSPropertiesResults/CSSPropertyParsing.cpp',
     'Source/WebCore/css/scripts/test/TestCSSPropertiesResults/CSSPropertyParsing.h',
+    'Source/WebCore/css/scripts/test/TestCSSPropertiesResults/RenderStyleInlinesGenerated.h',
+    'Source/WebCore/css/scripts/test/TestCSSPropertiesResults/RenderStyleSettersGenerated.h',
     'Source/WebCore/css/scripts/test/TestCSSPropertiesResults/StyleBuilderGenerated.cpp',
     'Source/WebCore/css/scripts/test/TestCSSPropertiesResults/StyleInterpolationWrapperMap.cpp',
     'Source/WebCore/css/scripts/test/TestCSSPropertiesResults/StyleInterpolationWrapperMap.h',
@@ -1100,16 +1102,13 @@ def check_for_extra_new_line_at_eof(lines, error):
                   'There was more than one newline at the end of the file.')
 
 
-def check_for_multiline_comments_and_strings(clean_lines, line_number, error):
-    """Logs an error if we see /* ... */ or "..." that extend past one line.
+def check_for_multiline_comments(clean_lines, line_number, error):
+    """Logs an error if we see /* ... */ that extend past one line.
 
     /* ... */ comments are legit inside macros, for one line.
     Otherwise, we prefer // comments, so it's ok to warn about the
-    other.  Likewise, it's ok for strings to extend across multiple
-    lines, as long as a line continuation character (backslash)
-    terminates each line. Although not currently prohibited by the C++
-    style guide, it's ugly and unnecessary. We don't do well with either
-    in this lint program, so we warn about both.
+    other. Although not currently prohibited by the C++
+    style guide, multi-line comments are ugly and unnecessary.
 
     Args:
       clean_lines: A CleansedLines instance containing the file.
@@ -1129,13 +1128,6 @@ def check_for_multiline_comments_and_strings(clean_lines, line_number, error):
               'Consider replacing these with //-style comments, '
               'with #if 0...#endif, '
               'or with more clearly structured multi-line comments.')
-
-    if (line.count('"') - line.count('\\"')) % 2:
-        error(line_number, 'readability/multiline_string', 5,
-              'Multi-line string ("...") found.  This lint script doesn\'t '
-              'do well with such strings, and may give bogus warnings.  They\'re '
-              'ugly and unnecessary, and you should use concatenation instead".')
-
 
 _THREADING_LIST = (
     ('asctime(', 'asctime_r('),
@@ -1526,13 +1518,14 @@ def check_for_non_standard_constructs(clean_lines, line_number,
     # For the rest, work with both comments and strings removed.
     line = clean_lines.elided[line_number]
 
-    if search(r'\b(const|volatile|void|char|short|int|long'
+    if search(r'\b(const|constexpr|constinit|consteval|volatile|'
+              r'void|char|short|int|long'
               r'|float|double|signed|unsigned'
               r'|schar|u?int8|u?int16|u?int32|u?int64)'
-              r'\s+(auto|register|static|extern|typedef)\b',
+              r'\s+(static|extern|typedef|register)\b',
               line):
         error(line_number, 'build/storage_class', 5,
-              'Storage class (static, extern, typedef, etc) should be first.')
+              'Storage class (static, extern, typedef, register) should be first.')
 
     if match(r'\s*#\s*endif\s*[^/\s]+', line):
         error(line_number, 'build/endif_comment', 5,
@@ -2307,7 +2300,7 @@ def check_spacing(file_extension, clean_lines, line_number, file_state, error):
                   'Should have spaces around = in property synthesis.')
 
     # Don't try to do spacing checks for operator methods
-    line = sub(r'operator(==|!=|<|<<|<=|>=|>>|>|\+=|-=|\*=|/=|%=|&=|\|=|^=|<<=|>>=|/)\(', r'operator\(', line)
+    line = sub(r'operator(==|!=|<|<<|<=|>=|>>|>|\+=|-=|\*=|/=|%=|&=|\|=|^=|<<=|>>=|/|\|)\(', r'operator\(', line)
     # Don't try to do spacing checks for #include, #import, #if, or #elif statements at
     # minimum because it messes up checks for spacing around /
     if match(r'\s*#\s*(?:include|import|if|elif)', line):
@@ -2715,6 +2708,38 @@ def check_using_std(clean_lines, line_number, file_state, error):
           "Use 'using namespace std;' instead of 'using std::%s;'." % method_name)
 
 
+def check_variant_usage(clean_lines, line_number, file_state, error):
+    """Looks for 'std::variant' or '#include <variant>' which should be replaced with 'WTF::Variant' and '<wtf/Variant.h>'.
+
+    Args:
+      clean_lines: A CleansedLines instance containing the file.
+      line_number: The number of the line to check.
+      file_state: A _FileState instance which maintains information about
+                  the state of things in the file.
+      error: The function to call with any errors found.
+    """
+
+    # This check doesn't apply to C or Objective-C implementation files.
+    if file_state.is_c_or_objective_c():
+        return
+
+    line = clean_lines.elided[line_number]  # Get rid of comments and strings.
+
+    # Check for <variant> include
+    variant_include_match = match(r'\s*#\s*include\s+<variant>', line)
+    if variant_include_match:
+        error(line_number, 'build/variant', 4,
+              "Use '#include <wtf/Variant.h>' and 'WTF::Variant' instead of '#include <variant>' and 'std::variant'.")
+        return
+
+    # Check for std::variant usage
+    std_variant_match = search(r'\bstd::variant\b', line)
+    if std_variant_match:
+        error(line_number, 'build/variant', 4,
+              "Use 'WTF::Variant' instead of 'std::variant'. WTF::Variant provides better code size and performance.")
+        return
+
+
 def check_using_namespace(clean_lines, line_number, file_extension, error):
     """Looks for 'using namespace foo;' which should be removed.
 
@@ -2793,7 +2818,7 @@ def check_wtf_checked_size(clean_lines, line_number, file_state, error):
 
 
 def check_wtf_move(clean_lines, line_number, file_state, error):
-    """Looks for use of 'std::move()' which should be replaced with 'WTFMove()'.
+    """Looks for use of 'std::move()' and `WTFMove` which should be replaced with 'WTF::move()'.
 
     Args:
       clean_lines: A CleansedLines instance containing the file.
@@ -2810,10 +2835,36 @@ def check_wtf_move(clean_lines, line_number, file_state, error):
     line = clean_lines.elided[line_number]  # Get rid of comments and strings.
 
     using_std_move = search(r'\bstd::move\s*\(', line)
-    if not using_std_move:
+    if using_std_move:
+        error(line_number, 'runtime/wtf_move', 4, "Use 'WTF::move()' instead of 'std::move()'.")
+    using_wtfmove = search(r'\bWTFMove\s*\(', line)
+    if using_wtfmove:
+        error(line_number, 'runtime/wtf_move', 4, "Use 'WTF::move()' instead of 'WTFMove()'.")
+
+def check_unsafe_get(clean_lines, line_number, file_state, error):
+    """Looks for use of 'unsafeGet()' or 'unsafePtr()' which should be avoided.
+
+    Args:
+      clean_lines: A CleansedLines instance containing the file.
+      line_number: The number of the line to check.
+      file_state: A _FileState instance which maintains information about
+                  the state of things in the file.
+      error: The function to call with any errors found.
+    """
+
+    # This check doesn't apply to C implementation files.
+    if file_state.is_c():
         return
 
-    error(line_number, 'runtime/wtf_move', 4, "Use 'WTFMove()' instead of 'std::move()'.")
+    line = clean_lines.elided[line_number]  # Get rid of comments and strings.
+
+    using_unsafe_get = search(r'\bunsafeGet\s*\(\s*\)', line)
+    if using_unsafe_get:
+        error(line_number, 'runtime/unsafe_get_ptr', 5, "Avoid using 'unsafeGet()' by extending the lifetime of the RefPtr.")
+
+    using_unsafe_ptr = search(r'\bunsafePtr\s*\(\s*\)', line)
+    if using_unsafe_ptr:
+        error(line_number, 'runtime/unsafe_get_ptr', 5, "Avoid using 'unsafePtr()' by extending the lifetime of the Ref.")
 
 
 def check_callonmainthread(filename, clean_lines, line_number, file_state, error):
@@ -2955,6 +3006,65 @@ def check_wtf_never_destroyed(clean_lines, line_number, file_state, error):
     typename = using_wtf_never_destroyed_search.group(1).strip()
     if search(r'(Lock|Condition)', typename):
         error(line_number, 'runtime/wtf_never_destroyed', 4, "Use 'static Lock/Condition' instead of 'NeverDestroyed<Lock/Condition>'.")
+
+
+def check_wtf_os_object_ptr(clean_lines, line_number, file_state, error):
+    """Looks for usage of RetainPtr with OS objects, which should be replaced with OSObjectPtr.
+
+    Args:
+      clean_lines: A CleansedLines instance containing the file.
+      line_number: The number of the line to check.
+      file_state: A _FileState instance which maintains information about
+                  the state of things in the file.
+      error: The function to call with any errors found.
+    """
+
+    line = clean_lines.elided[line_number]  # Get rid of comments and strings.
+    dispatch_object_using_retain_ptr = search(r'RetainPtr<dispatch_', line)
+    if dispatch_object_using_retain_ptr:
+        error(line_number, 'runtime/wtf_os_object_ptr', 4, "Use 'OSObjectPtr' instead of 'RetainPtr' for dispatch objects.")
+        return
+    dispatch_constant_using_retain_ptr = search(r'RetainPtr { DISPATCH_', line)
+    if dispatch_constant_using_retain_ptr:
+        error(line_number, 'runtime/wtf_os_object_ptr', 4, "Use 'OSObjectPtr' instead of 'RetainPtr' for dispatch objects.")
+        return
+    dispatch_constant_using_retainptr = search(r'retainPtr\(DISPATCH_', line)
+    if dispatch_constant_using_retainptr:
+        error(line_number, 'runtime/wtf_os_object_ptr', 4, "Use 'OSObjectPtr' instead of 'RetainPtr' for dispatch objects.")
+        return
+    dispatch_object_using_adoptns = search(r'adoptNS\(dispatch_', line)
+    if dispatch_object_using_adoptns:
+        error(line_number, 'runtime/wtf_os_object_ptr', 4, "Use 'adoptOSObject()' instead of 'adoptNS()' for dispatch objects.")
+        return
+
+def check_wtf_xpc_object_ptr(clean_lines, line_number, file_state, error):
+    """Looks for usage of RetainPtr / OSObjectPtr with XPC objects, which should be replaced with XPCObjectPtr.
+
+    Args:
+      clean_lines: A CleansedLines instance containing the file.
+      line_number: The number of the line to check.
+      file_state: A _FileState instance which maintains information about
+                  the state of things in the file.
+      error: The function to call with any errors found.
+    """
+
+    line = clean_lines.elided[line_number]  # Get rid of comments and strings.
+    using_retain_ptr = search(r'RetainPtr<xpc_', line)
+    if using_retain_ptr:
+        error(line_number, 'runtime/wtf_xpc_object_ptr', 4, "Use 'XPCObjectPtr' instead of 'RetainPtr' for XPC objects.")
+        return
+    using_adoptns = search(r'adoptNS\(xpc_', line)
+    if using_adoptns:
+        error(line_number, 'runtime/wtf_xpc_object_ptr', 4, "Use 'adoptXPCObject()' instead of 'adoptNS()' for XPC objects.")
+        return
+    using_osobject_ptr = search(r'OSObjectPtr<xpc_', line)
+    if using_osobject_ptr:
+        error(line_number, 'runtime/wtf_xpc_object_ptr', 4, "Use 'XPCObjectPtr' instead of 'OSObjectPtr' for XPC objects.")
+        return
+    using_adoptosobject = search(r'adoptOSObject\(xpc_', line)
+    if using_adoptosobject:
+        error(line_number, 'runtime/wtf_xpc_object_ptr', 4, "Use 'adoptXPCObject()' instead of 'adoptOSObject()' for XPC objects.")
+        return
 
 
 def check_lock_guard(clean_lines, line_number, file_state, error):
@@ -3116,7 +3226,12 @@ def check_braces(clean_lines, line_number, file_state, error):
         # on the previous non-blank line is '{' because it's likely to
         # indicate the begining of a nested code block.
         previous_line = get_previous_non_blank_line(clean_lines, line_number)[0]
-        if ((not search(r'[;:}{)=]\s*$|\)\s*((const|override|const override|final|const final|noexcept|const noexcept)\s*)?(->\s*\S+)?\s*$', previous_line)
+        # Function qualifiers that allow braces on next line (grouped with const variants)
+        qualifiers = []
+        for base in ['override', 'final', 'noexcept', 'LIFETIME_BOUND']:
+            qualifiers.extend([base, 'const ' + base])
+        function_qualifiers = '|'.join(['const'] + qualifiers)
+        if ((not search(r'[;:}{)=]\s*$|\)\s*((' + function_qualifiers + r')\s*)?(->\s*\S+)?\s*$', previous_line)
              or search(r'\b(if|for|while|switch|else|CF_OPTIONS|NS_ENUM|NS_ERROR_ENUM|NS_OPTIONS)\b', previous_line)
              or regex_for_lambdas_and_blocks(previous_line, line_number, file_state, error))
             and previous_line.find('#') < 0
@@ -3472,6 +3587,7 @@ def check_arguments_for_wk_api_available(clean_lines, line_number, error):
         mapping = {
             'macos': 'WK_MAC_TBA',
             'ios': 'WK_IOS_TBA',
+            'visionos': 'WK_XROS_TBA',
         }
 
         platform_tba_macro = mapping.get(platform_name)
@@ -3500,23 +3616,44 @@ def check_arguments_for_wk_api_available(clean_lines, line_number, error):
         error(line_number, 'build/wk_api_available', 5, 'macosx() is deprecated; use macos() instead')
         return
 
-    wk_api_available = search(r'WK_API_AVAILABLE\(macos\(([^\)]+)\), ios\(([^\)]+)\)\)', line)
-    if wk_api_available:
-        check_version_string(wk_api_available.group(1), "macos")
-        check_version_string(wk_api_available.group(2), "ios")
+    platform_pattern = r'(ios|macos|visionos)\s*\(([^\)]+)\)'
 
-    wk_api_available = search(r'WK_API_AVAILABLE\(ios\(([^\)]+)\), macos\(([^\)]+)\)\)', line)
+    # Check three-platform combinations.
+    wk_api_available = search(rf'WK_API_AVAILABLE\s*\(\s*{platform_pattern},\s*{platform_pattern},\s*{platform_pattern}\s*\)', line)
     if wk_api_available:
-        check_version_string(wk_api_available.group(1), "ios")
-        check_version_string(wk_api_available.group(2), "macos")
+        platform1, version1 = wk_api_available.group(1), wk_api_available.group(2)
+        platform2, version2 = wk_api_available.group(3), wk_api_available.group(4)
+        platform3, version3 = wk_api_available.group(5), wk_api_available.group(6)
 
-    wk_api_available = search(r'WK_API_AVAILABLE\(macos\(([^\)]+)\)\)', line)
-    if wk_api_available:
-        check_version_string(wk_api_available.group(1), "macos")
+        if platform1 == platform2 or platform1 == platform3 or platform2 == platform3:
+            error(line_number, 'build/wk_api_available', 5, 'Duplicate platform names in WK_API_AVAILABLE')
+            return
 
-    wk_api_available = search(r'WK_API_AVAILABLE\(ios\(([^\)]+)\)\)', line)
+        check_version_string(version1, platform1)
+        check_version_string(version2, platform2)
+        check_version_string(version3, platform3)
+        return
+
+    # Check two-platform combinations.
+    wk_api_available = search(rf'WK_API_AVAILABLE\s*\(\s*{platform_pattern},\s*{platform_pattern}\s*\)', line)
     if wk_api_available:
-        check_version_string(wk_api_available.group(1), "ios")
+        platform1, version1 = wk_api_available.group(1), wk_api_available.group(2)
+        platform2, version2 = wk_api_available.group(3), wk_api_available.group(4)
+
+        if platform1 == platform2:
+            error(line_number, 'build/wk_api_available', 5, 'Duplicate platform names in WK_API_AVAILABLE')
+            return
+
+        check_version_string(version1, platform1)
+        check_version_string(version2, platform2)
+        return
+
+    # Check single-platform cases.
+    wk_api_available = search(rf'WK_API_AVAILABLE\s*\(\s*{platform_pattern}\s*\)', line)
+    if wk_api_available:
+        platform, version = wk_api_available.group(1), wk_api_available.group(2)
+        check_version_string(version, platform)
+        return
 
 
 def check_objc_protocol(clean_lines, line_number, file_extension, error):
@@ -3611,15 +3748,24 @@ def check_safer_cpp(clean_lines, line_number, error):
     if uses_strncmp:
         error(line_number, 'safercpp/strncmp', 4, "strncmp() is unsafe.")
 
-    uses_printf = search(r'\bprintf\b', line)
+    uses_dispatch_get_global_queue = search(r'dispatch_get_global_queue\(', line)
+    if uses_dispatch_get_global_queue:
+        error(line_number, 'safercpp/dispatch_get_global_queue', 4, "use globalDispatchQueueSingleton() instead of dispatch_get_global_queue().")
+
+    uses_dispatch_get_main_queue = search(r'dispatch_get_main_queue\(', line)
+    if uses_dispatch_get_main_queue:
+        error(line_number, 'safercpp/dispatch_get_main_queue', 4, "use mainDispatchQueueSingleton() instead of dispatch_get_main_queue().")
+
+    # Use negative lookbehind to exclude method calls like obj.printf() or ptr->printf()
+    uses_printf = search(r'(?<![.>])\bprintf\b', line)
     if uses_printf:
         error(line_number, 'safercpp/printf', 4, "printf is unsafe. Use SAFE_PRINTF instead.")
 
-    uses_fprintf = search(r'\bfprintf\b', line)
+    uses_fprintf = search(r'(?<![.>])\bfprintf\b', line)
     if uses_fprintf:
         error(line_number, 'safercpp/printf', 4, "fprintf is unsafe. Use SAFE_FPRINTF instead.")
 
-    uses_snprintf = search(r'\bsnprintf\b', line)
+    uses_snprintf = search(r'(?<![.>])\bsnprintf\b', line)
     if uses_snprintf:
         error(line_number, 'safercpp/printf', 4, "snprintf is unsafe. Use SAFE_SPRINTF instead.")
 
@@ -3653,10 +3799,10 @@ def check_safer_cpp(clean_lines, line_number, error):
     if search(r'sqlite3_column_blob\(', line):
         error(line_number, 'safercpp/sqlite3_column_blob', 4, "Use sqliteColumnBlob() instead of sqlite3_column_blob().")
 
-    if search(r'= [a-zA-Z0-9_.(),\s\->]*protected[a-zA-Z0-9]+\(\)[;\)]', line):
+    if search(r'= [a-zA-Z0-9_.(),\s\->]*protected[a-zA-Z0-9]+\(\)(;|\))(?!;)', line):
         error(line_number, 'safercpp/protected_getter_for_init', 4, "Use m_foo or foo() instead of protectedFoo() for variable initialization.")
 
-    if search(r'= [a-zA-Z0-9_.(),\s\->]*checked[a-zA-Z0-9]+\(\)[;\)]', line):
+    if search(r'= [a-zA-Z0-9_.(),\s\->]*checked[a-zA-Z0-9]+\(\)(;|\))(?!;)', line):
         error(line_number, 'safercpp/checked_getter_for_init', 4, "Use m_foo or foo() instead of checkedFoo() for variable initialization.")
 
 def check_style(clean_lines, line_number, file_extension, class_state, file_state, enum_state, error):
@@ -3719,12 +3865,16 @@ def check_style(clean_lines, line_number, file_extension, class_state, file_stat
     check_namespace_indentation(clean_lines, line_number, file_extension, file_state, error)
     check_directive_indentation(clean_lines, line_number, file_state, error)
     check_using_std(clean_lines, line_number, file_state, error)
+    check_variant_usage(clean_lines, line_number, file_state, error)
     check_using_namespace(clean_lines, line_number, file_extension, error)
     check_max_min_macros(clean_lines, line_number, file_state, error)
     check_wtf_checked_size(clean_lines, line_number, file_state, error)
     check_wtf_move(clean_lines, line_number, file_state, error)
+    check_unsafe_get(clean_lines, line_number, file_state, error)
     check_wtf_make_unique(clean_lines, line_number, file_state, error)
     check_wtf_never_destroyed(clean_lines, line_number, file_state, error)
+    check_wtf_os_object_ptr(clean_lines, line_number, file_state, error)
+    check_wtf_xpc_object_ptr(clean_lines, line_number, file_state, error)
     check_lock_guard(clean_lines, line_number, file_state, error)
     check_log(clean_lines, line_number, file_state, error)
     check_ctype_functions(clean_lines, line_number, file_state, error)
@@ -4839,7 +4989,7 @@ def process_line(filename, file_extension,
     check_function_definition(filename, file_extension, clean_lines, line, class_state, function_state, error)
     check_function_body(filename, file_extension, clean_lines, line, class_state, function_state, error)
     check_for_leaky_patterns(clean_lines, line, function_state, error)
-    check_for_multiline_comments_and_strings(clean_lines, line, error)
+    check_for_multiline_comments(clean_lines, line, error)
     check_style(clean_lines, line, file_extension, class_state, file_state, enum_state, error)
     check_language(filename, clean_lines, line, file_extension, include_state,
                    file_state, error)
@@ -4939,6 +5089,7 @@ class CppChecker(object):
         'build/storage_class',
         'build/using_std',
         'build/using_namespace',
+        'build/variant',
         'build/cpp_comment',
         'build/webcore_export',
         'build/wk_api_available',
@@ -4998,14 +5149,19 @@ class CppChecker(object):
         'runtime/soft-linked-alloc',
         'runtime/string',
         'runtime/threadsafe_fn',
+        'runtime/unsafe_get_ptr',
         'runtime/unsigned',
         'runtime/virtual',
         'runtime/wtf_checked_size',
         'runtime/wtf_make_unique',
         'runtime/wtf_move',
         'runtime/wtf_never_destroyed',
+        'runtime/wtf_os_object_ptr',
+        'runtime/wtf_xpc_object_ptr',
         'safercpp/atoi',
         'safercpp/checked_getter_for_init',
+        'safercpp/dispatch_get_global_queue',
+        'safercpp/dispatch_get_main_queue',
         'safercpp/memchr',
         'safercpp/memcmp',
         'safercpp/memcpy',

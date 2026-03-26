@@ -270,3 +270,86 @@ TEST(IndexedDB, IndexedDBFileHashCollision)
     RetainPtr<NSString> string = (NSString *)[lastScriptMessage body];
     EXPECT_WK_STREQ(@"Error", string.get());
 }
+
+TEST(IndexedDB, OpenDatabaseAfterDatabaseNameUpgrade)
+{
+    RetainPtr handler = adoptNS([[IndexedDBFileNameMessageHandler alloc] init]);
+    RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    [[configuration userContentController] addScriptMessageHandler:handler.get() name:@"testHandler"];
+
+    RetainPtr originURL = [NSURL URLWithString:@"file://"];
+    __block RetainPtr<NSString> indexedDBDirectoryString;
+    __block bool done = false;
+    [configuration.get().websiteDataStore _originDirectoryForTesting:originURL.get() topOrigin:originURL.get() type:WKWebsiteDataTypeIndexedDBDatabases completionHandler:^(NSString *result) {
+        indexedDBDirectoryString = result;
+        done = true;
+    }];
+    TestWebKitAPI::Util::run(&done);
+    RetainPtr indexedDBDirectory = [NSURL fileURLWithPath:indexedDBDirectoryString.get() isDirectory:YES];
+    String databaseHash = WebCore::SQLiteFileSystem::computeHashForFileName("IndexedDBTest"_s);
+    RetainPtr indexedDBDatabaseDirectory = [indexedDBDirectory URLByAppendingPathComponent:databaseHash.createNSString().get()];
+    RetainPtr indexedDBDatabaseFile = [indexedDBDatabaseDirectory URLByAppendingPathComponent:@"IndexedDB.sqlite3"];
+    RetainPtr resourceDatabaseFileURL = [NSBundle.test_resourcesBundle URLForResource:@"IndexedDB" withExtension:@"sqlite3"];
+    RetainPtr fileManager = [NSFileManager defaultManager];
+    // Remove existing database files.
+    [fileManager removeItemAtURL:indexedDBDatabaseDirectory.get() error:nil];
+    [fileManager createDirectoryAtURL:indexedDBDatabaseDirectory.get() withIntermediateDirectories:YES attributes:nil error:nil];
+    // Create database file with old version.
+    [fileManager copyItemAtURL:resourceDatabaseFileURL.get() toURL:indexedDBDatabaseFile.get() error:nil];
+    EXPECT_TRUE([fileManager fileExistsAtPath:resourceDatabaseFileURL.get().path]);
+
+    // Upgrade an existing database.
+    RetainPtr webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    RetainPtr request = [NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"IndexedDBFileName-2" withExtension:@"html"]];
+    receivedScriptMessage = false;
+    [webView loadRequest:request.get()];
+    TestWebKitAPI::Util::run(&receivedScriptMessage);
+    RetainPtr string = (NSString *)[lastScriptMessage body];
+    EXPECT_WK_STREQ(@"Success", string.get());
+
+    // Force re-opening database.
+    [configuration.get().websiteDataStore _terminateNetworkProcess];
+
+    // Ensure the upgraded database can be opened.
+    receivedScriptMessage = false;
+    [webView reload];
+    TestWebKitAPI::Util::run(&receivedScriptMessage);
+    string = (NSString *)[lastScriptMessage body];
+    EXPECT_WK_STREQ(@"Success", string.get());
+}
+
+TEST(IndexedDB, OpenDatabaseWithMismatchedMetadataVersionAndName)
+{
+    RetainPtr handler = adoptNS([[IndexedDBFileNameMessageHandler alloc] init]);
+    RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    [[configuration userContentController] addScriptMessageHandler:handler.get() name:@"testHandler"];
+
+    RetainPtr originURL = [NSURL URLWithString:@"file://"];
+    __block RetainPtr<NSString> indexedDBDirectoryString;
+    __block bool done = false;
+    [configuration.get().websiteDataStore _originDirectoryForTesting:originURL.get() topOrigin:originURL.get() type:WKWebsiteDataTypeIndexedDBDatabases completionHandler:^(NSString *result) {
+        indexedDBDirectoryString = result;
+        done = true;
+    }];
+    TestWebKitAPI::Util::run(&done);
+    RetainPtr indexedDBDirectory = [NSURL fileURLWithPath:indexedDBDirectoryString.get() isDirectory:YES];
+    String databaseHash = WebCore::SQLiteFileSystem::computeHashForFileName("IndexedDBTest"_s);
+    RetainPtr indexedDBDatabaseDirectory = [indexedDBDirectory URLByAppendingPathComponent:databaseHash.createNSString().get()];
+    RetainPtr indexedDBDatabaseFile = [indexedDBDatabaseDirectory URLByAppendingPathComponent:@"IndexedDB.sqlite3"];
+    RetainPtr resourceDatabaseFileURL = [NSBundle.test_resourcesBundle URLForResource:@"IndexedDBWrongMetadataVersion" withExtension:@"sqlite3"];
+    RetainPtr fileManager = [NSFileManager defaultManager];
+    // Remove existing database files.
+    [fileManager removeItemAtURL:indexedDBDatabaseDirectory.get() error:nil];
+    [fileManager createDirectoryAtURL:indexedDBDatabaseDirectory.get() withIntermediateDirectories:YES attributes:nil error:nil];
+    // Copy baked database files to IndexedDB directory.
+    [fileManager copyItemAtURL:resourceDatabaseFileURL.get() toURL:indexedDBDatabaseFile.get() error:nil];
+    EXPECT_TRUE([fileManager fileExistsAtPath:resourceDatabaseFileURL.get().path]);
+
+    RetainPtr webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    RetainPtr request = [NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"IndexedDBFileName-2" withExtension:@"html"]];
+    receivedScriptMessage = false;
+    [webView loadRequest:request.get()];
+    TestWebKitAPI::Util::run(&receivedScriptMessage);
+    RetainPtr string = (NSString *)[lastScriptMessage body];
+    EXPECT_WK_STREQ(@"Success", string.get());
+}

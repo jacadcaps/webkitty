@@ -89,27 +89,31 @@ ResourceRequestData ResourceRequest::getRequestDataToSerialize() const
 ResourceRequest ResourceRequest::fromResourceRequestData(ResourceRequestData&& requestData, String&& cachePartition, bool hiddenFromInspector)
 {
     if (std::holds_alternative<RequestData>(requestData))
-        return ResourceRequest(WTFMove(std::get<RequestData>(requestData)), WTFMove(cachePartition), hiddenFromInspector);
-    return ResourceRequest(WTFMove(std::get<ResourceRequestPlatformData>(requestData)), WTFMove(cachePartition), hiddenFromInspector);
+        return ResourceRequest(WTF::move(std::get<RequestData>(requestData)), WTF::move(cachePartition), hiddenFromInspector);
+    return ResourceRequest(WTF::move(std::get<ResourceRequestPlatformData>(requestData)), WTF::move(cachePartition), hiddenFromInspector);
 }
 
 NSURLRequest *ResourceRequest::nsURLRequest(HTTPBodyUpdatePolicy bodyPolicy) const
 {
     updatePlatformRequest(bodyPolicy);
-    auto requestCopy = m_nsRequest;
-    return requestCopy.autorelease();
+    return m_nsRequest.get();
+}
+
+RetainPtr<NSURLRequest> ResourceRequest::protectedNSURLRequest(HTTPBodyUpdatePolicy bodyPolicy) const
+{
+    return nsURLRequest(bodyPolicy);
 }
 
 ResourceRequestPlatformData ResourceRequest::getResourceRequestPlatformData() const
 {
     RELEASE_ASSERT(m_httpBody || m_nsRequest);
     
-    auto requestToSerialize = retainPtr(this->nsURLRequest(WebCore::HTTPBodyUpdatePolicy::DoNotUpdateHTTPBody));
+    RetainPtr requestToSerialize = nsURLRequest(WebCore::HTTPBodyUpdatePolicy::DoNotUpdateHTTPBody);
 
     if (Class requestClass = [requestToSerialize class]; requestClass != [NSURLRequest class] && requestClass != [NSMutableURLRequest class]) [[unlikely]] {
         WebCore::ResourceRequest request(requestToSerialize.get());
         request.replacePlatformRequest(WebCore::HTTPBodyUpdatePolicy::DoNotUpdateHTTPBody);
-        requestToSerialize = retainPtr(request.nsURLRequest(WebCore::HTTPBodyUpdatePolicy::DoNotUpdateHTTPBody));
+        requestToSerialize = request.nsURLRequest(WebCore::HTTPBodyUpdatePolicy::DoNotUpdateHTTPBody);
     }
     ASSERT([requestToSerialize class] == [NSURLRequest class] || [requestToSerialize class] == [NSMutableURLRequest class]);
 
@@ -122,10 +126,10 @@ ResourceRequestPlatformData ResourceRequest::getResourceRequestPlatformData() co
         auto mutableRequest = adoptNS([requestToSerialize mutableCopy]);
         [mutableRequest setHTTPBody:nil];
         [mutableRequest setHTTPBodyStream:nil];
-        requestToSerialize = WTFMove(mutableRequest);
+        requestToSerialize = WTF::move(mutableRequest);
     }
     return {
-        WTFMove(requestToSerialize),
+        WTF::move(requestToSerialize),
         isAppInitiated(),
         requester(),
         privacyProxyFailClosedForUnreachableNonMainHosts(),
@@ -138,7 +142,7 @@ ResourceRequestPlatformData ResourceRequest::getResourceRequestPlatformData() co
 
 CFURLRequestRef ResourceRequest::cfURLRequest(HTTPBodyUpdatePolicy bodyPolicy) const
 {
-    return [nsURLRequest(bodyPolicy) _CFURLRequest];
+    return [protectedNSURLRequest(bodyPolicy) _CFURLRequest];
 }
 
 static inline ResourceRequestCachePolicy fromPlatformRequestCachePolicy(NSURLRequestCachePolicy policy)
@@ -191,7 +195,7 @@ void ResourceRequest::doUpdateResourceRequest()
         m_requestData.m_priority = toResourceLoadPriority(m_nsRequest ? CFURLRequestGetRequestPriority([m_nsRequest _CFURLRequest]) : 0);
 
     m_requestData.m_httpHeaderFields.clear();
-    [[m_nsRequest allHTTPHeaderFields] enumerateKeysAndObjectsUsingBlock: ^(NSString *name, NSString *value, BOOL *) {
+    [retainPtr([m_nsRequest allHTTPHeaderFields]) enumerateKeysAndObjectsUsingBlock: ^(NSString *name, NSString *value, BOOL *) {
         m_requestData.m_httpHeaderFields.set(name, value);
     }];
 
@@ -221,7 +225,7 @@ void ResourceRequest::doUpdateResourceHTTPBody()
         // We shouldn't be looking at http body after client callbacks.
         ASSERT(formData);
         if (formData)
-            m_httpBody = WTFMove(formData);
+            m_httpBody = WTF::move(formData);
     }
 }
 
@@ -301,8 +305,9 @@ void ResourceRequest::doUpdatePlatformRequest()
         [nsRequest setHTTPMethod:httpMethod().createNSString().get()];
     [nsRequest setHTTPShouldHandleCookies:allowCookies()];
 
-    [nsRequest _setProperty:siteForCookies(m_requestData.m_sameSiteDisposition, [nsRequest URL]) forKey:@"_kCFHTTPCookiePolicyPropertySiteForCookies"];
-    [nsRequest _setProperty:m_requestData.m_isTopSite ? @YES : @NO forKey:@"_kCFHTTPCookiePolicyPropertyIsTopLevelNavigation"];
+    [nsRequest _setProperty:RetainPtr { siteForCookies(m_requestData.m_sameSiteDisposition, retainPtr([nsRequest URL]).get()) }.get() forKey:@"_kCFHTTPCookiePolicyPropertySiteForCookies"];
+    // FIXME: This is a safer cpp false positive (rdar://160851489).
+    SUPPRESS_UNRETAINED_ARG [nsRequest _setProperty:m_requestData.m_isTopSite ? @YES : @NO forKey:@"_kCFHTTPCookiePolicyPropertyIsTopLevelNavigation"];
 
     // Cannot just use setAllHTTPHeaderFields here, because it does not remove headers.
     for (NSString *oldHeaderName in [nsRequest allHTTPHeaderFields])
@@ -336,7 +341,7 @@ void ResourceRequest::doUpdatePlatformRequest()
     }
 #endif
 
-    m_nsRequest = WTFMove(nsRequest);
+    m_nsRequest = WTF::move(nsRequest);
 }
 
 void ResourceRequest::doUpdatePlatformHTTPBody()
@@ -357,11 +362,11 @@ void ResourceRequest::doUpdatePlatformHTTPBody()
 
     auto formData = httpBody();
     if (formData && !formData->isEmpty())
-        WebCore::setHTTPBody(nsRequest.get(), WTFMove(formData));
+        WebCore::setHTTPBody(nsRequest.get(), WTF::move(formData));
 
     if (RetainPtr bodyStream = [nsRequest HTTPBodyStream]) {
         // For streams, provide a Content-Length to avoid using chunked encoding, and to get accurate total length in callbacks.
-        RetainPtr<NSString> lengthString = [bodyStream propertyForKey:(__bridge NSString *)formDataStreamLengthPropertyName()];
+        RetainPtr<NSString> lengthString = [bodyStream propertyForKey:RetainPtr { bridge_cast(formDataStreamLengthPropertyNameSingleton()) }.get()];
         if (lengthString) {
             [nsRequest setValue:lengthString.get() forHTTPHeaderField:@"Content-Length"];
             // Since resource request is already marked updated, we need to keep it up to date too.
@@ -370,7 +375,7 @@ void ResourceRequest::doUpdatePlatformHTTPBody()
         }
     }
 
-    m_nsRequest = WTFMove(nsRequest);
+    m_nsRequest = WTF::move(nsRequest);
 }
 
 void ResourceRequest::setStorageSession(CFURLStorageSessionRef storageSession)

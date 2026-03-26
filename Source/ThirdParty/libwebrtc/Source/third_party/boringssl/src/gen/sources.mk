@@ -74,6 +74,8 @@ boringssl_bcm_internal_headers := \
   crypto/fipsmodule/ec/wnaf.cc.inc \
   crypto/fipsmodule/ecdh/ecdh.cc.inc \
   crypto/fipsmodule/ecdsa/ecdsa.cc.inc \
+  crypto/fipsmodule/entropy/jitter.cc.inc \
+  crypto/fipsmodule/entropy/sha512.cc.inc \
   crypto/fipsmodule/hkdf/hkdf.cc.inc \
   crypto/fipsmodule/hmac/hmac.cc.inc \
   crypto/fipsmodule/keccak/keccak.cc.inc \
@@ -352,17 +354,13 @@ boringssl_crypto_sources := \
   crypto/evp/evp_asn1.cc \
   crypto/evp/evp_ctx.cc \
   crypto/evp/p_dh.cc \
-  crypto/evp/p_dh_asn1.cc \
-  crypto/evp/p_dsa_asn1.cc \
+  crypto/evp/p_dsa.cc \
   crypto/evp/p_ec.cc \
-  crypto/evp/p_ec_asn1.cc \
   crypto/evp/p_ed25519.cc \
-  crypto/evp/p_ed25519_asn1.cc \
   crypto/evp/p_hkdf.cc \
+  crypto/evp/p_mldsa.cc \
   crypto/evp/p_rsa.cc \
-  crypto/evp/p_rsa_asn1.cc \
   crypto/evp/p_x25519.cc \
-  crypto/evp/p_x25519_asn1.cc \
   crypto/evp/pbkdf.cc \
   crypto/evp/print.cc \
   crypto/evp/scrypt.cc \
@@ -495,7 +493,6 @@ boringssl_crypto_sources := \
   crypto/x509/x_req.cc \
   crypto/x509/x_sig.cc \
   crypto/x509/x_spki.cc \
-  crypto/x509/x_val.cc \
   crypto/x509/x_x509.cc \
   crypto/x509/x_x509a.cc \
   crypto/xwing/xwing.cc \
@@ -511,7 +508,6 @@ boringssl_crypto_headers := \
   include/openssl/asn1t.h \
   include/openssl/base.h \
   include/openssl/base64.h \
-  include/openssl/bcm_public.h \
   include/openssl/bio.h \
   include/openssl/blake2.h \
   include/openssl/blowfish.h \
@@ -543,7 +539,6 @@ boringssl_crypto_headers := \
   include/openssl/evp.h \
   include/openssl/evp_errors.h \
   include/openssl/ex_data.h \
-  include/openssl/experimental/kyber.h \
   include/openssl/hkdf.h \
   include/openssl/hmac.h \
   include/openssl/hpke.h \
@@ -577,6 +572,7 @@ boringssl_crypto_headers := \
   include/openssl/safestack.h \
   include/openssl/service_indicator.h \
   include/openssl/sha.h \
+  include/openssl/sha2.h \
   include/openssl/siphash.h \
   include/openssl/slhdsa.h \
   include/openssl/span.h \
@@ -623,6 +619,7 @@ boringssl_crypto_internal_headers := \
   crypto/fipsmodule/ec/p256-nistz.h \
   crypto/fipsmodule/ec/p256_table.h \
   crypto/fipsmodule/ecdsa/internal.h \
+  crypto/fipsmodule/entropy/internal.h \
   crypto/fipsmodule/keccak/internal.h \
   crypto/fipsmodule/rand/internal.h \
   crypto/fipsmodule/rsa/internal.h \
@@ -653,13 +650,19 @@ boringssl_crypto_internal_headers := \
   crypto/spake2plus/internal.h \
   crypto/trust_token/internal.h \
   crypto/x509/internal.h \
+  third_party/fiat/bedrock_unverified_bareminimum.c.inc \
+  third_party/fiat/bedrock_unverified_platform.c.inc \
   third_party/fiat/curve25519_32.h \
   third_party/fiat/curve25519_64.h \
   third_party/fiat/curve25519_64_adx.h \
   third_party/fiat/curve25519_64_msvc.h \
   third_party/fiat/p256_32.h \
   third_party/fiat/p256_64.h \
-  third_party/fiat/p256_64_msvc.h
+  third_party/fiat/p256_64_msvc.h \
+  third_party/fiat/p256_field.c.inc \
+  third_party/fiat/p256_field_32.br.c.inc \
+  third_party/fiat/p256_field_64.br.c.inc \
+  third_party/fiat/p256_point.br.c.inc
 
 boringssl_crypto_sources_asm := \
   crypto/curve25519/asm/x25519-asm-arm.S \
@@ -733,6 +736,7 @@ boringssl_crypto_test_sources := \
   crypto/fipsmodule/ec/p256-nistz_test.cc \
   crypto/fipsmodule/ec/p256_test.cc \
   crypto/fipsmodule/ecdsa/ecdsa_test.cc \
+  crypto/fipsmodule/entropy/jitter_test.cc \
   crypto/fipsmodule/hkdf/hkdf_test.cc \
   crypto/fipsmodule/keccak/keccak_test.cc \
   crypto/fipsmodule/rand/ctrdrbg_test.cc \
@@ -770,7 +774,9 @@ boringssl_crypto_test_sources := \
   crypto/trust_token/trust_token_test.cc \
   crypto/x509/x509_test.cc \
   crypto/x509/x509_time_test.cc \
-  crypto/xwing/xwing_test.cc
+  crypto/xwing/xwing_test.cc \
+  third_party/fiat/bedrock_platform_test.cc \
+  third_party/fiat/bedrock_polyfill_platform.c.inc
 
 boringssl_crypto_test_data := \
   crypto/blake2/blake2b256_tests.txt \
@@ -809,8 +815,14 @@ boringssl_crypto_test_data := \
   crypto/cipher/test/xchacha20_poly1305_tests.txt \
   crypto/curve25519/ed25519_tests.txt \
   crypto/ecdh/ecdh_tests.txt \
-  crypto/evp/evp_tests.txt \
-  crypto/evp/scrypt_tests.txt \
+  crypto/evp/test/dh_tests.txt \
+  crypto/evp/test/ec_tests.txt \
+  crypto/evp/test/ed25519_tests.txt \
+  crypto/evp/test/evp_tests.txt \
+  crypto/evp/test/mldsa_tests.txt \
+  crypto/evp/test/rsa_tests.txt \
+  crypto/evp/test/scrypt_tests.txt \
+  crypto/evp/test/x25519_tests.txt \
   crypto/fipsmodule/aes/aes_tests.txt \
   crypto/fipsmodule/bn/test/exp_tests.txt \
   crypto/fipsmodule/bn/test/gcd_tests.txt \
@@ -832,12 +844,15 @@ boringssl_crypto_test_data := \
   crypto/fipsmodule/ecdsa/ecdsa_sign_tests.txt \
   crypto/fipsmodule/ecdsa/ecdsa_verify_tests.txt \
   crypto/fipsmodule/keccak/keccak_tests.txt \
+  crypto/fipsmodule/rand/ctrdrbg_df_vectors.txt \
   crypto/fipsmodule/rand/ctrdrbg_vectors.txt \
   crypto/hmac/hmac_tests.txt \
   crypto/hpke/hpke_test_vectors.txt \
   crypto/kyber/kyber_tests.txt \
+  crypto/mldsa/mldsa_nist_keygen_44_tests.txt \
   crypto/mldsa/mldsa_nist_keygen_65_tests.txt \
   crypto/mldsa/mldsa_nist_keygen_87_tests.txt \
+  crypto/mldsa/mldsa_nist_siggen_44_tests.txt \
   crypto/mldsa/mldsa_nist_siggen_65_tests.txt \
   crypto/mldsa/mldsa_nist_siggen_87_tests.txt \
   crypto/mlkem/mlkem1024_decap_tests.txt \
@@ -874,6 +889,14 @@ boringssl_crypto_test_data := \
   crypto/pkcs8/test/unicode_password.p12 \
   crypto/pkcs8/test/windows.p12 \
   crypto/poly1305/poly1305_tests.txt \
+  crypto/rsa/test/rsa511.pem \
+  crypto/rsa/test/rsa511pub.pem \
+  crypto/rsa/test/rsa512.pem \
+  crypto/rsa/test/rsa512pub.pem \
+  crypto/rsa/test/rsa8192.pem \
+  crypto/rsa/test/rsa8192pub.pem \
+  crypto/rsa/test/rsa8193.pem \
+  crypto/rsa/test/rsa8193pub.pem \
   crypto/siphash/siphash_tests.txt \
   crypto/slhdsa/slhdsa_keygen.txt \
   crypto/slhdsa/slhdsa_prehash.txt \
@@ -955,6 +978,7 @@ boringssl_crypto_test_data := \
   crypto/x509/test/pss_sha256_wrong_trailer.pem \
   crypto/x509/test/pss_sha384.pem \
   crypto/x509/test/pss_sha512.pem \
+  crypto/x509/test/rsa_pss_sha256_key.pk8 \
   crypto/x509/test/some_names1.pem \
   crypto/x509/test/some_names2.pem \
   crypto/x509/test/some_names3.pem \
@@ -965,13 +989,32 @@ boringssl_crypto_test_data := \
   crypto/x509/test/trailing_data_leaf_name_constraints.pem \
   crypto/x509/test/trailing_data_leaf_subject_alt_name.pem \
   crypto/x509/test/trailing_data_leaf_subject_key_identifier.pem \
+  crypto/x509/test/unusual_tbs_critical_ber.pem \
+  crypto/x509/test/unusual_tbs_critical_false_not_omitted.pem \
+  crypto/x509/test/unusual_tbs_empty_extension_not_omitted.pem \
+  crypto/x509/test/unusual_tbs_key.pem \
+  crypto/x509/test/unusual_tbs_null_sigalg_param.pem \
+  crypto/x509/test/unusual_tbs_uid_both.pem \
+  crypto/x509/test/unusual_tbs_uid_issuer.pem \
+  crypto/x509/test/unusual_tbs_uid_subject.pem \
+  crypto/x509/test/unusual_tbs_v1_not_omitted.pem \
+  crypto/x509/test/unusual_tbs_wrong_attribute_order.pem \
   third_party/wycheproof_testvectors/aes_cbc_pkcs5_test.txt \
   third_party/wycheproof_testvectors/aes_cmac_test.txt \
   third_party/wycheproof_testvectors/aes_eax_test.txt \
   third_party/wycheproof_testvectors/aes_gcm_siv_test.txt \
   third_party/wycheproof_testvectors/aes_gcm_test.txt \
+  third_party/wycheproof_testvectors/aes_kwp_test.txt \
+  third_party/wycheproof_testvectors/aes_wrap_test.txt \
   third_party/wycheproof_testvectors/chacha20_poly1305_test.txt \
-  third_party/wycheproof_testvectors/dsa_test.txt \
+  third_party/wycheproof_testvectors/dsa_2048_224_sha224_p1363_test.txt \
+  third_party/wycheproof_testvectors/dsa_2048_224_sha224_test.txt \
+  third_party/wycheproof_testvectors/dsa_2048_224_sha256_p1363_test.txt \
+  third_party/wycheproof_testvectors/dsa_2048_224_sha256_test.txt \
+  third_party/wycheproof_testvectors/dsa_2048_256_sha256_p1363_test.txt \
+  third_party/wycheproof_testvectors/dsa_2048_256_sha256_test.txt \
+  third_party/wycheproof_testvectors/dsa_3072_256_sha256_p1363_test.txt \
+  third_party/wycheproof_testvectors/dsa_3072_256_sha256_test.txt \
   third_party/wycheproof_testvectors/ecdh_secp224r1_test.txt \
   third_party/wycheproof_testvectors/ecdh_secp256r1_test.txt \
   third_party/wycheproof_testvectors/ecdh_secp384r1_test.txt \
@@ -992,7 +1035,7 @@ boringssl_crypto_test_data := \
   third_party/wycheproof_testvectors/ecdsa_secp384r1_sha512_test.txt \
   third_party/wycheproof_testvectors/ecdsa_secp521r1_sha512_p1363_test.txt \
   third_party/wycheproof_testvectors/ecdsa_secp521r1_sha512_test.txt \
-  third_party/wycheproof_testvectors/eddsa_test.txt \
+  third_party/wycheproof_testvectors/ed25519_test.txt \
   third_party/wycheproof_testvectors/hkdf_sha1_test.txt \
   third_party/wycheproof_testvectors/hkdf_sha256_test.txt \
   third_party/wycheproof_testvectors/hkdf_sha384_test.txt \
@@ -1002,12 +1045,12 @@ boringssl_crypto_test_data := \
   third_party/wycheproof_testvectors/hmac_sha256_test.txt \
   third_party/wycheproof_testvectors/hmac_sha384_test.txt \
   third_party/wycheproof_testvectors/hmac_sha512_test.txt \
-  third_party/wycheproof_testvectors/kw_test.txt \
-  third_party/wycheproof_testvectors/kwp_test.txt \
-  third_party/wycheproof_testvectors/mldsa_65_standard_sign_test.txt \
-  third_party/wycheproof_testvectors/mldsa_65_standard_verify_test.txt \
-  third_party/wycheproof_testvectors/mldsa_87_standard_sign_test.txt \
-  third_party/wycheproof_testvectors/mldsa_87_standard_verify_test.txt \
+  third_party/wycheproof_testvectors/mldsa_44_sign_noseed_test.txt \
+  third_party/wycheproof_testvectors/mldsa_44_verify_test.txt \
+  third_party/wycheproof_testvectors/mldsa_65_sign_noseed_test.txt \
+  third_party/wycheproof_testvectors/mldsa_65_verify_test.txt \
+  third_party/wycheproof_testvectors/mldsa_87_sign_noseed_test.txt \
+  third_party/wycheproof_testvectors/mldsa_87_verify_test.txt \
   third_party/wycheproof_testvectors/primality_test.txt \
   third_party/wycheproof_testvectors/rsa_oaep_2048_sha1_mgf1sha1_test.txt \
   third_party/wycheproof_testvectors/rsa_oaep_2048_sha224_mgf1sha1_test.txt \
@@ -1027,8 +1070,13 @@ boringssl_crypto_test_data := \
   third_party/wycheproof_testvectors/rsa_oaep_4096_sha512_mgf1sha1_test.txt \
   third_party/wycheproof_testvectors/rsa_oaep_4096_sha512_mgf1sha512_test.txt \
   third_party/wycheproof_testvectors/rsa_oaep_misc_test.txt \
+  third_party/wycheproof_testvectors/rsa_pkcs1_1024_sig_gen_test.txt \
+  third_party/wycheproof_testvectors/rsa_pkcs1_1536_sig_gen_test.txt \
+  third_party/wycheproof_testvectors/rsa_pkcs1_2048_sig_gen_test.txt \
   third_party/wycheproof_testvectors/rsa_pkcs1_2048_test.txt \
+  third_party/wycheproof_testvectors/rsa_pkcs1_3072_sig_gen_test.txt \
   third_party/wycheproof_testvectors/rsa_pkcs1_3072_test.txt \
+  third_party/wycheproof_testvectors/rsa_pkcs1_4096_sig_gen_test.txt \
   third_party/wycheproof_testvectors/rsa_pkcs1_4096_test.txt \
   third_party/wycheproof_testvectors/rsa_pss_2048_sha1_mgf1_20_test.txt \
   third_party/wycheproof_testvectors/rsa_pss_2048_sha256_mgf1_0_test.txt \
@@ -1037,7 +1085,6 @@ boringssl_crypto_test_data := \
   third_party/wycheproof_testvectors/rsa_pss_4096_sha256_mgf1_32_test.txt \
   third_party/wycheproof_testvectors/rsa_pss_4096_sha512_mgf1_32_test.txt \
   third_party/wycheproof_testvectors/rsa_pss_misc_test.txt \
-  third_party/wycheproof_testvectors/rsa_sig_gen_misc_test.txt \
   third_party/wycheproof_testvectors/rsa_signature_2048_sha224_test.txt \
   third_party/wycheproof_testvectors/rsa_signature_2048_sha256_test.txt \
   third_party/wycheproof_testvectors/rsa_signature_2048_sha384_test.txt \
@@ -1045,9 +1092,12 @@ boringssl_crypto_test_data := \
   third_party/wycheproof_testvectors/rsa_signature_3072_sha256_test.txt \
   third_party/wycheproof_testvectors/rsa_signature_3072_sha384_test.txt \
   third_party/wycheproof_testvectors/rsa_signature_3072_sha512_test.txt \
+  third_party/wycheproof_testvectors/rsa_signature_4096_sha256_test.txt \
   third_party/wycheproof_testvectors/rsa_signature_4096_sha384_test.txt \
   third_party/wycheproof_testvectors/rsa_signature_4096_sha512_test.txt \
-  third_party/wycheproof_testvectors/rsa_signature_test.txt \
+  third_party/wycheproof_testvectors/rsa_signature_8192_sha256_test.txt \
+  third_party/wycheproof_testvectors/rsa_signature_8192_sha384_test.txt \
+  third_party/wycheproof_testvectors/rsa_signature_8192_sha512_test.txt \
   third_party/wycheproof_testvectors/x25519_test.txt \
   third_party/wycheproof_testvectors/xchacha20_poly1305_test.txt
 
@@ -1083,6 +1133,14 @@ boringssl_decrepit_test_sources := \
   decrepit/evp/evp_test.cc \
   decrepit/ripemd/ripemd_test.cc \
   decrepit/xts/xts_test.cc
+
+boringssl_entropy_modulewrapper_sources := \
+  util/fipstools/acvp/entropy_modulewrapper/main.cc \
+  util/fipstools/acvp/entropy_modulewrapper/modulewrapper.cc \
+  util/fipstools/acvp/modulewrapper/proto.cc
+
+boringssl_entropy_modulewrapper_internal_headers := \
+  util/fipstools/acvp/modulewrapper/modulewrapper.h
 
 boringssl_fuzz_sources := \
   fuzz/arm_cpuinfo.cc \
@@ -1122,7 +1180,8 @@ boringssl_fuzz_sources := \
 
 boringssl_modulewrapper_sources := \
   util/fipstools/acvp/modulewrapper/main.cc \
-  util/fipstools/acvp/modulewrapper/modulewrapper.cc
+  util/fipstools/acvp/modulewrapper/modulewrapper.cc \
+  util/fipstools/acvp/modulewrapper/proto.cc
 
 boringssl_modulewrapper_internal_headers := \
   util/fipstools/acvp/modulewrapper/modulewrapper.h
@@ -2776,6 +2835,7 @@ boringssl_ssl_test_sources := \
 
 boringssl_test_support_sources := \
   crypto/test/abi_test.cc \
+  crypto/test/der_trailing_data.cc \
   crypto/test/file_test.cc \
   crypto/test/file_test_gtest.cc \
   crypto/test/file_util.cc \
@@ -2785,6 +2845,7 @@ boringssl_test_support_sources := \
 
 boringssl_test_support_internal_headers := \
   crypto/test/abi_test.h \
+  crypto/test/der_trailing_data.h \
   crypto/test/file_test.h \
   crypto/test/file_util.h \
   crypto/test/gtest_main.h \

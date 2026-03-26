@@ -1608,19 +1608,16 @@ SkRect SkCanvas::getLocalClipBounds() const {
         return SkRect::MakeEmpty();
     }
 
-    SkMatrix inverse;
+    auto inverse = fMCRec->fMatrix.asM33().invert();
     // if we can't invert the CTM, we can't return local clip bounds
-    if (!fMCRec->fMatrix.asM33().invert(&inverse)) {
+    if (!inverse) {
         return SkRect::MakeEmpty();
     }
 
-    SkRect bounds;
     // adjust it outwards in case we are antialiasing
     const int margin = 1;
 
-    SkRect r = SkRect::Make(ibounds.makeOutset(margin, margin));
-    inverse.mapRect(&bounds, r);
-    return bounds;
+    return inverse->mapRect(SkRect::Make(ibounds.makeOutset(margin, margin)));
 }
 
 SkIRect SkCanvas::getDeviceClipBounds() const {
@@ -1832,18 +1829,21 @@ void SkCanvas::drawImageLattice(const SkImage* image, const Lattice& lattice, co
     }
 }
 
-void SkCanvas::drawAtlas(const SkImage* atlas, const SkRSXform xform[], const SkRect tex[],
-                         const SkColor colors[], int count, SkBlendMode mode,
+void SkCanvas::drawAtlas(const SkImage* atlas, SkSpan<const SkRSXform> xform,
+                         SkSpan<const SkRect> tex, SkSpan<const SkColor> colors, SkBlendMode mode,
                          const SkSamplingOptions& sampling, const SkRect* cull,
                          const SkPaint* paint) {
     TRACE_EVENT0("skia", TRACE_FUNC);
     RETURN_ON_NULL(atlas);
-    if (count <= 0) {
+    size_t count = std::min(xform.size(), tex.size());
+    if (!colors.empty()) {
+        count = std::min(count, colors.size());
+    }
+    if (count == 0) {
         return;
     }
-    SkASSERT(atlas);
-    SkASSERT(tex);
-    this->onDrawAtlas2(atlas, xform, tex, colors, count, mode, sampling, cull, paint);
+    this->onDrawAtlas2(atlas, xform.data(), tex.data(), colors.data(), count, mode, sampling,
+                       cull, paint);
 }
 
 void SkCanvas::drawAnnotation(const SkRect& rect, const char key[], SkData* value) {
@@ -2221,7 +2221,7 @@ void SkCanvas::onDrawPath(const SkPath& path, const SkPaint& paint) {
 
     auto layer = this->aboutToDraw(paint, path.isInverseFillType() ? nullptr : &pathBounds);
     if (layer) {
-        this->topDevice()->drawPath(path, layer->paint(), false);
+        this->topDevice()->drawPath(path, layer->paint());
     }
 }
 
@@ -2673,8 +2673,9 @@ void SkCanvas::onDrawAtlas2(const SkImage* atlas, const SkRSXform xform[], const
     SkASSERT(!realPaint.getMaskFilter());
     auto layer = this->aboutToDraw(realPaint);
     if (layer) {
-        this->topDevice()->drawAtlas(xform, tex, colors, count, SkBlender::Mode(bmode),
-                                     layer->paint());
+        size_t N = SkToSizeT(count);
+        this->topDevice()->drawAtlas({xform, N}, {tex, N}, {colors, colors ? N : 0},
+                                     SkBlender::Mode(bmode), layer->paint());
     }
 }
 

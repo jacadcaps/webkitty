@@ -28,7 +28,7 @@
 
 #include "ContainerNodeInlines.h"
 #include "CSSSelector.h"
-#include "DocumentInlines.h"
+#include "DocumentPage.h"
 #include "EventLoop.h"
 #include "EventNames.h"
 #include "FocusOptions.h"
@@ -49,7 +49,7 @@
 
 namespace WebCore {
 
-WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(HTMLDialogElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLDialogElement);
 
 using namespace HTMLNames;
 
@@ -134,14 +134,17 @@ ExceptionOr<void> HTMLDialogElement::showModal()
 
     setIsModal(true);
 
-    auto containingBlockBeforeStyleResolution = SingleThreadWeakPtr<RenderBlock> { };
-    if (auto* renderer = this->renderer())
-        containingBlockBeforeStyleResolution = renderer->containingBlock();
+    {
+        CheckedPtr<RenderBlock> containingBlockBeforeStyleResolution;
+        CheckedPtr renderer = this->renderer();
+        if (renderer)
+            containingBlockBeforeStyleResolution = renderer->containingBlock();
 
-    if (!isInTopLayer())
-        addToTopLayer();
+        if (!isInTopLayer())
+            addToTopLayer();
 
-    RenderElement::markRendererDirtyAfterTopLayerChange(this->checkedRenderer().get(), containingBlockBeforeStyleResolution.get());
+        RenderElement::markRendererDirtyAfterTopLayerChange(renderer.get(), containingBlockBeforeStyleResolution.get());
+    }
 
     m_previouslyFocusedElement = document->focusedElement();
 

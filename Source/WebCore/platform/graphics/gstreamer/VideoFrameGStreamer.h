@@ -49,8 +49,8 @@ public:
     struct CreateOptions {
         CreateOptions() = default;
         CreateOptions(IntSize&& presentationSize, std::optional<Info>&& info = { })
-            : presentationSize(WTFMove(presentationSize))
-            , info(WTFMove(info))
+            : presentationSize(WTF::move(presentationSize))
+            , info(WTF::move(info))
         { }
         IntSize presentationSize;
         std::optional<Info> info;
@@ -79,7 +79,7 @@ public:
 
     GRefPtr<GstSample> downloadSample(std::optional<GstVideoFormat> = { });
 
-    GstSample* sample() const { return m_sample.get(); }
+    const GRefPtr<GstSample>& sample() const LIFETIME_BOUND { return m_sample; }
 
     RefPtr<ImageGStreamer> convertToImage();
 

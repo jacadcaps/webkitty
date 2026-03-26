@@ -42,6 +42,7 @@
 #include "WebExtensionURLSchemeHandler.h"
 #include "WebProcessProxy.h"
 #include "WebUserContentControllerProxy.h"
+#include <WebCore/ContentRuleListResults.h>
 #include <WebCore/Timer.h>
 #include <wtf/Forward.h>
 #include <wtf/Identified.h>
@@ -50,7 +51,6 @@
 #include <wtf/URLHash.h>
 #include <wtf/WeakHashSet.h>
 
-OBJC_CLASS NSError;
 OBJC_CLASS NSMenu;
 OBJC_CLASS _WKWebExtensionControllerHelper;
 OBJC_PROTOCOL(WKWebExtensionControllerDelegatePrivate);
@@ -74,6 +74,10 @@ class WebProcessPool;
 class WebsiteDataStore;
 struct WebExtensionControllerParameters;
 struct WebExtensionFrameParameters;
+
+#if ENABLE(DNR_ON_RULE_MATCHED_DEBUG)
+struct ContentRuleListMatchedRule;
+#endif
 
 #if ENABLE(INSPECTOR_EXTENSIONS)
 class WebInspectorUIProxy;
@@ -128,8 +132,8 @@ public:
     bool hasLoadedContexts() const { return !m_extensionContexts.isEmpty(); }
     bool isFreshlyCreated() const { return m_freshlyCreated; }
 
-    bool load(WebExtensionContext&, NSError ** = nullptr);
-    bool unload(WebExtensionContext&, NSError ** = nullptr);
+    Expected<bool, RefPtr<API::Error>> load(WebExtensionContext&);
+    Expected<bool, RefPtr<API::Error>> unload(WebExtensionContext&);
 
     void unloadAll();
 
@@ -141,7 +145,7 @@ public:
     const WebPageProxySet& allPages() const { return m_pages; }
 
     const WebsiteDataStoreSet& allWebsiteDataStores() const { return m_websiteDataStores; }
-    WebsiteDataStore* websiteDataStore(std::optional<PAL::SessionID> = std::nullopt) const;
+    RefPtr<WebsiteDataStore> websiteDataStore(std::optional<PAL::SessionID> = std::nullopt) const;
 
     // Includes both non-private and private browsing content controllers.
     const UserContentControllerProxySet& allUserContentControllers() const { return m_allUserContentControllers; }
@@ -171,6 +175,10 @@ public:
 
     void handleContentRuleListNotification(WebPageProxyIdentifier, URL&, WebCore::ContentRuleListResults&);
 
+#if ENABLE(DNR_ON_RULE_MATCHED_DEBUG)
+    void handleContentRuleListMatchedRule(WebPageProxyIdentifier, WebCore::ContentRuleListMatchedRule&);
+#endif
+
 #if ENABLE(INSPECTOR_EXTENSIONS)
     void inspectorWillOpen(WebInspectorUIProxy&, WebPageProxy&);
     void inspectorWillClose(WebInspectorUIProxy&, WebPageProxy&);
@@ -189,7 +197,8 @@ public:
 
 #ifdef __OBJC__
     WKWebExtensionController *wrapper() const { return (WKWebExtensionController *)API::ObjectImpl<API::Object::Type::WebExtensionController>::wrapper(); }
-    WKWebExtensionControllerDelegatePrivate *delegate() const { return (WKWebExtensionControllerDelegatePrivate *)wrapper().delegate; }
+    RetainPtr<WKWebExtensionController> protectedWrapper() const { return wrapper(); }
+    WKWebExtensionControllerDelegatePrivate *delegate() const { return (WKWebExtensionControllerDelegatePrivate *)protectedWrapper().get().delegate; }
 #endif
 
 private:

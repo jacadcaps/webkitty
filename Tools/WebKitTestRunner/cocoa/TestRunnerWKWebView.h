@@ -46,6 +46,7 @@
 @property (nonatomic, copy) void (^willStartInputSessionCallback)(void);
 @property (nonatomic, copy) void (^willPresentPopoverCallback)(void);
 @property (nonatomic, copy) void (^didDismissPopoverCallback)(void);
+@property (nonatomic, copy) void (^didPresentViewControllerCallback)(void);
 @property (nonatomic, copy) void (^didEndScrollingCallback)(void);
 @property (nonatomic, copy) void (^rotationDidEndCallback)(void);
 @property (nonatomic, copy) void (^windowTapRecognizedCallback)(void);
@@ -73,6 +74,9 @@
 @property (nonatomic, readonly, getter=isInteractingWithFormControl) BOOL interactingWithFormControl;
 @property (nonatomic) _WKFocusStartsInputSessionPolicy focusStartsInputSessionPolicy;
 
+@property (nonatomic, readonly) BOOL didCallEnsurePositionInformationIsUpToDateSinceLastCheck;
+- (void)clearEnsurePositionInformationIsUpToDateTracking;
+
 @property (nonatomic, assign) UIInterfaceOrientationMask supportedInterfaceOrientations;
 @property (nonatomic) BOOL suppressInputAccessoryView;
 
@@ -90,6 +94,10 @@
 @property (nonatomic, copy) void (^didHideContactPickerCallback)(void);
 @property (nonatomic, retain, setter=_setStableStateOverride:) NSNumber *_stableStateOverride;
 @property (nonatomic, setter=_setScrollingUpdatesDisabledForTesting:) BOOL _scrollingUpdatesDisabledForTesting;
+
+#if ENABLE(MODEL_ELEMENT_IMMERSIVE)
+@property (nonatomic, assign) BOOL shouldAcceptImmersiveEnvironmentRequests;
+#endif
 
 - (void)dismissActiveMenu;
 - (void)resetInteractionCallbacks;

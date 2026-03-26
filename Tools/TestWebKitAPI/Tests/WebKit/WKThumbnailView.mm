@@ -39,6 +39,7 @@
 #import <WebKit/WKWebViewPrivate.h>
 #import <WebKit/_WKThumbnailView.h>
 #import <wtf/RetainPtr.h>
+#import <wtf/darwin/DispatchExtras.h>
 
 static bool didFinishLoad;
 static bool didTakeSnapshot;
@@ -327,13 +328,16 @@ static std::pair<WebCore::Color, WebCore::Color> leftCornerColorsForThumbnailVie
 {
     __block RetainPtr<CGImageRef> snapshot;
     __block bool done = false;
-    dispatch_async(dispatch_get_main_queue(), ^{
+    dispatch_async(mainDispatchQueueSingleton(), ^{
         snapshot = thumbnailView._test_cgImage;
         done = true;
     });
     Util::run(&done);
     CGImagePixelReader pixelReader { snapshot.get() };
-    return std::pair { pixelReader.at(10, 10), pixelReader.at(10, pixelReader.height() - 10) };
+    return std::pair {
+        pixelReader.at(10, 210), // This top-left point in the flipped image actually corresponds to a point near the bottom left of the document.
+        pixelReader.at(10, pixelReader.height() - 10) // This bottom-left point in the flipped image corresponds to the fixed top header.
+    };
 }
 
 void checkThumbnailViewSnapshotConsistency(TestWKWebView *webView)

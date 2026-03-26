@@ -27,7 +27,7 @@
 #include "config.h"
 #include "SVGSMILElement.h"
 
-#include "AddEventListenerOptions.h"
+#include "AddEventListenerOptionsInlines.h"
 #include "CSSPropertyNames.h"
 #include "Document.h"
 #include "Event.h"
@@ -58,7 +58,7 @@
 
 namespace WebCore {
 
-WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(SVGSMILElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGSMILElement);
 
 static SMILEventSender& smilEventSender()
 {
@@ -80,13 +80,6 @@ public:
     static Ref<ConditionEventListener> create(SVGSMILElement* animation, SVGSMILElement::Condition* condition)
     {
         return adoptRef(*new ConditionEventListener(animation, condition));
-    }
-
-    static const ConditionEventListener* cast(const EventListener* listener)
-    {
-        return listener->type() == ConditionEventListenerType
-            ? static_cast<const ConditionEventListener*>(listener)
-            : nullptr;
     }
 
     bool operator==(const EventListener& other) const final;
@@ -112,7 +105,7 @@ private:
 
 bool ConditionEventListener::operator==(const EventListener& listener) const
 {
-    if (const ConditionEventListener* conditionEventListener = ConditionEventListener::cast(&listener))
+    if (auto* conditionEventListener = dynamicDowncast<ConditionEventListener>(listener))
         return m_animation == conditionEventListener->m_animation && m_condition == conditionEventListener->m_condition;
     return false;
 }
@@ -134,7 +127,7 @@ SVGSMILElement::Condition::Condition(Type type, BeginOrEnd beginOrEnd, const Str
 }
     
 SVGSMILElement::SVGSMILElement(const QualifiedName& tagName, Document& doc, UniqueRef<SVGPropertyRegistry>&& propertyRegistry)
-    : SVGElement(tagName, doc, WTFMove(propertyRegistry))
+    : SVGElement(tagName, doc, WTF::move(propertyRegistry))
     , m_attributeName(anyQName())
     , m_conditionsConnected(false)
     , m_hasEndEventConditions(false)
@@ -191,8 +184,8 @@ void SVGSMILElement::buildPendingResource()
         target = parentElement();
     else {
         auto result = SVGURIReference::targetElementFromIRIString(href.string(), treeScopeForSVGReferences());
-        target = WTFMove(result.element);
-        id = WTFMove(result.identifier);
+        target = WTF::move(result.element);
+        id = WTF::move(result.identifier);
     }
     RefPtr svgTarget = target && target->isConnected() ? dynamicDowncast<SVGElement>(*target) : nullptr;
 
@@ -441,7 +434,7 @@ bool SVGSMILElement::parseCondition(StringView value, BeginOrEnd beginOrEnd)
         nameString = nameView.toAtomString();
     }
     
-    m_conditions.append(Condition(type, beginOrEnd, baseID.toString(), WTFMove(nameString), offset, repeats));
+    m_conditions.append(Condition(type, beginOrEnd, baseID.toString(), WTF::move(nameString), offset, repeats));
 
     if (type == Condition::EventBase && beginOrEnd == End)
         m_hasEndEventConditions = true;
@@ -514,6 +507,9 @@ void SVGSMILElement::attributeChanged(const QualifiedName& name, const AtomStrin
         break;
     case AttributeNames::onbeginAttr:
         setAttributeEventListener(eventNames().beginEventEvent, name, newValue);
+        break;
+    case AttributeNames::onrepeatAttr:
+        setAttributeEventListener(eventNames().repeatEventEvent, name, newValue);
         break;
     default:
         break;
@@ -892,7 +888,8 @@ void SVGSMILElement::resolveFirstInterval()
     resolveInterval(true, begin, end);
     ASSERT(!begin.isIndefinite());
 
-    if (!begin.isUnresolved() && (begin != m_intervalBegin || end != m_intervalEnd)) {   
+    // Compare raw SMILTime values to avoids treating open-ended intervals as "new" on every call.
+    if (!begin.isUnresolved() && (begin.value() != m_intervalBegin.value() || end.value() != m_intervalEnd.value())) {
         m_intervalBegin = begin;
         m_intervalEnd = end;
         notifyDependentsIntervalChanged();
@@ -1166,6 +1163,11 @@ bool SVGSMILElement::progress(SMILTime elapsed, SVGSMILElement& firstAnimation, 
         if (oldActiveState == Inactive)
             startedActiveInterval();
 
+        // Only send repeat events here during normal animation run.
+        // When seekToTime is true, all repeat events are handled in the seekToTime block below.
+        if (!seekToTime && repeat && repeat != m_lastRepeat)
+            smilEventSender().dispatchEventSoon(*this, eventNames().repeatEventEvent);
+
         updateAnimation(percent, repeat);
         m_lastPercent = percent;
         m_lastRepeat = repeat;
@@ -1180,9 +1182,21 @@ bool SVGSMILElement::progress(SMILTime elapsed, SVGSMILElement& firstAnimation, 
         smilEventSender().dispatchEventSoon(*this, eventNames().beginEventEvent);
 
     // Triggering all the pending events if the animation timeline is changed.
+    // Handle repeat events entirely here when seeking.
     if (seekToTime) {
         if (m_activeState == Inactive || m_activeState == Frozen)
             smilEventSender().dispatchEventSoon(*this, eventNames().endEventEvent);
+
+        if (repeat) {
+            // We intentionally dispatch repeat - 1 events here because the first repeat
+            // event (for the initial loop) is sent elsewhere during continuous animation run.
+            // If repeat == 1, no events are dispatched here.
+            for (unsigned i = 0; i < repeat - 1; ++i)
+                smilEventSender().dispatchEventSoon(*this, eventNames().repeatEventEvent);
+
+            if (m_activeState == Inactive)
+                smilEventSender().dispatchEventSoon(*this, eventNames().repeatEventEvent);
+        }
     }
 
     m_nextProgressTime = calculateNextProgressTime(elapsed);
@@ -1254,4 +1268,11 @@ void SVGSMILElement::dispatchPendingEvent(SMILEventSender* eventSender, const At
     dispatchEvent(Event::create(eventType, Event::CanBubble::No, Event::IsCancelable::No));
 }
 
-}
+} // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::ConditionEventListener)
+    static bool isType(const WebCore::EventListener& listener)
+    {
+        return listener.type() == WebCore::EventListener::ConditionEventListenerType;
+    }
+SPECIALIZE_TYPE_TRAITS_END()

@@ -67,7 +67,7 @@ TEST(CTAPRequestTest, TestConstructMakeCredentialRequestParam)
     Vector<uint8_t> hash;
     Vector<String> extensions;
     hash.append(std::span { TestData::kClientDataHash });
-    auto serializedData = encodeMakeCredentialRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kSupportedAndConfigured, AuthenticatorSupportedOptions::ResidentKeyAvailability::kSupported, extensions);
+    auto serializedData = encodeMakeCredentialRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kSupportedAndConfigured, options.authenticatorSelection->userVerification, AuthenticatorSupportedOptions::ResidentKeyAvailability::kSupported, extensions);
     EXPECT_EQ(serializedData.size(), sizeof(TestData::kCtapMakeCredentialRequest));
     EXPECT_TRUE(equalSpans(serializedData.span(), std::span { TestData::kCtapMakeCredentialRequest }));
 }
@@ -91,7 +91,7 @@ TEST(CTAPRequestTest, TestConstructMakeCredentialRequestParamNoUVNoRK)
     Vector<uint8_t> hash;
     Vector<String> extensions;
     hash.append(std::span { TestData::kClientDataHash });
-    auto serializedData = encodeMakeCredentialRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kSupportedAndConfigured, AuthenticatorSupportedOptions::ResidentKeyAvailability::kSupported, extensions);
+    auto serializedData = encodeMakeCredentialRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kSupportedAndConfigured, options.authenticatorSelection->userVerification, AuthenticatorSupportedOptions::ResidentKeyAvailability::kSupported, extensions);
     EXPECT_EQ(serializedData.size(), sizeof(TestData::kCtapMakeCredentialRequestShort));
     EXPECT_TRUE(equalSpans(serializedData.span(), std::span { TestData::kCtapMakeCredentialRequestShort }));
 }
@@ -115,7 +115,7 @@ TEST(CTAPRequestTest, TestConstructMakeCredentialRequestParamUVRequiredButNotSup
     Vector<uint8_t> hash;
     Vector<String> extensions;
     hash.append(std::span { TestData::kClientDataHash });
-    auto serializedData = encodeMakeCredentialRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kNotSupported, AuthenticatorSupportedOptions::ResidentKeyAvailability::kSupported, extensions);
+    auto serializedData = encodeMakeCredentialRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kNotSupported, options.authenticatorSelection->userVerification, AuthenticatorSupportedOptions::ResidentKeyAvailability::kSupported, extensions);
     EXPECT_EQ(serializedData.size(), sizeof(TestData::kCtapMakeCredentialRequestShort));
     EXPECT_TRUE(equalSpans(serializedData.span(), std::span { TestData::kCtapMakeCredentialRequestShort }));
 }
@@ -143,7 +143,7 @@ TEST(CTAPRequestTest, TestConstructMakeCredentialRequestParamWithPin)
     Vector<uint8_t> hash;
     Vector<String> extensions;
     hash.append(std::span { TestData::kClientDataHash });
-    auto serializedData = encodeMakeCredentialRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kSupportedAndConfigured, AuthenticatorSupportedOptions::ResidentKeyAvailability::kSupported, extensions, pin);
+    auto serializedData = encodeMakeCredentialRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kSupportedAndConfigured, options.authenticatorSelection->userVerification, AuthenticatorSupportedOptions::ResidentKeyAvailability::kSupported, extensions, pin);
     EXPECT_EQ(serializedData.size(), sizeof(TestData::kCtapMakeCredentialRequestWithPin));
     EXPECT_TRUE(equalSpans(serializedData.span(), std::span { TestData::kCtapMakeCredentialRequestWithPin }));
 }
@@ -171,7 +171,7 @@ TEST(CTAPRequestTest, TestConstructMakeCredentialRequestRKPreferred)
     Vector<uint8_t> hash;
     Vector<String> extensions;
     hash.append(std::span { TestData::kClientDataHash });
-    auto serializedData = encodeMakeCredentialRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kSupportedAndConfigured, AuthenticatorSupportedOptions::ResidentKeyAvailability::kSupported, extensions, pin);
+    auto serializedData = encodeMakeCredentialRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kSupportedAndConfigured, options.authenticatorSelection->userVerification, AuthenticatorSupportedOptions::ResidentKeyAvailability::kSupported, extensions, pin);
     EXPECT_EQ(serializedData.size(), sizeof(TestData::kCtapMakeCredentialRequestWithPin));
     EXPECT_TRUE(equalSpans(serializedData.span(), std::span { TestData::kCtapMakeCredentialRequestWithPin }));
 }
@@ -195,7 +195,7 @@ TEST(CTAPRequestTest, TestConstructMakeCredentialRequestRKPreferredNotSupported)
     Vector<uint8_t> hash;
     Vector<String> extensions;
     hash.append(std::span { TestData::kClientDataHash });
-    auto serializedData = encodeMakeCredentialRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kNotSupported, AuthenticatorSupportedOptions::ResidentKeyAvailability::kNotSupported, extensions);
+    auto serializedData = encodeMakeCredentialRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kNotSupported, options.authenticatorSelection->userVerification, AuthenticatorSupportedOptions::ResidentKeyAvailability::kNotSupported, extensions);
     EXPECT_EQ(serializedData.size(), sizeof(TestData::kCtapMakeCredentialRequestShort));
     EXPECT_TRUE(equalSpans(serializedData.span(), std::span { TestData::kCtapMakeCredentialRequestShort }));
 }
@@ -219,7 +219,7 @@ TEST(CTAPRequestTest, TestConstructMakeCredentialRequestRKDiscouraged)
     Vector<uint8_t> hash;
     Vector<String> extensions;
     hash.append(std::span { TestData::kClientDataHash });
-    auto serializedData = encodeMakeCredentialRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kNotSupported, AuthenticatorSupportedOptions::ResidentKeyAvailability::kSupported, extensions);
+    auto serializedData = encodeMakeCredentialRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kNotSupported, options.authenticatorSelection->userVerification, AuthenticatorSupportedOptions::ResidentKeyAvailability::kSupported, extensions);
     EXPECT_EQ(serializedData.size(), sizeof(TestData::kCtapMakeCredentialRequestShort));
     EXPECT_TRUE(equalSpans(serializedData.span(), std::span { TestData::kCtapMakeCredentialRequestShort }));
 }
@@ -253,7 +253,7 @@ TEST(CTAPRequestTest, TestConstructMakeCredentialRequestWithLargeBlob)
     Vector<uint8_t> hash;
     Vector<String> extensions = { "largeBlob"_s };
     hash.append(std::span { TestData::kClientDataHash });
-    auto serializedData = encodeMakeCredentialRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kSupportedAndConfigured, AuthenticatorSupportedOptions::ResidentKeyAvailability::kSupported, extensions);
+    auto serializedData = encodeMakeCredentialRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kSupportedAndConfigured, options.authenticatorSelection->userVerification, AuthenticatorSupportedOptions::ResidentKeyAvailability::kSupported, extensions);
     EXPECT_EQ(serializedData.size(), sizeof(TestData::kCtapMakeCredentialRequestShortWithLargeBlob));
     EXPECT_TRUE(equalSpans(serializedData.span(), std::span { TestData::kCtapMakeCredentialRequestShortWithLargeBlob }));
 }
@@ -287,7 +287,7 @@ TEST(CTAPRequestTest, TestConstructMakeCredentialRequestWithUnsupportedLargeBlob
     Vector<uint8_t> hash;
     Vector<String> extensions;
     hash.append(std::span { TestData::kClientDataHash });
-    auto serializedData = encodeMakeCredentialRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kSupportedAndConfigured, AuthenticatorSupportedOptions::ResidentKeyAvailability::kSupported, extensions);
+    auto serializedData = encodeMakeCredentialRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kSupportedAndConfigured, options.authenticatorSelection->userVerification, AuthenticatorSupportedOptions::ResidentKeyAvailability::kSupported, extensions);
     EXPECT_EQ(serializedData.size(), sizeof(TestData::kCtapMakeCredentialRequestShort));
     EXPECT_TRUE(equalSpans(serializedData.span(), std::span { TestData::kCtapMakeCredentialRequestShort }));
 }
@@ -325,7 +325,7 @@ TEST(CTAPRequestTest, TestConstructGetAssertionRequest)
     Vector<uint8_t> hash;
     Vector<String> extensions;
     hash.append(std::span { TestData::kClientDataHash });
-    auto serializedData = encodeGetAssertionRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kSupportedAndConfigured, extensions);
+    auto serializedData = encodeGetAssertionRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kSupportedAndConfigured, options.userVerification, extensions);
     EXPECT_EQ(serializedData.size(), sizeof(TestData::kTestComplexCtapGetAssertionRequest));
     EXPECT_TRUE(equalSpans(serializedData.span(), std::span { TestData::kTestComplexCtapGetAssertionRequest }));
 }
@@ -363,7 +363,7 @@ TEST(CTAPRequestTest, TestConstructGetAssertionRequestNoUV)
     Vector<uint8_t> hash;
     Vector<String> extensions;
     hash.append(std::span { TestData::kClientDataHash });
-    auto serializedData = encodeGetAssertionRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kSupportedAndConfigured, extensions);
+    auto serializedData = encodeGetAssertionRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kSupportedAndConfigured, options.userVerification, extensions);
     EXPECT_EQ(serializedData.size(), sizeof(TestData::kTestComplexCtapGetAssertionRequestShort));
     EXPECT_TRUE(equalSpans(serializedData.span(), std::span { TestData::kTestComplexCtapGetAssertionRequestShort }));
 }
@@ -401,7 +401,7 @@ TEST(CTAPRequestTest, TestConstructGetAssertionRequestUVRequiredButNotSupported)
     Vector<uint8_t> hash;
     Vector<String> extensions;
     hash.append(std::span { TestData::kClientDataHash });
-    auto serializedData = encodeGetAssertionRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kNotSupported, extensions);
+    auto serializedData = encodeGetAssertionRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kNotSupported, options.userVerification, extensions);
     EXPECT_EQ(serializedData.size(), sizeof(TestData::kTestComplexCtapGetAssertionRequestShort));
     EXPECT_TRUE(equalSpans(serializedData.span(), std::span { TestData::kTestComplexCtapGetAssertionRequestShort }));
 }
@@ -443,7 +443,7 @@ TEST(CTAPRequestTest, TestConstructGetAssertionRequestWithPin)
     Vector<uint8_t> hash;
     Vector<String> extensions;
     hash.append(std::span { TestData::kClientDataHash });
-    auto serializedData = encodeGetAssertionRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kSupportedAndConfigured, extensions, pin);
+    auto serializedData = encodeGetAssertionRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kSupportedAndConfigured, options.userVerification, extensions, pin);
     EXPECT_EQ(serializedData.size(), sizeof(TestData::kTestComplexCtapGetAssertionRequestWithPin));
     EXPECT_TRUE(equalSpans(serializedData.span(), std::span { TestData::kTestComplexCtapGetAssertionRequestWithPin }));
 }
@@ -510,7 +510,7 @@ TEST(CTAPRequestTest, TestConstructGetAssertionRequestLargeBlobRead)
     Vector<uint8_t> hash;
     Vector<String> extensions = { "largeBlob"_s };
     hash.append(std::span { TestData::kClientDataHash });
-    auto serializedData = encodeGetAssertionRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kSupportedAndConfigured, extensions);
+    auto serializedData = encodeGetAssertionRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kSupportedAndConfigured, options.userVerification, extensions);
     EXPECT_EQ(serializedData.size(), sizeof(TestData::kTestComplexCtapGetAssertionRequestWithLargeBlobRead));
     EXPECT_TRUE(equalSpans(serializedData.span(), std::span { TestData::kTestComplexCtapGetAssertionRequestWithLargeBlobRead }));
 }
@@ -558,7 +558,7 @@ TEST(CTAPRequestTest, TestConstructGetAssertionRequestUnsupportedLargeBlobRead)
     Vector<uint8_t> hash;
     Vector<String> extensions;
     hash.append(std::span { TestData::kClientDataHash });
-    auto serializedData = encodeGetAssertionRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kSupportedAndConfigured, extensions);
+    auto serializedData = encodeGetAssertionRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kSupportedAndConfigured, options.userVerification, extensions);
     EXPECT_EQ(serializedData.size(), sizeof(TestData::kTestComplexCtapGetAssertionRequest));
     EXPECT_TRUE(equalSpans(serializedData.span(), std::span { TestData::kTestComplexCtapGetAssertionRequest }));
 }
@@ -610,9 +610,44 @@ TEST(CTAPRequestTest, TestConstructGetAssertionRequestLargeBlobWrite)
     Vector<uint8_t> hash;
     Vector<String> extensions;
     hash.append(std::span { TestData::kClientDataHash });
-    auto serializedData = encodeGetAssertionRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kSupportedAndConfigured, extensions);
+    auto serializedData = encodeGetAssertionRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kSupportedAndConfigured, options.userVerification, extensions);
     EXPECT_EQ(serializedData.size(), sizeof(TestData::kTestComplexCtapGetAssertionRequest));
     EXPECT_TRUE(equalSpans(serializedData.span(), std::span { TestData::kTestComplexCtapGetAssertionRequest }));
+}
+
+TEST(CTAPRequestTest, TestConstructGetAssertionRequestWithHmacSecret)
+{
+    PublicKeyCredentialRequestOptions options;
+    options.rpId = "acme.com"_s;
+
+    // Create hmac-secret extension inputs (two 32-byte salts)
+    const uint8_t salt1Data[32] = { 0x00 }; // 32 bytes of zeros
+    const uint8_t salt2Data[32] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+
+    AuthenticationExtensionsClientInputs extensions;
+    AuthenticationExtensionsClientInputs::PRFInputs prfInputs;
+    AuthenticationExtensionsClientInputs::PRFValues prfValues;
+    prfValues.first = WebCore::toBufferSource(salt1Data);
+    prfValues.second = WebCore::toBufferSource(salt2Data);
+    prfInputs.eval = WTF::move(prfValues);
+    extensions.prf = WTF::move(prfInputs);
+
+    options.extensions = extensions;
+
+    Vector<uint8_t> hash;
+    Vector<String> supportedExtensions { "hmac-secret"_s };
+    hash.append(std::span { TestData::kClientDataHash });
+
+    // Note: This will encode without HmacSecretParameters since that requires key agreement
+    // The full flow with HmacSecretParameters is tested separately
+    auto serializedData = encodeGetAssertionRequestAsCBOR(hash, options, AuthenticatorSupportedOptions::UserVerificationAvailability::kSupportedButNotConfigured, options.userVerification, supportedExtensions);
+
+    // Verify the request was encoded successfully
+    EXPECT_FALSE(serializedData.isEmpty());
+    EXPECT_EQ(serializedData[0], static_cast<uint8_t>(CtapRequestCommand::kAuthenticatorGetAssertion));
 }
 
 } // namespace TestWebKitAPI

@@ -148,9 +148,6 @@ const struct wl_registry_listener WindowViewBackend::s_registryListener = {
         if (!std::strcmp(interface, "xdg_wm_base"))
             window->m_xdg.wm = static_cast<struct xdg_wm_base*>(wl_registry_bind(registry, name, &xdg_wm_base_interface, 1));
 
-        if (!std::strcmp(interface, "zxdg_shell_v6"))
-            window->m_zxdg.shell = static_cast<struct zxdg_shell_v6*>(wl_registry_bind(registry, name, &zxdg_shell_v6_interface, 1));
-
         if (!std::strcmp(interface, "wl_seat"))
             window->m_seat = static_cast<struct wl_seat*>(wl_registry_bind(registry, name, &wl_seat_interface, 5));
     },
@@ -163,14 +160,6 @@ const struct xdg_wm_base_listener WindowViewBackend::XDGStable::s_wmListener = {
     [](void*, struct xdg_wm_base* xdgWM, uint32_t serial)
     {
         xdg_wm_base_pong(xdgWM, serial);
-    },
-};
-
-const struct zxdg_shell_v6_listener WindowViewBackend::XDGUnstable::s_shellListener = {
-    // ping
-    [](void*, struct zxdg_shell_v6* shell, uint32_t serial)
-    {
-        zxdg_shell_v6_pong(shell, serial);
     },
 };
 
@@ -532,8 +521,10 @@ const struct wl_seat_listener WindowViewBackend::s_seatListener = {
 
 const struct xdg_surface_listener WindowViewBackend::XDGStable::s_surfaceListener = {
     // configure
-    [](void*, struct xdg_surface* surface, uint32_t serial)
+    [](void* data, struct xdg_surface* surface, uint32_t serial)
     {
+        auto& window = *static_cast<WindowViewBackend*>(data);
+        window.configure();
         xdg_surface_ack_configure(surface, serial);
     },
 };
@@ -543,10 +534,14 @@ const struct xdg_toplevel_listener WindowViewBackend::XDGStable::s_toplevelListe
     [](void* data, struct xdg_toplevel*, int32_t width, int32_t height, struct wl_array* states)
     {
         auto& window = *static_cast<WindowViewBackend*>(data);
-        window.resize(std::max(0, width), std::max(0, height));
+        if (width && height) {
+            window.m_pendingState.width = width;
+            window.m_pendingState.height = height;
+        }
 
         bool isFocused = false;
         bool isFullscreen = false;
+        bool isMaximized = false;
         // FIXME: It would be nice if the following loop could use
         // wl_array_for_each, but at the time of writing it relies on
         // GCC specific extension to work properly:
@@ -563,19 +558,17 @@ const struct xdg_toplevel_listener WindowViewBackend::XDGStable::s_toplevelListe
                 isFullscreen = true;
                 break;
             case XDG_TOPLEVEL_STATE_MAXIMIZED:
+                isMaximized = true;
+                break;
             case XDG_TOPLEVEL_STATE_RESIZING:
             default:
                 break;
             }
         }
 
-        if (isFocused)
-            window.addActivityState(wpe_view_activity_state_focused);
-        else
-            window.removeActivityState(wpe_view_activity_state_focused);
-
-        if (window.m_is_fullscreen != isFullscreen)
-            window.onFullscreenChanged(isFullscreen);
+        window.m_pendingState.isFocused = isFocused;
+        window.m_pendingState.isFullscreen = isFullscreen;
+        window.m_pendingState.isMaximized = isMaximized;
     },
     // close
     [](void* data, struct xdg_toplevel*)
@@ -593,93 +586,29 @@ const struct xdg_toplevel_listener WindowViewBackend::XDGStable::s_toplevelListe
 #endif
 };
 
-const struct zxdg_surface_v6_listener WindowViewBackend::XDGUnstable::s_surfaceListener = {
-    // configure
-    [](void*, struct zxdg_surface_v6* surface, uint32_t serial)
-    {
-        zxdg_surface_v6_ack_configure(surface, serial);
-    },
-};
-
-const struct zxdg_toplevel_v6_listener WindowViewBackend::XDGUnstable::s_toplevelListener = {
-    // configure
-    [](void* data, struct zxdg_toplevel_v6*, int32_t width, int32_t height, struct wl_array* states)
-    {
-        auto& window = *static_cast<WindowViewBackend*>(data);
-        window.resize(std::max(0, width), std::max(0, height));
-
-        bool isFocused = false;
-        bool isFullscreen = false;
-        // FIXME: It would be nice if the following loop could use
-        // wl_array_for_each, but at the time of writing it relies on
-        // GCC specific extension to work properly:
-        // https://gitlab.freedesktop.org/wayland/wayland/issues/34
-        assert(!(states->size % sizeof(uint32_t)));
-        auto statesSpan = std::span(static_cast<uint32_t*>(states->data), states->size / sizeof(uint32_t));
-        for (auto state : statesSpan) {
-            switch (state) {
-            case ZXDG_TOPLEVEL_V6_STATE_ACTIVATED:
-                isFocused = true;
-                break;
-            case ZXDG_TOPLEVEL_V6_STATE_FULLSCREEN:
-                isFullscreen = true;
-                break;
-            case ZXDG_TOPLEVEL_V6_STATE_MAXIMIZED:
-            case ZXDG_TOPLEVEL_V6_STATE_RESIZING:
-            default:
-                break;
-            }
-        }
-
-        if (isFocused)
-            window.addActivityState(wpe_view_activity_state_focused);
-        else
-            window.removeActivityState(wpe_view_activity_state_focused);
-
-        if (window.m_is_fullscreen != isFullscreen)
-            window.onFullscreenChanged(isFullscreen);
-    },
-    // close
-    [](void* data, struct zxdg_toplevel_v6*)
-    {
-        auto& window = *static_cast<WindowViewBackend*>(data);
-        window.removeActivityState(wpe_view_activity_state_visible | wpe_view_activity_state_focused | wpe_view_activity_state_in_window);
-    },
-};
-
 #if WPE_CHECK_VERSION(1, 11, 1)
 
 bool WindowViewBackend::onDOMFullscreenRequest(void* data, bool fullscreen)
 {
     auto& window = *static_cast<WindowViewBackend*>(data);
-    if (window.m_waiting_fullscreen_notify)
+    if (window.m_waitingFullscreenNotify)
         return false;
 
-    if (fullscreen == window.m_is_fullscreen) {
+    if (fullscreen == window.m_fullscreen) {
         // Handle situations where DOM fullscreen requests are mixed with system fullscreen commands (e.g F11)
         window.dispatchFullscreenEvent();
         return true;
     }
 
-    window.m_waiting_fullscreen_notify = true;
-    if (window.m_xdg.toplevel) {
-        if (fullscreen)
-            xdg_toplevel_set_fullscreen(window.m_xdg.toplevel, nullptr);
-        else
-            xdg_toplevel_unset_fullscreen(window.m_xdg.toplevel);
-    } else if (window.m_zxdg.toplevel) {
-        if (fullscreen)
-            zxdg_toplevel_v6_set_fullscreen(window.m_zxdg.toplevel, nullptr);
-        else
-            zxdg_toplevel_v6_unset_fullscreen(window.m_zxdg.toplevel);
-    }
+    window.m_waitingFullscreenNotify = true;
+    window.setFullscreen(fullscreen);
 
     return true;
 }
 
 void WindowViewBackend::dispatchFullscreenEvent()
 {
-    if (m_is_fullscreen)
+    if (m_fullscreen)
         wpe_view_backend_dispatch_did_enter_fullscreen(backend());
     else
         wpe_view_backend_dispatch_did_exit_fullscreen(backend());
@@ -687,9 +616,9 @@ void WindowViewBackend::dispatchFullscreenEvent()
 
 void WindowViewBackend::onFullscreenChanged(bool fullscreen)
 {
-    bool wasRequestedFromDOM = m_waiting_fullscreen_notify;
-    m_waiting_fullscreen_notify= false;
-    m_is_fullscreen = fullscreen;
+    bool wasRequestedFromDOM = m_waitingFullscreenNotify;
+    m_waitingFullscreenNotify = false;
+    m_fullscreen = fullscreen;
 
     if (!fullscreen && !wasRequestedFromDOM)
         wpe_view_backend_dispatch_request_exit_fullscreen(backend());
@@ -701,7 +630,7 @@ void WindowViewBackend::onFullscreenChanged(bool fullscreen)
 
 void WindowViewBackend::onFullscreenChanged(bool fullscreen)
 {
-    m_is_fullscreen = fullscreen;
+    m_fullscreen = fullscreen;
 }
 
 #endif // WPE_CHECK_VERSION(1, 11, 1)
@@ -730,8 +659,6 @@ WindowViewBackend::WindowViewBackend(uint32_t width, uint32_t height)
 
         if (m_xdg.wm)
             xdg_wm_base_add_listener(m_xdg.wm, &XDGStable::s_wmListener, nullptr);
-        else if (m_zxdg.shell)
-            zxdg_shell_v6_add_listener(m_zxdg.shell, &XDGUnstable::s_shellListener, nullptr);
 
         if (m_seat)
             wl_seat_add_listener(m_seat, &s_seatListener, this);
@@ -755,21 +682,11 @@ WindowViewBackend::WindowViewBackend(uint32_t width, uint32_t height)
     m_surface = wl_compositor_create_surface(m_compositor);
     if (m_xdg.wm) {
         m_xdg.surface = xdg_wm_base_get_xdg_surface(m_xdg.wm, m_surface);
-        xdg_surface_add_listener(m_xdg.surface, &XDGStable::s_surfaceListener, nullptr);
+        xdg_surface_add_listener(m_xdg.surface, &XDGStable::s_surfaceListener, this);
         m_xdg.toplevel = xdg_surface_get_toplevel(m_xdg.surface);
         if (m_xdg.toplevel) {
             xdg_toplevel_add_listener(m_xdg.toplevel, &XDGStable::s_toplevelListener, this);
             xdg_toplevel_set_title(m_xdg.toplevel, "WPE");
-            wl_surface_commit(m_surface);
-            addActivityState(wpe_view_activity_state_visible | wpe_view_activity_state_in_window);
-        }
-    } else if (m_zxdg.shell) {
-        m_zxdg.surface = zxdg_shell_v6_get_xdg_surface(m_zxdg.shell, m_surface);
-        zxdg_surface_v6_add_listener(m_zxdg.surface, &XDGUnstable::s_surfaceListener, nullptr);
-        m_zxdg.toplevel = zxdg_surface_v6_get_toplevel(m_zxdg.surface);
-        if (m_zxdg.toplevel) {
-            zxdg_toplevel_v6_add_listener(m_zxdg.toplevel, &XDGUnstable::s_toplevelListener, this);
-            zxdg_toplevel_v6_set_title(m_zxdg.toplevel, "WPE");
             wl_surface_commit(m_surface);
             addActivityState(wpe_view_activity_state_visible | wpe_view_activity_state_in_window);
         }
@@ -845,11 +762,6 @@ WindowViewBackend::~WindowViewBackend()
     if (m_xdg.surface)
         xdg_surface_destroy(m_xdg.surface);
 
-    if (m_zxdg.toplevel)
-        zxdg_toplevel_v6_destroy(m_zxdg.toplevel);
-    if (m_zxdg.surface)
-        zxdg_surface_v6_destroy(m_zxdg.surface);
-
     if (m_surface)
         wl_surface_destroy(m_surface);
 
@@ -858,9 +770,6 @@ WindowViewBackend::~WindowViewBackend()
 
     if (m_xdg.wm)
         xdg_wm_base_destroy(m_xdg.wm);
-
-    if (m_zxdg.shell)
-        zxdg_shell_v6_destroy(m_zxdg.shell);
 
     if (m_seat)
         wl_seat_destroy(m_seat);
@@ -929,6 +838,45 @@ void WindowViewBackend::resize(uint32_t width, uint32_t height)
     if (m_viewTexture)
         glDeleteTextures(1, &m_viewTexture);
     createViewTexture();
+}
+
+void WindowViewBackend::saveSize()
+{
+    if (m_fullscreen || m_maximized)
+        return;
+
+    m_savedSize.width = m_width ? m_width : m_initialSize.width;
+    m_savedSize.height = m_height ? m_height : m_initialSize.height;
+}
+
+void WindowViewBackend::configure()
+{
+    bool isFixedSize = m_pendingState.isFullscreen || m_pendingState.isMaximized;
+    bool wasFixedSize = m_fullscreen || m_maximized;
+    auto width = m_pendingState.width;
+    auto height = m_pendingState.height;
+    bool useSavedSize = !width.has_value() && !height.has_value();
+    if (useSavedSize && !isFixedSize && wasFixedSize) {
+        width = m_savedSize.width;
+        height = m_savedSize.height;
+    }
+
+    if (width.has_value() && height.has_value()) {
+        if (!useSavedSize)
+            saveSize();
+        resize(*width, *height);
+    }
+
+    if (m_pendingState.isFocused)
+        addActivityState(wpe_view_activity_state_focused);
+    else
+        removeActivityState(wpe_view_activity_state_focused);
+
+    if (m_pendingState.isFullscreen != m_fullscreen)
+        onFullscreenChanged(m_pendingState.isFullscreen);
+    m_maximized = m_pendingState.isMaximized;
+
+    m_pendingState = { };
 }
 
 bool WindowViewBackend::initialize(EGLDisplay eglDisplay)
@@ -1058,6 +1006,17 @@ void WindowViewBackend::displayBuffer(struct wpe_fdo_egl_exported_image* image)
     wl_callback_add_listener(callback, &s_frameListener, this);
 
     eglSwapBuffers(connection.eglDisplay, m_eglSurface);
+
+    if (!m_didReceiveFirstFrame) {
+        // For some reason fullscreen doesn't work if requested before the first frame is rendered, so
+        // we delay the call to xdg_toplevel_set_fullscreen() until the first buffer is received.
+        if (m_enterFullscreenAfterFirstFrame) {
+            saveSize();
+            xdg_toplevel_set_fullscreen(m_xdg.toplevel, nullptr);
+            m_enterFullscreenAfterFirstFrame = false;
+        }
+        m_didReceiveFirstFrame = true;
+    }
 }
 
 #if WPE_FDO_CHECK_VERSION(1, 5, 0)
@@ -1085,6 +1044,40 @@ uint32_t WindowViewBackend::modifiers() const
     if (m_seatData.pointer.object)
         mask |= m_seatData.pointer.modifiers;
     return mask;
+}
+
+void WindowViewBackend::setFullscreen(bool fullscreen)
+{
+    if (m_fullscreen == fullscreen)
+        return;
+
+    if (!m_xdg.toplevel)
+        return;
+
+    if (fullscreen) {
+        if (m_didReceiveFirstFrame) {
+            saveSize();
+            xdg_toplevel_set_fullscreen(m_xdg.toplevel, nullptr);
+        } else
+            m_enterFullscreenAfterFirstFrame = true;
+    } else {
+        xdg_toplevel_unset_fullscreen(m_xdg.toplevel);
+        m_enterFullscreenAfterFirstFrame = false;
+    }
+}
+
+void WindowViewBackend::setMaximized(bool maximized)
+{
+    if (m_maximized == maximized)
+        return;
+
+    if (!m_xdg.toplevel)
+        return;
+
+    if (maximized)
+        xdg_toplevel_set_maximized(m_xdg.toplevel);
+    else
+        xdg_toplevel_unset_maximized(m_xdg.toplevel);
 }
 
 } // namespace WPEToolingBackends

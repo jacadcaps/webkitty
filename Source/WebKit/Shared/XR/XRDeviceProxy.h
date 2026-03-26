@@ -35,6 +35,7 @@
 
 namespace WebCore {
 class SecurityOriginData;
+struct XRCanvasConfiguration;
 }
 
 namespace WebKit {
@@ -56,7 +57,7 @@ private:
 
     WebCore::IntSize recommendedResolution(PlatformXR::SessionMode) final { return m_recommendedResolution; }
     double minimumNearClipPlane() const final { return m_minimumNearClipPlane; }
-    void initializeTrackingAndRendering(const WebCore::SecurityOriginData&, PlatformXR::SessionMode, const PlatformXR::Device::FeatureList&) final;
+    void initializeTrackingAndRendering(const WebCore::SecurityOriginData&, PlatformXR::SessionMode, const PlatformXR::Device::FeatureList&, std::optional<WebCore::XRCanvasConfiguration>&&) final;
     void shutDownTrackingAndRendering() final;
     void didCompleteShutdownTriggeredBySystem() final;
     bool supportsSessionShutdownNotification() const final { return true; }
@@ -66,6 +67,13 @@ private:
     std::optional<PlatformXR::LayerHandle> createLayerProjection(uint32_t, uint32_t, bool) final;
     void deleteLayer(PlatformXR::LayerHandle) override { };
     void submitFrame(Vector<PlatformXR::Device::Layer>&&) final;
+
+#if ENABLE(WEBXR_HIT_TEST)
+    void requestHitTestSource(const PlatformXR::HitTestOptions&, CompletionHandler<void(WebCore::ExceptionOr<PlatformXR::HitTestSource>)>&&) final;
+    void deleteHitTestSource(PlatformXR::HitTestSource) final;
+    void requestTransientInputHitTestSource(const PlatformXR::TransientInputHitTestOptions&, CompletionHandler<void(WebCore::ExceptionOr<PlatformXR::TransientInputHitTestSource>)>&&) final;
+    void deleteTransientInputHitTestSource(PlatformXR::TransientInputHitTestSource) final;
+#endif
 
     XRDeviceIdentifier m_identifier;
     WeakPtr<PlatformXRSystemProxy> m_xrSystem;

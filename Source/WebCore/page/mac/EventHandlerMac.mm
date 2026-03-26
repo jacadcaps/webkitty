@@ -33,10 +33,12 @@
 #import "ChromeClient.h"
 #import "DataTransfer.h"
 #import "DictionaryLookup.h"
+#import "DocumentPage.h"
+#import "DocumentQuirks.h"
+#import "DocumentView.h"
 #import "DragController.h"
 #import "Editor.h"
 #import "FocusController.h"
-#import "FrameInlines.h"
 #import "FrameLoader.h"
 #import "HTMLBodyElement.h"
 #import "HTMLDocument.h"
@@ -45,7 +47,7 @@
 #import "HTMLIFrameElement.h"
 #import "HandleUserInputEventResult.h"
 #import "KeyboardEvent.h"
-#import "LocalFrame.h"
+#import "LocalFrameInlines.h"
 #import "LocalFrameView.h"
 #import "Logging.h"
 #import "MouseEventWithHitTestResults.h"
@@ -254,9 +256,9 @@ bool EventHandler::passMouseDownEventToWidget(Widget* pWidget)
 
     BEGIN_BLOCK_OBJC_EXCEPTIONS
 
-    NSView *nodeView = widget->platformWidget();
-    ASSERT([nodeView superview]);
-    NSView *view = [nodeView hitTest:[[nodeView superview] convertPoint:[currentNSEvent() locationInWindow] fromView:nil]];
+    RetainPtr nodeView = widget->platformWidget();
+    ASSERT([nodeView.get() superview]);
+    NSView *view = [nodeView.get() hitTest:[[nodeView.get() superview] convertPoint:[currentNSEvent() locationInWindow] fromView:nil]];
     if (!view) {
         // We probably hit the border of a RenderWidget
         return true;
@@ -332,18 +334,18 @@ static bool findViewInSubviews(NSView *superview, NSView *target)
     return false;
 }
 
-NSView *EventHandler::mouseDownViewIfStillGood()
+RetainPtr<NSView> EventHandler::mouseDownViewIfStillGood()
 {
     // Since we have no way of tracking the lifetime of m_mouseDownView, we have to assume that
     // it could be deallocated already. We search for it in our subview tree; if we don't find
     // it, we set it to nil.
-    NSView *mouseDownView = m_mouseDownView;
+    RetainPtr mouseDownView = m_mouseDownView.get();
     if (!mouseDownView) {
         return nil;
     }
     auto* topFrameView = m_frame->view();
-    NSView *topView = topFrameView ? topFrameView->platformWidget() : nil;
-    if (!topView || !findViewInSubviews(topView, mouseDownView)) {
+    RetainPtr<NSView> topView = topFrameView ? topFrameView->platformWidget() : nil;
+    if (!topView || !findViewInSubviews(topView.get(), mouseDownView.get())) {
         m_mouseDownView = nil;
         return nil;
     }
@@ -353,7 +355,7 @@ NSView *EventHandler::mouseDownViewIfStillGood()
 #if ENABLE(DRAG_SUPPORT)
 bool EventHandler::eventLoopHandleMouseDragged(const MouseEventWithHitTestResults&)
 {
-    NSView *view = mouseDownViewIfStillGood();
+    RetainPtr view = mouseDownViewIfStillGood();
     
     if (!view)
         return false;
@@ -373,7 +375,7 @@ bool EventHandler::eventLoopHandleMouseDragged(const MouseEventWithHitTestResult
 
 bool EventHandler::eventLoopHandleMouseUp(const MouseEventWithHitTestResults&)
 {
-    NSView *view = mouseDownViewIfStillGood();
+    RetainPtr view = mouseDownViewIfStillGood();
     if (!view)
         return false;
 
@@ -484,7 +486,7 @@ bool EventHandler::passWheelEventToWidget(const PlatformWheelEvent& wheelEvent, 
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
 
-    NSView* nodeView = widget.platformWidget();
+    RetainPtr nodeView = widget.platformWidget();
     if (!nodeView) {
         // WebKit2 code path.
         RefPtr frameView = dynamicDowncast<LocalFrameView>(widget);
@@ -498,8 +500,8 @@ bool EventHandler::passWheelEventToWidget(const PlatformWheelEvent& wheelEvent, 
         return false;
 
     ASSERT(nodeView);
-    ASSERT([nodeView superview]);
-    NSView *view = [nodeView hitTest:[[nodeView superview] convertPoint:[currentNSEvent() locationInWindow] fromView:nil]];
+    ASSERT([nodeView.get() superview]);
+    NSView *view = [nodeView.get() hitTest:[[nodeView.get() superview] convertPoint:[currentNSEvent() locationInWindow] fromView:nil]];
     if (!view) {
         // We probably hit the border of a RenderWidget
         return false;
@@ -737,10 +739,10 @@ HandleUserInputEventResult EventHandler::passMouseReleaseEventToSubframe(MouseEv
 
 PlatformMouseEvent EventHandler::currentPlatformMouseEvent() const
 {
-    NSView *windowView = nil;
+    RetainPtr<NSView> windowView;
     if (RefPtr page = m_frame->page())
         windowView = page->chrome().platformPageClient();
-    return PlatformEventFactory::createPlatformMouseEvent(currentNSEvent(), correspondingPressureEvent(), windowView);
+    return PlatformEventFactory::createPlatformMouseEvent(currentNSEvent(), correspondingPressureEvent(), windowView.get());
 }
 
 bool EventHandler::eventActivatedView(const PlatformMouseEvent& event) const
@@ -810,20 +812,13 @@ static ContainerNode* findEnclosingScrollableContainer(ContainerNode* node, cons
 
 static WeakPtr<ScrollableArea> scrollableAreaForEventTarget(Element* eventTarget)
 {
-    auto* widget = EventHandler::widgetForEventTarget(eventTarget);
-    if (!widget || !widget->isScrollView())
-        return { };
-
-    return static_cast<ScrollableArea&>(static_cast<ScrollView&>(*widget));
+    return dynamicDowncast<ScrollView>(EventHandler::widgetForEventTarget(eventTarget));
 }
     
 static bool eventTargetIsPlatformWidget(Element* eventTarget)
 {
-    Widget* widget = EventHandler::widgetForEventTarget(eventTarget);
-    if (!widget)
-        return false;
-    
-    return widget->platformWidget();
+    auto* widget = EventHandler::widgetForEventTarget(eventTarget);
+    return widget && widget->platformWidget();
 }
 
 static WeakPtr<ScrollableArea> scrollableAreaForContainerNode(ContainerNode& container)
@@ -856,7 +851,7 @@ void EventHandler::determineWheelEventTarget(const PlatformWheelEvent& wheelEven
         if (scrollableContainer)
             scrollableArea = scrollableAreaForContainerNode(*scrollableContainer);
         else
-            scrollableArea = static_cast<ScrollableArea&>(*view);
+            scrollableArea = *view;
     }
 
     LOG_WITH_STREAM(ScrollLatching, stream << "EventHandler::determineWheelEventTarget() - event " << wheelEvent << " found scrollableArea " << ValueOrNull(scrollableArea.get()) << ", latching state is " << page->scrollLatchingController());
@@ -921,7 +916,6 @@ bool EventHandler::processWheelEventForScrolling(const PlatformWheelEvent& wheel
 
 void EventHandler::wheelEventWasProcessedByMainThread(const PlatformWheelEvent& wheelEvent, OptionSet<EventHandling> eventHandling)
 {
-#if ENABLE(ASYNC_SCROLLING)
     if (!m_frame->page())
         return;
 
@@ -935,10 +929,6 @@ void EventHandler::wheelEventWasProcessedByMainThread(const PlatformWheelEvent& 
         if (scrollingCoordinator->coordinatesScrollingForFrameView(*view))
             scrollingCoordinator->wheelEventWasProcessedByMainThread(wheelEvent, m_wheelScrollGestureState);
     }
-#else
-    UNUSED_PARAM(wheelEvent);
-    UNUSED_PARAM(eventHandling);
-#endif
 }
 
 bool EventHandler::platformCompletePlatformWidgetWheelEvent(const PlatformWheelEvent& wheelEvent, const Widget& widget, const WeakPtr<ScrollableArea>& scrollableArea)
@@ -1020,10 +1010,10 @@ IntPoint EventHandler::targetPositionInWindowForSelectionAutoscroll() const
 {
     RefPtr page = m_frame->page();
     if (!page)
-        return valueOrDefault(m_lastKnownMousePosition);
+        return flooredIntPoint(valueOrDefault(m_lastKnownMousePosition));
 
     auto frame = toUserSpaceForPrimaryScreen(screenRectForDisplay(page->chrome().displayID()));
-    return valueOrDefault(m_lastKnownMousePosition) + autoscrollAdjustmentFactorForScreenBoundaries(m_lastKnownMouseGlobalPosition, frame);
+    return flooredIntPoint(valueOrDefault(m_lastKnownMousePosition)) + autoscrollAdjustmentFactorForScreenBoundaries(flooredIntPoint(m_lastKnownMouseGlobalPosition), frame);
 }
 
 }

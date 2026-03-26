@@ -27,13 +27,13 @@
 
 #if ENABLE(VIDEO_PRESENTATION_MODE)
 
-#include "EventListener.h"
-#include "FloatRect.h"
-#include "HTMLMediaElement.h"
-#include "MediaPlayerEnums.h"
-#include "MediaPlayerIdentifier.h"
-#include "PlatformLayer.h"
-#include "VideoPresentationModel.h"
+#include <WebCore/EventListener.h>
+#include <WebCore/FloatRect.h>
+#include <WebCore/HTMLMediaElement.h>
+#include <WebCore/MediaPlayerEnums.h>
+#include <WebCore/MediaPlayerIdentifier.h>
+#include <WebCore/PlatformLayer.h>
+#include <WebCore/VideoPresentationModel.h>
 #include <wtf/CheckedPtr.h>
 #include <wtf/Function.h>
 #include <wtf/HashSet.h>
@@ -77,7 +77,7 @@ public:
     WEBCORE_EXPORT void setVideoLayerFrame(FloatRect) final;
     WEBCORE_EXPORT void setVideoLayerGravity(MediaPlayerEnums::VideoGravity) final;
     WEBCORE_EXPORT void setVideoFullscreenFrame(FloatRect) final;
-    WEBCORE_EXPORT void fullscreenModeChanged(HTMLMediaElementEnums::VideoFullscreenMode) final;
+    WEBCORE_EXPORT void fullscreenModeChanged(HTMLMediaElementEnums::VideoFullscreenMode, ShouldNotifyMediaElement) final;
     FloatSize videoDimensions() const final { return m_videoDimensions; }
     bool hasVideo() const final { return m_hasVideo; }
     bool isChildOfElementFullscreen() const final { return m_isChildOfElementFullscreen; }
@@ -137,6 +137,7 @@ private:
 
     // HTMLMediaElementClient
     void audioSessionCategoryChanged(AudioSessionCategory, AudioSessionMode, RouteSharingPolicy) final;
+    void routingContextUIDChanged(const String&) final;
 
     const Ref<VideoListener> m_videoListener;
     RefPtr<HTMLVideoElement> m_videoElement;
@@ -148,8 +149,6 @@ private:
     bool m_isChildOfElementFullscreen { false };
     FloatSize m_videoDimensions;
     FloatRect m_videoFrame;
-    Vector<RefPtr<TextTrack>> m_legibleTracksForMenu;
-    Vector<RefPtr<AudioTrack>> m_audioTracksForMenu;
     std::optional<MediaPlayerIdentifier> m_playerIdentifier;
     WeakPtr<Document, WeakPtrImplWithEventTargetData> m_document;
 #if !RELEASE_LOG_DISABLED

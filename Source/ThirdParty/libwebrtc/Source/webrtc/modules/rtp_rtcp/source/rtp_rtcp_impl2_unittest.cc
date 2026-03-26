@@ -12,7 +12,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <deque>
 #include <map>
 #include <memory>
 #include <optional>
@@ -27,6 +26,7 @@
 #include "api/rtp_headers.h"
 #include "api/rtp_parameters.h"
 #include "api/task_queue/task_queue_base.h"
+#include "api/task_queue/task_queue_factory.h"
 #include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
 #include "api/video/video_codec_type.h"
@@ -57,6 +57,7 @@
 #include "system_wrappers/include/ntp_time.h"
 #include "test/gmock.h"
 #include "test/gtest.h"
+#include "test/near_matcher.h"
 #include "test/rtcp_packet_parser.h"
 #include "test/time_controller/simulated_time_controller.h"
 
@@ -92,36 +93,31 @@ enum : int {
   kTransmissionOffsetExtensionId,
 };
 
-MATCHER_P2(Near, value, margin, "") {
-  return value - margin <= arg && arg <= value + margin;
-}
-
 class RtcpRttStatsTestImpl : public RtcpRttStats {
  public:
   RtcpRttStatsTestImpl() : rtt_ms_(0) {}
   ~RtcpRttStatsTestImpl() override = default;
 
   void OnRttUpdate(int64_t rtt_ms) override { rtt_ms_ = rtt_ms; }
-  int64_t LastProcessedRtt() const override { return rtt_ms_; }
+  int64_t LastProcessedRtt() const { return rtt_ms_; }
+
+ private:
   int64_t rtt_ms_;
 };
 
-// TODO(bugs.webrtc.org/11581): remove inheritance once the ModuleRtpRtcpImpl2
-// Module/ProcessThread dependency is gone.
-class SendTransport : public Transport,
-                      public sim_time_impl::SimulatedSequenceRunner {
+class SendTransport : public Transport {
  public:
-  SendTransport(TimeDelta delay, GlobalSimulatedTimeController* time_controller)
+  SendTransport(TimeDelta delay, TaskQueueFactory& task_queue_factory)
       : receiver_(nullptr),
-        time_controller_(time_controller),
         delay_(delay),
         rtp_packets_sent_(0),
         rtcp_packets_sent_(0),
-        last_packet_(&header_extensions_) {
-    time_controller_->Register(this);
-  }
+        last_packet_(&header_extensions_),
+        rtcp_packets_(task_queue_factory.CreateTaskQueue(
+            "transport",
+            TaskQueueFactory::Priority::NORMAL)) {}
 
-  ~SendTransport() { time_controller_->Unregister(this); }
+  ~SendTransport() override = default;
 
   void SetRtpRtcpModule(ModuleRtpRtcpImpl2* receiver) { receiver_ = receiver; }
   void SimulateNetworkDelay(TimeDelta delay) { delay_ = delay; }
@@ -136,49 +132,33 @@ class SendTransport : public Transport,
     test::RtcpPacketParser parser;
     parser.Parse(data);
     last_nack_list_ = parser.nack()->packet_ids();
-    Timestamp current_time = time_controller_->GetClock()->CurrentTime();
-    Timestamp delivery_time = current_time + delay_;
-    rtcp_packets_.push_back(
-        Packet{delivery_time, std::vector<uint8_t>(data.begin(), data.end())});
-    ++rtcp_packets_sent_;
-    RunReady(current_time);
-    return true;
-  }
 
-  // sim_time_impl::SimulatedSequenceRunner
-  Timestamp GetNextRunTime() const override {
-    if (!rtcp_packets_.empty())
-      return rtcp_packets_.front().send_time;
-    return Timestamp::PlusInfinity();
-  }
-  void RunReady(Timestamp at_time) override {
-    while (!rtcp_packets_.empty() &&
-           rtcp_packets_.front().send_time <= at_time) {
-      Packet packet = std::move(rtcp_packets_.front());
-      rtcp_packets_.pop_front();
-      EXPECT_TRUE(receiver_);
-      receiver_->IncomingRtcpPacket(packet.data);
+    if (delay_ == TimeDelta::Zero()) {
+      receiver_->IncomingRtcpPacket(data);
+    } else {
+      ModuleRtpRtcpImpl2* receiver = receiver_;
+      std::vector<uint8_t> packet(data.begin(), data.end());
+      rtcp_packets_->PostDelayedTask(
+          [receiver, packet = std::move(packet)] {
+            receiver->IncomingRtcpPacket(packet);
+          },
+          delay_);
     }
-  }
-  TaskQueueBase* GetAsTaskQueue() override {
-    return reinterpret_cast<TaskQueueBase*>(this);
+
+    ++rtcp_packets_sent_;
+    return true;
   }
 
   size_t NumRtcpSent() { return rtcp_packets_sent_; }
 
   ModuleRtpRtcpImpl2* receiver_;
-  GlobalSimulatedTimeController* const time_controller_;
   TimeDelta delay_;
   int rtp_packets_sent_;
   size_t rtcp_packets_sent_;
   std::vector<uint16_t> last_nack_list_;
   RtpHeaderExtensionMap header_extensions_;
   RtpPacketReceived last_packet_;
-  struct Packet {
-    Timestamp send_time;
-    std::vector<uint8_t> data;
-  };
-  std::deque<Packet> rtcp_packets_;
+  std::unique_ptr<TaskQueueBase, TaskQueueDeleter> rtcp_packets_;
 };
 
 class RtpRtcpModule : public RtcpPacketTypeCounterObserver,
@@ -193,13 +173,11 @@ class RtpRtcpModule : public RtcpPacketTypeCounterObserver,
     uint32_t ssrc;
   };
 
-  RtpRtcpModule(const Environment& env,
-                GlobalSimulatedTimeController* time_controller,
-                bool is_sender)
+  RtpRtcpModule(const Environment& env, bool is_sender)
       : env_(env),
         is_sender_(is_sender),
         receive_statistics_(ReceiveStatistics::Create(&env.clock())),
-        transport_(kOneWayNetworkDelay, time_controller) {
+        transport_(kOneWayNetworkDelay, env_.task_queue_factory()) {
     CreateModuleImpl();
   }
 
@@ -304,12 +282,8 @@ class RtpRtcpImpl2Test : public ::testing::Test {
       : time_controller_(Timestamp::Micros(133590000000000)),
         env_(CreateEnvironment(time_controller_.GetClock(),
                                time_controller_.CreateTaskQueueFactory())),
-        sender_(env_,
-                &time_controller_,
-                /*is_sender=*/true),
-        receiver_(env_,
-                  &time_controller_,
-                  /*is_sender=*/false) {}
+        sender_(env_, /*is_sender=*/true),
+        receiver_(env_, /*is_sender=*/false) {}
 
   void SetUp() override {
     // Send module.
@@ -387,7 +361,13 @@ class RtpRtcpImpl2Test : public ::testing::Test {
     rtp_video_header.simulcastIdx = 0;
     rtp_video_header.codec = kVideoCodecVP8;
     rtp_video_header.video_type_header = vp8_header;
-    rtp_video_header.video_timing = {0u, 0u, 0u, 0u, 0u, 0u, false};
+    rtp_video_header.video_timing = {.encode_start_delta_ms = 0u,
+                                     .encode_finish_delta_ms = 0u,
+                                     .packetization_finish_delta_ms = 0u,
+                                     .pacer_exit_delta_ms = 0u,
+                                     .network_timestamp_delta_ms = 0u,
+                                     .network2_timestamp_delta_ms = 0u,
+                                     .flags = false};
 
     const uint8_t payload[100] = {0};
     bool success = module->impl_->OnSendingRtpFrame(0, 0, kPayloadType, true);
@@ -461,8 +441,7 @@ TEST_F(RtpRtcpImpl2Test, Rtt) {
   AdvanceTime(kOneWayNetworkDelay);
 
   // Verify RTT.
-  EXPECT_THAT(sender_.impl_->LastRtt(),
-              Near(2 * kOneWayNetworkDelay, TimeDelta::Millis(1)));
+  EXPECT_THAT(sender_.impl_->LastRtt(), Near(2 * kOneWayNetworkDelay));
 
   // Verify RTT from rtt_stats config.
   EXPECT_EQ(0, sender_.rtt_stats_.LastProcessedRtt());

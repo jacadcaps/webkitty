@@ -12,15 +12,16 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/memory/memory.h"
 #include "absl/strings/string_view.h"
 #include "api/audio/audio_device.h"
+#include "api/create_modular_peer_connection_factory.h"
 #include "api/enable_media_with_defaults.h"
 #include "api/environment/environment.h"
-#include "api/environment/environment_factory.h"
 #include "api/peer_connection_interface.h"
 #include "api/rtc_event_log/rtc_event_log_factory.h"
 #include "api/scoped_refptr.h"
@@ -37,6 +38,7 @@
 #include "rtc_base/checks.h"
 #include "rtc_base/system/file_wrapper.h"
 #include "rtc_base/thread.h"
+#include "test/create_test_environment.h"
 #include "test/pc/e2e/analyzer/video/quality_analyzing_video_encoder.h"
 #include "test/pc/e2e/analyzer/video/video_quality_analyzer_injection_helper.h"
 #include "test/pc/e2e/echo/echo_emulation.h"
@@ -282,6 +284,7 @@ std::unique_ptr<TestPeer> TestPeerFactory::CreateTestPeer(
   std::vector<PeerConfigurer::VideoSource> video_sources =
       configurer->ReleaseVideoSources();
   RTC_DCHECK(components);
+  RTC_DCHECK(components->pcf_dependencies->field_trials);
   RTC_DCHECK(params);
   RTC_DCHECK(configurable_params);
   RTC_DCHECK_EQ(configurable_params->video_configs.size(),
@@ -289,9 +292,9 @@ std::unique_ptr<TestPeer> TestPeerFactory::CreateTestPeer(
   SetMandatoryEntities(components.get());
   params->rtc_configuration.sdp_semantics = SdpSemantics::kUnifiedPlan;
 
-  const Environment env = CreateEnvironment(
-      std::move(components->pcf_dependencies->trials),
-      time_controller_.GetClock(), time_controller_.GetTaskQueueFactory());
+  const Environment env = CreateTestEnvironment(
+      {.field_trials = std::move(components->pcf_dependencies->field_trials),
+       .time = &time_controller_});
 
   // Create peer connection factory.
   scoped_refptr<AudioDeviceModule> audio_device_module =

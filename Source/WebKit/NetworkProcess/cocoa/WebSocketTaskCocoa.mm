@@ -43,14 +43,19 @@ using namespace WebCore;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(WebSocketTask);
 
+Ref<WebSocketTask> WebSocketTask::create(NetworkSocketChannel& channel, WebPageProxyIdentifier webProxyPageID, std::optional<WebCore::FrameIdentifier> frameID, std::optional<WebCore::PageIdentifier> pageID, WeakPtr<SessionSet>&& sessionSet, const WebCore::ResourceRequest& request, const WebCore::ClientOrigin& clientOrigin, RetainPtr<NSURLSessionWebSocketTask>&& task, WebCore::StoredCredentialsPolicy storedCredentialsPolicy)
+{
+    return adoptRef(*new WebSocketTask(channel, webProxyPageID, frameID, pageID, WTF::move(sessionSet), request, clientOrigin, WTF::move(task), storedCredentialsPolicy));
+}
+
 WebSocketTask::WebSocketTask(NetworkSocketChannel& channel, WebPageProxyIdentifier webProxyPageID, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, WeakPtr<SessionSet>&& sessionSet, const WebCore::ResourceRequest& request, const WebCore::ClientOrigin& clientOrigin, RetainPtr<NSURLSessionWebSocketTask>&& task, WebCore::StoredCredentialsPolicy storedCredentialsPolicy)
     : NetworkTaskCocoa(*channel.session())
     , m_channel(channel)
-    , m_task(WTFMove(task))
+    , m_task(WTF::move(task))
     , m_webProxyPageID(webProxyPageID)
     , m_frameID(frameID)
     , m_pageID(pageID)
-    , m_sessionSet(WTFMove(sessionSet))
+    , m_sessionSet(WTF::move(sessionSet))
     , m_partition(request.cachePartition())
     , m_storedCredentialsPolicy(storedCredentialsPolicy)
 {
@@ -60,9 +65,9 @@ WebSocketTask::WebSocketTask(NetworkSocketChannel& channel, WebPageProxyIdentifi
         m_topOrigin = clientOrigin.topOrigin;
 
     bool shouldBlockCookies = storedCredentialsPolicy == WebCore::StoredCredentialsPolicy::EphemeralStateless;
-    if (CheckedPtr networkStorageSession = networkSession() ? networkSession()->networkStorageSession() : nullptr) {
+    if (CheckedPtr session = networkSession(); CheckedPtr networkStorageSession = session ? session->networkStorageSession() : nullptr) {
         if (!shouldBlockCookies)
-            shouldBlockCookies = networkStorageSession->shouldBlockCookies(request, frameID, pageID, shouldRelaxThirdPartyCookieBlocking());
+            shouldBlockCookies = networkStorageSession->shouldBlockCookies(request, frameID, pageID, shouldRelaxThirdPartyCookieBlocking(), NetworkSession::isRequestToKnownCrossSiteTracker(request));
     }
     if (shouldBlockCookies)
         blockCookies();
@@ -70,7 +75,7 @@ WebSocketTask::WebSocketTask(NetworkSocketChannel& channel, WebPageProxyIdentifi
     readNextMessage();
     protectedChannel()->didSendHandshakeRequest(ResourceRequest { [m_task currentRequest] });
 
-#if HAVE(ALLOW_ONLY_PARTITIONED_COOKIES)
+#if ENABLE(OPT_IN_PARTITIONED_COOKIES) && defined(CFN_COOKIE_ACCEPTS_POLICY_PARTITION) && CFN_COOKIE_ACCEPTS_POLICY_PARTITION
     updateTaskWithStoragePartitionIdentifier(request);
 #endif
 }
@@ -84,25 +89,25 @@ RefPtr<NetworkSocketChannel> WebSocketTask::protectedChannel() const
 
 void WebSocketTask::readNextMessage()
 {
-    [m_task receiveMessageWithCompletionHandler:makeBlockPtr([weakThis = WeakPtr { *this }](NSURLSessionWebSocketMessage* _Nullable message, NSError * _Nullable error) {
-        CheckedPtr checkedThis = weakThis.get();
-        if (!checkedThis)
+    [m_task receiveMessageWithCompletionHandler:makeBlockPtr([weakThis = ThreadSafeWeakPtr { *this }](NSURLSessionWebSocketMessage* _Nullable message, NSError * _Nullable error) {
+        RefPtr protectedThis = weakThis.get();
+        if (!protectedThis)
             return;
 
-        RefPtr channel = checkedThis->m_channel.get();
+        RefPtr channel = protectedThis->m_channel.get();
         if (error) {
             // If closeCode is not zero, we are closing the connection and didClose will be called for us.
-            if ([checkedThis->m_task closeCode])
+            if ([protectedThis->m_task closeCode])
                 return;
 
-            if (!checkedThis->m_receivedDidConnect) {
-                ResourceResponse response { [checkedThis->m_task response] };
+            if (!protectedThis->m_receivedDidConnect) {
+                ResourceResponse response { [protectedThis->m_task response] };
                 if (!response.isNull())
-                    channel->didReceiveHandshakeResponse(WTFMove(response));
+                    channel->didReceiveHandshakeResponse(WTF::move(response));
             }
 
             channel->didReceiveMessageError([error localizedDescription]);
-            checkedThis->didClose(WebCore::ThreadableWebSocketChannel::CloseEventCodeAbnormalClosure, emptyString());
+            protectedThis->didClose(WebCore::ThreadableWebSocketChannel::CloseEventCodeAbnormalClosure, emptyString());
             return;
         }
         if (message.type == NSURLSessionWebSocketMessageTypeString)
@@ -110,7 +115,7 @@ void WebSocketTask::readNextMessage()
         else
             channel->didReceiveBinaryData(span(message.data));
 
-        checkedThis->readNextMessage();
+        protectedThis->readNextMessage();
     }).get()];
 }
 
@@ -154,7 +159,7 @@ void WebSocketTask::sendString(std::span<const uint8_t> utf8String, CompletionHa
         return;
     }
     auto message = adoptNS([[NSURLSessionWebSocketMessage alloc] initWithString:text.get()]);
-    [m_task sendMessage:message.get() completionHandler:makeBlockPtr([callback = WTFMove(callback)](NSError * _Nullable) mutable {
+    [m_task sendMessage:message.get() completionHandler:makeBlockPtr([callback = WTF::move(callback)](NSError * _Nullable) mutable {
         callback();
     }).get()];
 }
@@ -163,7 +168,7 @@ void WebSocketTask::sendData(std::span<const uint8_t> data, CompletionHandler<vo
 {
     RetainPtr nsData = toNSData(data);
     auto message = adoptNS([[NSURLSessionWebSocketMessage alloc] initWithData:nsData.get()]);
-    [m_task sendMessage:message.get() completionHandler:makeBlockPtr([callback = WTFMove(callback)](NSError * _Nullable) mutable {
+    [m_task sendMessage:message.get() completionHandler:makeBlockPtr([callback = WTF::move(callback)](NSError * _Nullable) mutable {
         callback();
     }).get()];
 }

@@ -20,9 +20,9 @@
 
 #pragma once
 
-#include "JSDOMWrapper.h"
 #include "JSTestDefaultToJSONInherit.h"
 #include "TestDefaultToJSONInheritFinal.h"
+#include <WebCore/JSDOMWrapper.h>
 
 namespace WebCore {
 
@@ -33,7 +33,7 @@ public:
     static JSTestDefaultToJSONInheritFinal* create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestDefaultToJSONInheritFinal>&& impl)
     {
         SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
-        JSTestDefaultToJSONInheritFinal* ptr = new (NotNull, JSC::allocateCell<JSTestDefaultToJSONInheritFinal>(vm)) JSTestDefaultToJSONInheritFinal(structure, *globalObject, WTFMove(impl));
+        JSTestDefaultToJSONInheritFinal* ptr = new (NotNull, JSC::allocateCell<JSTestDefaultToJSONInheritFinal>(vm)) JSTestDefaultToJSONInheritFinal(structure, *globalObject, WTF::move(impl));
         ptr->finishCreation(vm);
         return ptr;
     }
@@ -70,6 +70,9 @@ protected:
     DECLARE_DEFAULT_FINISH_CREATION;
 };
 
+JSC::JSValue toJS(JSC::JSGlobalObject*, JSDOMGlobalObject*, TestDefaultToJSONInheritFinal&);
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject*, Ref<TestDefaultToJSONInheritFinal>&&);
+ALWAYS_INLINE JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestDefaultToJSONInheritFinal& impl) { return toJSNewlyCreated(lexicalGlobalObject, globalObject, Ref { impl }); }
 
 template<> struct JSDOMWrapperConverterTraits<TestDefaultToJSONInheritFinal> {
     using WrapperClass = JSTestDefaultToJSONInheritFinal;

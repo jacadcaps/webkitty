@@ -27,6 +27,7 @@
 
 #if PLATFORM(MAC)
 #import "PowerObserverMac.h"
+#import <wtf/CheckedPtr.h>
 #import <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -34,12 +35,13 @@ namespace WebCore {
 WTF_MAKE_TZONE_ALLOCATED_IMPL(PowerObserver);
 
 PowerObserver::PowerObserver(Function<void()>&& powerOnHander)
-    : m_powerOnHander(WTFMove(powerOnHander))
+    : m_powerOnHander(WTF::move(powerOnHander))
     , m_powerConnection(0)
     , m_notificationPort(nullptr)
     , m_notifierReference(0)
-    , m_dispatchQueue(adoptOSObject(dispatch_queue_create("com.apple.WebKit.PowerObserver", 0)))
 {
+    // FIXME: This is a false positive for dispatch_queue_create. rdar://160931336
+    SUPPRESS_RETAINPTR_CTOR_ADOPT m_dispatchQueue = adoptOSObject(dispatch_queue_create("com.apple.WebKit.PowerObserver", 0));
     m_powerConnection = IORegisterForSystemPower(this, &m_notificationPort, [](void* context, io_service_t service, uint32_t messageType, void* messageArgument) {
         static_cast<PowerObserver*>(context)->didReceiveSystemPowerNotification(service, messageType, messageArgument);
     }, &m_notifierReference);
@@ -69,9 +71,9 @@ void PowerObserver::didReceiveSystemPowerNotification(io_service_t, uint32_t mes
 
     // We need to restart the timer on the main thread.
     WeakPtr weakThis { *this };
-    CFRunLoopPerformBlock(CFRunLoopGetMain(), kCFRunLoopCommonModes, ^() {
-        if (weakThis)
-            weakThis->m_powerOnHander();
+    CFRunLoopPerformBlock(RetainPtr { CFRunLoopGetMain() }.get(), kCFRunLoopCommonModes, ^() {
+        if (CheckedPtr checkedThis = weakThis.get())
+            checkedThis->m_powerOnHander();
     });
 }
 

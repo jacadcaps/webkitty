@@ -29,7 +29,9 @@
 
 #import "HTTPServer.h"
 #import "TestUIDelegate.h"
+#import "TestWKWebView.h"
 #import "WebExtensionUtilities.h"
+#import <wtf/darwin/DispatchExtras.h>
 
 namespace TestWebKitAPI {
 
@@ -299,6 +301,29 @@ TEST(WKWebExtensionAPIRuntime, GetManifest)
 
     auto *backgroundScript = Util::constructScript(@[
         @"browser.test.assertDeepEq(browser.runtime.getManifest(), { manifest_version: 3, background: { persistent: false, scripts: [ 'background.js' ], type: 'module' }, unused: null })",
+
+        @"browser.test.notifyPass()"
+    ]);
+
+    Util::loadAndRunExtension(testManifest, @{ @"background.js": backgroundScript });
+}
+
+TEST(WKWebExtensionAPIRuntime, GetVersion)
+{
+    auto *testManifest = @{
+        @"manifest_version": @3,
+
+        @"version": @"1.0",
+
+        @"background": @{
+            @"scripts": @[ @"background.js" ],
+            @"type": @"module",
+            @"persistent": @NO,
+        }
+    };
+
+    auto *backgroundScript = Util::constructScript(@[
+        @"browser.test.assertEq(browser.runtime.getVersion(), '1.0')",
 
         @"browser.test.notifyPass()"
     ]);
@@ -689,8 +714,8 @@ TEST(WKWebExtensionAPIRuntime, SendMessageFromSubframe)
         { "/subframe"_s, { { { "Content-Type"_s, "text/html"_s } }, ""_s } },
     }, TestWebKitAPI::HTTPServer::Protocol::Http);
 
-    auto *urlRequestMain = server.requestWithLocalhost("/main"_s);
-    auto *urlRequestSubframe = server.request("/subframe"_s);
+    RetainPtr urlRequestMain = server.requestWithLocalhost("/main"_s);
+    RetainPtr urlRequestSubframe = server.request("/subframe"_s);
 
     auto *backgroundScript = Util::constructScript(@[
         @"browser.runtime.onMessage.addListener((message, sender) => {",
@@ -737,11 +762,11 @@ TEST(WKWebExtensionAPIRuntime, SendMessageFromSubframe)
 
     auto manager = Util::loadExtension(manifest, resources);
 
-    [manager.get().context setPermissionStatus:WKWebExtensionContextPermissionStatusGrantedExplicitly forURL:urlRequestSubframe.URL];
+    [manager.get().context setPermissionStatus:WKWebExtensionContextPermissionStatusGrantedExplicitly forURL:urlRequestSubframe.get().URL];
 
     [manager runUntilTestMessage:@"Load Tab"];
 
-    [manager.get().defaultTab.webView loadRequest:urlRequestMain];
+    [manager.get().defaultTab.webView loadRequest:urlRequestMain.get()];
 
     [manager run];
 }
@@ -1076,8 +1101,8 @@ TEST(WKWebExtensionAPIRuntime, ConnectFromSubframe)
         { "/subframe"_s, { { { "Content-Type"_s, "text/html"_s } }, ""_s } },
     }, TestWebKitAPI::HTTPServer::Protocol::Http);
 
-    auto *urlRequestMain = server.requestWithLocalhost("/main"_s);
-    auto *urlRequestSubframe = server.request("/subframe"_s);
+    RetainPtr urlRequestMain = server.requestWithLocalhost("/main"_s);
+    RetainPtr urlRequestSubframe = server.request("/subframe"_s);
 
     auto *backgroundScript = Util::constructScript(@[
         @"browser.runtime.onConnect.addListener((port) => {",
@@ -1132,11 +1157,11 @@ TEST(WKWebExtensionAPIRuntime, ConnectFromSubframe)
 
     auto manager = Util::loadExtension(manifest, resources);
 
-    [manager.get().context setPermissionStatus:WKWebExtensionContextPermissionStatusGrantedExplicitly forURL:urlRequestSubframe.URL];
+    [manager.get().context setPermissionStatus:WKWebExtensionContextPermissionStatusGrantedExplicitly forURL:urlRequestSubframe.get().URL];
 
     [manager runUntilTestMessage:@"Load Tab"];
 
-    [manager.get().defaultTab.webView loadRequest:urlRequestMain];
+    [manager.get().defaultTab.webView loadRequest:urlRequestMain.get()];
 
     [manager run];
 }
@@ -1395,7 +1420,7 @@ TEST(WKWebExtensionAPIRuntime, SendNativeMessage)
         EXPECT_NS_EQUAL(applicationIdentifier, @"test");
         EXPECT_NS_EQUAL(message, @"Hello");
 
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), mainDispatchQueueSingleton(), ^{
             replyHandler(@"Received", nil);
         });
     };
@@ -1419,7 +1444,7 @@ TEST(WKWebExtensionAPIRuntime, SendNativeMessageWithInvalidReply)
         EXPECT_NS_EQUAL(applicationIdentifier, @"test");
         EXPECT_NS_EQUAL(message, @"Hello");
 
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), mainDispatchQueueSingleton(), ^{
             replyHandler(@{ @"bad": NSUUID.UUID }, nil);
         });
     };

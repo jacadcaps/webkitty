@@ -44,11 +44,15 @@ add_library(Skia STATIC
     src/base/SkUtils.cpp
 
     src/codec/SkCodec.cpp
+    src/codec/SkCodecColorProfile.cpp
     src/codec/SkCodecImageGenerator.cpp
     src/codec/SkColorPalette.cpp
     src/codec/SkEncodedInfo.cpp
     src/codec/SkExif.cpp
     src/codec/SkGainmapInfo.cpp
+    src/codec/SkHdrAgtm.cpp
+    src/codec/SkHdrAgtmParse.cpp
+    src/codec/SkHdrMetadata.cpp
     src/codec/SkImageGenerator_FromEncoded.cpp
     src/codec/SkJpegCodec.cpp
     src/codec/SkJpegDecoderMgr.cpp
@@ -124,7 +128,6 @@ add_library(Skia STATIC
     src/core/SkDistanceFieldGen.cpp
     src/core/SkDocument.cpp
     src/core/SkDraw.cpp
-    src/core/SkDrawBase.cpp
     src/core/SkDrawShadowInfo.cpp
     src/core/SkDraw_atlas.cpp
     src/core/SkDraw_text.cpp
@@ -185,10 +188,15 @@ add_library(Skia STATIC
     src/core/SkPaintPriv.cpp
     src/core/SkPath.cpp
     src/core/SkPathBuilder.cpp
+    src/core/SkPathData.cpp
     src/core/SkPathEffect.cpp
+    src/core/SkPathIter.cpp
     src/core/SkPathMeasure.cpp
-    src/core/SkPathRef.cpp
+    src/core/SkPathPriv.cpp
+    src/core/SkPathRaw.cpp
+    src/core/SkPathRawShapes.cpp
     src/core/SkPathUtils.cpp
+    src/core/SkPath_pathdata.cpp
     src/core/SkPath_serial.cpp
     src/core/SkPicture.cpp
     src/core/SkPictureData.cpp
@@ -833,7 +841,6 @@ else ()
             src/ports/SkFontConfigInterface_direct.cpp
             src/ports/SkFontConfigInterface_direct_factory.cpp
             src/ports/SkFontMgr_fontconfig.cpp
-            src/ports/SkFontMgr_fontconfig_freetype.cpp
         )
         target_link_libraries(Skia PRIVATE Fontconfig::Fontconfig)
     endif ()

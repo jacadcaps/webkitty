@@ -20,9 +20,16 @@
     }
 </style>
 <script>
+    function handleDragUpdate(event) {
+        event.preventDefault();
+        document.getElementById(`${event.type}Items`).textContent = JSON.stringify([...event.dataTransfer.items].map(item => {
+            return { kind: item.kind, type: item.type, file: item.getAsFile() };
+        }));
+    }
+
     function runTest() {
-        destination.addEventListener("dragenter", event => event.preventDefault());
-        destination.addEventListener("dragover", event => event.preventDefault());
+        destination.addEventListener("dragenter", handleDragUpdate);
+        destination.addEventListener("dragover", handleDragUpdate);
         destination.addEventListener("drop", event => {
             filecount.textContent = event.dataTransfer.files.length;
             destination.setAttribute("src", URL.createObjectURL(event.dataTransfer.files[0]));
@@ -42,6 +49,8 @@
     <div id="output">
         <div>Number of files: <span id="filecount">N/A</span></div>
         <div>Image loaded? <span style="color: red" id="imageload">false</span></div>
+        <div>dragenter items: <span id="dragenterItems"></span></div>
+        <div>dragover items: <span id="dragoverItems"></span></div>
     </div>
 </body>
 </html>

@@ -27,7 +27,7 @@ if [[ $@ == *debug* ]]; then
   echo "Building a Debug build"
   DEBUG=true
   EXTRA_CFLAGS="\"-DSK_DEBUG\", \"-DGPU_TEST_UTILS\", "
-  RELEASE_CONF="-O1 --js-opts 0 -sDEMANGLE_SUPPORT=1 -frtti -sASSERTIONS=1 -sGL_ASSERTIONS=1 -g \
+  RELEASE_CONF="-O1 --js-opts 0 -frtti -sASSERTIONS=1 -sGL_ASSERTIONS=1 -g \
                 -DSK_DEBUG --pre-js $BASE_DIR/debug.js"
   BUILD_DIR=${BUILD_DIR:="out/wasm_gm_tests_debug"}
 else
@@ -79,7 +79,7 @@ echo "Compiling bitcode"
   --args="skia_emsdk_dir=\"${EMSDK}\" \
   extra_cflags_cc=[\"-frtti\"] \
   extra_cflags=[\"-sMAIN_MODULE=1\",
-    \"-DSKNX_NO_SIMD\", \"-DSK_FORCE_AAA\",
+    \"-DSKNX_NO_SIMD\",
     \"-DSK_FORCE_8_BYTE_ALIGNMENT\",
     ${GN_GPU_FLAGS}
     ${EXTRA_CFLAGS}
@@ -96,7 +96,6 @@ echo "Compiling bitcode"
   skia_use_webgl=true \
   skia_use_fontconfig=false \
   skia_use_freetype=true \
-  skia_use_libheif=true \
   skia_use_libjpeg_turbo_decode=true \
   skia_use_libjpeg_turbo_encode=true \
   skia_use_libpng_decode=true \
@@ -137,10 +136,8 @@ echo "Generating final wasm"
 # Defines for the emscripten compilation step, which builds the tests
 # Aim to match the defines that would be set by gn for the skia compilation step.
 SKIA_DEFINES="
--DSK_FORCE_AAA \
 -DSK_FORCE_8_BYTE_ALIGNMENT \
 -DSK_HAS_WUFFS_LIBRARY \
--DSK_HAS_HEIF_LIBRARY \
 -DSK_CODEC_DECODES_WEBP \
 -DSK_CODEC_DECODES_PNG \
 -DSK_CODEC_DECODES_JPEG \
@@ -211,7 +208,7 @@ EMCC_DEBUG=1 ${EMCXX} \
     -DGPU_TEST_UTILS \
     $SKIA_DEFINES \
     $WASM_GPU \
-    -std=c++17 \
+    -std=c++20 \
     --profiling-funcs \
     --profiling \
     --bind \

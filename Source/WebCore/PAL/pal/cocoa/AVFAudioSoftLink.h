@@ -25,6 +25,12 @@
 
 #pragma once
 
+// FIXME: Remove the `__has_feature(modules)` condition when possible.
+#if !__has_feature(modules)
+
+#include <wtf/Compiler.h>
+#include <wtf/Platform.h>
+
 #if HAVE(AVAUDIOAPPLICATION)
 
 #import <AVFAudio/AVFAudio.h>
@@ -33,8 +39,10 @@
 SOFT_LINK_FRAMEWORK_FOR_HEADER(PAL, AVFAudio)
 SOFT_LINK_CLASS_FOR_HEADER(PAL, AVAudioApplication)
 SOFT_LINK_CONSTANT_FOR_HEADER(PAL, AVFAudio, AVAudioApplicationInputMuteStateChangeNotification, NSString *)
-#define AVAudioApplicationInputMuteStateChangeNotification PAL::get_AVFAudio_AVAudioApplicationInputMuteStateChangeNotification()
+#define AVAudioApplicationInputMuteStateChangeNotification PAL::get_AVFAudio_AVAudioApplicationInputMuteStateChangeNotificationSingleton()
 SOFT_LINK_CONSTANT_FOR_HEADER(PAL, AVFAudio, AVAudioApplicationMuteStateKey, NSString *)
-#define AVAudioApplicationMuteStateKey PAL::get_AVFAudio_AVAudioApplicationMuteStateKey()
+#define AVAudioApplicationMuteStateKey PAL::get_AVFAudio_AVAudioApplicationMuteStateKeySingleton()
 
 #endif // HAVE(AVAUDIOAPPLICATION)
+
+#endif // !__has_feature(modules)

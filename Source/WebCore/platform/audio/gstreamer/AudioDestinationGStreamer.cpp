@@ -31,6 +31,7 @@
 #include <gst/audio/gstaudiobasesink.h>
 #include <gst/gst.h>
 #include <wtf/PrintStream.h>
+#include <wtf/Scope.h>
 #include <wtf/glib/GUniquePtr.h>
 #include <wtf/glib/RunLoopSourcePriority.h>
 #include <wtf/text/MakeString.h>
@@ -119,17 +120,40 @@ AudioDestinationGStreamer::AudioDestinationGStreamer(const CreationOptions& opti
     : AudioDestination(options)
     , m_renderBus(AudioBus::create(options.numberOfOutputChannels, AudioUtilities::renderQuantumSize, false))
 {
+}
+
+AudioDestinationGStreamer::~AudioDestinationGStreamer()
+{
+    auto scopeExit = makeScopeExit([&] {
+        notifyStopResult(true);
+    });
+
+    if (!m_pipeline)
+        return;
+
+    GST_DEBUG_OBJECT(m_pipeline.get(), "Disposing");
+    unregisterPipeline(m_pipeline);
+    disconnectSimpleBusMessageCallback(m_pipeline.get());
+    gst_element_set_state(m_pipeline.get(), GST_STATE_NULL);
+}
+
+void AudioDestinationGStreamer::initializePipeline()
+{
+    if (m_pipeline)
+        return;
+
     static Atomic<uint32_t> pipelineId;
     m_pipeline = gst_pipeline_new(makeString("audio-destination-"_s, pipelineId.exchangeAdd(1)).ascii().data());
     registerActivePipeline(m_pipeline);
-    connectSimpleBusMessageCallback(m_pipeline.get(), [this](GstMessage* message) {
-        this->handleMessage(message);
+    connectSimpleBusMessageCallback(m_pipeline.get(), [weakThis = ThreadSafeWeakPtr { *this }](GstMessage* message) {
+        RefPtr destination = weakThis.get();
+        if (!destination)
+            return;
+        destination->handleMessage(message, false);
     });
 
-    m_src = GST_ELEMENT_CAST(g_object_new(WEBKIT_TYPE_WEB_AUDIO_SRC, "rate", options.sampleRate,
-        "destination", this, "frames", AudioUtilities::renderQuantumSize, nullptr));
-
-    webkitWebAudioSourceSetBus(WEBKIT_WEB_AUDIO_SRC(m_src.get()), m_renderBus);
+    m_src = GST_ELEMENT_CAST(g_object_new(WEBKIT_TYPE_WEB_AUDIO_SRC, nullptr));
+    webkitWebAudioSourceSetDestination(WEBKIT_WEB_AUDIO_SRC(m_src.get()), this);
 
     auto& quirksManager = GStreamerQuirksManager::singleton();
     GRefPtr<GstElement> audioSink = quirksManager.createWebAudioSink();
@@ -162,25 +186,16 @@ AudioDestinationGStreamer::AudioDestinationGStreamer(const CreationOptions& opti
     GstElement* audioConvert = makeGStreamerElement("audioconvert"_s);
     GstElement* audioResample = makeGStreamerElement("audioresample"_s);
     auto clockSync = gst_element_factory_make("clocksync", nullptr);
+    auto queue = gst_element_factory_make("queue", nullptr);
 
-    gst_bin_add_many(GST_BIN_CAST(m_pipeline.get()), m_src.get(), audioConvert, audioResample, clockSync, audioSink.get(), nullptr);
+    gst_bin_add_many(GST_BIN_CAST(m_pipeline.get()), m_src.get(), audioConvert, audioResample, clockSync, queue, audioSink.get(), nullptr);
 
-    // Link src pads from webkitAudioSrc to clocksync ! audioConvert ! audioResample ! audiosink.
+    // Link src pads from webkitAudioSrc to clocksync ! audioConvert ! audioResample ! queue ! audiosink.
     gst_element_link_pads_full(m_src.get(), "src", clockSync, "sink", GST_PAD_LINK_CHECK_NOTHING);
     gst_element_link_pads_full(clockSync, "src", audioConvert, "sink", GST_PAD_LINK_CHECK_NOTHING);
     gst_element_link_pads_full(audioConvert, "src", audioResample, "sink", GST_PAD_LINK_CHECK_NOTHING);
-    gst_element_link_pads_full(audioResample, "src", audioSink.get(), "sink", GST_PAD_LINK_CHECK_NOTHING);
-}
-
-AudioDestinationGStreamer::~AudioDestinationGStreamer()
-{
-    GST_DEBUG_OBJECT(m_pipeline.get(), "Disposing");
-    if (m_src) [[likely]]
-        g_object_set(m_src.get(), "destination", nullptr, nullptr);
-    unregisterPipeline(m_pipeline);
-    disconnectSimpleBusMessageCallback(m_pipeline.get());
-    gst_element_set_state(m_pipeline.get(), GST_STATE_NULL);
-    notifyStopResult(true);
+    gst_element_link_pads_full(audioResample, "src", queue, "sink", GST_PAD_LINK_CHECK_NOTHING);
+    gst_element_link_pads_full(queue, "src", audioSink.get(), "sink", GST_PAD_LINK_CHECK_NOTHING);
 }
 
 unsigned AudioDestinationGStreamer::framesPerBuffer() const
@@ -188,14 +203,18 @@ unsigned AudioDestinationGStreamer::framesPerBuffer() const
     return AudioUtilities::renderQuantumSize;
 }
 
-bool AudioDestinationGStreamer::handleMessage(GstMessage* message)
+bool AudioDestinationGStreamer::handleMessage(GstMessage* message, bool handleLatencyMessage)
 {
     switch (GST_MESSAGE_TYPE(message)) {
     case GST_MESSAGE_ERROR:
         notifyIsPlaying(false);
         break;
     case GST_MESSAGE_LATENCY:
-        gst_bin_recalculate_latency(GST_BIN_CAST(m_pipeline.get()));
+        if (!handleLatencyMessage)
+            break;
+        gst_element_call_async(m_pipeline.get(), reinterpret_cast<GstElementCallAsyncFunc>(+[](GstElement* pipeline, gpointer) {
+            gst_bin_recalculate_latency(GST_BIN_CAST(pipeline));
+        }), nullptr, nullptr);
         break;
     default:
         break;
@@ -205,14 +224,17 @@ bool AudioDestinationGStreamer::handleMessage(GstMessage* message)
 
 void AudioDestinationGStreamer::start(Function<void(Function<void()>&&)>&& dispatchToRenderThread, CompletionHandler<void(bool)>&& completionHandler)
 {
-    webkitWebAudioSourceSetDispatchToRenderThreadFunction(WEBKIT_WEB_AUDIO_SRC(m_src.get()), WTFMove(dispatchToRenderThread));
-    startRendering(WTFMove(completionHandler));
+    if (!m_pipeline)
+        initializePipeline();
+    webkitWebAudioSourceSetDispatchToRenderThreadFunction(WEBKIT_WEB_AUDIO_SRC(m_src.get()), WTF::move(dispatchToRenderThread));
+    startRendering(WTF::move(completionHandler));
 }
 
 void AudioDestinationGStreamer::startRendering(CompletionHandler<void(bool)>&& completionHandler)
 {
     ASSERT(m_audioSinkAvailable);
-    m_startupCompletionHandler = WTFMove(completionHandler);
+    ASSERT(m_pipeline);
+    m_startupCompletionHandler = WTF::move(completionHandler);
     GST_DEBUG_OBJECT(m_pipeline.get(), "Starting audio rendering, sink %s", m_audioSinkAvailable ? "available" : "not available");
 
     if (m_isPlaying) {
@@ -225,21 +247,30 @@ void AudioDestinationGStreamer::startRendering(CompletionHandler<void(bool)>&& c
         return;
     }
 
-    notifyStartupResult(webkitGstSetElementStateSynchronously(m_pipeline.get(), GST_STATE_PLAYING, [this](GstMessage* message) -> bool {
-        return handleMessage(message);
+    notifyStartupResult(webkitGstSetElementStateSynchronously(m_pipeline.get(), GST_STATE_PLAYING, [weakThis = ThreadSafeWeakPtr { *this }](GstMessage* message) -> bool {
+        RefPtr destination = weakThis.get();
+        if (!destination)
+            return false;
+        return destination->handleMessage(message, true);
     }));
 }
 
 void AudioDestinationGStreamer::stop(CompletionHandler<void(bool)>&& completionHandler)
 {
-    stopRendering(WTFMove(completionHandler));
-    webkitWebAudioSourceSetDispatchToRenderThreadFunction(WEBKIT_WEB_AUDIO_SRC(m_src.get()), nullptr);
+    stopRendering(WTF::move(completionHandler));
+    if (m_src)
+        webkitWebAudioSourceSetDispatchToRenderThreadFunction(WEBKIT_WEB_AUDIO_SRC(m_src.get()), nullptr);
 }
 
 void AudioDestinationGStreamer::stopRendering(CompletionHandler<void(bool)>&& completionHandler)
 {
+    m_stopCompletionHandler = WTF::move(completionHandler);
+    if (!m_pipeline) {
+        notifyStopResult(true);
+        return;
+    }
+
     ASSERT(m_audioSinkAvailable);
-    m_stopCompletionHandler = WTFMove(completionHandler);
     GST_DEBUG_OBJECT(m_pipeline.get(), "Stopping audio rendering, sink %s", m_audioSinkAvailable ? "available" : "not available");
 
     if (!m_isPlaying) {
@@ -253,8 +284,11 @@ void AudioDestinationGStreamer::stopRendering(CompletionHandler<void(bool)>&& co
         return;
     }
 
-    notifyStopResult(webkitGstSetElementStateSynchronously(m_pipeline.get(), GST_STATE_READY, [this](GstMessage* message) -> bool {
-        return handleMessage(message);
+    notifyStopResult(webkitGstSetElementStateSynchronously(m_pipeline.get(), GST_STATE_READY, [weakThis = ThreadSafeWeakPtr { *this }](GstMessage* message) -> bool {
+        RefPtr destination = weakThis.get();
+        if (!destination)
+            return false;
+        return destination->handleMessage(message, true);
     }));
 }
 
@@ -263,7 +297,7 @@ void AudioDestinationGStreamer::notifyStartupResult(bool success)
     if (success)
         notifyIsPlaying(true);
 
-    callOnMainThreadAndWait([this, completionHandler = WTFMove(m_startupCompletionHandler), success]() mutable {
+    callOnMainThreadAndWait([this, completionHandler = WTF::move(m_startupCompletionHandler), success]() mutable {
 #ifdef GST_DISABLE_GST_DEBUG
         UNUSED_VARIABLE(this);
 #endif
@@ -278,11 +312,12 @@ void AudioDestinationGStreamer::notifyStopResult(bool success)
     if (success)
         notifyIsPlaying(false);
 
-    callOnMainThreadAndWait([this, completionHandler = WTFMove(m_stopCompletionHandler), success]() mutable {
+    callOnMainThreadAndWait([this, completionHandler = WTF::move(m_stopCompletionHandler), success]() mutable {
 #ifdef GST_DISABLE_GST_DEBUG
         UNUSED_VARIABLE(this);
 #endif
-        GST_DEBUG_OBJECT(m_pipeline.get(), "Has stop completion handler: %s", boolForPrinting(!!completionHandler));
+        if (m_pipeline)
+            GST_DEBUG_OBJECT(m_pipeline.get(), "Has stop completion handler: %s", boolForPrinting(!!completionHandler));
         if (completionHandler)
             completionHandler(success);
     });

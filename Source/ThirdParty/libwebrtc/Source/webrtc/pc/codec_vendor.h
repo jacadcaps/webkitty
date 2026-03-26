@@ -42,7 +42,7 @@ namespace webrtc {
 // - Thread guard
 class CodecVendor {
  public:
-  CodecVendor(MediaEngineInterface* media_engine,
+  CodecVendor(const MediaEngineInterface* media_engine,
               bool rtx_enabled,
               const FieldTrialsView& trials);
 
@@ -119,7 +119,7 @@ class CodecVendor {
 class CodecLookupHelper {
  public:
   virtual ~CodecLookupHelper() = default;
-  virtual webrtc::PayloadTypeSuggester* PayloadTypeSuggester() = 0;
+  virtual ::webrtc::PayloadTypeSuggester* PayloadTypeSuggester() = 0;
   // Look up the codec vendor to use, depending on context.
   // This call may get additional arguments in the future, to aid
   // in selection of the correct context.
@@ -127,14 +127,5 @@ class CodecLookupHelper {
 };
 
 }  //  namespace webrtc
-
-// Re-export symbols from the webrtc namespace for backwards compatibility.
-// TODO(bugs.webrtc.org/4222596): Remove once all references are updated.
-#ifdef WEBRTC_ALLOW_DEPRECATED_NAMESPACES
-namespace cricket {
-using ::webrtc::CodecLookupHelper;
-using ::webrtc::CodecVendor;
-}  // namespace cricket
-#endif  // WEBRTC_ALLOW_DEPRECATED_NAMESPACES
 
 #endif  // PC_CODEC_VENDOR_H_

@@ -29,6 +29,7 @@
 
 #include "Attachment.h"
 #include "Encoder.h"
+#include <WebCore/SharedMemory.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/Vector.h>
@@ -105,13 +106,13 @@ public:
 #else
         , m_messageInfo(encoder.span().size(), m_attachments.size())
 #endif
-        , m_body(const_cast<uint8_t*>(encoder.span().data()), encoder.span().size())
+        , m_body(spanConstCast<uint8_t>(encoder.span()))
     {
     }
 
     UnixMessage(UnixMessage&& other)
-        : m_attachments(WTFMove(other.m_attachments))
-        , m_messageInfo(WTFMove(other.m_messageInfo))
+        : m_attachments(WTF::move(other.m_attachments))
+        , m_messageInfo(WTF::move(other.m_messageInfo))
     {
         if (other.m_bodyOwned) {
             std::swap(m_body, other.m_body);
@@ -141,7 +142,23 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
     void appendAttachment(Attachment&& attachment)
     {
-        m_attachments.append(WTFMove(attachment));
+        m_attachments.append(WTF::move(attachment));
+    }
+
+    bool setBodyOutOfLine()
+    {
+        RefPtr oolMessageBody = WebCore::SharedMemory::allocate(bodySize());
+        if (!oolMessageBody)
+            return false;
+
+        auto handle = oolMessageBody->createHandle(WebCore::SharedMemory::Protection::ReadOnly);
+        if (!handle)
+            return false;
+
+        m_messageInfo.setBodyOutOfLine();
+        memcpySpan(oolMessageBody->mutableSpan(), m_body);
+        m_attachments.append(handle->releaseHandle());
+        return true;
     }
 
 private:

@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "ResourceErrorBase.h"
+#include <WebCore/ResourceErrorBase.h>
 
 #include <wtf/RetainPtr.h>
 
@@ -50,10 +50,15 @@ public:
     WEBCORE_EXPORT ResourceError(CFErrorRef error);
 
     WEBCORE_EXPORT CFErrorRef cfError() const;
+    WEBCORE_EXPORT RetainPtr<CFErrorRef> protectedCFError() const;
+    WEBCORE_EXPORT CFErrorRef cfError(CFErrorRef) const;
+    WEBCORE_EXPORT RetainPtr<CFErrorRef> protectedCFError(CFErrorRef) const;
     WEBCORE_EXPORT operator CFErrorRef() const;
     WEBCORE_EXPORT ResourceError(NSError *);
     WEBCORE_EXPORT NSError *nsError() const;
+    WEBCORE_EXPORT NSError *nsError(NSError *) const;
     WEBCORE_EXPORT operator NSError *() const;
+    WEBCORE_EXPORT RetainPtr<NSError> protectedNSError() const;
 
 
     struct IPCData {
@@ -71,7 +76,9 @@ public:
 
     WEBCORE_EXPORT ErrorRecoveryMethod errorRecoveryMethod() const;
 
+#if USE(NSURL_ERROR_FAILING_URL_STRING_KEY)
     WEBCORE_EXPORT bool hasMatchingFailingURLKeys() const;
+#endif
 
     static bool platformCompare(const ResourceError& a, const ResourceError& b);
 

@@ -29,18 +29,15 @@
 
 @interface NSFontPanel (TestWebKitAPI)
 
-@property (nonatomic) double shadowOpacity;
-@property (nonatomic) double shadowBlur;
-@property (nonatomic) double shadowLength;
+- (void)setUnderlineStyle:(NSUnderlineStyle)style;
+- (void)setStrikethroughStyle:(NSUnderlineStyle)style;
+- (void)setTextShadow:(NSShadow *)shadow;
+- (void)commitAttributeChanges;
 
-@property (nonatomic, readonly) BOOL hasShadow;
+@property (nonatomic, readonly) NSShadow *lastTextShadow;
 @property (nonatomic, readonly) BOOL hasUnderline;
 @property (nonatomic, readonly) BOOL hasStrikeThrough;
 @property (nonatomic, readonly) NSColor *foregroundColor;
-
-- (void)toggleShadow;
-- (void)chooseUnderlineMenuItemWithTitle:(NSString *)itemTitle;
-- (void)chooseStrikeThroughMenuItemWithTitle:(NSString *)itemTitle;
 
 @end
 

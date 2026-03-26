@@ -23,8 +23,7 @@
 
 #include "ActiveDOMObject.h"
 #include "ContextDestructionObserverInlines.h"
-#include "Document.h"
-#include "DocumentInlines.h"
+#include "DocumentQuirks.h"
 #include "ExtendedDOMClientIsoSubspaces.h"
 #include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMBinding.h"
@@ -33,7 +32,6 @@
 #include "JSDOMGlobalObjectInlines.h"
 #include "JSDOMWrapperCache.h"
 #include "JSPluginElementFunctions.h"
-#include "Quirks.h"
 #include "ScriptExecutionContext.h"
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/FunctionPrototype.h>
@@ -123,7 +121,7 @@ void JSTestPluginInterfacePrototype::finishCreation(VM& vm)
 const ClassInfo JSTestPluginInterface::s_info = { "TestPluginInterface"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestPluginInterface) };
 
 JSTestPluginInterface::JSTestPluginInterface(Structure* structure, JSDOMGlobalObject& globalObject, Ref<TestPluginInterface>&& impl)
-    : JSDOMWrapper<TestPluginInterface>(structure, globalObject, WTFMove(impl))
+    : JSDOMWrapper<TestPluginInterface>(structure, globalObject, WTF::move(impl))
 {
 }
 
@@ -148,7 +146,7 @@ JSValue JSTestPluginInterface::getConstructor(VM& vm, const JSGlobalObject* glob
 
 void JSTestPluginInterface::destroy(JSC::JSCell* cell)
 {
-    JSTestPluginInterface* thisObject = static_cast<JSTestPluginInterface*>(cell);
+    SUPPRESS_MEMORY_UNSAFE_CAST JSTestPluginInterface* thisObject = static_cast<JSTestPluginInterface*>(cell);
     thisObject->JSTestPluginInterface::~JSTestPluginInterface();
 }
 
@@ -295,7 +293,7 @@ bool JSTestPluginInterfaceOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unk
 
 void JSTestPluginInterfaceOwner::finalize(JSC::Handle<JSC::Unknown> handle, void* context)
 {
-    auto* jsTestPluginInterface = static_cast<JSTestPluginInterface*>(handle.slot()->asCell());
+    SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestPluginInterface = static_cast<JSTestPluginInterface*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
     uncacheWrapper(world, jsTestPluginInterface->protectedWrapped().ptr(), jsTestPluginInterface);
 }
@@ -309,7 +307,7 @@ extern "C" { extern void (*const __identifier("??_7TestPluginInterface@WebCore@@
 extern "C" { extern void* _ZTVN7WebCore19TestPluginInterfaceE[]; }
 #endif
 template<std::same_as<TestPluginInterface> T>
-static inline void verifyVTable(TestPluginInterface* ptr) 
+static inline void verifyVTable(TestPluginInterface* ptr)
 {
     if constexpr (std::is_polymorphic_v<T>) {
         const void* actualVTablePointer = getVTablePointer<T>(ptr);
@@ -329,12 +327,13 @@ static inline void verifyVTable(TestPluginInterface* ptr)
 #endif
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestPluginInterface>&& impl)
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<TestPluginInterface>&& impl)
 {
+    UNUSED_PARAM(lexicalGlobalObject);
 #if ENABLE(BINDING_INTEGRITY)
     verifyVTable<TestPluginInterface>(impl.ptr());
 #endif
-    return createWrapper<TestPluginInterface>(globalObject, WTFMove(impl));
+    return createWrapper<TestPluginInterface>(globalObject, WTF::move(impl));
 }
 
 JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestPluginInterface& impl)

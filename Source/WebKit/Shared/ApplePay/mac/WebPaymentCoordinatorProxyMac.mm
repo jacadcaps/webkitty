@@ -28,6 +28,7 @@
 
 #if PLATFORM(MAC) && ENABLE(APPLE_PAY)
 
+#import "AppKitSPI.h"
 #import "PaymentAuthorizationViewController.h"
 #import "WebPageProxy.h"
 #import <pal/cocoa/PassKitSoftLink.h>
@@ -46,8 +47,8 @@ void WebPaymentCoordinatorProxy::platformCanMakePayments(CompletionHandler<void(
 #endif
         return completionHandler(false);
 
-    protectedCanMakePaymentsQueue()->dispatch([theClass = retainPtr(PAL::getPKPaymentAuthorizationViewControllerClass()), completionHandler = WTFMove(completionHandler)]() mutable {
-        RunLoop::mainSingleton().dispatch([canMakePayments = [theClass canMakePayments], completionHandler = WTFMove(completionHandler)]() mutable {
+    protectedCanMakePaymentsQueue()->dispatch([theClass = retainPtr(PAL::getPKPaymentAuthorizationViewControllerClassSingleton()), completionHandler = WTF::move(completionHandler)]() mutable {
+        RunLoop::mainSingleton().dispatch([canMakePayments = [theClass canMakePayments], completionHandler = WTF::move(completionHandler)]() mutable {
             completionHandler(canMakePayments);
         });
     });
@@ -74,7 +75,7 @@ void WebPaymentCoordinatorProxy::platformShowPaymentUI(WebPageProxyIdentifier we
 #endif
         paymentRequest = platformPaymentRequest(originatingURL, linkIconURLs, request);
 
-    checkedClient()->getPaymentCoordinatorEmbeddingUserAgent(webPageProxyID, [weakThis = WeakPtr { *this }, paymentRequest, completionHandler = WTFMove(completionHandler)](const String& userAgent) mutable {
+    checkedClient()->getPaymentCoordinatorEmbeddingUserAgent(webPageProxyID, [weakThis = WeakPtr { *this }, paymentRequest, completionHandler = WTF::move(completionHandler)](const String& userAgent) mutable {
         RefPtr paymentCoordinatorProxy = weakThis.get();
         if (!paymentCoordinatorProxy)
             return completionHandler(false);
@@ -83,7 +84,7 @@ void WebPaymentCoordinatorProxy::platformShowPaymentUI(WebPageProxyIdentifier we
 
         auto showPaymentUIRequestSeed = weakThis->m_showPaymentUIRequestSeed;
 
-        [PAL::getPKPaymentAuthorizationViewControllerClass() requestViewControllerWithPaymentRequest:paymentRequest.get() completion:makeBlockPtr([paymentRequest, showPaymentUIRequestSeed, weakThis = WTFMove(weakThis), completionHandler = WTFMove(completionHandler)](PKPaymentAuthorizationViewController *viewController, NSError *error) mutable {
+        [PAL::getPKPaymentAuthorizationViewControllerClassSingleton() requestViewControllerWithPaymentRequest:paymentRequest.get() completion:makeBlockPtr([paymentRequest, showPaymentUIRequestSeed, weakThis = WTF::move(weakThis), completionHandler = WTF::move(completionHandler)](PKPaymentAuthorizationViewController *viewController, NSError *error) mutable {
             RefPtr paymentCoordinatorProxy = weakThis.get();
             if (!paymentCoordinatorProxy)
                 return completionHandler(false);
@@ -109,7 +110,9 @@ void WebPaymentCoordinatorProxy::platformShowPaymentUI(WebPageProxyIdentifier we
 
             ASSERT(!paymentCoordinatorProxy->m_sheetWindow);
             paymentCoordinatorProxy->m_sheetWindow = [NSWindow windowWithContentViewController:viewController];
-
+#if HAVE(LIQUID_GLASS)
+            [paymentCoordinatorProxy->m_sheetWindow setStyleMask:NSWindowStyleMaskAlertWindow | NSWindowStyleMaskTitled];
+#endif
             paymentCoordinatorProxy->m_sheetWindowWillCloseObserver = [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowWillCloseNotification object:paymentCoordinatorProxy->m_sheetWindow.get() queue:nil usingBlock:[paymentCoordinatorProxy](NSNotification *) {
                 paymentCoordinatorProxy->didReachFinalState();
             }];
@@ -137,7 +140,7 @@ void WebPaymentCoordinatorProxy::platformHidePaymentUI()
     [[NSNotificationCenter defaultCenter] removeObserver:m_sheetWindowWillCloseObserver.get()];
     m_sheetWindowWillCloseObserver = nullptr;
 
-    [[m_sheetWindow sheetParent] endSheet:m_sheetWindow.get()];
+    [retainPtr([m_sheetWindow sheetParent]) endSheet:m_sheetWindow.get()];
 
     if (RefPtr authorizationPresenter = m_authorizationPresenter)
         authorizationPresenter->dismiss();

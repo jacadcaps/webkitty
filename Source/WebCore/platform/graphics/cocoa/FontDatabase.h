@@ -25,9 +25,9 @@
 
 #pragma once
 
-#include "FontSelectionAlgorithm.h"
-#include "TextFlags.h"
 #include <CoreText/CoreText.h>
+#include <WebCore/FontSelectionAlgorithm.h>
+#include <WebCore/TextFlags.h>
 #include <wtf/Lock.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/RobinHoodHashMap.h>

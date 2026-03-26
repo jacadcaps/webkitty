@@ -49,7 +49,7 @@ void Highlight::repaintRange(const AbstractRange& range)
 
 Ref<Highlight> Highlight::create(FixedVector<std::reference_wrapper<AbstractRange>>&& initialRanges)
 {
-    return adoptRef(*new Highlight(WTFMove(initialRanges)));
+    return adoptRef(*new Highlight(WTF::move(initialRanges)));
 }
 
 Highlight::Highlight(FixedVector<std::reference_wrapper<AbstractRange>>&& initialRanges)
@@ -76,9 +76,8 @@ bool Highlight::removeFromSetLike(const AbstractRange& range)
 
 void Highlight::clearFromSetLike()
 {
-    for (auto& highlightRange : m_highlightRanges)
+    for (auto& highlightRange : std::exchange(m_highlightRanges, { }))
         repaintRange(highlightRange->range());
-    m_highlightRanges.clear();
 }
 
 bool Highlight::addToSetLike(AbstractRange& range)
@@ -92,7 +91,7 @@ bool Highlight::addToSetLike(AbstractRange& range)
         return true;
     }
     // Move to last since SetLike is an ordered set.
-    m_highlightRanges.append(WTFMove(m_highlightRanges[index]));
+    m_highlightRanges.append(WTF::move(m_highlightRanges[index]));
     m_highlightRanges.removeAt(index);
     return false;
 }

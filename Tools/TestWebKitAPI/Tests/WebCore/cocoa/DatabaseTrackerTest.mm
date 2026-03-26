@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -59,17 +59,17 @@ TEST(DatabaseTracker, DeleteDatabaseFileIfEmpty)
 
 static void addToDatabasesTable(const String& databasePath, const SecurityOriginData& origin, const String& newDatabaseName, const String& newDatabasePath)
 {
-    SQLiteDatabase database;
-    database.open(databasePath);
+    auto database = makeUniqueRef<SQLiteDatabase>();
+    database->open(databasePath);
 
-    if (auto addDatabaseStatement = database.prepareStatement("INSERT INTO Databases (origin, name, path) VALUES (?, ?, ?);"_s)) {
+    if (auto addDatabaseStatement = database->prepareStatement("INSERT INTO Databases (origin, name, path) VALUES (?, ?, ?);"_s)) {
         addDatabaseStatement->bindText(1, origin.databaseIdentifier());
         addDatabaseStatement->bindText(2, newDatabaseName);
         addDatabaseStatement->bindText(3, newDatabasePath);
         addDatabaseStatement->executeCommand();
     }
 
-    database.close();
+    database->close();
 }
 
 static void removeDirectoryAndAllContents(const String& directoryPath)
@@ -130,6 +130,7 @@ TEST(DatabaseTracker, DeleteOrigin)
     EXPECT_FALSE(FileSystem::fileExists(originPath));
 #endif
 
+    databaseTracker = nullptr;
     removeDirectoryAndAllContents(databaseDirectoryPath);
     EXPECT_FALSE(FileSystem::fileExists(databaseDirectoryPath));
 }
@@ -163,6 +164,7 @@ TEST(DatabaseTracker, DeleteOriginWhenDatabaseDoesNotExist)
     EXPECT_TRUE(databaseTracker->origins().isEmpty());
     EXPECT_TRUE(databaseTracker->databaseNames(origin).isEmpty());
 
+    databaseTracker = nullptr;
     removeDirectoryAndAllContents(databaseDirectoryPath);
     EXPECT_FALSE(FileSystem::fileExists(databaseDirectoryPath));
 }
@@ -220,6 +222,7 @@ TEST(DatabaseTracker, DeleteOriginWhenDeletingADatabaseFails)
     EXPECT_TRUE(FileSystem::deleteFile(fullWebDatabasePath));
     EXPECT_TRUE(FileSystem::deleteEmptyDirectory(originPath));
 
+    databaseTracker = nullptr;
     removeDirectoryAndAllContents(databaseDirectoryPath);
     EXPECT_FALSE(FileSystem::fileExists(databaseDirectoryPath));
 }
@@ -259,6 +262,7 @@ TEST(DatabaseTracker, DeleteOriginWithMissingEntryInDatabasesTable)
     EXPECT_TRUE(databaseTracker->origins().isEmpty());
     EXPECT_TRUE(databaseTracker->databaseNames(origin).isEmpty());
 
+    databaseTracker = nullptr;
     removeDirectoryAndAllContents(databaseDirectoryPath);
     EXPECT_FALSE(FileSystem::fileExists(databaseDirectoryPath));
 }
@@ -302,6 +306,8 @@ TEST(DatabaseTracker, DeleteDatabase)
 
     EXPECT_EQ((unsigned)1, databaseTracker->origins().size());
     EXPECT_TRUE(FileSystem::deleteEmptyDirectory(originPath));
+
+    databaseTracker = nullptr;
     removeDirectoryAndAllContents(databaseDirectoryPath);
     EXPECT_FALSE(FileSystem::fileExists(databaseDirectoryPath));
 }
@@ -332,6 +338,7 @@ TEST(DatabaseTracker, DeleteDatabaseWhenDatabaseDoesNotExist)
     EXPECT_TRUE(databaseTracker->deleteDatabase(origin, webDatabaseName));
     EXPECT_TRUE(databaseTracker->databaseNames(origin).isEmpty());
 
+    databaseTracker = nullptr;
     removeDirectoryAndAllContents(databaseDirectoryPath);
     EXPECT_FALSE(FileSystem::fileExists(databaseDirectoryPath));
 }

@@ -194,7 +194,7 @@ private:
     int characterAtOffset(int) const;
     std::optional<unsigned> characterOffset(char16_t, int) const;
     std::optional<unsigned> characterIndex(char16_t, unsigned) const;
-    IntRect textExtents(int, int, Atspi::CoordinateType) const; 
+    IntRect textExtents(int, int, Atspi::CoordinateType) const;
     int offsetAtPoint(const IntPoint&, Atspi::CoordinateType) const;
     IntPoint boundsForSelection(const VisibleSelection&) const;
     bool selectionBounds(int&, int&) const;

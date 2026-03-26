@@ -29,7 +29,7 @@
 
 #if USE(LIBWEBRTC)
 
-#include "RealtimeIncomingVideoSource.h"
+#include <WebCore/RealtimeIncomingVideoSource.h>
 
 using CVPixelBufferPoolRef = struct __CVPixelBufferPool*;
 typedef struct CF_BRIDGED_TYPE(id) __CVBuffer *CVPixelBufferRef;

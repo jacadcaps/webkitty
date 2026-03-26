@@ -48,7 +48,9 @@
 #include <wtf/CheckedPtr.h>
 #include <wtf/Deque.h>
 #include <wtf/HashSet.h>
+#include <wtf/LazyUniqueRef.h>
 #include <wtf/Ref.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/Seconds.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeWeakHashSet.h>
@@ -121,6 +123,13 @@ public:
     virtual void clearCredentials(WallTime) { }
     virtual void loadImageForDecoding(WebCore::ResourceRequest&&, WebPageProxyIdentifier, size_t, CompletionHandler<void(Expected<Ref<WebCore::FragmentedSharedBuffer>, WebCore::ResourceError>&&)>&&) { ASSERT_NOT_REACHED(); }
 
+    // CanMakeCheckedPtr.
+    uint32_t checkedPtrCount() const final { return CanMakeCheckedPtr::checkedPtrCount(); }
+    uint32_t checkedPtrCountWithoutThreadCheck() const final { return CanMakeCheckedPtr::checkedPtrCountWithoutThreadCheck(); }
+    void incrementCheckedPtrCount() const final { CanMakeCheckedPtr::incrementCheckedPtrCount(); }
+    void decrementCheckedPtrCount() const final { CanMakeCheckedPtr::decrementCheckedPtrCount(); }
+    void setDidBeginCheckedPtrDeletion() final { CanMakeCheckedPtr::setDidBeginCheckedPtrDeletion(); }
+
     PAL::SessionID sessionID() const { return m_sessionID; }
     NetworkProcess& networkProcess() { return m_networkProcess; }
     WebCore::NetworkStorageSession* networkStorageSession() const;
@@ -134,6 +143,8 @@ public:
     WebResourceLoadStatisticsStore* resourceLoadStatistics() const { return m_resourceLoadStatistics.get(); }
     void setTrackingPreventionEnabled(bool);
     bool isTrackingPreventionEnabled() const;
+    static WebCore::IsKnownCrossSiteTracker isRequestToKnownCrossSiteTracker(const WebCore::ResourceRequest&);
+    static WebCore::IsKnownCrossSiteTracker isResourceFromKnownCrossSiteTracker(const URL& firstParty, const URL& resource);
     void deleteAndRestrictWebsiteDataForRegistrableDomains(OptionSet<WebsiteDataType>, RegistrableDomainsToDeleteOrRestrictWebsiteDataFor&&, CompletionHandler<void(HashSet<WebCore::RegistrableDomain>&&)>&&);
     void registrableDomainsWithWebsiteData(OptionSet<WebsiteDataType>, CompletionHandler<void(HashSet<WebCore::RegistrableDomain>&&)>&&);
     bool enableResourceLoadStatisticsLogTestingEvent() const { return m_enableResourceLoadStatisticsLogTestingEvent; }
@@ -149,7 +160,7 @@ public:
     std::optional<WebCore::RegistrableDomain> firstPartyHostCNAMEDomain(const String& firstPartyHost);
     void setFirstPartyHostIPAddress(const String& firstPartyHost, const String& addressString);
     std::optional<WebCore::IPAddress> firstPartyHostIPAddress(const String& firstPartyHost);
-    void setThirdPartyCNAMEDomainForTesting(WebCore::RegistrableDomain&& domain) { m_thirdPartyCNAMEDomainForTesting = WTFMove(domain); };
+    void setThirdPartyCNAMEDomainForTesting(WebCore::RegistrableDomain&& domain) { m_thirdPartyCNAMEDomainForTesting = WTF::move(domain); };
     std::optional<WebCore::RegistrableDomain> thirdPartyCNAMEDomainForTesting() const { return m_thirdPartyCNAMEDomainForTesting; }
     void resetFirstPartyDNSData();
     void destroyResourceLoadStatistics(CompletionHandler<void()>&&);
@@ -163,6 +174,7 @@ public:
     virtual void donateToSKAdNetwork(WebCore::PrivateClickMeasurement&&) { }
     virtual void notifyAdAttributionKitOfSessionTermination() { }
     void handlePrivateClickMeasurementConversion(WebCore::PCM::AttributionTriggerData&&, const URL& requestURL, const WebCore::ResourceRequest& redirectRequest, String&& attributedBundleIdentifier);
+    void simulatePrivateClickMeasurementConversion(int priority, int triggerData, const URL& sourceURL, const URL& destinationURL);
     void dumpPrivateClickMeasurement(CompletionHandler<void(String)>&&);
     void clearPrivateClickMeasurement(CompletionHandler<void()>&&);
     void clearPrivateClickMeasurementForRegistrableDomain(WebCore::RegistrableDomain&&, CompletionHandler<void()>&&);
@@ -188,9 +200,9 @@ public:
     NetworkCache::Cache* cache() { return m_cache.get(); }
 
     CheckedRef<PrefetchCache> checkedPrefetchCache();
-    void clearPrefetchCache() { m_prefetchCache.clear(); }
+    void clearPrefetchCache() { m_prefetchCache->clear(); }
 
-    virtual std::unique_ptr<WebSocketTask> createWebSocketTask(WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, NetworkSocketChannel&, const WebCore::ResourceRequest&, const String& protocol, const WebCore::ClientOrigin&, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections>, WebCore::StoredCredentialsPolicy);
+    virtual RefPtr<WebSocketTask> createWebSocketTask(WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, NetworkSocketChannel&, const WebCore::ResourceRequest&, const String& protocol, const WebCore::ClientOrigin&, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections>, WebCore::StoredCredentialsPolicy);
     virtual void removeWebSocketTask(SessionSet&, WebSocketTask&) { }
     virtual void addWebSocketTask(WebPageProxyIdentifier, WebSocketTask&) { }
 
@@ -225,8 +237,8 @@ public:
     void resumeBackgroundFetch(const String&, CompletionHandler<void()>&&);
     void clickBackgroundFetch(const String&, CompletionHandler<void()>&&);
 
-    WebSharedWorkerServer* sharedWorkerServer() { return m_sharedWorkerServer.get(); }
-    WebSharedWorkerServer& ensureSharedWorkerServer();
+    WebSharedWorkerServer* sharedWorkerServer() { return const_cast<WebSharedWorkerServer*>(m_sharedWorkerServer.getIfExists()); }
+    WebSharedWorkerServer& ensureSharedWorkerServer() { return const_cast<WebSharedWorkerServer&>(m_sharedWorkerServer.get(*this)); }
 
     NetworkStorageManager& storageManager() { return m_storageManager.get(); }
     void clearCacheEngine();
@@ -240,7 +252,7 @@ public:
 
     void setShouldSendPrivateTokenIPCForTesting(bool);
     bool shouldSendPrivateTokenIPCForTesting() const { return m_shouldSendPrivateTokenIPCForTesting; }
-#if HAVE(ALLOW_ONLY_PARTITIONED_COOKIES)
+#if ENABLE(OPT_IN_PARTITIONED_COOKIES)
     void setOptInCookiePartitioningEnabled(bool);
 #endif
 
@@ -346,7 +358,7 @@ protected:
 
     HashSet<Ref<NetworkResourceLoader>> m_keptAliveLoads;
 
-    class CachedNetworkResourceLoader : public RefCounted<CachedNetworkResourceLoader> {
+    class CachedNetworkResourceLoader : public RefCountedAndCanMakeWeakPtr<CachedNetworkResourceLoader> {
         WTF_MAKE_TZONE_ALLOCATED(CachedNetworkResourceLoader);
     public:
         static Ref<CachedNetworkResourceLoader> create(Ref<NetworkResourceLoader>&&);
@@ -361,7 +373,7 @@ protected:
     };
     HashMap<NetworkResourceLoadIdentifier, Ref<CachedNetworkResourceLoader>> m_loadersAwaitingWebProcessTransfer;
 
-    PrefetchCache m_prefetchCache;
+    const UniqueRef<PrefetchCache> m_prefetchCache;
 
 #if ASSERT_ENABLED
     bool m_isInvalidated { false };
@@ -375,7 +387,7 @@ protected:
     bool m_shouldRunServiceWorkersOnMainThreadForTesting { false };
     bool m_shouldSendPrivateTokenIPCForTesting { false };
     std::optional<unsigned> m_overrideServiceWorkerRegistrationCountTestingValue;
-    HashSet<std::unique_ptr<ServiceWorkerSoftUpdateLoader>> m_softUpdateLoaders;
+    HashSet<RefPtr<ServiceWorkerSoftUpdateLoader>> m_softUpdateLoaders;
     HashMap<WebCore::FetchIdentifier, WeakRef<ServiceWorkerFetchTask>> m_navigationPreloaders;
 
     struct ServiceWorkerInfo {
@@ -386,7 +398,7 @@ protected:
     RefPtr<WebCore::SWServer> m_swServer;
     const RefPtr<BackgroundFetchStoreImpl> m_backgroundFetchStore;
     bool m_inspectionForServiceWorkersAllowed { true };
-    const std::unique_ptr<WebSharedWorkerServer> m_sharedWorkerServer;
+    const LazyUniqueRef<NetworkSession, WebSharedWorkerServer> m_sharedWorkerServer;
 
     struct RecentHTTPSConnectionTiming {
         static constexpr unsigned maxEntries { 25 };

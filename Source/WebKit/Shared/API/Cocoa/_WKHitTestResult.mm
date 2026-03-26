@@ -27,11 +27,12 @@
 #import "_WKHitTestResultInternal.h"
 
 #import "WKFrameInfoInternal.h"
+#import "WebFrameProxy.h"
 #import "WebPageProxy.h"
+#import "_WKFrameHandleInternal.h"
+#import <WebCore/WebCoreObjCExtras.h>
 
 #if PLATFORM(MAC) || HAVE(UIKIT_WITH_MOUSE_SUPPORT)
-
-#import <WebCore/WebCoreObjCExtras.h>
 
 @implementation _WKHitTestResult
 
@@ -153,15 +154,40 @@ static NSURL *URLFromString(const WTF::String& urlString)
 - (NSURLResponse *)linkLocalResourceResponse
 {
     if (auto& response = _hitTestResult->linkLocalResourceResponse())
-        return response->nsURLResponse();
+        return response->protectedNSURLResponse().autorelease();
     return nil;
 }
 
 - (WKFrameInfo *)frameInfo
 {
     if (auto frameInfo = _hitTestResult->frameInfo())
-        return wrapper(API::FrameInfo::create(WTFMove(*frameInfo), _hitTestResult->page())).autorelease();
+        return wrapper(API::FrameInfo::create(WTF::move(*frameInfo))).autorelease();
     return nil;
+}
+
+- (BOOL)linkTargetFrameIsSameAsLinkFrame
+{
+    return _hitTestResult->targetFrame()
+        && _hitTestResult->frameInfo()
+        && _hitTestResult->targetFrame() == _hitTestResult->frameInfo()->frameID;
+}
+
+- (BOOL)linkHasTargetFrame
+{
+    return !!_hitTestResult->targetFrame();
+}
+
+- (BOOL)linkTargetFrameIsInDifferentWebView
+{
+    if (!_hitTestResult->frameInfo())
+        return NO;
+    RefPtr frame = WebKit::WebFrameProxy::webFrame(_hitTestResult->frameInfo()->frameID);
+    if (!frame)
+        return NO;
+    RefPtr targetFrame = WebKit::WebFrameProxy::webFrame(_hitTestResult->targetFrame());
+    if (!targetFrame)
+        return NO;
+    return frame->page() != targetFrame->page();
 }
 
 - (id)copyWithZone:(NSZone *)zone

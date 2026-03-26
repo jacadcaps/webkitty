@@ -25,17 +25,21 @@
 
 #pragma once
 
-#include "MediaSample.h"
 #include <JavaScriptCore/Forward.h>
+#include <WebCore/MediaSample.h>
+#include <WebCore/SharedBuffer.h>
 #include <pal/avfoundation/MediaTimeAVFoundation.h>
 #include <wtf/Forward.h>
 #include <wtf/TypeCasts.h>
+
+#if ENABLE(ENCRYPTED_MEDIA) && HAVE(AVCONTENTKEYSESSION)
+#include <WebCore/CDMKeyID.h>
+#endif
 
 typedef struct CF_BRIDGED_TYPE(id) __CVBuffer* CVPixelBufferRef;
 
 namespace WebCore {
 
-class SharedBuffer;
 class PixelBuffer;
 class VideoFrameCV;
 
@@ -54,7 +58,7 @@ public:
 
     SampleFlags flags() const override;
     PlatformSample platformSample() const override;
-    PlatformSample::Type platformSampleType() const override { return PlatformSample::CMSampleBufferType; }
+    Type type() const override { return Type::CMSampleBuffer; }
     void offsetTimestampsBy(const MediaTime&) override;
     void setTimestamps(const MediaTime&, const MediaTime&) override;
     WEBCORE_EXPORT bool isDivisable() const override;
@@ -64,15 +68,15 @@ public:
     WEBCORE_EXPORT Ref<MediaSample> createNonDisplayingCopy() const override;
 
     CMSampleBufferRef sampleBuffer() const { return m_sample.get(); }
+    RetainPtr<CMSampleBufferRef> protectedSampleBuffer() const { return m_sample; }
 
     bool isHomogeneous() const;
     Vector<Ref<MediaSampleAVFObjC>> divideIntoHomogeneousSamples();
 
 #if ENABLE(ENCRYPTED_MEDIA) && HAVE(AVCONTENTKEYSESSION)
-    using KeyIDs = Vector<Ref<SharedBuffer>>;
-    void setKeyIDs(KeyIDs&& keyIDs) { m_keyIDs = WTFMove(keyIDs); }
-    const KeyIDs& keyIDs() const { return m_keyIDs; }
-    KeyIDs& keyIDs() { return m_keyIDs; }
+    void setKeyIDs(CDMKeyIDs&& keyIDs) { m_keyIDs = WTF::move(keyIDs); }
+    const CDMKeyIDs& keyIDs() const { return m_keyIDs; }
+    CDMKeyIDs& keyIDs() { return m_keyIDs; }
 #endif
 
     static bool isCMSampleBufferNonDisplaying(CMSampleBufferRef);
@@ -93,7 +97,7 @@ protected:
     MediaTime m_duration;
 
 #if ENABLE(ENCRYPTED_MEDIA) && HAVE(AVCONTENTKEYSESSION)
-    Vector<Ref<SharedBuffer>> m_keyIDs;
+    CDMKeyIDs m_keyIDs;
 #endif
 };
 
@@ -113,5 +117,5 @@ struct LogArgument<WebCore::MediaSampleAVFObjC> {
 } // namespace WTF
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::MediaSampleAVFObjC)
-static bool isType(const WebCore::MediaSample& sample) { return sample.platformSampleType() == WebCore::PlatformSample::CMSampleBufferType; }
+static bool isType(const WebCore::MediaSample& sample) { return sample.type() == WebCore::MediaSample::Type::CMSampleBuffer; }
 SPECIALIZE_TYPE_TRAITS_END()

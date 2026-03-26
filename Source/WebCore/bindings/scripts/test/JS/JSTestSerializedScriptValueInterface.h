@@ -22,8 +22,8 @@
 
 #if ENABLE(Condition1) || ENABLE(Condition2)
 
-#include "JSDOMWrapper.h"
 #include "TestSerializedScriptValueInterface.h"
+#include <WebCore/JSDOMWrapper.h>
 #include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
@@ -34,7 +34,7 @@ public:
     static JSTestSerializedScriptValueInterface* create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestSerializedScriptValueInterface>&& impl)
     {
         SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
-        JSTestSerializedScriptValueInterface* ptr = new (NotNull, JSC::allocateCell<JSTestSerializedScriptValueInterface>(vm)) JSTestSerializedScriptValueInterface(structure, *globalObject, WTFMove(impl));
+        JSTestSerializedScriptValueInterface* ptr = new (NotNull, JSC::allocateCell<JSTestSerializedScriptValueInterface>(vm)) JSTestSerializedScriptValueInterface(structure, *globalObject, WTF::move(impl));
         ptr->finishCreation(vm);
         return ptr;
     }
@@ -88,10 +88,8 @@ inline void* wrapperKey(TestSerializedScriptValueInterface* wrappableObject)
 }
 
 JSC::JSValue toJS(JSC::JSGlobalObject*, JSDOMGlobalObject*, TestSerializedScriptValueInterface&);
-inline JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestSerializedScriptValueInterface* impl) { return impl ? toJS(lexicalGlobalObject, globalObject, *impl) : JSC::jsNull(); }
 JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject*, Ref<TestSerializedScriptValueInterface>&&);
 ALWAYS_INLINE JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestSerializedScriptValueInterface& impl) { return toJSNewlyCreated(lexicalGlobalObject, globalObject, Ref { impl }); }
-inline JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, RefPtr<TestSerializedScriptValueInterface>&& impl) { return impl ? toJSNewlyCreated(lexicalGlobalObject, globalObject, impl.releaseNonNull()) : JSC::jsNull(); }
 
 template<> struct JSDOMWrapperConverterTraits<TestSerializedScriptValueInterface> {
     using WrapperClass = JSTestSerializedScriptValueInterface;

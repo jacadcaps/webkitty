@@ -156,6 +156,12 @@ bool defaultNeedsKeyboardEventDisambiguationQuirks()
 
 #endif // PLATFORM(MAC)
 
+bool defaultFontFaceSetConstructorEnabled()
+{
+    static bool newSDK = linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::NoFontFaceSetConstructor);
+    return !newSDK;
+}
+
 bool defaultMutationEventsEnabled()
 {
     return WTF::CocoaApplication::isAppleApplication() || !linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::MutationEventsDisabledByDefault);
@@ -174,18 +180,6 @@ bool defaultShouldRestrictBaseURLSchemes()
 {
     static bool shouldRestrictBaseURLSchemes = linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::RestrictsBaseURLSchemes);
     return shouldRestrictBaseURLSchemes;
-}
-
-bool defaultAllowDisplayOfInsecureContent()
-{
-    static bool shouldAllowDisplayOfInsecureContent = !WebKitLinkedOnOrAfter(WEBKIT_FIRST_VERSION_WITH_INSECURE_CONTENT_BLOCKING);
-    return shouldAllowDisplayOfInsecureContent;
-}
-
-bool defaultAllowRunningOfInsecureContent()
-{
-    static bool shouldAllowRunningOfInsecureContent = !WebKitLinkedOnOrAfter(WEBKIT_FIRST_VERSION_WITH_INSECURE_CONTENT_BLOCKING);
-    return shouldAllowRunningOfInsecureContent;
 }
 
 bool defaultShouldConvertInvalidURLsToBlank()

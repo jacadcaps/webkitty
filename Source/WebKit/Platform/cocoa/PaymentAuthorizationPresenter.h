@@ -107,6 +107,7 @@ protected:
     }
 
     virtual WKPaymentAuthorizationDelegate *platformDelegate() = 0;
+    RetainPtr<WKPaymentAuthorizationDelegate> protectedPlatformDelegate();
 
 #if PLATFORM(IOS_FAMILY) && ENABLE(APPLE_PAY_REMOTE_UI_USES_SCENE)
     String m_sceneIdentifier;

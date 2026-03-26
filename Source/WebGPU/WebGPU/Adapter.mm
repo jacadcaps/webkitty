@@ -41,7 +41,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(Adapter);
 Adapter::Adapter(id<MTLDevice> device, Instance& instance, bool xrCompatible, HardwareCapabilities&& capabilities)
     : m_device(device)
     , m_instance(&instance)
-    , m_capabilities(WTFMove(capabilities))
+    , m_capabilities(WTF::move(capabilities))
     , m_xrCompatible(xrCompatible)
 {
 }
@@ -64,9 +64,6 @@ size_t Adapter::enumerateFeatures(WGPUFeatureName* features)
 
 bool Adapter::getLimits(WGPUSupportedLimits& limits)
 {
-    if (limits.nextInChain != nullptr)
-        return false;
-
     limits.limits = m_capabilities.limits;
     return true;
 }
@@ -89,11 +86,6 @@ bool Adapter::hasFeature(WGPUFeatureName feature)
 
 void Adapter::requestDevice(const WGPUDeviceDescriptor& descriptor, CompletionHandler<void(WGPURequestDeviceStatus, Ref<Device>&&, String&&)>&& callback)
 {
-    if (descriptor.nextInChain) {
-        callback(WGPURequestDeviceStatus_Error, Device::createInvalid(*this), "Unknown descriptor type"_s);
-        return;
-    }
-
     if (m_deviceRequested) {
         callback(WGPURequestDeviceStatus_Error, Device::createInvalid(*this), "Adapter can only request one device"_s);
         makeInvalid();
@@ -103,10 +95,6 @@ void Adapter::requestDevice(const WGPUDeviceDescriptor& descriptor, CompletionHa
     WGPULimits limits { };
 
     if (descriptor.requiredLimits) {
-        if (descriptor.requiredLimits->nextInChain) {
-            callback(WGPURequestDeviceStatus_Error, Device::createInvalid(*this), "Unknown descriptor type"_s);
-            return;
-        }
 
         if (!WebGPU::isValid(descriptor.requiredLimits->limits)) {
             callback(WGPURequestDeviceStatus_Error, Device::createInvalid(*this), "Device does not support requested limits"_s);
@@ -130,14 +118,14 @@ void Adapter::requestDevice(const WGPUDeviceDescriptor& descriptor, CompletionHa
 
     HardwareCapabilities capabilities {
         limits,
-        WTFMove(features),
+        WTF::move(features),
         m_capabilities.baseCapabilities,
     };
 
     auto label = fromAPI(descriptor.label);
     m_deviceRequested = true;
     // FIXME: this should be asynchronous - https://bugs.webkit.org/show_bug.cgi?id=233621
-    callback(WGPURequestDeviceStatus_Success, Device::create(this->m_device, WTFMove(label), WTFMove(capabilities), *this), { });
+    callback(WGPURequestDeviceStatus_Success, Device::create(this->m_device, WTF::move(label), WTF::move(capabilities), *this), { });
 }
 
 bool Adapter::isXRCompatible() const
@@ -182,14 +170,14 @@ WGPUBool wgpuAdapterHasFeature(WGPUAdapter adapter, WGPUFeatureName feature)
 void wgpuAdapterRequestDevice(WGPUAdapter adapter, const WGPUDeviceDescriptor* descriptor, WGPURequestDeviceCallback callback, void* userdata)
 {
     WebGPU::protectedFromAPI(adapter)->requestDevice(*descriptor, [callback, userdata](WGPURequestDeviceStatus status, Ref<WebGPU::Device>&& device, String&& message) {
-        callback(status, WebGPU::releaseToAPI(WTFMove(device)), message.utf8().data(), userdata);
+        callback(status, WebGPU::releaseToAPI(WTF::move(device)), message.utf8().data(), userdata);
     });
 }
 
 void wgpuAdapterRequestDeviceWithBlock(WGPUAdapter adapter, WGPUDeviceDescriptor const * descriptor, WGPURequestDeviceBlockCallback callback)
 {
-    WebGPU::protectedFromAPI(adapter)->requestDevice(*descriptor, [callback = WebGPU::fromAPI(WTFMove(callback))](WGPURequestDeviceStatus status, Ref<WebGPU::Device>&& device, String&& message) {
-        callback(status, WebGPU::releaseToAPI(WTFMove(device)), message.utf8().data());
+    WebGPU::protectedFromAPI(adapter)->requestDevice(*descriptor, [callback = WebGPU::fromAPI(WTF::move(callback))](WGPURequestDeviceStatus status, Ref<WebGPU::Device>&& device, String&& message) {
+        callback(status, WebGPU::releaseToAPI(WTF::move(device)), message.utf8().data());
     });
 }
 

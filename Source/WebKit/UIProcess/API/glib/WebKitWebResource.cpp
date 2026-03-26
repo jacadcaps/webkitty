@@ -385,12 +385,12 @@ void webkit_web_resource_get_data(WebKitWebResource* resource, GCancellable* can
     GRefPtr<GTask> task = adoptGRef(g_task_new(resource, cancellable, callback, userData));
     g_task_set_task_data(task.get(), createResourceGetDataAsyncData(), reinterpret_cast<GDestroyNotify>(destroyResourceGetDataAsyncData));
     if (resource->priv->isMainResource)
-        resource->priv->frame->getMainResourceData([task = WTFMove(task)](API::Data* data) {
+        resource->priv->frame->getMainResourceData([task = WTF::move(task)](API::Data* data) {
             resourceDataCallback(data, task.get());
         });
     else {
         String url = String::fromUTF8(resource->priv->uri.data());
-        resource->priv->frame->getResourceData(API::URL::create(url).ptr(), [task = WTFMove(task)](API::Data* data) {
+        resource->priv->frame->getResourceData(API::URL::create(url).ptr(), [task = WTF::move(task)](API::Data* data) {
             resourceDataCallback(data, task.get());
         });
     }
@@ -427,6 +427,8 @@ guchar* webkit_web_resource_get_data_finish(WebKitWebResource* resource, GAsyncR
         return nullptr;
 
     auto* returnValue = g_malloc(data->webData->size());
+    IGNORE_CLANG_WARNINGS_BEGIN("unsafe-buffer-usage-in-libc-call")
     memcpy(returnValue, bytes.data(), bytes.size());
+    IGNORE_CLANG_WARNINGS_END
     return static_cast<guchar*>(returnValue);
 }

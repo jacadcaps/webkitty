@@ -26,7 +26,9 @@
 
 #pragma once
 
+#include "DocumentPage.h"
 #include "FocusController.h"
+#include "FrameDestructionObserverInlines.h"
 #include "FrameSelection.h"
 #include "HTMLDialogElement.h"
 #include "HTMLFrameElement.h"
@@ -35,7 +37,7 @@
 #include "HTMLInputElement.h"
 #include "HTMLOptionElement.h"
 #include "InspectorInstrumentation.h"
-#include "LocalFrame.h"
+#include "LocalFrameInlines.h"
 #include "Page.h"
 #include "SelectorChecker.h"
 #include "Settings.h"
@@ -50,6 +52,10 @@
 #if ENABLE(FULLSCREEN_API)
 #include "DocumentFullscreen.h"
 #include "DocumentOrShadowRootFullscreen.h"
+#endif
+
+#if ENABLE(MODEL_ELEMENT_IMMERSIVE)
+#include "DocumentImmersive.h"
 #endif
 
 #if ENABLE(VIDEO)
@@ -446,6 +452,16 @@ ALWAYS_INLINE bool matchesInWindowFullscreenPseudoClass(const Element& element)
 ALWAYS_INLINE bool matchesPictureInPicturePseudoClass(const Element& element)
 {
     return is<HTMLVideoElement>(element) && element.document().pictureInPictureElement() == &element;
+}
+
+#endif
+
+#if ENABLE(MODEL_ELEMENT_IMMERSIVE)
+
+ALWAYS_INLINE bool matchesImmersivePseudoClass(const Element& element)
+{
+    auto* modelElement = dynamicDowncast<HTMLModelElement>(element);
+    return modelElement && modelElement->immersive();
 }
 
 #endif

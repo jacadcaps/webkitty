@@ -25,12 +25,13 @@
 
 #pragma once
 
-#if ENABLE(ASYNC_SCROLLING) && PLATFORM(MAC)
+#include <wtf/Platform.h>
+#if PLATFORM(MAC)
 
-#include "ScrollbarThemeMac.h"
-#include "ScrollingStateFrameScrollingNode.h"
-#include "ScrollingTreeFrameScrollingNode.h"
-#include "ScrollingTreeScrollingNodeDelegateMac.h"
+#include <WebCore/ScrollbarThemeMac.h>
+#include <WebCore/ScrollingStateFrameScrollingNode.h>
+#include <WebCore/ScrollingTreeFrameScrollingNode.h>
+#include <WebCore/ScrollingTreeScrollingNodeDelegateMac.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/TZoneMalloc.h>
 
@@ -93,4 +94,4 @@ SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::ScrollingTreeFrameScrollingNodeMac) \
     static bool isType(const WebCore::ScrollingTreeFrameScrollingNode& node) { return node.isScrollingTreeFrameScrollingNodeMac(); } \
 SPECIALIZE_TYPE_TRAITS_END()
 
-#endif // ENABLE(ASYNC_SCROLLING) && PLATFORM(MAC)
+#endif // PLATFORM(MAC)

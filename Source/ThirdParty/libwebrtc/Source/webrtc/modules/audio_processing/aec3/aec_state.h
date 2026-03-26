@@ -23,6 +23,7 @@
 #include "api/audio/echo_canceller3_config.h"
 #include "api/environment/environment.h"
 #include "modules/audio_processing/aec3/aec3_common.h"
+#include "modules/audio_processing/aec3/block.h"
 #include "modules/audio_processing/aec3/delay_estimate.h"
 #include "modules/audio_processing/aec3/echo_audibility.h"
 #include "modules/audio_processing/aec3/echo_path_variability.h"
@@ -30,6 +31,7 @@
 #include "modules/audio_processing/aec3/erle_estimator.h"
 #include "modules/audio_processing/aec3/filter_analyzer.h"
 #include "modules/audio_processing/aec3/render_buffer.h"
+#include "modules/audio_processing/aec3/reverb_model.h"
 #include "modules/audio_processing/aec3/reverb_model_estimator.h"
 #include "modules/audio_processing/aec3/subtractor_output.h"
 #include "modules/audio_processing/aec3/subtractor_output_analyzer.h"
@@ -155,6 +157,10 @@ class AecState {
     return filter_analyzer_.FilterLengthBlocks();
   }
 
+  std::optional<DelayEstimate> ExternalDelayBlocks() const {
+    return delay_state_.ExternalDelayBlocks();
+  }
+
  private:
   static std::atomic<int> instance_count_;
   std::unique_ptr<ApmDataDumper> data_dumper_;
@@ -199,7 +205,13 @@ class AecState {
 
     // Returns whether an external delay has been reported to the AecState (from
     // the delay estimator).
-    bool ExternalDelayReported() const { return external_delay_reported_; }
+    bool ExternalDelayReported() const { return external_delay_.has_value(); }
+
+    // Returns the external delay reported to the AecState (from the delay
+    // estimator).
+    std::optional<DelayEstimate> ExternalDelayBlocks() const {
+      return external_delay_;
+    }
 
     // Returns the delay in blocks relative to the beginning of the filter that
     // corresponds to the direct path of the echo.
@@ -218,7 +230,6 @@ class AecState {
 
    private:
     const int delay_headroom_blocks_;
-    bool external_delay_reported_ = false;
     std::vector<int> filter_delays_blocks_;
     int min_filter_delay_;
     std::optional<DelayEstimate> external_delay_;

@@ -39,9 +39,9 @@
 #include "src/gpu/ganesh/GrCaps.h"
 #include "src/gpu/ganesh/GrDataUtils.h"
 #include "src/gpu/ganesh/GrDirectContextPriv.h"
+#include "tests/ComparePixels.h"
 #include "tests/CtsEnforcement.h"
 #include "tests/Test.h"
-#include "tests/TestUtils.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -227,7 +227,7 @@ static std::unique_ptr<const char[]> make_compressed_data(SkTextureCompressionTy
 
     int numMipLevels = 1;
     if (mipmapped == skgpu::Mipmapped::kYes) {
-        numMipLevels = SkMipmap::ComputeLevelCount(dimensions.width(), dimensions.height()) + 1;
+        numMipLevels = SkMipmap::ComputeLevelCount(dimensions) + 1;
     }
 
     TArray<size_t> mipMapOffsets(numMipLevels);

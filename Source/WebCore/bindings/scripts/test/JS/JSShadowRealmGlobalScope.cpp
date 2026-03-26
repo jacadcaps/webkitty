@@ -92,7 +92,7 @@ template<> void JSShadowRealmGlobalScopeDOMConstructor::initializeProperties(VM&
 const ClassInfo JSShadowRealmGlobalScope::s_info = { "ShadowRealmGlobalScope"_s, &Base::s_info, &JSShadowRealmGlobalScopeTable, nullptr, CREATE_METHOD_TABLE(JSShadowRealmGlobalScope) };
 
 JSShadowRealmGlobalScope::JSShadowRealmGlobalScope(VM& vm, Structure* structure, Ref<ShadowRealmGlobalScope>&& impl)
-    : JSDOMWrapper<ShadowRealmGlobalScope>(vm, structure, WTFMove(impl))
+    : JSDOMWrapper<ShadowRealmGlobalScope>(vm, structure, WTF::move(impl))
 {
 }
 
@@ -113,7 +113,7 @@ JSValue JSShadowRealmGlobalScope::getConstructor(VM& vm, const JSGlobalObject* g
 
 void JSShadowRealmGlobalScope::destroy(JSC::JSCell* cell)
 {
-    JSShadowRealmGlobalScope* thisObject = static_cast<JSShadowRealmGlobalScope*>(cell);
+    SUPPRESS_MEMORY_UNSAFE_CAST JSShadowRealmGlobalScope* thisObject = static_cast<JSShadowRealmGlobalScope*>(cell);
     thisObject->JSShadowRealmGlobalScope::~JSShadowRealmGlobalScope();
 }
 
@@ -179,7 +179,7 @@ bool JSShadowRealmGlobalScopeOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::
 
 void JSShadowRealmGlobalScopeOwner::finalize(JSC::Handle<JSC::Unknown> handle, void* context)
 {
-    auto* jsShadowRealmGlobalScope = static_cast<JSShadowRealmGlobalScope*>(handle.slot()->asCell());
+    SUPPRESS_MEMORY_UNSAFE_CAST auto* jsShadowRealmGlobalScope = static_cast<JSShadowRealmGlobalScope*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
     uncacheWrapper(world, jsShadowRealmGlobalScope->protectedWrapped().ptr(), jsShadowRealmGlobalScope);
 }

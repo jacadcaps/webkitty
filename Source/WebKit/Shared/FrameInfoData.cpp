@@ -37,10 +37,11 @@ FrameInfoData legacyEmptyFrameInfo(WebCore::ResourceRequest&& request)
     return FrameInfoData {
         isMainFrame,
         FrameType::Local,
-        WTFMove(request),
+        WTF::move(request),
         WebCore::SecurityOriginData::createOpaque(),
         String { },
         WebCore::generateFrameIdentifier(),
+        std::nullopt,
         std::nullopt,
         std::nullopt,
         WebCore::CertificateInfo { },

@@ -53,11 +53,13 @@ public:
     static void setAutomaticDashSubstitutionEnabled(bool);
     static void setAutomaticLinkDetectionEnabled(bool);
     static void setAutomaticTextReplacementEnabled(bool);
+    static void setSmartListsEnabled(bool);
 
     static void didChangeAutomaticTextReplacementEnabled();
     static void didChangeAutomaticSpellingCorrectionEnabled();
     static void didChangeAutomaticQuoteSubstitutionEnabled();
     static void didChangeAutomaticDashSubstitutionEnabled();
+    static void didChangeSmartListsEnabled();
 
     static bool isSmartInsertDeleteEnabled();
     static void setSmartInsertDeleteEnabled(bool);
@@ -89,6 +91,7 @@ public:
     static void learnWord(SpellDocumentTag, const String& word);
     static void ignoreWord(SpellDocumentTag, const String& word);
     static void requestCheckingOfString(Ref<TextCheckerCompletion>&&, int32_t insertionPoint);
+    static void requestExtendedCheckingOfString(Ref<TextCheckerCompletion>&&, int32_t insertionPoint);
 };
 
 } // namespace WebKit

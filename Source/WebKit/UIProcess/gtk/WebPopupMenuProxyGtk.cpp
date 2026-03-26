@@ -26,10 +26,11 @@
 #include "config.h"
 #include "WebPopupMenuProxyGtk.h"
 
+#include "GUniquePtrGtk.h"
+#include "GtkUtilities.h"
+#include "GtkVersioning.h"
 #include "NativeWebMouseEvent.h"
 #include "WebPopupItem.h"
-#include <WebCore/GtkUtilities.h>
-#include <WebCore/GtkVersioning.h>
 #include <WebCore/IntRect.h>
 #include <gtk/gtk.h>
 #include <wtf/glib/GUniquePtr.h>
@@ -394,6 +395,8 @@ void WebPopupMenuProxyGtk::hidePopupMenu()
     if (!m_popup)
         return;
 
+    g_signal_handlers_disconnect_by_data(m_popup, this);
+
 #if !USE(GTK4)
     if (m_device) {
         gdk_seat_ungrab(gdk_device_get_seat(m_device));
@@ -425,7 +428,6 @@ void WebPopupMenuProxyGtk::cancelTracking()
     if (!m_popup)
         return;
 
-    g_signal_handlers_disconnect_matched(m_popup, G_SIGNAL_MATCH_DATA, 0, 0, nullptr, nullptr, this);
     hidePopupMenu();
 }
 
@@ -489,8 +491,10 @@ std::optional<unsigned> WebPopupMenuProxyGtk::typeAheadFindIndex(unsigned keyval
         if (!text)
             continue;
 
+IGNORE_CLANG_WARNINGS_BEGIN("unsafe-buffer-usage-in-libc-call")
         if (!strncmp(prefix.get(), text.get(), strlen(prefix.get())))
             return index;
+IGNORE_CLANG_WARNINGS_END
     }
 
     return std::nullopt;

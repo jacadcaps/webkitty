@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2024-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -51,11 +51,22 @@
         return nil;
 
 #if ENABLE(RELOCATABLE_WEBPUSHD)
-    _machServiceName = @"com.apple.webkit.webpushd.relocatable.service";
+    self.machServiceName = @"com.apple.webkit.webpushd.relocatable.service";
 #else
-    _machServiceName = @"com.apple.webkit.webpushd.service";
+    self.machServiceName = @"com.apple.webkit.webpushd.service";
 #endif
     return self;
+}
+
+- (void)dealloc
+{
+IGNORE_NULL_CHECK_WARNINGS_BEGIN
+    self.machServiceName = nil;
+IGNORE_NULL_CHECK_WARNINGS_END
+    self.partition = nil;
+    self.bundleIdentifierOverrideForTesting = nil;
+
+    [super dealloc];
 }
 
 @end
@@ -78,10 +89,10 @@
     auto hostAppAuditToken = configuration.hostApplicationAuditToken;
     Vector<uint8_t> hostAppAuditTokenData(sizeof(hostAppAuditToken));
     memcpySpan(hostAppAuditTokenData.mutableSpan(), asByteSpan(hostAppAuditToken));
-    connectionConfiguration.hostAppAuditTokenData = WTFMove(hostAppAuditTokenData);
+    connectionConfiguration.hostAppAuditTokenData = WTF::move(hostAppAuditTokenData);
 #endif
 
-    API::Object::constructInWrapper<API::WebPushDaemonConnection>(self, configuration.machServiceName, WTFMove(connectionConfiguration));
+    API::Object::constructInWrapper<API::WebPushDaemonConnection>(self, configuration.machServiceName, WTF::move(connectionConfiguration));
 
     return self;
 }
@@ -123,9 +134,9 @@ static _WKWebPushPermissionState toWKPermissionsState(WebCore::PushPermissionSta
 - (void)subscribeToPushServiceForScope:(NSURL *)scopeURL applicationServerKey:(NSData *)applicationServerKey completionHandler:(void (^)(_WKWebPushSubscriptionData *, NSError *))completionHandler
 {
     auto key = makeVector(applicationServerKey);
-    self._protectedConnection->subscribeToPushService(scopeURL, WTFMove(key), [completionHandlerCopy = makeBlockPtr(completionHandler)] (auto result) {
+    self._protectedConnection->subscribeToPushService(scopeURL, WTF::move(key), [completionHandlerCopy = makeBlockPtr(completionHandler)] (auto result) {
         if (result)
-            return completionHandlerCopy(wrapper(API::WebPushSubscriptionData::create(WTFMove(result.value()))).get(), nil);
+            return completionHandlerCopy(wrapper(API::WebPushSubscriptionData::create(WTF::move(result.value()))).get(), nil);
 
         // FIXME: This error can be used to create DOMException; we may consider adding a new value to WKErrorCode for it.
         RetainPtr error = adoptNS([[NSError alloc] initWithDomain:@"WKErrorDomain" code:WKErrorUnknown userInfo:@{ NSLocalizedDescriptionKey:result.error().message.createNSString().get() }]);
@@ -149,7 +160,7 @@ static _WKWebPushPermissionState toWKPermissionsState(WebCore::PushPermissionSta
     self._protectedConnection->getPushSubscription(scopeURL, [completionHandlerCopy = makeBlockPtr(completionHandler)] (auto result) {
         if (result) {
             if (auto data = result.value())
-                return completionHandlerCopy(wrapper(API::WebPushSubscriptionData::create(WTFMove(*data))).get(), nil);
+                return completionHandlerCopy(wrapper(API::WebPushSubscriptionData::create(WTF::move(*data))).get(), nil);
 
             return completionHandlerCopy(nil, nil);
         }
@@ -165,12 +176,12 @@ static _WKWebPushPermissionState toWKPermissionsState(WebCore::PushPermissionSta
         if (!result)
             return completionHandlerCopy(nil);
 
-        return completionHandlerCopy(wrapper(API::WebPushMessage::create(WTFMove(result.value()))).get());
+        return completionHandlerCopy(wrapper(API::WebPushMessage::create(WTF::move(result.value()))).get());
     });
 }
 
 
-- (void)showNotification:(_WKNotificationData *)notificationData completionHandler:(void (^)())completionHandler
+- (void)showNotification:(_WKNotificationData *)notificationData completionHandler:(void (^)(void))completionHandler
 {
     self._protectedConnection->showNotification([notificationData _getCoreData], [completionHandlerCopy = makeBlockPtr(completionHandler)] () {
         completionHandlerCopy();

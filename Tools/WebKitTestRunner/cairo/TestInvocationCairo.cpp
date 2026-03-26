@@ -39,7 +39,6 @@
 #include <cstdio>
 #include <wtf/Assertions.h>
 #include <wtf/SHA1.h>
-#include <wtf/StringExtras.h>
 
 namespace WTR {
 

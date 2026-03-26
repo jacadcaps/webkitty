@@ -40,6 +40,7 @@
 
     IBOutlet NSMenuItem *_newWebKit1WindowItem;
     IBOutlet NSMenuItem *_newWebKit2WindowItem;
+    IBOutlet NSMenuItem *_newWebKit2SiteIsolateWindowItem;
     IBOutlet NSMenuItem *_newWebKit1EditorItem;
     IBOutlet NSMenuItem *_newWebKit2EditorItem;
     IBOutlet NSMenuItem *_newSwiftUIWindowItem;
@@ -49,6 +50,8 @@
 
 - (void)didCreateBrowserWindowController:(BrowserWindowController *)controller;
 - (void)browserWindowWillClose:(NSWindow *)window;
+
+- (IBAction)newTab:(id)sender;
 
 - (void)didChangeSettings;
 

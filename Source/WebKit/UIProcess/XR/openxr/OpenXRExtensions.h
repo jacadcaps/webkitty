@@ -30,6 +30,12 @@ typedef unsigned EGLenum;
 #if defined(XR_USE_PLATFORM_EGL)
 typedef void (*(*PFNEGLGETPROCADDRESSPROC)(const char *))(void);
 #endif
+
+// The JNI types need to be defined before including openxr_platform.h
+#if OS(ANDROID)
+#include <jni.h>
+#endif
+
 #include <openxr/openxr_platform.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/TZoneMalloc.h>
@@ -50,6 +56,14 @@ public:
     PFN_xrCreateHandTrackerEXT xrCreateHandTrackerEXT { nullptr };
     PFN_xrDestroyHandTrackerEXT xrDestroyHandTrackerEXT { nullptr };
     PFN_xrLocateHandJointsEXT xrLocateHandJointsEXT { nullptr };
+#endif
+#if defined(XR_ANDROID_trackables)
+    PFN_xrCreateTrackableTrackerANDROID xrCreateTrackableTrackerANDROID { nullptr };
+    PFN_xrDestroyTrackableTrackerANDROID xrDestroyTrackableTrackerANDROID { nullptr };
+#endif
+#if defined(XR_ANDROID_raycast)
+    PFN_xrRaycastANDROID xrRaycastANDROID { nullptr };
+    PFN_xrEnumerateRaycastSupportedTrackableTypesANDROID xrEnumerateRaycastSupportedTrackableTypesANDROID { nullptr };
 #endif
 };
 

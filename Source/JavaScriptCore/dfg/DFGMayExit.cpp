@@ -71,8 +71,9 @@ ExitMode mayExitImpl(Graph& graph, Node* node, StateType& state)
     case BottomValue:
     case PutHint:
     case PhantomNewObject:
-    case PhantomNewArrayWithConstantSize:
+    case PhantomNewArrayWithButterfly:
     case PhantomNewInternalFieldObject:
+    case PhantomNewButterflyWithSize:
     case PutStack:
     case KillStack:
     case GetStack:
@@ -123,6 +124,10 @@ ExitMode mayExitImpl(Graph& graph, Node* node, StateType& state)
     case CompareBelow:
     case CompareBelowEq:
     case CompareEqPtr:
+    case MapIteratorNext:
+    case MapIteratorKey:
+    case MapIteratorValue:
+    case MapStorage:
         break;
 
     case Switch: {
@@ -160,6 +165,19 @@ ExitMode mayExitImpl(Graph& graph, Node* node, StateType& state)
         break;
     }
 
+    case PutByValDirectResolved: {
+        // PutByValDirectResolved is only used when we know the slot we're storing to exists
+        // i.e. it would be a direct store and is within the PublicLength. Thus,
+        // it can only exit if and edge speculation fails.
+
+        // FIXME: Support making this non-exiting for TypedArrays, which is mostly
+        // blocked on cleaning up our clobberize/CSE rules for
+        // Resizeable/GrowableSharedArrayBuffers when a put aliases some other access.
+        if (node->arrayMode().isSomeTypedArrayView())
+            return Exits;
+        break;
+    }
+
     case EnumeratorNextUpdatePropertyName:
     case StrCat:
     case Call:
@@ -172,7 +190,7 @@ ExitMode mayExitImpl(Graph& graph, Node* node, StateType& state)
     case CreateActivation:
     case MaterializeCreateActivation:
     case MaterializeNewObject:
-    case MaterializeNewArrayWithConstantSize:
+    case MaterializeNewArrayWithButterfly:
     case MaterializeNewInternalFieldObject:
     case NewFunction:
     case NewGeneratorFunction:
@@ -184,13 +202,15 @@ ExitMode mayExitImpl(Graph& graph, Node* node, StateType& state)
     case NewRegExp:
     case NewMap:
     case NewSet:
-    case NewArrayWithConstantSize:
+    case NewArrayWithButterfly:
+    case NewButterflyWithSize:
     case ToNumber:
     case ToNumeric:
     case ToObject:
     case RegExpExecNonGlobalOrSticky:
     case RegExpMatchFastGlobal:
     case CallWasm:
+    case TailCallInlinedCallerWasm:
     case CallCustomAccessorGetter:
     case CallCustomAccessorSetter:
     case AllocatePropertyStorage:
@@ -389,6 +409,32 @@ ExitMode mayExitImpl(Graph& graph, Node* node, StateType& state)
             break;
         }
         return Exits;
+    }
+
+    case PutByVal: {
+        if (graph.m_form != SSA)
+            return Exits;
+
+        ArrayMode arrayMode = node->arrayMode().modeForPut();
+        if (!arrayMode.isInBounds())
+            return Exits;
+
+        switch (arrayMode.type()) {
+        case Array::Int8Array:
+        case Array::Int16Array:
+        case Array::Int32Array:
+        case Array::Uint8Array:
+        case Array::Uint8ClampedArray:
+        case Array::Uint16Array:
+        case Array::Uint32Array:
+        case Array::Float16Array:
+        case Array::Float32Array:
+        case Array::Float64Array:
+            break;
+        default:
+            return Exits;
+        }
+        break;
     }
 
     default:

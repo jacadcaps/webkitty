@@ -4,6 +4,10 @@
 // found in the LICENSE file.
 //
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include "test_utils/ANGLETest.h"
 #include "test_utils/angle_test_configs.h"
 #include "test_utils/gl_raii.h"
@@ -299,20 +303,17 @@ void main()
     if (gl_FragCoord.x < 2.0)
     {
         coord.x = gl_FragCoord.x < 1.0 ? 1.0 : -1.0;
-        coord.z = coordInSection[int(gl_FragCoord.y)].x;
-        coord.y = coordInSection[int(gl_FragCoord.y)].y;
+        coord.zy = coordInSection[int(gl_FragCoord.y)].xy;
     }
     else if (gl_FragCoord.x < 4.0)
     {
         coord.y = gl_FragCoord.x < 3.0 ? 1.0 : -1.0;
-        coord.x = coordInSection[int(gl_FragCoord.y)].x;
-        coord.z = coordInSection[int(gl_FragCoord.y)].y;
+        coord.xz = coordInSection[int(gl_FragCoord.y)].xy;
     }
     else
     {
         coord.z = gl_FragCoord.x < 5.0 ? 1.0 : -1.0;
-        coord.x = coordInSection[int(gl_FragCoord.y)].x;
-        coord.y = coordInSection[int(gl_FragCoord.y)].y;
+        coord.xy = coordInSection[int(gl_FragCoord.y)].xy;
     }
 
     gl_FragColor = textureCube(texCube, coord);
@@ -410,4 +411,4 @@ void main()
 
 // Use this to select which configurations (e.g. which renderer, which GLES major version) these
 // tests should be run against.
-ANGLE_INSTANTIATE_TEST_ES2_AND_ES3_AND(CubeMapTextureTest, ES2_WEBGPU(), ES3_WEBGPU());
+ANGLE_INSTANTIATE_TEST_ES2_AND_ES3_AND(CubeMapTextureTest);

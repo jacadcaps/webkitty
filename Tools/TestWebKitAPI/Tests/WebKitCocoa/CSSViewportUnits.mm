@@ -68,8 +68,7 @@ static float scrollbarSize()
 #if PLATFORM(MAC)
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        RetainPtr scroller = [NSScrollerImp scrollerImpWithStyle:NSScroller.preferredScrollerStyle controlSize:NSControlSizeRegular horizontal:NO replacingScrollerImp:nil];
-        result = [scroller trackBoxWidth];
+        result = [[NSScrollerImp self] scrollerWidthForControlSize:NSControlSizeRegular scrollerStyle:NSScroller.preferredScrollerStyle];
     });
 #endif
     return result;

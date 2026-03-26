@@ -31,6 +31,8 @@
 
 #include "APINavigation.h"
 #include "APINavigationAction.h"
+#include "GtkUtilities.h"
+#include "GtkVersioning.h"
 #include "WKAPICast.h"
 #include "WKArray.h"
 #include "WKContextMenuItem.h"
@@ -46,8 +48,6 @@
 #include "WebProcessProxy.h"
 #include "WebsiteDataStore.h"
 #include <WebCore/CertificateInfo.h>
-#include <WebCore/GtkUtilities.h>
-#include <WebCore/GtkVersioning.h>
 #include <WebCore/InspectorDebuggableType.h>
 #include <WebCore/NotImplemented.h>
 #include <wtf/FileSystem.h>
@@ -68,7 +68,7 @@ static void inspectorViewDestroyed(GtkWidget*, gpointer userData)
 
 void WebInspectorUIProxy::setClient(std::unique_ptr<WebInspectorUIProxyClient>&& client)
 {
-    m_client = WTFMove(client);
+    m_client = WTF::move(client);
 }
 
 void WebInspectorUIProxy::updateInspectorWindowTitle() const
@@ -87,7 +87,7 @@ static void runOpenPanel(WKPageRef pageRef, WKFrameRef, WKOpenPanelParametersRef
     WebInspectorUIProxy* inspector = static_cast<WebInspectorUIProxy*>(const_cast<void*>(clientInfo));
 
     GtkWidget* parent = gtk_widget_get_toplevel(gtk_widget_get_toplevel(inspector->inspectorView()));
-    if (!WebCore::widgetIsOnscreenToplevelWindow(parent))
+    if (!widgetIsOnscreenToplevelWindow(parent))
         return;
 
     GRefPtr<GtkFileChooserNative> dialog = adoptGRef(gtk_file_chooser_native_new("Load File",
@@ -139,7 +139,7 @@ static void decidePolicyForNavigationAction(WKPageRef pageRef, WKNavigationActio
     toImpl(listenerRef)->ignore();
 
     // And instead load it in the inspected page.
-    inspector->protectedInspectedPage()->loadRequest(WTFMove(request));
+    inspector->protectedInspectedPage()->loadRequest(WTF::move(request));
 }
 
 static void getContextMenuFromProposedMenu(WKPageRef pageRef, WKArrayRef proposedMenuRef, WKArrayRef* newMenuRef, WKHitTestResultRef, WKTypeRef, const void*)
@@ -173,7 +173,7 @@ static Ref<WebsiteDataStore> inspectorWebsiteDataStore()
     String baseDataDirectory = FileSystem::pathByAppendingComponent(FileSystem::userDataDirectory(), versionedDirectory);
 
     auto configuration = WebsiteDataStoreConfiguration::createWithBaseDirectories(baseCacheDirectory, baseDataDirectory);
-    return WebsiteDataStore::create(WTFMove(configuration), PAL::SessionID::generatePersistentSessionID());
+    return WebsiteDataStore::create(WTF::move(configuration), PAL::SessionID::generatePersistentSessionID());
 }
 
 RefPtr<WebPageProxy> WebInspectorUIProxy::platformCreateFrontendPage()
@@ -365,7 +365,7 @@ void WebInspectorUIProxy::platformBringToFront()
         return;
 
     GtkWidget* parent = gtk_widget_get_toplevel(m_inspectorView.get());
-    if (WebCore::widgetIsOnscreenToplevelWindow(parent))
+    if (widgetIsOnscreenToplevelWindow(parent))
         gtk_window_present(GTK_WINDOW(parent));
 }
 
@@ -377,7 +377,7 @@ void WebInspectorUIProxy::platformBringInspectedPageToFront()
 bool WebInspectorUIProxy::platformIsFront()
 {
     GtkWidget* parent = gtk_widget_get_toplevel(m_inspectorView.get());
-    if (WebCore::widgetIsOnscreenToplevelWindow(parent))
+    if (widgetIsOnscreenToplevelWindow(parent))
         return m_isVisible && gtk_window_is_active(GTK_WINDOW(parent));
     return false;
 }
@@ -541,7 +541,7 @@ void WebInspectorUIProxy::platformSave(Vector<WebCore::InspectorFrontendClient::
     UNUSED_PARAM(forceSaveAs);
 
     GtkWidget* parent = gtk_widget_get_toplevel(m_inspectorView.get());
-    if (!WebCore::widgetIsOnscreenToplevelWindow(parent))
+    if (!widgetIsOnscreenToplevelWindow(parent))
         return;
 
     GRefPtr<GtkFileChooserNative> dialog = adoptGRef(gtk_file_chooser_native_new("Save File",
@@ -569,7 +569,7 @@ void WebInspectorUIProxy::platformSave(Vector<WebCore::InspectorFrontendClient::
         if (!decodedData)
             return;
         decodedData->shrinkToFit();
-        dataVector = WTFMove(*decodedData);
+        dataVector = WTF::move(*decodedData);
     } else
         dataString = saveDatas[0].content.utf8();
 

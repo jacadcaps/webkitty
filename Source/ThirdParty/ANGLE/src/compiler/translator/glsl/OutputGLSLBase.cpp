@@ -4,6 +4,10 @@
 // found in the LICENSE file.
 //
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include "compiler/translator/glsl/OutputGLSLBase.h"
 
 #include "angle_gl.h"
@@ -87,7 +91,9 @@ TOutputGLSLBase::TOutputGLSLBase(TCompiler *compiler,
     : TIntermTraverser(true, true, true, &compiler->getSymbolTable()),
       mObjSink(objSink),
       mDeclaringVariable(false),
+      mSkippedDeclaringAnonymousStruct(false),
       mHashFunction(compiler->getHashFunction()),
+      mUserVariablePrefix(compiler->getUserVariableNamePrefix()),
       mNameMap(compiler->getNameMap()),
       mShaderType(compiler->getShaderType()),
       mShaderVersion(compiler->getShaderVersion()),
@@ -460,8 +466,30 @@ void TOutputGLSLBase::writeVariableType(const TType &type,
         out << getMemoryQualifiers(type);
     }
 
-    // Declare the struct.
-    if (type.isStructSpecifier())
+    // Declare the struct.  If this is an anonymous struct that's separated from its declaration,
+    // don't declare it independently, but put it together back with the variable that declared it.
+    // That would look like for example:
+    //
+    //     out struct
+    //     {
+    //        ...
+    //     } variable;
+    const bool isStruct          = type.getStruct() != nullptr;
+    const bool isAnonymousStruct = isStruct && type.getStruct()->isNameless();
+    const bool isAnonymousStructDeclaration =
+        isAnonymousStruct && symbol->symbolType() == SymbolType::Empty;
+    const bool isNamedStructDeclaration = type.isStructSpecifier() && !isAnonymousStruct;
+    ASSERT(!isAnonymousStructDeclaration || type.isStructSpecifier());
+    // Declare struct if:
+    //
+    // * It's named (regardless of standalone or part of variable declaration)
+    // * It's anonymous, but this is the variable declaration.  Generate the struct as part of the
+    //   variable declaration, and don't give it a name.
+    const bool shouldDeclareStruct =
+        isStruct &&
+        (isNamedStructDeclaration || (isAnonymousStruct && !isAnonymousStructDeclaration));
+    mSkippedDeclaringAnonymousStruct = isAnonymousStructDeclaration;
+    if (shouldDeclareStruct)
     {
         const TStructure *structure = type.getStruct();
 
@@ -471,7 +499,7 @@ void TOutputGLSLBase::writeVariableType(const TType &type,
     {
         declareInterfaceBlock(type);
     }
-    else
+    else if (!isAnonymousStructDeclaration)
     {
         if (writeVariablePrecision(type.getPrecision()))
             out << " ";
@@ -901,8 +929,11 @@ bool TOutputGLSLBase::visitBlock(Visit visit, TIntermBlock *node)
 
         curNode->traverse(this);
 
-        if (isSingleStatement(curNode))
+        if (isSingleStatement(curNode) && !mSkippedDeclaringAnonymousStruct)
+        {
             out << ";\n";
+        }
+        mSkippedDeclaringAnonymousStruct = false;
     }
 
     // Scope the blocks except when at the global scope.
@@ -1156,12 +1187,12 @@ ImmutableString TOutputGLSLBase::getTypeName(const TType &type)
         return ImmutableString("sampler2D");
     }
 
-    return GetTypeName(type, mHashFunction, &mNameMap);
+    return GetTypeName(type, mUserVariablePrefix, mHashFunction, &mNameMap);
 }
 
 ImmutableString TOutputGLSLBase::hashName(const TSymbol *symbol)
 {
-    return HashName(symbol, mHashFunction, &mNameMap);
+    return HashName(symbol, mUserVariablePrefix, mHashFunction, &mNameMap);
 }
 
 ImmutableString TOutputGLSLBase::hashFieldName(const TField *field)
@@ -1169,7 +1200,7 @@ ImmutableString TOutputGLSLBase::hashFieldName(const TField *field)
     ASSERT(field->symbolType() != SymbolType::Empty);
     if (field->symbolType() == SymbolType::UserDefined)
     {
-        return HashName(field->name(), mHashFunction, &mNameMap);
+        return HashName(field->name(), mUserVariablePrefix, mHashFunction, &mNameMap);
     }
 
     return field->name();
@@ -1193,7 +1224,9 @@ void TOutputGLSLBase::declareStruct(const TStructure *structure)
 
     out << "struct ";
 
-    if (structure->symbolType() != SymbolType::Empty)
+    // Keep nameless structs nameless, because they may need to match with another shader
+    // stage (for example if used to declare a varying).
+    if (structure->symbolType() != SymbolType::Empty && !structure->isNameless())
     {
         out << hashName(structure) << " ";
     }

@@ -36,12 +36,32 @@ WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 
 namespace WebCore {
 
-IntSize PlatformImageNativeImageBackend::size() const
+RefPtr<NativeImage> NativeImage::create(PlatformImagePtr&& platformImage, GrDirectContext* grContext)
+{
+    if (!platformImage)
+        return nullptr;
+    return adoptRef(*new NativeImage(WTF::move(platformImage), grContext));
+}
+
+RefPtr<NativeImage> NativeImage::createTransient(PlatformImagePtr&& image, GrDirectContext* grContext)
+{
+    return create(WTF::move(image), grContext);
+}
+
+NativeImage::NativeImage(PlatformImagePtr&& platformImage, GrDirectContext* grContext)
+    : m_platformImage(WTF::move(platformImage))
+    , m_grContext(grContext)
+{
+    ASSERT(!m_platformImage->isTextureBacked() || m_grContext);
+    computeHeadroom();
+}
+
+IntSize NativeImage::size() const
 {
     return m_platformImage ? IntSize(m_platformImage->width(), m_platformImage->height()) : IntSize();
 }
 
-bool PlatformImageNativeImageBackend::hasAlpha() const
+bool NativeImage::hasAlpha() const
 {
     switch (m_platformImage->imageInfo().alphaType()) {
     case kUnknown_SkAlphaType:
@@ -54,7 +74,7 @@ bool PlatformImageNativeImageBackend::hasAlpha() const
     return false;
 }
 
-DestinationColorSpace PlatformImageNativeImageBackend::colorSpace() const
+DestinationColorSpace NativeImage::colorSpace() const
 {
     if (auto colorSpace = platformImage()->refColorSpace())
         return DestinationColorSpace(colorSpace);
@@ -62,7 +82,7 @@ DestinationColorSpace PlatformImageNativeImageBackend::colorSpace() const
     return DestinationColorSpace::SRGB();
 }
 
-Headroom PlatformImageNativeImageBackend::headroom() const
+Headroom NativeImage::headroom() const
 {
     return Headroom::None;
 }
@@ -77,11 +97,11 @@ std::optional<Color> NativeImage::singlePixelSolidColor() const
         if (!PlatformDisplay::sharedDisplay().skiaGLContext()->makeContextCurrent())
             return std::nullopt;
 
-        GrDirectContext* grContext = PlatformDisplay::sharedDisplay().skiaGrContext();
+        ASSERT(m_grContext);
         const auto& imageInfo = platformImage->imageInfo();
         uint32_t pixel;
         SkPixmap pixmap(imageInfo, &pixel, imageInfo.minRowBytes());
-        if (!platformImage->readPixels(grContext, pixmap, 0, 0))
+        if (!platformImage->readPixels(m_grContext, pixmap, 0, 0))
             return std::nullopt;
 
         return pixmap.getColor(0, 0);
@@ -92,11 +112,6 @@ std::optional<Color> NativeImage::singlePixelSolidColor() const
         return std::nullopt;
 
     return pixmap.getColor(0, 0);
-}
-
-void NativeImage::draw(GraphicsContext& context, const FloatRect& destinationRect, const FloatRect& sourceRect, ImagePaintingOptions options)
-{
-    context.drawNativeImageInternal(*this, destinationRect, sourceRect, options);
 }
 
 void NativeImage::clearSubimages()

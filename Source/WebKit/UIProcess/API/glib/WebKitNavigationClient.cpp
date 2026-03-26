@@ -91,16 +91,6 @@ private:
         webkitWebViewLoadFailed(m_webView, WEBKIT_LOAD_COMMITTED, resourceError.failingURL().string().utf8().data(), error.get());
     }
 
-    void didDisplayInsecureContent(WebPageProxy&, API::Object* /* userData */) override
-    {
-        webkitWebViewInsecureContentDetected(m_webView, WEBKIT_INSECURE_CONTENT_DISPLAYED);
-    }
-
-    void didRunInsecureContent(WebPageProxy&, API::Object* /* userData */) override
-    {
-        webkitWebViewInsecureContentDetected(m_webView, WEBKIT_INSECURE_CONTENT_RUN);
-    }
-
     bool didChangeBackForwardList(WebPageProxy&, WebBackForwardListItem* addedItem, const Vector<Ref<WebBackForwardListItem>>& removedItems) override
     {
         webkitBackForwardListChanged(webkit_web_view_get_back_forward_list(m_webView), addedItem, removedItems);
@@ -153,13 +143,13 @@ private:
     void decidePolicyForNavigationAction(WebPageProxy&, Ref<API::NavigationAction>&& navigationAction, Ref<WebFramePolicyListenerProxy>&& listener) override
     {
         WebKitPolicyDecisionType decisionType = navigationAction->targetFrame() ? WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION : WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION;
-        GRefPtr<WebKitPolicyDecision> decision = adoptGRef(webkitNavigationPolicyDecisionCreate(WTFMove(navigationAction), WTFMove(listener)));
+        GRefPtr<WebKitPolicyDecision> decision = adoptGRef(webkitNavigationPolicyDecisionCreate(WTF::move(navigationAction), WTF::move(listener)));
         webkitWebViewMakePolicyDecision(m_webView, decisionType, decision.get());
     }
 
     void decidePolicyForNavigationResponse(WebPageProxy&, Ref<API::NavigationResponse>&& navigationResponse, Ref<WebFramePolicyListenerProxy>&& listener) override
     {
-        GRefPtr<WebKitPolicyDecision> decision = adoptGRef(webkitResponsePolicyDecisionCreate(WTFMove(navigationResponse), WTFMove(listener)));
+        GRefPtr<WebKitPolicyDecision> decision = adoptGRef(webkitResponsePolicyDecisionCreate(WTF::move(navigationResponse), WTF::move(listener)));
         webkitWebViewMakePolicyDecision(m_webView, WEBKIT_POLICY_DECISION_TYPE_RESPONSE, decision.get());
     }
 

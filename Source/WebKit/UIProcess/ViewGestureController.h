@@ -49,7 +49,7 @@
 #include <wtf/glib/GRefPtr.h>
 
 #if USE(GTK4)
-#include <WebCore/GRefPtrGtk.h>
+#include "GRefPtrGtk.h"
 #endif
 #endif
 
@@ -96,6 +96,7 @@ typedef void* PlatformScrollEvent;
 namespace WebKit {
 
 class ViewSnapshot;
+class WebBackForwardList;
 class WebBackForwardListItem;
 class WebPageProxy;
 class WebProcessProxy;
@@ -157,11 +158,11 @@ public:
 
     void gestureEventWasNotHandledByWebCore(PlatformScrollEvent, WebCore::FloatPoint origin);
 
-    void setCustomSwipeViews(Vector<RetainPtr<NSView>> views) { m_customSwipeViews = WTFMove(views); }
+    void setCustomSwipeViews(Vector<RetainPtr<NSView>> views) { m_customSwipeViews = WTF::move(views); }
     const WebCore::FloatBoxExtent& customSwipeViewsObscuredContentInsets() const { return m_customSwipeViewsObscuredContentInsets; }
-    void setCustomSwipeViewsObscuredContentInsets(WebCore::FloatBoxExtent&& insets) { m_customSwipeViewsObscuredContentInsets = WTFMove(insets); }
+    void setCustomSwipeViewsObscuredContentInsets(WebCore::FloatBoxExtent&& insets) { m_customSwipeViewsObscuredContentInsets = WTF::move(insets); }
     WebCore::FloatRect windowRelativeBoundsForCustomSwipeViews() const;
-    void setDidMoveSwipeSnapshotCallback(BlockPtr<void (CGRect)>&& callback) { m_didMoveSwipeSnapshotCallback = WTFMove(callback); }
+    void setDidMoveSwipeSnapshotCallback(BlockPtr<void (CGRect)>&& callback) { m_didMoveSwipeSnapshotCallback = WTF::move(callback); }
 #elif PLATFORM(IOS_FAMILY)
     bool isNavigationSwipeGestureRecognizer(UIGestureRecognizer *) const;
     void installSwipeHandler(UIView *gestureRecognizerView, UIView *swipingView);
@@ -213,6 +214,7 @@ public:
     // Testing
     bool beginSimulatedSwipeInDirectionForTesting(SwipeDirection);
     bool completeSimulatedSwipeInDirectionForTesting(SwipeDirection);
+    bool didCallEndSwipeGesture() const { return m_didCallEndSwipeGesture; }
 
 private:
     explicit ViewGestureController(WebPageProxy&);
@@ -228,6 +230,10 @@ private:
     void resetState();
 
     void didStartProvisionalOrSameDocumentLoadForMainFrame();
+
+#if PLATFORM(COCOA)
+    WebBackForwardList* backForwardListForNavigation() const;
+#endif
 
     class SnapshotRemovalTracker : public CanMakeCheckedPtr<SnapshotRemovalTracker> {
         WTF_DEPRECATED_MAKE_FAST_ALLOCATED(SnapshotRemovalTracker);
@@ -363,7 +369,9 @@ private:
     GRefPtr<GtkStyleContext> createStyleContext(const char*);
 #endif
 
+#if PLATFORM(COCOA)
     RefPtr<WebBackForwardListItem> itemForSwipeDirection(SwipeDirection) const;
+#endif
 
     WeakPtr<WebPageProxy> m_webPageProxy;
     WebPageProxyIdentifier m_webPageProxyIdentifier;
@@ -505,7 +513,7 @@ private:
     bool m_didCallEndSwipeGesture { false };
     bool m_removeSnapshotImmediatelyWhenGestureEnds { false };
 
-    SnapshotRemovalTracker m_snapshotRemovalTracker;
+    const UniqueRef<SnapshotRemovalTracker> m_snapshotRemovalTracker;
     WTF::Function<void()> m_loadCallback;
 };
 

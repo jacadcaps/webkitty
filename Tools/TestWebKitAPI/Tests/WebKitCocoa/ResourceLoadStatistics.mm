@@ -28,6 +28,7 @@
 #import "DeprecatedGlobalValues.h"
 #import "HTTPServer.h"
 #import "PlatformUtilities.h"
+#import "SiteIsolationUtilities.h"
 #import "Test.h"
 #import "TestNavigationDelegate.h"
 #import "TestUIDelegate.h"
@@ -47,6 +48,7 @@
 #import <wtf/BlockPtr.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/URL.h>
+#import <wtf/darwin/DispatchExtras.h>
 #import <wtf/text/MakeString.h>
 
 static bool finishedNavigation = false;
@@ -495,8 +497,8 @@ void waitUntilTwoServersConnected(const unsigned& serversConnected, CompletionHa
         completionHandler();
         return;
     }
-    dispatch_async(dispatch_get_main_queue(), makeBlockPtr([&serversConnected, completionHandler = WTFMove(completionHandler)] () mutable {
-        waitUntilTwoServersConnected(serversConnected, WTFMove(completionHandler));
+    dispatch_async(mainDispatchQueueSingleton(), makeBlockPtr([&serversConnected, completionHandler = WTF::move(completionHandler)] () mutable {
+        waitUntilTwoServersConnected(serversConnected, WTF::move(completionHandler));
     }).get());
 }
 
@@ -1202,6 +1204,12 @@ TEST(ResourceLoadStatistics, BackForwardPerPageData)
     [configuration setURLSchemeHandler:schemeHandler.get() forURLScheme:@"resource-load-statistics"];
 
     auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+
+    // FIXME: Page cache is currently disabled under site isolation; see rdar://161762363.
+    // This test relies on the backforward cache. Once it is enabled in site isolation, remove this early return.
+    if (isSiteIsolationEnabled(webView.get()))
+        return;
+
     [webView setNavigationDelegate:delegate.get()];
 
     static bool doneFlag = false;
@@ -1356,8 +1364,8 @@ TEST(ResourceLoadStatistics, DatabaseSchemeUpdate)
     EXPECT_NULL(error);
     
     NSURL *targetURL = [dataStoreConfiguration.get()._resourceLoadStatisticsDirectory URLByAppendingPathComponent:@"observations.db"];
-    WebCore::SQLiteDatabase database;
-    EXPECT_TRUE(database.open(targetURL.path));
+    auto database = makeUniqueRef<WebCore::SQLiteDatabase>();
+    EXPECT_TRUE(database->open(targetURL.path));
 
     constexpr auto createObservedDomain = "CREATE TABLE ObservedDomains ("
         "domainID INTEGER PRIMARY KEY, registrableDomain TEXT NOT NULL UNIQUE ON CONFLICT FAIL, lastSeen REAL NOT NULL, "
@@ -1366,8 +1374,8 @@ TEST(ResourceLoadStatistics, DatabaseSchemeUpdate)
         "timesAccessedAsFirstPartyDueToUserInteraction INTEGER NOT NULL, timesAccessedAsFirstPartyDueToStorageAccessAPI INTEGER NOT NULL,"
         "isScheduledForAllButCookieDataRemoval INTEGER NOT NULL)"_s;
 
-    EXPECT_TRUE(database.executeCommand(createObservedDomain));
-    database.close();
+    EXPECT_TRUE(database->executeCommand(createObservedDomain));
+    database->close();
 
     auto dataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:dataStoreConfiguration.get()]);
     [dataStore _setResourceLoadStatisticsEnabled:YES];
@@ -1377,10 +1385,10 @@ TEST(ResourceLoadStatistics, DatabaseSchemeUpdate)
     }];
     TestWebKitAPI::Util::run(&done);
     
-    WebCore::SQLiteDatabase databaseAfterMigration;
-    EXPECT_TRUE(databaseAfterMigration.open(targetURL.path));
+    auto databaseAfterMigration = makeUniqueRef<WebCore::SQLiteDatabase>();
+    EXPECT_TRUE(databaseAfterMigration->open(targetURL.path));
     auto columns = columnsForTable(databaseAfterMigration, "ObservedDomains"_s);
-    databaseAfterMigration.close();
+    databaseAfterMigration->close();
     EXPECT_WK_STREQ(columns.last(), "mostRecentWebPushInteractionTime");
 }
 

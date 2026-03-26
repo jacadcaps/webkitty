@@ -25,12 +25,13 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
 #if PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))
 
-#include "NowPlayingMetadataObserver.h"
-#include "PlatformMediaSession.h"
-#include "VideoReceiverEndpoint.h"
-#include <wtf/CheckedRef.h>
+#include <WebCore/NowPlayingMetadataObserver.h>
+#include <WebCore/PlatformMediaSession.h>
+#include <WebCore/VideoReceiverEndpoint.h>
+#include <wtf/AbstractCanMakeCheckedPtr.h>
 #include <wtf/Forward.h>
 #include <wtf/Ref.h>
 #include <wtf/Vector.h>
@@ -46,8 +47,7 @@ namespace WebCore {
 class PlatformTimeRanges;
 class PlaybackSessionModelClient;
 struct MediaSelectionOption;
-struct SpatialVideoMetadata;
-struct VideoProjectionMetadata;
+struct ImmersiveVideoMetadata;
 
 enum class AudioSessionSoundStageSize : uint8_t;
 
@@ -62,17 +62,11 @@ enum class PlaybackSessionModelPlaybackState : uint8_t {
     Stalled = 1 << 1,
 };
 
-class PlaybackSessionModel : public CanMakeWeakPtr<PlaybackSessionModel> {
+class PlaybackSessionModel : public CanMakeWeakPtr<PlaybackSessionModel>, public AbstractCanMakeCheckedPtr {
 public:
     virtual ~PlaybackSessionModel() { };
     virtual void addClient(PlaybackSessionModelClient&) = 0;
     virtual void removeClient(PlaybackSessionModelClient&) = 0;
-
-    // CheckedPtr interface
-    virtual uint32_t checkedPtrCount() const = 0;
-    virtual uint32_t checkedPtrCountWithoutThreadCheck() const = 0;
-    virtual void incrementCheckedPtrCount() const = 0;
-    virtual void decrementCheckedPtrCount() const = 0;
 
     virtual void play() = 0;
     virtual void pause() = 0;
@@ -105,7 +99,7 @@ public:
     virtual void setVideoReceiverEndpoint(const VideoReceiverEndpoint&) = 0;
 
 #if HAVE(SPATIAL_TRACKING_LABEL)
-    virtual const String& spatialTrackingLabel() const { return emptyString(); }
+    virtual String spatialTrackingLabel() const { return emptyString(); }
     virtual void setSpatialTrackingLabel(const String&) { }
 #endif
 
@@ -150,21 +144,18 @@ public:
     virtual bool supportsLinearMediaPlayer() const { return false; }
 #endif
 
+    virtual bool prefersAutoDimming() const { return true; }
+    virtual void setPrefersAutoDimming(bool) { }
+
 #if !RELEASE_LOG_DISABLED
     virtual uint64_t logIdentifier() const { return 0; }
     virtual const Logger* loggerPtr() const { return nullptr; }
 #endif
 };
 
-class PlaybackSessionModelClient : public CanMakeWeakPtr<PlaybackSessionModelClient> {
+class PlaybackSessionModelClient : public CanMakeWeakPtr<PlaybackSessionModelClient>, public AbstractCanMakeCheckedPtr {
 public:
     virtual ~PlaybackSessionModelClient() { };
-
-    // CheckedPtr interface
-    virtual uint32_t checkedPtrCount() const = 0;
-    virtual uint32_t checkedPtrCountWithoutThreadCheck() const = 0;
-    virtual void incrementCheckedPtrCount() const = 0;
-    virtual void decrementCheckedPtrCount() const = 0;
 
     virtual void durationChanged(double) { }
     virtual void currentTimeChanged(double /* currentTime */, double /* anchorTime */) { }
@@ -191,8 +182,7 @@ public:
     virtual void supportsLinearMediaPlayerChanged(bool) { }
     virtual void didSetVideoReceiverEndpoint() { };
 #endif
-    virtual void spatialVideoMetadataChanged(const std::optional<SpatialVideoMetadata>&) { };
-    virtual void videoProjectionMetadataChanged(const std::optional<VideoProjectionMetadata>&) { };
+    virtual void immersiveVideoMetadataChanged(const std::optional<ImmersiveVideoMetadata>&) { };
     virtual void ensureControlsManager() { }
     virtual void modelDestroyed() { }
 };

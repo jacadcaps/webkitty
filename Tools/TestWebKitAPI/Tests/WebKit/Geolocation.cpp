@@ -66,7 +66,7 @@ std::ostream& operator<<(std::ostream& outputStream, const GeolocationEvent& geo
 struct GeolocationStateTracker {
     std::vector<GeolocationEvent> events;
 
-    virtual ~GeolocationStateTracker() { }
+    virtual ~GeolocationStateTracker() = default;
     virtual void eventsChanged() { }
 
     static void startUpdatingCallback(WKGeolocationManagerRef manager, const void* clientInfo)

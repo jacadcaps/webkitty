@@ -25,6 +25,7 @@
 
 #import "config.h"
 
+#import "FindInPageUtilities.h"
 #import "InstanceMethodSwizzler.h"
 #import "PDFTestHelpers.h"
 #import "PlatformUtilities.h"
@@ -351,164 +352,10 @@ TEST(WebKit, FindTextInImageOverlay)
 
 #if HAVE(UIFINDINTERACTION)
 
-static BOOL swizzledIsEmbeddedScreen(id, SEL, UIScreen *)
-{
-    return NO;
-}
-
 // FIXME: (rdar://95125552) Remove conformance to _UITextSearching.
 @interface WKWebView () <UITextSearching>
 - (void)didBeginTextSearchOperation;
 - (void)didEndTextSearchOperation;
-@end
-
-@interface TestScrollViewDelegate : NSObject<UIScrollViewDelegate>  {
-    @public bool _finishedScrolling;
-
-    std::unique_ptr<InstanceMethodSwizzler> _isEmbeddedScreenSwizzler;
-}
-@end
-
-@implementation TestScrollViewDelegate
-
-- (instancetype)init
-{
-    if (!(self = [super init]))
-        return nil;
-
-    _finishedScrolling = false;
-
-    // Force UIKit to use a `CADisplayLink` rather than its own update cycle for `UIAnimation`s.
-    // UIKit's own update cycle does not work in TestWebKitAPIApp, as it is started in
-    // UIApplicationMain(), and TestWebKitAPIApp is not a real UIApplication. Without this,
-    // scroll view animations would not be completed.
-    _isEmbeddedScreenSwizzler = WTF::makeUnique<InstanceMethodSwizzler>(
-        UIScreen.class,
-        @selector(_isEmbeddedScreen),
-        reinterpret_cast<IMP>(swizzledIsEmbeddedScreen)
-    );
-
-    return self;
-}
-
-- (void)scrollViewDidEndScrollingAnimation:(UIScrollView *)scrollView
-{
-    _finishedScrolling = true;
-}
-
-@end
-
-@interface TestFindDelegate : NSObject<_WKFindDelegate>
-@property (nonatomic, copy) void (^didAddLayerForFindOverlayHandler)(void);
-@property (nonatomic, copy) void (^didRemoveLayerForFindOverlayHandler)(void);
-@end
-
-@implementation TestFindDelegate {
-    BlockPtr<void()> _didAddLayerForFindOverlayHandler;
-    BlockPtr<void()> _didRemoveLayerForFindOverlayHandler;
-}
-
-- (void)setDidAddLayerForFindOverlayHandler:(void (^)(void))didAddLayerForFindOverlayHandler
-{
-    _didAddLayerForFindOverlayHandler = makeBlockPtr(didAddLayerForFindOverlayHandler);
-}
-
-- (void (^)(void))didAddLayerForFindOverlayHandler
-{
-    return _didAddLayerForFindOverlayHandler.get();
-}
-
-- (void)setDidRemoveLayerForFindOverlayHandler:(void (^)(void))didRemoveLayerForFindOverlayHandler
-{
-    _didRemoveLayerForFindOverlayHandler = makeBlockPtr(didRemoveLayerForFindOverlayHandler);
-}
-
-- (void (^)(void))didRemoveLayerForFindOverlayHandler
-{
-    return _didRemoveLayerForFindOverlayHandler.get();
-}
-
-- (void)_webView:(WKWebView *)webView didAddLayerForFindOverlay:(CALayer *)layer
-{
-    if (_didAddLayerForFindOverlayHandler)
-        _didAddLayerForFindOverlayHandler();
-}
-
-- (void)_webViewDidRemoveLayerForFindOverlay:(WKWebView *)webView
-{
-    if (_didRemoveLayerForFindOverlayHandler)
-        _didRemoveLayerForFindOverlayHandler();
-}
-
-@end
-
-@interface TestTextSearchOptions : NSObject
-@property (nonatomic) _UITextSearchMatchMethod wordMatchMethod;
-@property (nonatomic) NSStringCompareOptions stringCompareOptions;
-@end
-
-@implementation TestTextSearchOptions
-@end
-
-@interface TestSearchAggregator : NSObject <UITextSearchAggregator>
-
-@property (readonly) NSUInteger count;
-@property (nonatomic, readonly) NSOrderedSet<UITextRange *> *allFoundRanges;
-
-- (instancetype)initWithCompletionHandler:(dispatch_block_t)completionHandler;
-
-@end
-
-@implementation TestSearchAggregator {
-    RetainPtr<NSMutableOrderedSet<UITextRange *>> _foundRanges;
-    BlockPtr<void()> _completionHandler;
-}
-
-- (instancetype)initWithCompletionHandler:(dispatch_block_t)completionHandler
-{
-    if (!(self = [super init]))
-        return nil;
-
-    _foundRanges = adoptNS([[NSMutableOrderedSet alloc] init]);
-    _completionHandler = makeBlockPtr(completionHandler);
-
-    return self;
-}
-
-- (void)foundRange:(UITextRange *)range forSearchString:(NSString *)string inDocument:(UITextSearchDocumentIdentifier)document
-{
-    if (!string.length)
-        return;
-
-    [_foundRanges addObject:range];
-}
-
-- (void)finishedSearching
-{
-    if (_completionHandler)
-        _completionHandler();
-}
-
-- (NSOrderedSet<UITextRange *> *)allFoundRanges
-{
-    return _foundRanges.get();
-}
-
-- (void)invalidateFoundRange:(UITextRange *)range inDocument:(UITextSearchDocumentIdentifier)document
-{
-    [_foundRanges removeObject:range];
-}
-
-- (void)invalidate
-{
-    [_foundRanges removeAllObjects];
-}
-
-- (NSUInteger)count
-{
-    return [_foundRanges count];
-}
-
 @end
 
 @interface FindInPageTestWKWebView : TestWKWebView
@@ -555,35 +402,6 @@ static size_t overlayCount(WKWebView *webView)
             count++;
     });
     return count;
-}
-
-static void testPerformTextSearchWithQueryStringInWebView(WKWebView *webView, NSString *query, UITextSearchOptions *searchOptions, NSUInteger expectedMatches)
-{
-    __block bool finishedSearching = false;
-    RetainPtr aggregator = adoptNS([[TestSearchAggregator alloc] initWithCompletionHandler:^{
-        finishedSearching = true;
-    }]);
-
-    [webView performTextSearchWithQueryString:query usingOptions:searchOptions resultAggregator:aggregator.get()];
-
-    TestWebKitAPI::Util::run(&finishedSearching);
-
-    EXPECT_EQ([aggregator count], expectedMatches);
-}
-
-static RetainPtr<NSOrderedSet<UITextRange *>> textRangesForQueryString(WKWebView *webView, NSString *query)
-{
-    __block bool finishedSearching = false;
-    auto aggregator = adoptNS([[TestSearchAggregator alloc] initWithCompletionHandler:^{
-        finishedSearching = true;
-    }]);
-
-    auto options = adoptNS([[UITextSearchOptions alloc] init]);
-    [webView performTextSearchWithQueryString:query usingOptions:options.get() resultAggregator:aggregator.get()];
-
-    TestWebKitAPI::Util::run(&finishedSearching);
-
-    return adoptNS([[aggregator allFoundRanges] copy]);
 }
 
 TEST(WebKit, FindInPage)
@@ -692,11 +510,15 @@ TEST(WebKit, FindAndReplace)
     for (UITextRange *range in [ranges reverseObjectEnumerator])
         [webView replaceFoundTextInRange:range inDocument:nil withText:replacementString];
 
+    [webView waitForNextPresentationUpdate];
+
     EXPECT_WK_STREQ(originalContent, [webView stringByEvaluatingJavaScript:@"document.body.innerText"]);
 
     [webView _setEditable:YES];
     for (UITextRange *range in [ranges reverseObjectEnumerator])
         [webView replaceFoundTextInRange:range inDocument:nil withText:replacementString];
+
+    [webView waitForNextPresentationUpdate];
 
     EXPECT_WK_STREQ(replacedContent, [webView stringByEvaluatingJavaScript:@"document.body.innerText"]);
 }

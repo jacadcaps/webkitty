@@ -61,9 +61,9 @@ ANGLE_CHROMIUM_DEPS = [
     'third_party/depot_tools',
     'third_party/flatbuffers/src',
     'third_party/fuchsia-sdk/sdk',
+    'third_party/googletest/src',
     'third_party/ijar',
-    'third_party/jdk',
-    'third_party/jdk/extras',
+    'third_party/jdk/current',
     'third_party/jinja2',
     'third_party/kotlin_stdlib',
     'third_party/libc++/src',
@@ -105,6 +105,7 @@ ANGLE_CHROMIUM_DEPS = [
     'tools/skia_goldctl/mac_arm64',
     'tools/skia_goldctl/win',
     'tools/valgrind',
+    'tools/win',
 ]
 
 ANGLE_URL = 'https://chromium.googlesource.com/angle/angle'

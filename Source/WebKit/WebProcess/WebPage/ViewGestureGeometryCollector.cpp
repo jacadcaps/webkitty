@@ -38,9 +38,11 @@
 #include <WebCore/HTMLTextFormControlElement.h>
 #include <WebCore/HitTestResult.h>
 #include <WebCore/ImageDocument.h>
-#include <WebCore/LocalFrame.h>
+#include <WebCore/LocalFrameInlines.h>
 #include <WebCore/LocalFrameView.h>
+#include <WebCore/NodeDocument.h>
 #include <WebCore/Range.h>
+#include <WebCore/RenderStyle+GettersInlines.h>
 #include <WebCore/RenderView.h>
 #include <WebCore/TextIterator.h>
 #include <ranges>
@@ -175,7 +177,7 @@ std::optional<std::pair<double, double>> ViewGestureGeometryCollector::computeTe
     RefPtr webPage = m_webPage.get();
     if (!webPage)
         return std::nullopt;
-    RefPtr localMainFrame = dynamicDowncast<WebCore::LocalFrame>(m_webPage->mainFrame());
+    RefPtr localMainFrame = dynamicDowncast<WebCore::LocalFrame>(webPage->mainFrame());
     if (!localMainFrame)
         return std::nullopt;
     RefPtr document = localMainFrame->document();
@@ -193,19 +195,19 @@ std::optional<std::pair<double, double>> ViewGestureGeometryCollector::computeTe
         if (++numberOfIterations >= maximumNumberOfTextRunsToConsider)
             break;
 
-        if (!is<Text>(documentTextIterator.node()))
+        RefPtr textNode = dynamicDowncast<Text>(documentTextIterator.node());
+        if (!textNode)
             continue;
 
-        auto& textNode = downcast<Text>(*documentTextIterator.node());
-        auto textLength = textNode.length();
-        if (!textLength || !textNode.renderer() || allTextNodes.contains(textNode))
+        auto textLength = textNode->length();
+        if (!textLength || !textNode->renderer() || allTextNodes.contains(*textNode))
             continue;
 
-        unsigned fontSizeBin = fontSizeBinningInterval * round(textNode.renderer()->style().fontCascade().size() / fontSizeBinningInterval);
+        unsigned fontSizeBin = fontSizeBinningInterval * round(textNode->renderer()->style().fontCascade().size() / fontSizeBinningInterval);
         if (!FontSizeCounter::isValidValue(fontSizeBin))
             continue;
 
-        allTextNodes.add(textNode);
+        allTextNodes.add(*textNode);
 
         fontSizeCounter.add(fontSizeBin, textLength);
         totalSampledTextLength += textLength;
@@ -244,7 +246,7 @@ void ViewGestureGeometryCollector::computeZoomInformationForNode(Node& node, Flo
 {
     absoluteBoundingRect = node.absoluteBoundingRect(&isReplaced);
     if (node.document().isImageDocument()) {
-        if (RefPtr imageElement = downcast<ImageDocument>(node.document()).imageElement()) {
+        if (RefPtr imageElement = downcast<ImageDocument>(node.protectedDocument())->imageElement()) {
             if (&node != imageElement.get()) {
                 absoluteBoundingRect = imageElement->absoluteBoundingRect(&isReplaced);
                 FloatPoint newOrigin = origin;
@@ -258,9 +260,11 @@ void ViewGestureGeometryCollector::computeZoomInformationForNode(Node& node, Flo
         }
     }  else {
 #if ENABLE(PDF_PLUGIN)
-        if (RefPtr pluginView = m_webPage->mainFramePlugIn()) {
-            absoluteBoundingRect = pluginView->absoluteBoundingRectForSmartMagnificationAtPoint(origin);
-            isReplaced = false;
+        if (RefPtr webPage = m_webPage.get()) {
+            if (RefPtr pluginView = webPage->mainFramePlugIn()) {
+                absoluteBoundingRect = pluginView->absoluteBoundingRectForSmartMagnificationAtPoint(origin);
+                isReplaced = false;
+            }
         }
 #endif
     }
@@ -275,8 +279,8 @@ void ViewGestureGeometryCollector::computeMinimumAndMaximumViewportScales(double
     if (!webPage)
         return;
 
-    viewportMinimumScale = m_webPage->minimumPageScaleFactor();
-    viewportMaximumScale = m_webPage->maximumPageScaleFactor();
+    viewportMinimumScale = webPage->minimumPageScaleFactor();
+    viewportMaximumScale = webPage->maximumPageScaleFactor();
 #else
     viewportMinimumScale = 0;
     viewportMaximumScale = std::numeric_limits<double>::max();
@@ -328,4 +332,3 @@ void ViewGestureGeometryCollector::mainFrameDidLayout()
 }
 
 } // namespace WebKit
-

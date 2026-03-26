@@ -60,6 +60,8 @@ std::ostream& operator<<(std::ostream& os, MarkedText::Type type)
         return os << "Highlight";
     case MarkedText::Type::FragmentHighlight:
         return os << "FragmentHighlight";
+    case MarkedText::Type::TextExtractionHighlight:
+        return os << "TextExtractionHighlight";
 #if ENABLE(APP_HIGHLIGHTS)
     case MarkedText::Type::AppHighlight:
         return os << "AppHighlight";

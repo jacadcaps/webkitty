@@ -25,10 +25,11 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
 #if PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE)
 
-#include "HTMLMediaElementEnums.h"
-#include "PlaybackSessionModel.h"
+#include <WebCore/HTMLMediaElementEnums.h>
+#include <WebCore/PlaybackSessionModel.h>
 #include <wtf/RefCounted.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/TZoneMalloc.h>
@@ -73,6 +74,7 @@ public:
 #if ENABLE(WEB_PLAYBACK_CONTROLS_MANAGER)
     void setPlayBackControlsManager(WebPlaybackControlsManager *);
     WebPlaybackControlsManager *playBackControlsManager();
+    RetainPtr<WebPlaybackControlsManager> protectedPlayBackControlsManager();
 
     void updatePlaybackControlsManagerCanTogglePictureInPicture();
 #endif
@@ -98,10 +100,11 @@ private:
     PlaybackSessionInterfaceMac(PlaybackSessionModel&);
 
     // CheckedPtr interface
-    uint32_t checkedPtrCount() const final;
-    uint32_t checkedPtrCountWithoutThreadCheck() const final;
-    void incrementCheckedPtrCount() const final;
-    void decrementCheckedPtrCount() const final;
+    uint32_t checkedPtrCount() const final { return CanMakeCheckedPtr::checkedPtrCount(); }
+    uint32_t checkedPtrCountWithoutThreadCheck() const final { return CanMakeCheckedPtr::checkedPtrCountWithoutThreadCheck(); }
+    void incrementCheckedPtrCount() const final { CanMakeCheckedPtr::incrementCheckedPtrCount(); }
+    void decrementCheckedPtrCount() const final { CanMakeCheckedPtr::decrementCheckedPtrCount(); }
+    void setDidBeginCheckedPtrDeletion() final { CanMakeCheckedPtr::setDidBeginCheckedPtrDeletion(); }
 
     WeakPtr<PlaybackSessionModel> m_playbackSessionModel;
 #if ENABLE(WEB_PLAYBACK_CONTROLS_MANAGER)

@@ -8,13 +8,13 @@
 #include "modules/svg/include/SkSVGPoly.h"
 
 #include "include/core/SkCanvas.h"
+#include "include/core/SkPathTypes.h"
 #include "include/core/SkPoint.h"
 #include "modules/svg/include/SkSVGAttribute.h"
 #include "modules/svg/include/SkSVGAttributeParser.h"
 #include "modules/svg/include/SkSVGRenderContext.h"
 
 class SkPaint;
-enum class SkPathFillType;
 
 SkSVGPoly::SkSVGPoly(SkSVGTag t) : INHERITED(t) {}
 
@@ -46,8 +46,7 @@ SkPath SkSVGPoly::onAsPath(const SkSVGRenderContext& ctx) const {
     // clip-rule can be inherited and needs to be applied at clip time.
     path.setFillType(ctx.presentationContext().fInherited.fClipRule->asFillType());
 
-    this->mapToParent(&path);
-    return path;
+    return this->mapToParent(path);
 }
 
 SkRect SkSVGPoly::onTransformableObjectBoundingBox(const SkSVGRenderContext& ctx) const {

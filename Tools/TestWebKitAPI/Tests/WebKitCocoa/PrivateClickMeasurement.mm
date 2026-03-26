@@ -368,22 +368,22 @@ static void createAndPopulatePCMObservedDomainTable(WebCore::SQLiteDatabase& dat
 
 void setUpFromResourceLoadStatisticsDatabase(void(*addUnattributedPCM)(WebCore::SQLiteDatabase&), void(*addAttributedPCM)(WebCore::SQLiteDatabase&))
 {
-    WebCore::SQLiteDatabase database;
-    EXPECT_TRUE(database.open(emptyObservationsDBPath()));
-    createAndPopulateObservedDomainTable(database);
-    addUnattributedPCM(database);
-    addAttributedPCM(database);
-    database.close();
+    auto database = makeUniqueRef<WebCore::SQLiteDatabase>();
+    EXPECT_TRUE(database->open(emptyObservationsDBPath()));
+    createAndPopulateObservedDomainTable(database.get());
+    addUnattributedPCM(database.get());
+    addAttributedPCM(database.get());
+    database->close();
 }
 
 void setUpFromPCMDatabase(void(*addUnattributedPCM)(WebCore::SQLiteDatabase&), void(*addAttributedPCM)(WebCore::SQLiteDatabase&))
 {
-    WebCore::SQLiteDatabase database;
-    EXPECT_TRUE(database.open(emptyPcmDBPath()));
-    createAndPopulatePCMObservedDomainTable(database);
-    addUnattributedPCM(database);
-    addAttributedPCM(database);
-    database.close();
+    auto database = makeUniqueRef<WebCore::SQLiteDatabase>();
+    EXPECT_TRUE(database->open(emptyPcmDBPath()));
+    createAndPopulatePCMObservedDomainTable(database.get());
+    addUnattributedPCM(database.get());
+    addAttributedPCM(database.get());
+    database->close();
 }
 
 TEST(PrivateClickMeasurement, MigrateFromResourceLoadStatistics1)

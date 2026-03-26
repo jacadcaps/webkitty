@@ -36,7 +36,10 @@
 #import "Texture.h"
 #import "TextureView.h"
 #if ENABLE(WEBGPU_SWIFT)
-#import "WebGPUSwiftInternal.h"
+#import "CxxBridging.h"
+#import <WebGPU/CxxBridgingPublic.h>
+#import <WebGPU/WGPUTextureImpl.h>
+#import "WebGPUSwift-Generated.h"
 #endif
 #import <simd/simd.h>
 #import <wtf/CheckedArithmetic.h>
@@ -191,14 +194,14 @@ void Queue::onSubmittedWorkDone(CompletionHandler<void(WGPUQueueWorkDoneStatus)>
     finalizeBlitCommandEncoder();
 
     if (isIdle()) {
-        scheduleWork([callback = WTFMove(callback)]() mutable {
+        scheduleWork([callback = WTF::move(callback)]() mutable {
             callback(WGPUQueueWorkDoneStatus_Success);
         });
         return;
     }
 
     auto& callbacks = m_onSubmittedWorkDoneCallbacks.add(m_submittedCommandBufferCount, OnSubmittedWorkDoneCallbacks()).iterator->value;
-    callbacks.append(WTFMove(callback));
+    callbacks.append(WTF::move(callback));
 }
 
 void Queue::onSubmittedWorkScheduled(Function<void()>&& completionHandler)
@@ -213,14 +216,14 @@ void Queue::onSubmittedWorkScheduled(Function<void()>&& completionHandler)
     finalizeBlitCommandEncoder();
 
     if (isSchedulingIdle()) {
-        scheduleWork([completionHandler = WTFMove(completionHandler)]() mutable {
+        scheduleWork([completionHandler = WTF::move(completionHandler)]() mutable {
             completionHandler();
         });
         return;
     }
 
     auto& callbacks = m_onSubmittedWorkScheduledCallbacks.add(m_submittedCommandBufferCount, OnSubmittedWorkScheduledCallbacks()).iterator->value;
-    callbacks.append(WTFMove(completionHandler));
+    callbacks.append(WTF::move(completionHandler));
 }
 
 NSString* Queue::errorValidatingSubmit(const Vector<Ref<WebGPU::CommandBuffer>>& commands) const
@@ -356,7 +359,7 @@ void Queue::submit(Vector<Ref<WebGPU::CommandBuffer>>&& commands)
     // https://gpuweb.github.io/gpuweb/#dom-gpuqueue-submit
     if (NSString* error = errorValidatingSubmit(commands)) {
         device->generateAValidationError(error ?: @"Validation failure.");
-        return invalidateCommandBuffers(WTFMove(commands), ^(CommandBuffer& command) {
+        return invalidateCommandBuffers(WTF::move(commands), ^(CommandBuffer& command) {
             command.makeInvalid(command.lastError() ?: error);
         });
     }
@@ -364,19 +367,19 @@ void Queue::submit(Vector<Ref<WebGPU::CommandBuffer>>&& commands)
     finalizeBlitCommandEncoder();
 
     NSMutableOrderedSet<id<MTLCommandBuffer>> *commandBuffersToSubmit = [NSMutableOrderedSet orderedSetWithCapacity:commands.size()];
-    HashMap<void*, RefPtr<CommandBuffer>> metalCommandBuffersReverseMap;
+    HashMap<void*, Ref<CommandBuffer>> metalCommandBuffersReverseMap;
     NSString* validationError = nil;
     for (Ref command : commands) {
         if (id<MTLCommandBuffer> mtlBuffer = command->commandBuffer(); mtlBuffer && ![commandBuffersToSubmit containsObject:mtlBuffer]) {
             [commandBuffersToSubmit addObject:mtlBuffer];
-            metalCommandBuffersReverseMap.set((__bridge void*)mtlBuffer, RefPtr { command.ptr() });
+            metalCommandBuffersReverseMap.set((__bridge void*)mtlBuffer, WTF::move(command));
         } else {
             validationError = command->lastError() ?: @"Command buffer appears twice.";
             break;
         }
     }
 
-    invalidateCommandBuffers(WTFMove(commands), ^(CommandBuffer& command) {
+    invalidateCommandBuffers(WTF::move(commands), ^(CommandBuffer& command) {
         validationError ? command.makeInvalid(command.lastError() ?: validationError) : command.makeInvalidDueToCommit(@"command buffer was submitted");
     });
     if (validationError) {
@@ -385,9 +388,7 @@ void Queue::submit(Vector<Ref<WebGPU::CommandBuffer>>&& commands)
     }
 
     for (id<MTLCommandBuffer> commandBuffer in commandBuffersToSubmit) {
-        RefPtr<CommandBuffer> apiCommandBuffer;
-        if (auto it = metalCommandBuffersReverseMap.find((__bridge void*)commandBuffer); it != metalCommandBuffersReverseMap.end())
-            apiCommandBuffer = it->value;
+        RefPtr apiCommandBuffer = metalCommandBuffersReverseMap.get((__bridge void*)commandBuffer);
 #if ASSERT_ENABLED
         if (!apiCommandBuffer)
             ASSERT_NOT_REACHED("Always expect command buffer in the container");
@@ -505,12 +506,17 @@ static std::pair<uint32_t, uint16_t> maxIndexValue(std::span<uint8_t> data)
     std::span<simd::ushort32> dataUshort = unsafeMakeSpan(static_cast<simd::ushort32*>(static_cast<void*>(data.data())), lengthUint32);
     simd::uint16 maxValue = dataUint.front();
     simd::ushort32 maxUshort = dataUshort.front();
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wpsabi"
     for (auto dataUintV : dataUint)
         maxValue = simd_max(maxValue, dataUintV);
     for (auto dataUshortV : dataUshort)
         maxUshort = simd_max(maxUshort, dataUshortV);
 
     auto result = std::make_pair(simd_reduce_max(maxValue), simd_reduce_max(maxUshort));
+#pragma clang diagnostic pop
+
     if (divResult.rem) {
         auto slowResult = maxIndexValueSlow(data.subspan(blockSize * divResult.quot));
         result.first = std::max(result.first, slowResult.first);
@@ -571,11 +577,7 @@ void Queue::writeBuffer(Buffer& buffer, uint64_t bufferOffset, std::span<uint8_t
             return;
         }
     }
-#if ENABLE(WEBGPU_SWIFT)
-    WebGPU::writeBuffer(this, &buffer, bufferOffset, data);
-#else
     writeBuffer(buffer.buffer(), bufferOffset, data);
-#endif
 }
 
 static std::span<uint8_t> span(id<MTLBuffer> buffer)
@@ -607,6 +609,13 @@ std::pair<id<MTLBuffer>, uint64_t> Queue::newTemporaryBufferWithBytes(std::span<
 
 void Queue::writeBuffer(id<MTLBuffer> buffer, uint64_t bufferOffset, std::span<uint8_t> data)
 {
+#if ENABLE(WEBGPU_SWIFT)
+    if (isWebGPUSwiftEnabled()) {
+        Queue_writeBuffer_thunk(this, buffer, bufferOffset, data);
+        return;
+    }
+#endif
+
     auto device = m_device.get();
     if (!device)
         return;
@@ -688,7 +697,7 @@ const Device& Queue::device() const
 {
     auto device = m_device.get();
     RELEASE_ASSERT(device);
-    return *device;
+    return *device.unsafeGet();
 }
 
 void Queue::clearTextureIfNeeded(const WGPUImageCopyTexture& destination, NSUInteger slice)
@@ -727,7 +736,7 @@ bool Queue::writeWillCompletelyClear(WGPUTextureDimension textureDimension, uint
 void Queue::writeTexture(const WGPUImageCopyTexture& destination, std::span<uint8_t> data, const WGPUTextureDataLayout& dataLayout, const WGPUExtent3D& size, bool skipValidation)
 {
     auto device = m_device.get();
-    if (destination.nextInChain || dataLayout.nextInChain || !device)
+    if (!device)
         return;
 
     // https://gpuweb.github.io/gpuweb/#dom-gpuqueue-writetexture
@@ -842,7 +851,6 @@ void Queue::writeTexture(const WGPUImageCopyTexture& destination, std::span<uint
 
         if (textureDimension != WGPUTextureDimension_1D && (heightForMetal > newSize.height || depthForMetal > newSize.depthOrArrayLayers)) {
             WGPUTextureDataLayout newDataLayout {
-                .nextInChain = nullptr,
                 .offset = 0,
                 .bytesPerRow = std::min<uint32_t>(maxRowBytes, dataLayout.bytesPerRow),
                 .rowsPerImage = newSize.height
@@ -1227,31 +1235,46 @@ void Queue::setLabel(String&& label)
 void Queue::scheduleWork(Instance::WorkItem&& workItem)
 {
     if (auto instance = m_instance.get())
-        instance->scheduleWork(WTFMove(workItem));
+        instance->scheduleWork(WTF::move(workItem));
 }
 
 void Queue::clearTextureViewIfNeeded(TextureView& textureView)
+{
+    Ref parentTexture = textureView.apiParentTexture();
+    return clearTextureIfNeeded(parentTexture.get(), textureView.mipLevelCount(), textureView.arrayLayerCount(), textureView.baseMipLevel(), textureView.baseArrayLayer());
+}
+
+void Queue::clearTextureViewIfNeeded(Texture& texture)
+{
+    return clearTextureIfNeeded(texture, texture.mipLevelCount(), texture.arrayLayerCount(), 0, 0);
+}
+
+void Queue::clearTextureIfNeeded(Texture& parentTexture, uint32_t mipLevelCount, uint32_t arrayLayerCount, uint32_t baseMipLevel, uint32_t baseArrayLayer)
 {
     auto devicePtr = m_device.get();
     if (!devicePtr)
         return;
 
-    Ref parentTexture = textureView.apiParentTexture();
-    for (uint32_t slice = 0; slice < textureView.arrayLayerCount(); ++slice) {
-        for (uint32_t mipLevel = 0; mipLevel < textureView.mipLevelCount(); ++mipLevel) {
-            auto checkedParentMipLevel = checkedSum<uint32_t>(textureView.baseMipLevel(), mipLevel);
-            auto checkedParentSlice = checkedSum<uint32_t>(textureView.baseArrayLayer(), slice);
+    for (uint32_t slice = 0; slice < arrayLayerCount; ++slice) {
+        for (uint32_t mipLevel = 0; mipLevel < mipLevelCount; ++mipLevel) {
+            auto checkedParentMipLevel = checkedSum<uint32_t>(baseMipLevel, mipLevel);
+            auto checkedParentSlice = checkedSum<uint32_t>(baseArrayLayer, slice);
             if (checkedParentMipLevel.hasOverflowed() || checkedParentSlice.hasOverflowed())
                 return;
             auto parentMipLevel = checkedParentMipLevel.value();
             auto parentSlice = checkedParentSlice.value();
-            if (parentTexture->previouslyCleared(parentMipLevel, parentSlice))
+            if (parentTexture.previouslyCleared(parentMipLevel, parentSlice))
                 continue;
 
-            CommandEncoder::clearTextureIfNeeded(parentTexture.get(), parentMipLevel, parentSlice, *devicePtr, ensureBlitCommandEncoder());
+            CommandEncoder::clearTextureIfNeeded(parentTexture, parentMipLevel, parentSlice, *devicePtr, ensureBlitCommandEncoder());
         }
     }
     finalizeBlitCommandEncoder();
+}
+
+id<MTLDevice> Queue::metalDevice() const
+{
+    return device().device();
 }
 
 } // namespace WebGPU
@@ -1277,7 +1300,7 @@ void wgpuQueueOnSubmittedWorkDone(WGPUQueue queue, WGPUQueueWorkDoneCallback cal
 
 void wgpuQueueOnSubmittedWorkDoneWithBlock(WGPUQueue queue, WGPUQueueWorkDoneBlockCallback callback)
 {
-    WebGPU::protectedFromAPI(queue)->onSubmittedWorkDone([callback = WebGPU::fromAPI(WTFMove(callback))](WGPUQueueWorkDoneStatus status) {
+    WebGPU::protectedFromAPI(queue)->onSubmittedWorkDone([callback = WebGPU::fromAPI(WTF::move(callback))](WGPUQueueWorkDoneStatus status) {
         callback(status);
     });
 }
@@ -1287,7 +1310,7 @@ void wgpuQueueSubmit(WGPUQueue queue, size_t commandCount, const WGPUCommandBuff
     Vector<Ref<WebGPU::CommandBuffer>> commandsToForward;
     for (auto& command : unsafeMakeSpan(commands, commandCount))
         commandsToForward.append(WebGPU::protectedFromAPI(command));
-    WebGPU::protectedFromAPI(queue)->submit(WTFMove(commandsToForward));
+    WebGPU::protectedFromAPI(queue)->submit(WTF::move(commandsToForward));
 }
 
 void wgpuQueueWriteBuffer(WGPUQueue queue, WGPUBuffer buffer, uint64_t bufferOffset, std::span<uint8_t> data)

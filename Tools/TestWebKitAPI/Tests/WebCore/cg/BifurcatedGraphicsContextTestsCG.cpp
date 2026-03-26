@@ -89,7 +89,7 @@ TEST(BifurcatedGraphicsContextTests, Text)
     FontCascadeDescription description;
     description.setOneFamily("Times"_s);
     description.setComputedSize(80);
-    FontCascade font(WTFMove(description));
+    FontCascade font(WTF::move(description));
     font.update();
 
     String string = "Hello!"_s;
@@ -290,7 +290,7 @@ TEST(BifurcatedGraphicsContextTests, ClipToImageBuffer)
 
     BifurcatedGraphicsContext ctx(primaryContext, secondaryContext);
 
-    auto imageBuffer = ImageBuffer::create({ 100, 100 }, RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1, DestinationColorSpace::SRGB(), ImageBufferPixelFormat::BGRA8);
+    auto imageBuffer = ImageBuffer::create({ 100, 100 }, RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
     ctx.clipToImageBuffer(*imageBuffer, { 0, 0, 100, 100 });
 
     auto runTest = [&] (const DisplayList& displayList) {

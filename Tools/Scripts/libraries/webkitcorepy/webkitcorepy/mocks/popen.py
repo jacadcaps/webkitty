@@ -57,11 +57,26 @@ class PopenBase(object):
 
         self.returncode = None
 
-        self.stdin = string_utils.BytesIO() if stdin is None or stdin == -1 else stdin
-        self.stdout = string_utils.BytesIO() if stdout == -1 else stdout
-        self._stdout_type = bytes if stdout == -1 else str
-        self.stderr = string_utils.BytesIO() if stderr == -1 else stderr
-        self._stderr_type = bytes if stderr == -1 else str
+        self.stdin = string_utils.BytesIO() if stdin is None or stdin == subprocess.PIPE else stdin
+        self.stdout = string_utils.BytesIO() if stdout == subprocess.PIPE else (None if stdout == subprocess.DEVNULL else stdout)
+        self._stdout_type = bytes if stdout == subprocess.PIPE else str
+        self._stdout_devnull = (stdout == subprocess.DEVNULL)
+        if stderr == subprocess.STDOUT:
+            self.stderr = self.stdout
+            self._stderr_type = self._stdout_type
+            self._stderr_devnull = self._stdout_devnull
+        elif stderr == subprocess.PIPE:
+            self.stderr = string_utils.BytesIO()
+            self._stderr_type = bytes
+            self._stderr_devnull = False
+        elif stderr == subprocess.DEVNULL:
+            self.stderr = None
+            self._stderr_type = str
+            self._stderr_devnull = True
+        else:
+            self.stderr = stderr
+            self._stderr_type = str
+            self._stderr_devnull = False
 
         Subprocess.completion_generator_for(args[0])
 
@@ -83,13 +98,15 @@ class PopenBase(object):
             self.stdin.seek(0)
             self._completion = Subprocess.completion_for(*self._args, cwd=self._cwd, env=self._env, input=self.stdin.read())
 
-            (self.stdout or sys.stdout).write(
-                string_utils.decode(self._completion.stdout, target_type=self._stdout_type))
-            (self.stdout or sys.stdout).flush()
+            if not self._stdout_devnull:
+                (self.stdout or sys.stdout).write(
+                    string_utils.decode(self._completion.stdout, target_type=self._stdout_type))
+                (self.stdout or sys.stdout).flush()
 
-            (self.stderr or sys.stderr).write(
-                string_utils.decode(self._completion.stderr, target_type=self._stderr_type))
-            (self.stderr or sys.stderr).flush()
+            if not self._stderr_devnull:
+                (self.stderr or sys.stderr).write(
+                    string_utils.decode(self._completion.stderr, target_type=self._stderr_type))
+                (self.stderr or sys.stderr).flush()
 
             if self.stdout:
                 self.stdout.seek(0)
@@ -150,7 +167,7 @@ class Popen(PopenBase):
 
         self.text_mode = encoding or errors or text or universal_newlines
 
-        if self.stdin is not None and self.text_mode:
+        if self.stdin is not None and text:
             self.stdin = io.TextIOWrapper(self.stdin, write_through=True, line_buffering=(bufsize == 1), encoding=encoding, errors=errors)
         if self.stdout is not None and self.text_mode:
             self.stdout = io.TextIOWrapper(self.stdout, encoding=encoding, errors=errors)
@@ -164,7 +181,9 @@ class Popen(PopenBase):
             raise ValueError('Cannot send input after starting communication')
 
         self._communication_started = True
-        if input:
+        if input and isinstance(self.stdin, io.TextIOWrapper):
+            self.stdin.write(input)
+        elif input:
             self.stdin.write(string_utils.encode(input))
         self.wait(timeout=timeout)
         return self.stdout.read() if self.stdout else None, self.stderr.read() if self.stderr else None

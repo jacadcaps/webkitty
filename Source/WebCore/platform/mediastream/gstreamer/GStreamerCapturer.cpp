@@ -32,6 +32,7 @@
 #include <wtf/HexNumber.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/PrintStream.h>
+#include <wtf/glib/WTFGType.h>
 #include <wtf/text/MakeString.h>
 
 GST_DEBUG_CATEGORY(webkit_capturer_debug);
@@ -50,11 +51,11 @@ static void initializeCapturerDebugCategory()
 }
 
 GStreamerCapturer::GStreamerCapturer(GStreamerCaptureDevice&& device, GRefPtr<GstCaps>&& caps)
-    : m_caps(WTFMove(caps))
+    : m_caps(WTF::move(caps))
     , m_deviceType(device.type())
 {
     initializeCapturerDebugCategory();
-    m_device.emplace(WTFMove(device));
+    m_device.emplace(WTF::move(device));
 }
 
 GStreamerCapturer::GStreamerCapturer(const PipeWireCaptureDevice& device)
@@ -88,7 +89,10 @@ void GStreamerCapturer::tearDown(bool disconnectSignals)
         return;
 
     m_valve = nullptr;
-    m_src = nullptr;
+    {
+        Locker locker { m_lock };
+        m_src = nullptr;
+    }
     m_capsfilter = nullptr;
     m_sink = nullptr;
     m_pipeline = nullptr;
@@ -106,7 +110,7 @@ void GStreamerCapturer::setDevice(std::optional<GStreamerCaptureDevice>&& device
     else
         GST_DEBUG_OBJECT(m_pipeline.get(), "Clearing capture device");
     tearDown(true);
-    m_device = WTFMove(device);
+    m_device = WTF::move(device);
 
     if (!m_device) [[unlikely]]
         return;
@@ -142,70 +146,59 @@ void GStreamerCapturer::forEachObserver(NOESCAPE const Function<void(GStreamerCa
     m_observers.forEach(apply);
 }
 
-GstElement* GStreamerCapturer::createSource()
+struct CapturerProbeData {
+    ThreadSafeWeakPtr<GStreamerCapturer> capturer;
+};
+WEBKIT_DEFINE_ASYNC_DATA_STRUCT(CapturerProbeData);
+
+GstElement* GStreamerCapturer::createSource() WTF_IGNORES_THREAD_SAFETY_ANALYSIS
 {
     if (m_pipewireDevice) {
         m_src = makeElement("pipewiresrc");
         ASSERT(m_src);
-
-        if (m_deviceType == CaptureDevice::DeviceType::Screen) {
-            auto srcPad = adoptGRef(gst_element_get_static_pad(m_src.get(), "src"));
-            gst_pad_add_probe(srcPad.get(), GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM, [](GstPad*, GstPadProbeInfo* info, void* userData) -> GstPadProbeReturn {
-                auto* event = gst_pad_probe_info_get_event(info);
-                if (GST_EVENT_TYPE(event) != GST_EVENT_CAPS)
-                    return GST_PAD_PROBE_OK;
-
-                auto self = reinterpret_cast<GStreamerCapturer*>(userData);
-                callOnMainThread([event = GRefPtr(event), weakThis = ThreadSafeWeakPtr { *self }] {
-                    RefPtr protectedThis = weakThis.get();
-                    if (!protectedThis)
-                        return;
-
-                    GstCaps* caps;
-                    gst_event_parse_caps(event.get(), &caps);
-                    protectedThis->forEachObserver([caps](GStreamerCapturerObserver& observer) {
-                        observer.sourceCapsChanged(caps);
-                    });
-                });
-                return GST_PAD_PROBE_OK;
-            }, this, nullptr);
-        }
-
         auto path = AtomString::number(m_pipewireDevice->objectId());
         // FIXME: The path property is deprecated in favor of target-object but the portal doesn't expose this object.
         g_object_set(m_src.get(), "path", path.string().ascii().data(), "fd", m_pipewireDevice->fd(), nullptr);
     } else {
         ASSERT(m_device);
+        ASSERT(gst_device_has_classes(m_device->device(), GST_ELEMENT_FACTORY_KLASS_SRC));
         auto sourceName = makeString(unsafeSpan(name()), hex(reinterpret_cast<uintptr_t>(this)));
         m_src = gst_device_create_element(m_device->device(), sourceName.ascii().data());
         ASSERT(m_src);
         g_object_set(m_src.get(), "do-timestamp", TRUE, nullptr);
     }
 
-    GST_DEBUG_OBJECT(m_pipeline.get(), "Source element created: %" GST_PTR_FORMAT, m_src.get());
+    GST_DEBUG_OBJECT(m_pipeline.get(), "Source element created: %" GST_PTR_FORMAT " (factory: %" GST_PTR_FORMAT ")", m_src.get(), gst_element_get_factory(m_src.get()));
 
     if (gstElementFactoryEquals(m_src.get(), "pipewiresrc"_s)) {
+        auto data = createCapturerProbeData();
+        data->capturer = this;
         auto srcPad = adoptGRef(gst_element_get_static_pad(m_src.get(), "src"));
         gst_pad_add_probe(srcPad.get(), GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM, [](GstPad*, GstPadProbeInfo* info, void* userData) -> GstPadProbeReturn {
             auto* event = gst_pad_probe_info_get_event(info);
             if (GST_EVENT_TYPE(event) != GST_EVENT_CAPS)
                 return GST_PAD_PROBE_OK;
 
-            callOnMainThread([event, capturer = reinterpret_cast<GStreamerCapturer*>(userData)] {
+            auto probeData = reinterpret_cast<CapturerProbeData*>(userData);
+            callOnMainThread([event = GRefPtr(event), weakThis = probeData->capturer] {
+                RefPtr protectedThis = weakThis.get();
+                if (!protectedThis)
+                    return;
+
                 GstCaps* caps;
-                gst_event_parse_caps(event, &caps);
-                capturer->forEachObserver([caps](auto& observer) {
+                gst_event_parse_caps(event.get(), &caps);
+                protectedThis->forEachObserver([caps](auto& observer) {
                     observer.sourceCapsChanged(caps);
                 });
             });
             return GST_PAD_PROBE_OK;
-        }, this, nullptr);
+        }, data, reinterpret_cast<GDestroyNotify>(destroyCapturerProbeData));
     }
 
-    if (m_deviceType == CaptureDevice::DeviceType::Camera) {
-        if (gstElementMatchesFactoryAndHasProperty(m_src.get(), "pipewiresrc"_s, "use-bufferpool"_s))
-            g_object_set(m_src.get(), "use-bufferpool", FALSE, nullptr);
+    if (gstElementMatchesFactoryAndHasProperty(m_src.get(), "pipewiresrc"_s, "use-bufferpool"_s))
+        g_object_set(m_src.get(), "use-bufferpool", FALSE, nullptr);
 
+    if (m_deviceType == CaptureDevice::DeviceType::Camera) {
         auto srcPad = adoptGRef(gst_element_get_static_pad(m_src.get(), "src"));
         gst_pad_add_probe(srcPad.get(), static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_PUSH | GST_PAD_PROBE_TYPE_BUFFER), [](GstPad*, GstPadProbeInfo* info, gpointer) -> GstPadProbeReturn {
             VideoFrameTimeMetadata metadata;
@@ -247,11 +240,11 @@ void GStreamerCapturer::setupPipeline()
     registerActivePipeline(m_pipeline);
     connectSimpleBusMessageCallback(pipeline());
 
-    GRefPtr<GstElement> source = createSource();
-    GRefPtr<GstElement> converter = createConverter();
+    auto source = createSource();
+    auto converter = createConverter();
 
-    m_valve = makeElement("valve"_s);
-    m_capsfilter = makeElement("capsfilter"_s);
+    m_valve = gst_element_factory_make("valve", nullptr);
+    m_capsfilter = gst_element_factory_make("capsfilter", nullptr);
     auto queue = gst_element_factory_make("queue", nullptr);
     if (!m_sink)
         m_sink = makeElement("appsink"_s);
@@ -262,12 +255,12 @@ void GStreamerCapturer::setupPipeline()
     g_object_set(m_sink.get(), "enable-last-sample", FALSE, nullptr);
     g_object_set(m_capsfilter.get(), "caps", m_caps.get(), nullptr);
 
-    gst_bin_add_many(GST_BIN_CAST(m_pipeline.get()), source.get(), m_capsfilter.get(), m_valve.get(), queue, m_sink.get(), nullptr);
-    auto tail = source.get();
+    gst_bin_add_many(GST_BIN_CAST(m_pipeline.get()), source, m_capsfilter.get(), m_valve.get(), queue, m_sink.get(), nullptr);
+    auto tail = source;
     if (converter) {
-        gst_bin_add(GST_BIN_CAST(m_pipeline.get()), converter.get());
-        gst_element_link(source.get(), converter.get());
-        tail = converter.get();
+        gst_bin_add(GST_BIN_CAST(m_pipeline.get()), converter);
+        gst_element_link(source, converter);
+        tail = converter;
     }
     gst_element_link_many(tail, m_capsfilter.get(), m_valve.get(), queue, m_sink.get(), nullptr);
 }
@@ -326,6 +319,7 @@ bool GStreamerCapturer::isInterrupted() const
 
 void GStreamerCapturer::setInterrupted(bool isInterrupted)
 {
+    GST_DEBUG_OBJECT(pipeline(), "%s buffer flow", isInterrupted ? "Interrupting" : "Resuming");
     g_object_set(m_valve.get(), "drop", isInterrupted, nullptr);
 }
 

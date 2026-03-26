@@ -47,6 +47,7 @@ class IDBStorageRegistry;
 
 class IDBStorageManager final : public WebCore::IDBServer::UniqueIDBDatabaseManager {
     WTF_MAKE_TZONE_ALLOCATED(IDBStorageManager);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(IDBStorageManager);
 public:
     static void createVersionDirectoryIfNeeded(const String& rootDirectory);
     static String idbStorageOriginDirectory(const String& rootDirectory, const WebCore::ClientOrigin&);
@@ -67,6 +68,7 @@ public:
     void openDBRequestCancelled(const WebCore::IDBOpenRequestData&);
     void deleteDatabase(WebCore::IDBServer::IDBConnectionToClient&, const WebCore::IDBOpenRequestData&);
     Vector<WebCore::IDBDatabaseNameAndVersion> getAllDatabaseNamesAndVersions();
+    void tryCloseDatabase(const WebCore::IDBDatabaseIdentifier&);
 
 private:
     WebCore::IDBServer::UniqueIDBDatabase& getOrCreateUniqueIDBDatabase(const WebCore::IDBDatabaseIdentifier&);
@@ -83,6 +85,7 @@ private:
     const CheckedRef<IDBStorageRegistry> m_registry;
     QuotaCheckFunction m_quotaCheckFunction;
     HashMap<WebCore::IDBDatabaseIdentifier, std::unique_ptr<WebCore::IDBServer::UniqueIDBDatabase>> m_databases;
+    bool m_isClosing { false };
 };
 
 } // namespace WebKit

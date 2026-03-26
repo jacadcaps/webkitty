@@ -143,12 +143,12 @@ static const int defaultScrollMagnitudeThresholdForPageFlip = 20;
     if (!protectedSelf->_parent) {
         callOnMainRunLoopAndWait([&protectedSelf] {
             if (auto* axObjectCache = protectedSelf->_pdfPlugin->axObjectCache()) {
-                if (RefPtr pluginAxObject = axObjectCache->getOrCreate(RefPtr { protectedSelf->_pluginElement.get() }.get()))
+                if (RefPtr pluginAxObject = axObjectCache->exportedGetOrCreate(RefPtr { protectedSelf->_pluginElement.get() }.get()))
                     protectedSelf->_parent = pluginAxObject->wrapper();
             }
         });
     }
-    return protectedSelf->_parent.get().get();
+    return protectedSelf->_parent.getAutoreleased();
 }
 
 - (void)setParent:(NSObject *)parent
@@ -286,7 +286,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 {
     if (RefPtr activeAnnotation = _pdfPlugin->activeAnnotation()) {
         if (WebCore::AXObjectCache* existingCache = _pdfPlugin->axObjectCache()) {
-            if (RefPtr object = existingCache->getOrCreate(activeAnnotation->protectedElement().get()))
+            if (RefPtr object = existingCache->exportedGetOrCreate(activeAnnotation->protectedElement().get()))
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
                 return [object->wrapper() accessibilityAttributeValue:@"_AXAssociatedPluginParent"];
 ALLOW_DEPRECATED_DECLARATIONS_END
@@ -304,7 +304,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     id wrapper = nil;
     callOnMainRunLoopAndWait([activeAnnotation, protectedSelf = retainPtr(self), &wrapper] {
         if (auto* axObjectCache = protectedSelf->_pdfPlugin->axObjectCache()) {
-            if (RefPtr annotationElementAxObject = axObjectCache->getOrCreate(activeAnnotation->protectedElement().get()))
+            if (RefPtr annotationElementAxObject = axObjectCache->exportedGetOrCreate(activeAnnotation->protectedElement().get()))
                 wrapper = annotationElementAxObject->wrapper();
         }
     });
@@ -425,7 +425,7 @@ static WebCore::Cursor::Type toWebCoreCursorType(PDFLayerControllerCursorType cu
     ASSERT(items.count >= types.count);
     for (NSUInteger i = 0, count = items.count; i < count; ++i)
         pasteboardItems.append({ [items objectAtIndex:i], [types objectAtIndex:i] });
-    _pdfPlugin->writeItemsToGeneralPasteboard(WTFMove(pasteboardItems));
+    _pdfPlugin->writeItemsToGeneralPasteboard(WTF::move(pasteboardItems));
 }
 
 - (void)showDefinitionForAttributedString:(NSAttributedString *)string atPoint:(CGPoint)point
@@ -511,7 +511,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(PDFPlugin);
 
 bool PDFPlugin::pdfKitLayerControllerIsAvailable()
 {
-    return getPDFLayerControllerClass();
+    return getPDFLayerControllerClassSingleton();
 }
 
 Ref<PDFPlugin> PDFPlugin::create(HTMLPlugInElement& pluginElement)
@@ -558,8 +558,8 @@ PDFPlugin::PDFPlugin(HTMLPlugInElement& element)
     if ([m_pdfLayerController respondsToSelector:@selector(setDeviceColorSpace:)])
         [m_pdfLayerController setDeviceColorSpace:screenColorSpace(frame->protectedCoreLocalFrame()->view()).platformColorSpace()];
     
-    if ([getPDFLayerControllerClass() respondsToSelector:@selector(setUseIOSurfaceForTiles:)])
-        [getPDFLayerControllerClass() setUseIOSurfaceForTiles:false];
+    if ([getPDFLayerControllerClassSingleton() respondsToSelector:@selector(setUseIOSurfaceForTiles:)])
+        [getPDFLayerControllerClassSingleton() setUseIOSurfaceForTiles:false];
 }
 
 PDFPlugin::~PDFPlugin() = default;
@@ -631,7 +631,7 @@ void PDFPlugin::installPDFDocument()
         return;
     }
 
-    auto handlePDFTestCallback = makeScopeExit([testCallback = WTFMove(m_pdfTestCallback)] {
+    auto handlePDFTestCallback = makeScopeExit([testCallback = WTF::move(m_pdfTestCallback)] {
         if (testCallback)
             testCallback->invoke();
     });
@@ -967,7 +967,7 @@ bool PDFPlugin::handleMouseEvent(const WebMouseEvent& event)
     m_lastMouseEvent = event;
 
     PlatformMouseEvent platformEvent = platform(event);
-    IntPoint mousePosition = convertFromRootViewToPlugin(event.position());
+    IntPoint mousePosition = convertFromRootViewToPlugin(flooredIntPoint(event.position()));
 
     RefPtr<Scrollbar> targetScrollbar;
     RefPtr<Scrollbar> targetScrollbarForLastMousePosition;
@@ -1090,7 +1090,7 @@ bool PDFPlugin::showContextMenuAtPoint(const IntPoint& point)
     if (!frameView)
         return false;
     IntPoint contentsPoint = frameView->contentsToRootView(point);
-    WebMouseEvent event({ WebEventType::MouseDown, OptionSet<WebEventModifier> { }, WallTime::now() }, WebMouseEventButton::Right, 0, contentsPoint, contentsPoint, 0, 0, 0, 1, WebCore::ForceAtClick);
+    WebMouseEvent event({ WebEventType::MouseDown, OptionSet<WebEventModifier> { }, MonotonicTime::now() }, WebMouseEventButton::Right, 0, contentsPoint, contentsPoint, 0, 0, 0, 1, WebCore::ForceAtClick);
     return handleContextMenuEvent(event);
 }
 
@@ -1106,7 +1106,7 @@ bool PDFPlugin::handleContextMenuEvent(const WebMouseEvent& event)
     if (!frameView)
         return false;
 
-    IntPoint point = frameView->contentsToScreen(IntRect(frameView->windowToContents(event.position()), IntSize())).location();
+    IntPoint point = frameView->contentsToScreen(IntRect(frameView->windowToContents(flooredIntPoint(event.position())), IntSize())).location();
 
     NSUserInterfaceLayoutDirection uiLayoutDirection = webPage->userInterfaceLayoutDirection() == UserInterfaceLayoutDirection::LTR ? NSUserInterfaceLayoutDirectionLeftToRight : NSUserInterfaceLayoutDirectionRightToLeft;
     RetainPtr nsMenu = [m_pdfLayerController menuForEvent:nsEventForWebMouseEvent(event) withUserInterfaceLayoutDirection:uiLayoutDirection];
@@ -1128,11 +1128,11 @@ bool PDFPlugin::handleContextMenuEvent(const WebMouseEvent& event)
             [item action] ? ContextMenuItemHasAction::Yes : ContextMenuItemHasAction::No,
             [item isSeparatorItem] ? ContextMenuItemIsSeparator::Yes : ContextMenuItemIsSeparator::No
         };
-        items.append(WTFMove(menuItem));
+        items.append(WTF::move(menuItem));
     }
-    PDFContextMenu contextMenu { point, WTFMove(items), WTFMove(openInPreviewTag) };
+    PDFContextMenu contextMenu { point, WTF::move(items), WTF::move(openInPreviewTag) };
 
-    webPage->sendWithAsyncReply(Messages::WebPageProxy::ShowPDFContextMenu { contextMenu, identifier(), frame->frameID() }, [itemCount, nsMenu = WTFMove(nsMenu), weakThis = WeakPtr { *this }](std::optional<int32_t>&& selectedIndex) {
+    webPage->sendWithAsyncReply(Messages::WebPageProxy::ShowPDFContextMenu { contextMenu, identifier(), frame->frameID() }, [itemCount, nsMenu = WTF::move(nsMenu), weakThis = WeakPtr { *this }](std::optional<int32_t>&& selectedIndex) {
         if (RefPtr protectedThis = weakThis.get()) {
             if (selectedIndex && selectedIndex.value() >= 0 && selectedIndex.value() < itemCount)
                 [nsMenu performActionForItemAtIndex:*selectedIndex];
@@ -1212,7 +1212,7 @@ void PDFPlugin::invalidateScrollCornerRect(const IntRect& rect)
 void PDFPlugin::setActiveAnnotation(SetActiveAnnotationParams&& setActiveAnnotationParams)
 {
     // This may be called off the main thread if VoiceOver is running, thus dispatch to the main runloop since it involves main thread only objects.
-    callOnMainRunLoopAndWait([annotation = WTFMove(setActiveAnnotationParams.annotation), this] {
+    callOnMainRunLoopAndWait([annotation = WTF::move(setActiveAnnotationParams.annotation), this] {
         if (!supportsForms())
             return;
 

@@ -115,6 +115,7 @@ WI.DOMManager = class DOMManager extends WI.Object
                 showExtendedGridLines: WI.settings.gridOverlayShowExtendedGridLines.value,
                 showTrackSizes: WI.settings.gridOverlayShowTrackSizes.value,
                 showAreaNames: WI.settings.gridOverlayShowAreaNames.value,
+                showOrderNumbers: WI.settings.gridOverlayShowOrderNumbers.value,
             };
         }
 
@@ -875,6 +876,10 @@ WI.DOMManager = class DOMManager extends WI.Object
             return;
 
         for (let target of WI.targets) {
+            // FIXME: <https://webkit.org/b/298980> Add DOM support for FrameTarget.
+            if (target instanceof WI.FrameTarget)
+                continue;
+
             // Clear the old breakpoint from the backend before setting the new one.
             this._removeEventBreakpoint(breakpoint, target);
             this._setEventBreakpoint(breakpoint, target);

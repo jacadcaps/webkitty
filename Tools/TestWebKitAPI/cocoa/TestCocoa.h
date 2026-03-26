@@ -49,6 +49,11 @@ void instantiateUIApplicationIfNeeded(Class customApplicationClass = nil);
 #define EXPECT_NS_EQUAL(expected, actual) \
     EXPECT_PRED_FORMAT2(TestWebKitAPI::Util::assertNSObjectsAreEqual, expected, actual)
 
+#if PLATFORM(IOS_FAMILY)
+std::ostream& operator<<(std::ostream&, const UIEdgeInsets&);
+bool operator==(const UIEdgeInsets&, const UIEdgeInsets&);
+#endif
+
 #if USE(CG)
 
 std::ostream& operator<<(std::ostream&, const CGPoint&);

@@ -309,7 +309,7 @@ const std::vector<SkUnichar>& SkPDFFont::GetUnicodeMap(const SkTypeface& typefac
         return *ptr;
     }
     std::vector<SkUnichar> buffer(typeface.countGlyphs());
-    typeface.getGlyphToUnicodeMap(buffer.data());
+    typeface.getGlyphToUnicodeMap(buffer);
     return *canon->fToUnicodeMap.set(id, std::move(buffer));
 }
 
@@ -779,8 +779,12 @@ static void emit_subset_type3(const SkPDFFont& pdfFont, SkPDFDocument* doc) {
             setGlyphWidthAndBoundingBox(pathGlyph->advanceX(), glyphBBox, &content);
             SkPaint::Style style = pathGlyph->pathIsHairline() ? SkPaint::kStroke_Style
                                                                : SkPaint::kFill_Style;
-            SkPDFUtils::EmitPath(*path, style, &content);
-            SkPDFUtils::PaintPath(style, path->getFillType(), &content);
+            using SkPDFUtils::EmptyPath, SkPDFUtils::EmptyVerb;
+            if (SkPDFUtils::EmitPath(*path, style, EmptyPath::Discard, EmptyVerb::Discard,
+                                     &content))
+            {
+                SkPDFUtils::PaintPath(style, path->getFillType(), &content);
+            }
         } else if (auto pimg = to_image(gID, &smallGlyphs); pimg.fImage) {
             using SkPDFUtils::AppendScalar;
             if (pimg.fImage->colorType() != kGray_8_SkColorType) {
@@ -797,7 +801,7 @@ static void emit_subset_type3(const SkPDFFont& pdfFont, SkPDFDocument* doc) {
                 content.writeText("/X");
                 content.write(characterName.c_str(), characterName.size());
                 content.writeText(" Do\n");
-                SkPDFIndirectReference image = SkPDFSerializeImage(pimg.fImage.get(), doc);
+                SkPDFIndirectReference image = SkPDFSerializeImage(pimg.fImage.get(), doc, 101);
                 xobjects->insertRef(SkStringPrintf("Xg%X", gID), image);
             } else {
                 // TODO: For A1, put ImageMask on the PDF image and draw the image?

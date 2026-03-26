@@ -61,7 +61,7 @@ TiledCoreAnimationDrawingAreaProxy::~TiledCoreAnimationDrawingAreaProxy() = defa
 void TiledCoreAnimationDrawingAreaProxy::deviceScaleFactorDidChange(CompletionHandler<void()>&& completionHandler)
 {
     if (RefPtr page = this->page())
-        sendWithAsyncReply(Messages::DrawingArea::SetDeviceScaleFactor(page->deviceScaleFactor()), WTFMove(completionHandler));
+        sendWithAsyncReply(Messages::DrawingArea::SetDeviceScaleFactor(page->deviceScaleFactor()), WTF::move(completionHandler));
 }
 
 void TiledCoreAnimationDrawingAreaProxy::sizeDidChange()
@@ -177,7 +177,7 @@ MachSendRight TiledCoreAnimationDrawingAreaProxy::createFence()
     if (!page)
         return MachSendRight();
 
-    RetainPtr<CAContext> rootLayerContext = [page->acceleratedCompositingRootLayer() context];
+    RetainPtr<CAContext> rootLayerContext = [page->protectedAcceleratedCompositingRootLayer() context];
     if (!rootLayerContext)
         return MachSendRight();
 
@@ -202,7 +202,7 @@ MachSendRight TiledCoreAnimationDrawingAreaProxy::createFence()
     uint64_t callbackID = connection->installIncomingSyncMessageCallback([rootLayerContext] {
         [rootLayerContext invalidateFences];
     });
-    [CATransaction addCommitHandler:[callbackID, connection = WTFMove(connection)] () mutable {
+    [CATransaction addCommitHandler:[callbackID, connection = WTF::move(connection)] () mutable {
         connection->uninstallIncomingSyncMessageCallback(callbackID);
     } forPhase:kCATransactionPhasePostCommit];
 
@@ -234,6 +234,7 @@ void TiledCoreAnimationDrawingAreaProxy::commitTransientZoom(double scale, Float
 void TiledCoreAnimationDrawingAreaProxy::dispatchPresentationCallbacksAfterFlushingLayers(IPC::Connection& connection, Vector<IPC::AsyncReplyID>&& callbackIDs)
 {
     for (auto& callbackID : callbackIDs) {
+        removeOutstandingPresentationUpdateCallback(connection, callbackID);
         if (auto callback = connection.takeAsyncReplyHandler(callbackID))
             callback(nullptr, nullptr);
     }

@@ -30,7 +30,7 @@
 
 #import "AVAudioSessionCaptureDevice.h"
 #import "AudioSession.h"
-#import "CoreAudioSharedUnit.h"
+#import "CoreAudioCaptureUnit.h"
 #import "Logging.h"
 #import "RealtimeMediaSourceCenter.h"
 #import <AVFoundation/AVAudioSession.h>
@@ -59,7 +59,7 @@
     if (!self)
         return nil;
 
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(routeDidChange:) name:PAL::get_AVFoundation_AVAudioSessionRouteChangeNotification() object:session];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(routeDidChange:) name:PAL::get_AVFoundation_AVAudioSessionRouteChangeNotificationSingleton() object:session];
 
     _callback = callback;
 
@@ -104,10 +104,10 @@ AVAudioSessionCaptureDeviceManager::AVAudioSessionCaptureDeviceManager()
 void AVAudioSessionCaptureDeviceManager::createAudioSession()
 {
 #if !PLATFORM(MACCATALYST)
-    m_audioSession = adoptNS([[PAL::getAVAudioSessionClass() alloc] initAuxiliarySession]);
+    m_audioSession = adoptNS([[PAL::getAVAudioSessionClassSingleton() alloc] initAuxiliarySession]);
 #else
     // FIXME: Figure out if this is correct for Catalyst, where auxiliary session isn't available.
-    m_audioSession = [PAL::getAVAudioSessionClass() sharedInstance];
+    m_audioSession = [PAL::getAVAudioSessionClassSingleton() sharedInstance];
 #endif
 
     NSError *error = nil;
@@ -164,7 +164,7 @@ void AVAudioSessionCaptureDeviceManager::setPreferredMicrophoneID(const String& 
     auto previousMicrophoneID = m_preferredMicrophoneID;
     m_preferredMicrophoneID = microphoneID;
     if (!setPreferredAudioSessionDeviceIDs())
-        m_preferredMicrophoneID = WTFMove(previousMicrophoneID);
+        m_preferredMicrophoneID = WTF::move(previousMicrophoneID);
 }
 
 void AVAudioSessionCaptureDeviceManager::configurePreferredMicrophone()
@@ -179,7 +179,7 @@ void AVAudioSessionCaptureDeviceManager::setPreferredSpeakerID(const String& spe
     auto previousSpeakerID = m_preferredSpeakerID;
     m_preferredSpeakerID = speakerID;
     if (!setPreferredAudioSessionDeviceIDs())
-        m_preferredSpeakerID = WTFMove(previousSpeakerID);
+        m_preferredSpeakerID = WTF::move(previousSpeakerID);
     else if (!m_preferredSpeakerID.isEmpty()) {
 #if USE(APPLE_INTERNAL_SDK)
 #import <WebKitAdditions/AVAudioSessionCaptureDeviceManagerAdditions-2.mm>
@@ -206,7 +206,7 @@ bool AVAudioSessionCaptureDeviceManager::setPreferredAudioSessionDeviceIDs()
         RELEASE_LOG_INFO(WebRTC, "AVAudioSessionCaptureDeviceManager setting preferred input to '%{public}s'", m_preferredMicrophoneID.ascii().data());
 
         NSError *error = nil;
-        if (![[PAL::getAVAudioSessionClass() sharedInstance] setPreferredInput:preferredInputPort error:&error]) {
+        if (![[PAL::getAVAudioSessionClassSingleton() sharedInstance] setPreferredInput:preferredInputPort error:&error]) {
             RELEASE_LOG_ERROR(WebRTC, "AVAudioSessionCaptureDeviceManager failed to set preferred input to '%{public}s' with error: %@", m_preferredMicrophoneID.utf8().data(), error.localizedDescription);
             return false;
         }
@@ -229,15 +229,15 @@ void AVAudioSessionCaptureDeviceManager::refreshAudioCaptureDevices()
     m_dispatchQueue->dispatchSync([&] {
         newAudioDevices = retrieveAudioSessionCaptureDevices();
     });
-    setAudioCaptureDevices(crossThreadCopy(WTFMove(newAudioDevices)));
+    setAudioCaptureDevices(crossThreadCopy(WTF::move(newAudioDevices)));
 }
 
 void AVAudioSessionCaptureDeviceManager::computeCaptureDevices(CompletionHandler<void()>&& completion)
 {
-    m_dispatchQueue->dispatch([this, completion = WTFMove(completion)] () mutable {
+    m_dispatchQueue->dispatch([this, completion = WTF::move(completion)] () mutable {
         auto newAudioDevices = retrieveAudioSessionCaptureDevices();
-        callOnWebThreadOrDispatchAsyncOnMainThread(makeBlockPtr([this, completion = WTFMove(completion), newAudioDevices = crossThreadCopy(WTFMove(newAudioDevices))] () mutable {
-            setAudioCaptureDevices(WTFMove(newAudioDevices));
+        callOnWebThreadOrDispatchAsyncOnMainThread(makeBlockPtr([this, completion = WTF::move(completion), newAudioDevices = crossThreadCopy(WTF::move(newAudioDevices))] () mutable {
+            setAudioCaptureDevices(WTF::move(newAudioDevices));
             completion();
         }).get());
     });
@@ -249,8 +249,10 @@ Vector<AVAudioSessionCaptureDevice> AVAudioSessionCaptureDeviceManager::retrieve
     if (currentInput) {
         if (currentInput != m_lastDefaultMicrophone.get()) {
             auto device = AVAudioSessionCaptureDevice::createInput(currentInput, currentInput);
-            callOnWebThreadOrDispatchAsyncOnMainThread(makeBlockPtr([device = crossThreadCopy(WTFMove(device))] () mutable {
-                CoreAudioSharedUnit::singleton().handleNewCurrentMicrophoneDevice(WTFMove(device));
+            callOnWebThreadOrDispatchAsyncOnMainThread(makeBlockPtr([device = crossThreadCopy(WTF::move(device))] () mutable {
+                CoreAudioCaptureUnit::forEach([&device](auto& unit) {
+                    unit.handleNewCurrentMicrophoneDevice(device);
+                });
             }).get());
         }
         m_lastDefaultMicrophone = currentInput;
@@ -262,7 +264,7 @@ Vector<AVAudioSessionCaptureDevice> AVAudioSessionCaptureDeviceManager::retrieve
     newAudioDevices.reserveInitialCapacity(availableInputs.count);
     for (AVAudioSessionPortDescription *portDescription in availableInputs) {
         auto device = AVAudioSessionCaptureDevice::createInput(portDescription, currentInput);
-        newAudioDevices.append(WTFMove(device));
+        newAudioDevices.append(WTF::move(device));
     }
 
 #if USE(APPLE_INTERNAL_SDK)
@@ -308,7 +310,7 @@ void AVAudioSessionCaptureDeviceManager::setAudioCaptureDevices(Vector<AVAudioSe
     if (!deviceListChanged && !firstTime)
         return;
 
-    m_audioSessionCaptureDevices = WTFMove(newAudioDevices);
+    m_audioSessionCaptureDevices = WTF::move(newAudioDevices);
 
     Vector<CaptureDevice> newCaptureDevices;
     Vector<CaptureDevice> newSpeakerDevices;
@@ -336,14 +338,14 @@ void AVAudioSessionCaptureDeviceManager::setAudioCaptureDevices(Vector<AVAudioSe
     });
     if (m_captureDevices)
         deviceListChanged = isDifferentDeviceList(newCaptureDevices, *m_captureDevices);
-    m_captureDevices = WTFMove(newCaptureDevices);
+    m_captureDevices = WTF::move(newCaptureDevices);
 
     std::ranges::sort(newSpeakerDevices, [] (auto& first, auto& second) -> bool {
         return first.isDefault() && !second.isDefault();
     });
     if (!deviceListChanged)
         deviceListChanged = isDifferentDeviceList(newSpeakerDevices, m_speakerDevices);
-    m_speakerDevices = WTFMove(newSpeakerDevices);
+    m_speakerDevices = WTF::move(newSpeakerDevices);
 
     if (deviceListChanged && !firstTime)
         deviceChanged();

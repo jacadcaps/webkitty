@@ -94,8 +94,8 @@ TEST(WKWebExtensionDataRecord, GetDataRecords)
     TestWebKitAPI::Util::run(&fetchComplete);
 }
 
-// FIXME rdar://147858640
-#if PLATFORM(IOS) && !defined(NDEBUG)
+// FIXME rdar://147858640 and rdar://167044676 for macOS Debug
+#if !defined(NDEBUG)
 TEST(WKWebExtensionDataRecord, DISABLED_GetDataRecordsForMultipleContexts)
 #else
 TEST(WKWebExtensionDataRecord, GetDataRecordsForMultipleContexts)

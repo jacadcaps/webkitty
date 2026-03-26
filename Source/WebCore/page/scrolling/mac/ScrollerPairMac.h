@@ -25,13 +25,14 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
 #if PLATFORM(MAC)
 
-#include "FloatRect.h"
-#include "FloatSize.h"
-#include "PlatformWheelEvent.h"
-#include "ScrollerMac.h"
-#include "ScrollingStateScrollingNode.h"
+#include <WebCore/FloatRect.h>
+#include <WebCore/FloatSize.h>
+#include <WebCore/PlatformWheelEvent.h>
+#include <WebCore/ScrollerMac.h>
+#include <WebCore/ScrollingStateScrollingNode.h>
 #include <wtf/RecursiveLockAdapter.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeWeakPtr.h>
@@ -43,6 +44,9 @@ OBJC_CLASS WebScrollerImpPairDelegateMac;
 namespace WebCore {
 class PlatformWheelEvent;
 class ScrollingTreeScrollingNode;
+
+struct ScrollbarColor;
+
 }
 
 namespace WebCore {
@@ -91,12 +95,8 @@ public:
     bool inLiveResize() const { return m_inLiveResize; }
 
     // Only for use by WebScrollerImpPairDelegateMac. Do not use elsewhere!
-    ScrollerMac& verticalScroller() { return m_verticalScroller; }
-    CheckedRef<ScrollerMac> checkedVerticalScroller()  { return m_verticalScroller; }
-    CheckedRef<const ScrollerMac> checkedVerticalScroller() const { return m_verticalScroller; }
-    ScrollerMac& horizontalScroller() { return m_horizontalScroller; }
-    CheckedRef<ScrollerMac> checkedHorizontalScroller() { return m_horizontalScroller; }
-    CheckedRef<const ScrollerMac> checkedHorizontalScroller() const { return m_horizontalScroller; }
+    ScrollerMac& verticalScroller() { return m_verticalScroller.get(); }
+    ScrollerMac& horizontalScroller() { return m_horizontalScroller.get(); }
 
     String scrollbarStateForOrientation(ScrollbarOrientation) const;
 
@@ -110,6 +110,7 @@ public:
     void mouseExitedContentArea();
     void mouseMovedInContentArea(const MouseLocationState&);
     void mouseIsInScrollbar(ScrollbarHoverState);
+    void scrollbarColorChanged(const std::optional<ScrollbarColor>&);
 
     NSScrollerImpPair *scrollerImpPair() const { return m_scrollerImpPair.get(); }
     void ensureOnMainThreadWithProtectedThis(Function<void(ScrollerPairMac&)>&&);
@@ -121,18 +122,16 @@ public:
 
     void setScrollbarWidth(ScrollbarWidth);
 
+    void updateScrollbarPainters();
 private:
     ScrollerPairMac(ScrollingTreeScrollingNode&);
-
-    NSScrollerImp *scrollerImpHorizontal() { return horizontalScroller().scrollerImp(); }
-    NSScrollerImp *scrollerImpVertical() { return verticalScroller().scrollerImp(); }
 
     ThreadSafeWeakPtr<ScrollingTreeScrollingNode> m_scrollingNode;
 
     ScrollbarHoverState m_scrollbarHoverState;
 
-    ScrollerMac m_verticalScroller;
-    ScrollerMac m_horizontalScroller;
+    const UniqueRef<ScrollerMac> m_verticalScroller;
+    const UniqueRef<ScrollerMac> m_horizontalScroller;
 
     std::optional<FloatPoint> m_lastScrollOffset;
 

@@ -9,6 +9,7 @@ file(MAKE_DIRECTORY ${TEST_BINARY_DIR})
 
 list(APPEND WebKitGLibAPITests_SOURCES
     ${TOOLS_DIR}/TestWebKitAPI/glib/WebKitGLib/gtk/WebViewTestGtk.cpp
+    ${TOOLS_DIR}/TestWebKitAPI/glib/WebKitGLib/gtk/WebExtensionUtilities.cpp
 )
 
 list(APPEND WebKitGLibAPITests_INCLUDE_DIRECTORIES

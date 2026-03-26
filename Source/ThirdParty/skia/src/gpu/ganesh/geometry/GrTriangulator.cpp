@@ -528,15 +528,15 @@ void GrTriangulator::generateCubicPoints(const SkPoint& p0, const SkPoint& p1, c
         return;
     }
     const SkPoint q[] = {
-        { SkScalarAve(p0.fX, p1.fX), SkScalarAve(p0.fY, p1.fY) },
-        { SkScalarAve(p1.fX, p2.fX), SkScalarAve(p1.fY, p2.fY) },
-        { SkScalarAve(p2.fX, p3.fX), SkScalarAve(p2.fY, p3.fY) }
+        { sk_float_midpoint(p0.fX, p1.fX), sk_float_midpoint(p0.fY, p1.fY) },
+        { sk_float_midpoint(p1.fX, p2.fX), sk_float_midpoint(p1.fY, p2.fY) },
+        { sk_float_midpoint(p2.fX, p3.fX), sk_float_midpoint(p2.fY, p3.fY) }
     };
     const SkPoint r[] = {
-        { SkScalarAve(q[0].fX, q[1].fX), SkScalarAve(q[0].fY, q[1].fY) },
-        { SkScalarAve(q[1].fX, q[2].fX), SkScalarAve(q[1].fY, q[2].fY) }
+        { sk_float_midpoint(q[0].fX, q[1].fX), sk_float_midpoint(q[0].fY, q[1].fY) },
+        { sk_float_midpoint(q[1].fX, q[2].fX), sk_float_midpoint(q[1].fY, q[2].fY) }
     };
-    const SkPoint s = { SkScalarAve(r[0].fX, r[1].fX), SkScalarAve(r[0].fY, r[1].fY) };
+    const SkPoint s = { sk_float_midpoint(r[0].fX, r[1].fX), sk_float_midpoint(r[0].fY, r[1].fY) };
     pointsLeft >>= 1;
     this->generateCubicPoints(p0, q[0], r[0], s, tolSqd, contour, pointsLeft);
     this->generateCubicPoints(s, r[1], q[2], p3, tolSqd, contour, pointsLeft);
@@ -547,68 +547,65 @@ void GrTriangulator::generateCubicPoints(const SkPoint& p0, const SkPoint& p1, c
 void GrTriangulator::pathToContours(float tolerance, const SkRect& clipBounds,
                                     VertexList* contours, bool* isLinear) const {
     SkScalar toleranceSqd = tolerance * tolerance;
-    SkPoint pts[4];
     *isLinear = true;
     VertexList* contour = contours;
-    SkPath::Iter iter(fPath, false);
     if (fPath.isInverseFillType()) {
-        SkPoint quad[4];
-        clipBounds.toQuad(quad);
+        const std::array<SkPoint, 4> quad = clipBounds.toQuad();
         for (int i = 3; i >= 0; i--) {
             this->appendPointToContour(quad[i], contours);
         }
         contour++;
     }
     SkAutoConicToQuads converter;
-    SkPath::Verb verb;
-    while ((verb = iter.next(pts)) != SkPath::kDone_Verb) {
-        switch (verb) {
-            case SkPath::kConic_Verb: {
+    SkPath::Iter iter(fPath, false);
+    while (auto rec = iter.next()) {
+        SkSpan<const SkPoint> pts = rec->fPoints;
+        switch (rec->fVerb) {
+            case SkPathVerb::kConic: {
                 *isLinear = false;
                 if (toleranceSqd == 0) {
                     this->appendPointToContour(pts[2], contour);
                     break;
                 }
-                SkScalar weight = iter.conicWeight();
-                const SkPoint* quadPts = converter.computeQuads(pts, weight, toleranceSqd);
+                const SkPoint* quadPts = converter.computeQuads(pts.data(), rec->conicWeight(),
+                                                                toleranceSqd);
                 for (int i = 0; i < converter.countQuads(); ++i) {
                     this->appendQuadraticToContour(quadPts, toleranceSqd, contour);
                     quadPts += 2;
                 }
                 break;
             }
-            case SkPath::kMove_Verb:
+            case SkPathVerb::kMove:
                 if (contour->fHead) {
                     contour++;
                 }
                 this->appendPointToContour(pts[0], contour);
                 break;
-            case SkPath::kLine_Verb: {
+            case SkPathVerb::kLine: {
                 this->appendPointToContour(pts[1], contour);
                 break;
             }
-            case SkPath::kQuad_Verb: {
+            case SkPathVerb::kQuad: {
                 *isLinear = false;
                 if (toleranceSqd == 0) {
                     this->appendPointToContour(pts[2], contour);
                     break;
                 }
-                this->appendQuadraticToContour(pts, toleranceSqd, contour);
+                this->appendQuadraticToContour(pts.data(), toleranceSqd, contour);
                 break;
             }
-            case SkPath::kCubic_Verb: {
+            case SkPathVerb::kCubic: {
                 *isLinear = false;
                 if (toleranceSqd == 0) {
                     this->appendPointToContour(pts[3], contour);
                     break;
                 }
-                int pointsLeft = GrPathUtils::cubicPointCount(pts, tolerance);
+                int pointsLeft = GrPathUtils::cubicPointCount(pts.data(), tolerance);
                 this->generateCubicPoints(pts[0], pts[1], pts[2], pts[3], toleranceSqd, contour,
                                           pointsLeft);
                 break;
             }
-            case SkPath::kClose_Verb:
-            case SkPath::kDone_Verb:
+            case SkPathVerb::kClose:
                 break;
         }
     }
@@ -1778,23 +1775,21 @@ static int get_contour_count(const SkPath& path, SkScalar tolerance) {
     bool hasPoints = false;
 
     SkPath::Iter iter(path, false);
-    SkPath::Verb verb;
-    SkPoint pts[4];
     bool first = true;
-    while ((verb = iter.next(pts)) != SkPath::kDone_Verb) {
-        switch (verb) {
-            case SkPath::kMove_Verb:
+    while (auto rec = iter.next()) {
+        switch (rec->fVerb) {
+            case SkPathVerb::kMove:
                 if (!first) {
                     ++contourCnt;
                 }
                 [[fallthrough]];
-            case SkPath::kLine_Verb:
-            case SkPath::kConic_Verb:
-            case SkPath::kQuad_Verb:
-            case SkPath::kCubic_Verb:
+            case SkPathVerb::kLine:
+            case SkPathVerb::kConic:
+            case SkPathVerb::kQuad:
+            case SkPathVerb::kCubic:
                 hasPoints = true;
                 break;
-            default:
+            case SkPathVerb::kClose:
                 break;
         }
         first = false;

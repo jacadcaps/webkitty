@@ -25,6 +25,7 @@
 
 #import "config.h"
 
+#import "WebCoreTestSupport.h"
 #import <WebKit/WKBundlePage.h>
 #import <WebKit/WKBundlePageUIClient.h>
 #import <WebKit/WKDOMDocument.h>
@@ -35,8 +36,10 @@
 #import <WebKit/WKWebProcessPlugIn.h>
 #import <WebKit/WKWebProcessPlugInBrowserContextControllerPrivate.h>
 #import <WebKit/WKWebProcessPlugInFrame.h>
+#import <WebKit/WKWebProcessPlugInLoadDelegate.h>
 #import <WebKit/WKWebProcessPlugInNodeHandlePrivate.h>
 #import <WebKit/WKWebProcessPlugInScriptWorld.h>
+#import <wtf/RetainPtr.h>
 #import <wtf/StdLibExtras.h>
 
 void didClickAutoFillButton(WKBundlePageRef, WKBundleNodeHandleRef, WKTypeRef* userData, const void *)
@@ -44,10 +47,15 @@ void didClickAutoFillButton(WKBundlePageRef, WKBundleNodeHandleRef, WKTypeRef* u
     *userData = WKStringCreateWithUTF8CString("user data string");
 }
 
-@interface ClickAutoFillButton : NSObject <WKWebProcessPlugIn>
+@interface ClickAutoFillButton : NSObject <WKWebProcessPlugIn, WKWebProcessPlugInLoadDelegate>
 @end
 
 @implementation ClickAutoFillButton
+
+- (void)webProcessPlugInBrowserContextController:(WKWebProcessPlugInBrowserContextController *)controller didClearWindowObjectForFrame:(WKWebProcessPlugInFrame *)frame inScriptWorld:(WKWebProcessPlugInScriptWorld *)scriptWorld
+{
+    WebCoreTestSupport::injectInternalsObject([frame jsContextForWorld:scriptWorld].JSGlobalContextRef);
+}
 
 - (void)webProcessPlugIn:(WKWebProcessPlugInController *)plugInController didCreateBrowserContextController:(WKWebProcessPlugInBrowserContextController *)browserContextController
 {
@@ -56,14 +64,19 @@ void didClickAutoFillButton(WKBundlePageRef, WKBundleNodeHandleRef, WKTypeRef* u
     client.base.version = 3;
     client.didClickAutoFillButton = didClickAutoFillButton;
     WKBundlePageSetUIClient([browserContextController _bundlePageRef], &client.base);
-    
-    WKDOMDocument *document = [browserContextController mainFrameDocument];
-    WKDOMElement *inputElement = [document createElement:@"input"];
-    [[document body] appendChild:inputElement];
 
-    auto *jsContext = [[browserContextController mainFrame] jsContextForWorld:[WKWebProcessPlugInScriptWorld normalWorld]];
-    auto *jsValue = [jsContext evaluateScript:@"document.querySelector('input')"];
-    auto* nodeHandle = [WKWebProcessPlugInNodeHandle nodeHandleWithJSValue:jsValue inContext:jsContext];
+    browserContextController.loadDelegate = self;
+}
+
+- (void)webProcessPlugInBrowserContextController:(WKWebProcessPlugInBrowserContextController *)browserContextController didFinishLoadForFrame:(WKWebProcessPlugInFrame *)frame
+{
+    RetainPtr document = [browserContextController mainFrameDocument];
+    RetainPtr inputElement = [document createElement:@"input"];
+    [[document body] appendChild:inputElement.get()];
+
+    RetainPtr jsContext = [[browserContextController mainFrame] jsContextForWorld:[WKWebProcessPlugInScriptWorld normalWorld]];
+    RetainPtr jsValue = [jsContext evaluateScript:@"document.querySelector('input')"];
+    RetainPtr nodeHandle = [WKWebProcessPlugInNodeHandle nodeHandleWithJSValue:jsValue.get() inContext:jsContext.get()];
     [nodeHandle setHTMLInputElementIsAutoFilled:YES];
     [nodeHandle setHTMLInputElementAutoFillButtonEnabledWithButtonType:_WKAutoFillButtonTypeContacts];
     [[[browserContextController mainFrame] jsContextForWorld:[WKWebProcessPlugInScriptWorld normalWorld]] evaluateScript:@"alert('ready for click!')"];

@@ -32,7 +32,6 @@
 #include <shlobj.h>
 #include <shlwapi.h>
 #include <wininet.h> // for INTERNET_MAX_URL_LENGTH
-#include <wtf/StringExtras.h>
 #include <wtf/URL.h>
 #include <wtf/Vector.h>
 #include <wtf/text/CString.h>
@@ -731,7 +730,7 @@ void getHDropData(IDataObject* data, FORMATETC* format, Vector<String>& dataStri
 
 // Setter functions.
 
-void setUCharData(IDataObject* data, FORMATETC* format, const Vector<String>& dataStrings)
+void setUTF16Data(IDataObject* data, FORMATETC* format, const Vector<String>& dataStrings)
 {
     STGMEDIUM medium { };
     medium.tymed = TYMED_HGLOBAL;
@@ -786,14 +785,14 @@ static const ClipboardFormatMap& getClipboardMap()
     static ClipboardFormatMap formatMap;
     if (formatMap.isEmpty()) {
         formatMap.add(htmlFormat()->cfFormat, new ClipboardDataItem(htmlFormat(), getUTF8Data, setUTF8Data));
-        formatMap.add(texthtmlFormat()->cfFormat, new ClipboardDataItem(texthtmlFormat(), getStringData<char16_t>, setUCharData));
+        formatMap.add(texthtmlFormat()->cfFormat, new ClipboardDataItem(texthtmlFormat(), getStringData<char16_t>, setUTF16Data));
         formatMap.add(plainTextFormat()->cfFormat,  new ClipboardDataItem(plainTextFormat(), getStringData<char>, setUTF8Data));
-        formatMap.add(plainTextWFormat()->cfFormat,  new ClipboardDataItem(plainTextWFormat(), getStringData<char16_t>, setUCharData));
+        formatMap.add(plainTextWFormat()->cfFormat,  new ClipboardDataItem(plainTextWFormat(), getStringData<char16_t>, setUTF16Data));
         formatMap.add(cfHDropFormat()->cfFormat,  new ClipboardDataItem(cfHDropFormat(), getHDropData, setHDropData));
         formatMap.add(filenameFormat()->cfFormat,  new ClipboardDataItem(filenameFormat(), getStringData<char>, setUTF8Data));
-        formatMap.add(filenameWFormat()->cfFormat,  new ClipboardDataItem(filenameWFormat(), getStringData<char16_t>, setUCharData));
+        formatMap.add(filenameWFormat()->cfFormat,  new ClipboardDataItem(filenameWFormat(), getStringData<char16_t>, setUTF16Data));
         formatMap.add(urlFormat()->cfFormat,  new ClipboardDataItem(urlFormat(), getStringData<char>, setUTF8Data));
-        formatMap.add(urlWFormat()->cfFormat,  new ClipboardDataItem(urlWFormat(), getStringData<char16_t>, setUCharData));
+        formatMap.add(urlWFormat()->cfFormat,  new ClipboardDataItem(urlWFormat(), getStringData<char16_t>, setUTF16Data));
     }
     return formatMap;
 }

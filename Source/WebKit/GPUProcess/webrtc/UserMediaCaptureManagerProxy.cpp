@@ -29,9 +29,11 @@
 #if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
 
 #include "Connection.h"
+#include "Logging.h"
 #include "RemoteCaptureSampleManagerMessages.h"
 #include "RemoteVideoFrameObjectHeap.h"
 #include "SharedCARingBuffer.h"
+#include "SharedPreferencesForWebProcess.h"
 #include "UserMediaCaptureManagerMessages.h"
 #include "UserMediaCaptureManagerProxyMessages.h"
 #include <WebCore/AudioSession.h>
@@ -64,7 +66,7 @@ class UserMediaCaptureManagerProxySourceProxy final
     WTF_MAKE_TZONE_ALLOCATED_INLINE(UserMediaCaptureManagerProxySourceProxy);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(UserMediaCaptureManagerProxySourceProxy);
 public:
-    static Ref<UserMediaCaptureManagerProxySourceProxy> create(RealtimeMediaSourceIdentifier id, Ref<IPC::Connection>&& connection, ProcessIdentity&& resourceOwner, Ref<RealtimeMediaSource>&& source, RefPtr<RemoteVideoFrameObjectHeap>&& videoFrameObjectHeap) { return adoptRef(*new UserMediaCaptureManagerProxySourceProxy(id, WTFMove(connection), WTFMove(resourceOwner), WTFMove(source), WTFMove(videoFrameObjectHeap))); }
+    static Ref<UserMediaCaptureManagerProxySourceProxy> create(RealtimeMediaSourceIdentifier id, Ref<IPC::Connection>&& connection, ProcessIdentity&& resourceOwner, Ref<RealtimeMediaSource>&& source, RefPtr<RemoteVideoFrameObjectHeap>&& videoFrameObjectHeap) { return adoptRef(*new UserMediaCaptureManagerProxySourceProxy(id, WTF::move(connection), WTF::move(resourceOwner), WTF::move(source), WTF::move(videoFrameObjectHeap))); }
     ~UserMediaCaptureManagerProxySourceProxy()
     {
         unobserveMedia();
@@ -110,7 +112,7 @@ public:
 
     void whenReady(UserMediaCaptureManagerProxy::CreateSourceCallback&& createCallback)
     {
-        m_source->whenReady([weakThis = WeakPtr { *this }, createCallback = WTFMove(createCallback)] (auto&& sourceError) mutable {
+        m_source->whenReady([weakThis = WeakPtr { *this }, createCallback = WTF::move(createCallback)] (auto&& sourceError) mutable {
             RefPtr protectedThis = weakThis.get();
             if (!protectedThis) {
                 createCallback(CaptureSourceError { "Source is no longer needed"_s, MediaAccessDenialReason::InvalidAccess }, { }, { });
@@ -125,6 +127,9 @@ public:
 
     void audioUnitWillStart() final
     {
+#if PLATFORM(IOS_FAMILY)
+        m_providePresentingApplicationPIDFunction();
+#endif
         Ref session = AudioSession::singleton();
         session->setCategory(AudioSession::CategoryType::PlayAndRecord, AudioSession::Mode::VideoChat, RouteSharingPolicy::Default);
         session->tryToSetActive(true);
@@ -204,13 +209,13 @@ public:
     {
         ASSERT(isMainRunLoop());
 
-        Ref pendingAction = WTFMove(m_pendingAction);
-        m_pendingAction = pendingAction->isResolved() ? action() : pendingAction->whenSettled(RunLoop::mainSingleton(), WTFMove(action));
+        Ref pendingAction = WTF::move(m_pendingAction);
+        m_pendingAction = pendingAction->isResolved() ? action() : pendingAction->whenSettled(RunLoop::mainSingleton(), WTF::move(action));
     }
 
     void applyConstraints(WebCore::MediaConstraints&& constraints, CompletionHandler<void(std::optional<RealtimeMediaSource::ApplyConstraintsError>&&)> callback)
     {
-        queueAndProcessSerialAction([weakThis = WeakPtr { *this }, constraints = WTFMove(constraints), callback = WTFMove(callback)]() mutable {
+        queueAndProcessSerialAction([weakThis = WeakPtr { *this }, constraints = WTF::move(constraints), callback = WTF::move(callback)]() mutable {
             RefPtr protectedThis = weakThis.get();
             if (!protectedThis) {
                 callback(RealtimeMediaSource::ApplyConstraintsError { { }, { } });
@@ -219,14 +224,14 @@ public:
 
             Ref source = protectedThis->m_source;
             if (source->type() != RealtimeMediaSource::Type::Video) {
-                source->applyConstraints(constraints, WTFMove(callback));
+                source->applyConstraints(constraints, WTF::move(callback));
                 return GenericPromise::createAndResolve();
             }
 
             bool isObservingMedia = protectedThis->isObservingMedia();
             protectedThis->unobserveMedia();
 
-            source->applyConstraints(WTFMove(constraints), [weakThis = WTFMove(weakThis), &constraints, isObservingMedia, callback = WTFMove(callback)](auto&& error) mutable {
+            source->applyConstraints(WTF::move(constraints), [weakThis = WTF::move(weakThis), &constraints, isObservingMedia, callback = WTF::move(callback)](auto&& error) mutable {
                 RefPtr protectedThis = weakThis.get();
                 if (!protectedThis) {
                     callback(RealtimeMediaSource::ApplyConstraintsError { { }, { } });
@@ -241,7 +246,7 @@ public:
                 if (isObservingMedia)
                     protectedThis->observeMedia();
 
-                callback(WTFMove(error));
+                callback(WTF::move(error));
             });
 
             return GenericPromise::createAndResolve();
@@ -288,17 +293,17 @@ public:
         RealtimeMediaSource::TakePhotoNativePromise::Producer takePhotoProducer;
         Ref<RealtimeMediaSource::TakePhotoNativePromise> takePhotoPromise = takePhotoProducer;
 
-        queueAndProcessSerialAction([weakThis = WeakPtr { *this }, photoSettings = WTFMove(photoSettings), takePhotoProducer = WTFMove(takePhotoProducer)]() mutable -> Ref<GenericPromise> {
+        queueAndProcessSerialAction([weakThis = WeakPtr { *this }, photoSettings = WTF::move(photoSettings), takePhotoProducer = WTF::move(takePhotoProducer)]() mutable -> Ref<GenericPromise> {
             RefPtr protectedThis = weakThis.get();
             if (!protectedThis) {
                 takePhotoProducer.reject("Track has ended"_s);
                 return GenericPromise::createAndResolve();
             }
 
-            return protectedThis->source().takePhoto(WTFMove(photoSettings))->whenSettled(RunLoop::mainSingleton(), [takePhotoProducer = WTFMove(takePhotoProducer)] (auto&& result) mutable {
+            return protectedThis->source().takePhoto(WTF::move(photoSettings))->whenSettled(RunLoop::mainSingleton(), [takePhotoProducer = WTF::move(takePhotoProducer)] (auto&& result) mutable {
                 ASSERT(isMainRunLoop());
 
-                takePhotoProducer.settle(WTFMove(result));
+                takePhotoProducer.settle(WTF::move(result));
                 return GenericPromise::createAndResolve();
             });
         });
@@ -316,13 +321,20 @@ public:
         return m_source->getPhotoSettings();
     }
 
+#if PLATFORM(IOS_FAMILY)
+    void setProvidePresentingApplicationPIDFunction(Function<void()>&& providePresentingApplicationPIDFunction)
+    {
+        m_providePresentingApplicationPIDFunction = WTF::move(providePresentingApplicationPIDFunction);
+    }
+#endif
+
 private:
     UserMediaCaptureManagerProxySourceProxy(RealtimeMediaSourceIdentifier id, Ref<IPC::Connection>&& connection, ProcessIdentity&& resourceOwner, Ref<RealtimeMediaSource>&& source, RefPtr<RemoteVideoFrameObjectHeap>&& videoFrameObjectHeap)
         : m_id(id)
-        , m_connection(WTFMove(connection))
-        , m_resourceOwner(WTFMove(resourceOwner))
-        , m_source(WTFMove(source))
-        , m_videoFrameObjectHeap(WTFMove(videoFrameObjectHeap))
+        , m_connection(WTF::move(connection))
+        , m_resourceOwner(WTF::move(resourceOwner))
+        , m_source(WTF::move(source))
+        , m_videoFrameObjectHeap(WTF::move(videoFrameObjectHeap))
     {
         m_source->addObserver(*this);
         m_source->setCanUseIOSurface();
@@ -333,6 +345,7 @@ private:
     uint32_t checkedPtrCountWithoutThreadCheck() const final { return CanMakeCheckedPtr::checkedPtrCountWithoutThreadCheck(); }
     void incrementCheckedPtrCount() const final { CanMakeCheckedPtr::incrementCheckedPtrCount(); }
     void decrementCheckedPtrCount() const final { CanMakeCheckedPtr::decrementCheckedPtrCount(); }
+    void setDidBeginCheckedPtrDeletion() final { CanMakeCheckedPtr::setDidBeginCheckedPtrDeletion(); }
 
     void sourceStopped() final
     {
@@ -373,9 +386,9 @@ private:
         // Allocate a ring buffer large enough to contain 2 seconds of audio.
         auto result = ProducerSharedCARingBuffer::allocate(*m_description, m_description->sampleRate() * 2);
         RELEASE_ASSERT(result); // FIXME(https://bugs.webkit.org/show_bug.cgi?id=262690): Handle allocation failure.
-        auto [ringBuffer, audioHandle] = WTFMove(*result);
-        m_ringBuffer = WTFMove(ringBuffer);
-        m_audioHandle = WTFMove(audioHandle);
+        auto [ringBuffer, audioHandle] = WTF::move(*result);
+        m_ringBuffer = WTF::move(ringBuffer);
+        m_audioHandle = WTF::move(audioHandle);
     }
 
     // May get called on a background thread.
@@ -395,7 +408,7 @@ private:
             if (descriptionChanged)
                 prepareAudioDescription(description);
 
-            m_connection->send(Messages::RemoteCaptureSampleManager::AudioStorageChanged(m_id, WTFMove(*m_audioHandle), *m_description, *m_captureSemaphore, m_startTime, m_frameChunkSize), 0);
+            m_connection->send(Messages::RemoteCaptureSampleManager::AudioStorageChanged(m_id, WTF::move(*m_audioHandle), *m_description, *m_captureSemaphore, m_startTime, m_frameChunkSize), 0);
             m_audioHandle = { };
         }
 
@@ -435,7 +448,6 @@ private:
     bool m_isObservingMedia { false };
     bool m_isStopped { false };
     bool m_isEnded { false };
-    bool m_shouldApplyRotation { false };
     std::atomic<bool> m_shouldReset { false };
 
     RealtimeMediaSourceIdentifier m_id;
@@ -452,6 +464,9 @@ private:
     size_t m_frameChunkSize { 0 };
     MediaTime m_startTime;
     RefPtr<RemoteVideoFrameObjectHeap> m_videoFrameObjectHeap;
+#if PLATFORM(IOS_FAMILY)
+    Function<void()> m_providePresentingApplicationPIDFunction;
+#endif
 
     std::optional<WebCore::RealtimeMediaSourceSettings> m_settings;
     int m_widthConstraint { 0 };
@@ -466,11 +481,11 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(UserMediaCaptureManagerProxy);
 
 Ref<UserMediaCaptureManagerProxy> UserMediaCaptureManagerProxy::create(UniqueRef<ConnectionProxy>&& connectionProxy)
 {
-    return adoptRef(*new UserMediaCaptureManagerProxy(WTFMove(connectionProxy)));
+    return adoptRef(*new UserMediaCaptureManagerProxy(WTF::move(connectionProxy)));
 }
 
 UserMediaCaptureManagerProxy::UserMediaCaptureManagerProxy(UniqueRef<ConnectionProxy>&& connectionProxy)
-    : m_connectionProxy(WTFMove(connectionProxy))
+    : m_connectionProxy(WTF::move(connectionProxy))
 {
     m_connectionProxy->addMessageReceiver(Messages::UserMediaCaptureManagerProxy::messageReceiverName(), *this);
 }
@@ -482,16 +497,19 @@ UserMediaCaptureManagerProxy::~UserMediaCaptureManagerProxy()
 
 CaptureSourceOrError UserMediaCaptureManagerProxy::createMicrophoneSource(const CaptureDevice& device, MediaDeviceHashSalts&& hashSalts, const MediaConstraints* mediaConstraints, PageIdentifier pageIdentifier)
 {
-    auto sourceOrError = RealtimeMediaSourceCenter::singleton().audioCaptureFactory().createAudioCaptureSource(device, WTFMove(hashSalts), mediaConstraints, pageIdentifier);
+    auto sourceOrError = RealtimeMediaSourceCenter::singleton().audioCaptureFactory().createAudioCaptureSource(device, WTF::move(hashSalts), mediaConstraints, pageIdentifier);
     if (!sourceOrError)
         return sourceOrError;
 
+    Ref source = sourceOrError.source();
+
+#if PLATFORM(IOS_FAMILY)
     auto& perPageSources = m_pageSources.ensure(pageIdentifier, [] {
         return PageSources { };
     }).iterator->value;
 
     // FIXME: Support multiple microphones simultaneously.
-    if (auto microphoneSource = perPageSources.microphoneSource.get()) {
+    if (RefPtr microphoneSource = perPageSources.microphoneSource.get()) {
         if (microphoneSource->persistentID() != device.persistentId() && !microphoneSource->isEnded()) {
             RELEASE_LOG_ERROR(WebRTC, "Ending microphone source as new source is using a different device.");
             // FIXME: We should probably fail the capture in a way that shows a specific console log message.
@@ -499,8 +517,9 @@ CaptureSourceOrError UserMediaCaptureManagerProxy::createMicrophoneSource(const 
         }
     }
 
-    auto source = sourceOrError.source();
     perPageSources.microphoneSource = ThreadSafeWeakPtr { source.get() };
+#endif
+
     return source;
 }
 
@@ -528,7 +547,7 @@ CaptureSourceOrError UserMediaCaptureManagerProxy::createCameraSource(const Capt
         }
     }
 
-    auto sourceOrError = RealtimeMediaSourceCenter::singleton().videoCaptureFactory().createVideoCaptureSource(device, WTFMove(hashSalts), nullptr, pageIdentifier);
+    auto sourceOrError = RealtimeMediaSourceCenter::singleton().videoCaptureFactory().createVideoCaptureSource(device, WTF::move(hashSalts), nullptr, pageIdentifier);
     if (!sourceOrError)
         return sourceOrError;
 
@@ -559,14 +578,14 @@ void UserMediaCaptureManagerProxy::createMediaSourceForCaptureDeviceWithConstrai
     CaptureSourceOrError sourceOrError;
     switch (device.type()) {
     case WebCore::CaptureDevice::DeviceType::Microphone:
-        sourceOrError = createMicrophoneSource(device, WTFMove(hashSalts), constraints, pageIdentifier);
+        sourceOrError = createMicrophoneSource(device, WTF::move(hashSalts), constraints, pageIdentifier);
         break;
     case WebCore::CaptureDevice::DeviceType::Camera:
-        sourceOrError = createCameraSource(device, WTFMove(hashSalts), pageIdentifier);
+        sourceOrError = createCameraSource(device, WTF::move(hashSalts), pageIdentifier);
         break;
     case WebCore::CaptureDevice::DeviceType::Screen:
     case WebCore::CaptureDevice::DeviceType::Window:
-        sourceOrError = RealtimeMediaSourceCenter::singleton().displayCaptureFactory().createDisplayCaptureSource(device, WTFMove(hashSalts), nullptr, pageIdentifier);
+        sourceOrError = RealtimeMediaSourceCenter::singleton().displayCaptureFactory().createDisplayCaptureSource(device, WTF::move(hashSalts), nullptr, pageIdentifier);
         break;
     case WebCore::CaptureDevice::DeviceType::SystemAudio:
     case WebCore::CaptureDevice::DeviceType::Speaker:
@@ -576,7 +595,7 @@ void UserMediaCaptureManagerProxy::createMediaSourceForCaptureDeviceWithConstrai
     }
 
     if (!sourceOrError) {
-        completionHandler(WTFMove(sourceOrError.error), { }, { });
+        completionHandler(WTF::move(sourceOrError.error), { }, { });
         return;
     }
 
@@ -588,15 +607,22 @@ void UserMediaCaptureManagerProxy::createMediaSourceForCaptureDeviceWithConstrai
     ASSERT(!m_proxies.contains(id));
     Ref connection = m_connectionProxy->connection();
     RefPtr remoteVideoFrameObjectHeap = shouldUseGPUProcessRemoteFrames ? m_connectionProxy->remoteVideoFrameObjectHeap() : nullptr;
-    auto proxy = UserMediaCaptureManagerProxySourceProxy::create(id, WTFMove(connection), ProcessIdentity { m_connectionProxy->resourceOwner() }, WTFMove(source), WTFMove(remoteVideoFrameObjectHeap));
+    auto proxy = UserMediaCaptureManagerProxySourceProxy::create(id, WTF::move(connection), ProcessIdentity { m_connectionProxy->resourceOwner() }, WTF::move(source), WTF::move(remoteVideoFrameObjectHeap));
+
+#if PLATFORM(IOS_FAMILY)
+    proxy->setProvidePresentingApplicationPIDFunction([weakThis = WeakPtr { *this }, pageIdentifier] {
+        if (RefPtr protectedThis = weakThis.get())
+            protectedThis->m_connectionProxy->providePresentingApplicationPID(pageIdentifier);
+    });
+#endif
 
     auto completeSetup = [](UserMediaCaptureManagerProxySourceProxy& proxy, CreateSourceCallback&& completionHandler) mutable {
-        proxy.whenReady(WTFMove(completionHandler));
+        proxy.whenReady(WTF::move(completionHandler));
     };
 
     if (!constraints || proxy->source().type() != RealtimeMediaSource::Type::Video) {
-        completeSetup(proxy, WTFMove(completionHandler));
-        m_proxies.add(id, WTFMove(proxy));
+        completeSetup(proxy, WTF::move(completionHandler));
+        m_proxies.add(id, WTF::move(proxy));
         return;
     }
 
@@ -604,17 +630,17 @@ void UserMediaCaptureManagerProxy::createMediaSourceForCaptureDeviceWithConstrai
     for (const auto& advancedConstraint : constraints->advancedConstraints)
         MESSAGE_CHECK_COMPLETION(advancedConstraint.isValid(), completionHandler({ "Invalid advancedConstraints"_s, WebCore::MediaAccessDenialReason::InvalidConstraint }, { }, { }));
 
-    proxy->applyConstraints(WTFMove(mediaConstraints), [weakProxy = WeakPtr { proxy }, completionHandler = WTFMove(completionHandler), completeSetup = WTFMove(completeSetup)](auto&& error) mutable {
+    proxy->applyConstraints(WTF::move(mediaConstraints), [weakProxy = WeakPtr { proxy }, completionHandler = WTF::move(completionHandler), completeSetup = WTF::move(completeSetup)](auto&& error) mutable {
         RefPtr protectedProxy = weakProxy.get();
         if (error || !protectedProxy) {
             completionHandler(CaptureSourceError { error->invalidConstraint }, { }, { });
             return;
         }
 
-        completeSetup(*protectedProxy, WTFMove(completionHandler));
+        completeSetup(*protectedProxy, WTF::move(completionHandler));
     });
 
-    m_proxies.add(id, WTFMove(proxy));
+    m_proxies.add(id, WTF::move(proxy));
 }
 
 void UserMediaCaptureManagerProxy::startProducingData(RealtimeMediaSourceIdentifier id, WebCore::PageIdentifier pageIdentifier)
@@ -642,7 +668,7 @@ void UserMediaCaptureManagerProxy::startProducingData(RealtimeMediaSourceIdentif
         return;
     }
 #endif // ENABLE(EXTENSION_CAPABILITIES) && !PLATFORM(IOS_FAMILY_SIMULATOR)
-    m_connectionProxy->startProducingData(source->deviceType());
+    m_connectionProxy->startProducingData(source->deviceType(), pageIdentifier);
     proxy->start();
 }
 
@@ -679,9 +705,11 @@ void UserMediaCaptureManagerProxy::removeSource(RealtimeMediaSourceIdentifier id
                     if (!shouldContinueMonitoring)
                         m_connectionProxy->stopMonitoringCaptureDeviceRotation(*pageIdentifier, source->persistentID());
                 }
+#if PLATFORM(IOS_FAMILY)
             } else if (source->deviceType() == WebCore::CaptureDevice::DeviceType::Microphone) {
                 if (source.ptr() == pageSources.microphoneSource.get().get())
                     iterator->value.microphoneSource = nullptr;
+#endif
             }
         }
     }
@@ -692,7 +720,7 @@ void UserMediaCaptureManagerProxy::capabilities(RealtimeMediaSourceIdentifier id
     RealtimeMediaSourceCapabilities capabilities;
     if (RefPtr proxy = m_proxies.get(id))
         capabilities = proxy->source().capabilities();
-    completionHandler(WTFMove(capabilities));
+    completionHandler(WTF::move(capabilities));
 }
 
 void UserMediaCaptureManagerProxy::applyConstraints(RealtimeMediaSourceIdentifier id, WebCore::MediaConstraints&& constraints)
@@ -707,7 +735,7 @@ void UserMediaCaptureManagerProxy::applyConstraints(RealtimeMediaSourceIdentifie
     for (const auto& advancedConstraint : constraints.advancedConstraints)
         MESSAGE_CHECK(advancedConstraint.isValid());
 
-    proxy->applyConstraints(WTFMove(constraints), [id, proxy, connection = m_connectionProxy->protectedConnection()](auto&& result) {
+    proxy->applyConstraints(WTF::move(constraints), [id, proxy, connection = m_connectionProxy->protectedConnection()](auto&& result) {
         if (result) {
             connection->send(Messages::UserMediaCaptureManager::ApplyConstraintsFailed(id, result->invalidConstraint, result->message), 0);
             return;
@@ -731,11 +759,17 @@ void UserMediaCaptureManagerProxy::clone(RealtimeMediaSourceIdentifier clonedID,
 
         Ref connection = m_connectionProxy->connection();
         RefPtr remoteVideoFrameObjectHeap = m_connectionProxy->remoteVideoFrameObjectHeap();
-        auto cloneProxy = UserMediaCaptureManagerProxySourceProxy::create(newSourceID, WTFMove(connection), ProcessIdentity { m_connectionProxy->resourceOwner() }, WTFMove(sourceClone), WTFMove(remoteVideoFrameObjectHeap));
+        auto cloneProxy = UserMediaCaptureManagerProxySourceProxy::create(newSourceID, WTF::move(connection), ProcessIdentity { m_connectionProxy->resourceOwner() }, WTF::move(sourceClone), WTF::move(remoteVideoFrameObjectHeap));
         cloneProxy->copySettings(*proxy);
+#if PLATFORM(IOS_FAMILY)
+        cloneProxy->setProvidePresentingApplicationPIDFunction([weakThis = WeakPtr { *this }, pageIdentifier] {
+            if (RefPtr protectedThis = weakThis.get())
+                protectedThis->m_connectionProxy->providePresentingApplicationPID(pageIdentifier);
+        });
+#endif
         if (proxy->isObservingMedia())
             cloneProxy->observeMedia();
-        m_proxies.add(newSourceID, WTFMove(cloneProxy));
+        m_proxies.add(newSourceID, WTF::move(cloneProxy));
     }
 }
 
@@ -747,7 +781,7 @@ void UserMediaCaptureManagerProxy::takePhoto(RealtimeMediaSourceIdentifier sourc
         return;
     }
 
-    proxy->takePhoto(WTFMove(settings))->whenSettled(RunLoop::mainSingleton(), WTFMove(handler));
+    proxy->takePhoto(WTF::move(settings))->whenSettled(RunLoop::mainSingleton(), WTF::move(handler));
 }
 
 
@@ -760,7 +794,7 @@ void UserMediaCaptureManagerProxy::getPhotoCapabilities(RealtimeMediaSourceIdent
         return;
     }
 
-    proxy->getPhotoCapabilities()->whenSettled(RunLoop::mainSingleton(), WTFMove(handler));
+    proxy->getPhotoCapabilities()->whenSettled(RunLoop::mainSingleton(), WTF::move(handler));
 }
 
 void UserMediaCaptureManagerProxy::getPhotoSettings(RealtimeMediaSourceIdentifier sourceID, GetPhotoSettingsCallback&& handler)
@@ -771,8 +805,8 @@ void UserMediaCaptureManagerProxy::getPhotoSettings(RealtimeMediaSourceIdentifie
         return;
     }
 
-    proxy->getPhotoSettings()->whenSettled(RunLoop::mainSingleton(), [handler = WTFMove(handler)] (auto&& result) mutable {
-        handler(WTFMove(result));
+    proxy->getPhotoSettings()->whenSettled(RunLoop::mainSingleton(), [handler = WTF::move(handler)] (auto&& result) mutable {
+        handler(WTF::move(result));
     });
 }
 

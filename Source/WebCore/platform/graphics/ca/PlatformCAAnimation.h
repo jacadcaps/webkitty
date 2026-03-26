@@ -25,12 +25,12 @@
 
 #pragma once
 
-#include "Color.h"
-#include "FilterOperation.h"
-#include "FloatPoint3D.h"
-#include "GraphicsLayerClient.h"
-#include "PlatformCAFilters.h"
-#include "TransformationMatrix.h"
+#include <WebCore/Color.h>
+#include <WebCore/FilterOperation.h>
+#include <WebCore/FloatPoint3D.h>
+#include <WebCore/GraphicsLayerClient.h>
+#include <WebCore/PlatformCAFilters.h>
+#include <WebCore/TransformationMatrix.h>
 #include <wtf/Forward.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/RefCounted.h>
@@ -150,7 +150,7 @@ public:
     virtual void copyTimingFunctionsFrom(const PlatformCAAnimation&) = 0;
 
     // Animation group properties.
-    virtual void setAnimations(const Vector<RefPtr<PlatformCAAnimation>>&) = 0;
+    virtual void setAnimations(const Vector<Ref<PlatformCAAnimation>>&) = 0;
     virtual void copyAnimationsFrom(const PlatformCAAnimation&) = 0;
 
     void setActualStartTimeIfNeeded(CFTimeInterval t)

@@ -48,11 +48,11 @@ browser = minibrowser-wpe
 [settings:skia-cpu]
 plan_list = motionmark
 timeout = 1200
-browser = minibrowser-wpe-skia-cpu
+browser = minibrowser-wpe-skiacpu
 
 # plan_list defaults to the value specified in the default [settings]
-[settings:old-api]
-browser = minibrowser-wpe-old-api
+[settings:legacy]
+browser = minibrowser-wpe-legacy
 
 # all the values but webdriver defaults to the values from the default [settings]
 [settings:webdriver]

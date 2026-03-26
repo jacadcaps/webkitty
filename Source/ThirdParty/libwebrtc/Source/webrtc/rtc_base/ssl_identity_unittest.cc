@@ -16,7 +16,6 @@
 #include <openssl/evp.h>  // IWYU pragma: keep
 #endif
 #include <openssl/sha.h>
-#include <string.h>
 
 #include <array>
 #include <cstdint>
@@ -41,7 +40,7 @@
 namespace webrtc {
 namespace {
 
-const char kTestCertificate[] =
+constexpr char kTestCertificate[] =
     "-----BEGIN CERTIFICATE-----\n"
     "MIIB6TCCAVICAQYwDQYJKoZIhvcNAQEEBQAwWzELMAkGA1UEBhMCQVUxEzARBgNV\n"
     "BAgTClF1ZWVuc2xhbmQxGjAYBgNVBAoTEUNyeXB0U29mdCBQdHkgTHRkMRswGQYD\n"
@@ -56,23 +55,23 @@ const char kTestCertificate[] =
     "itAE+OjGF+PFKbwX8Q==\n"
     "-----END CERTIFICATE-----\n";
 
-const unsigned char kTestCertSha1[] = {0xA6, 0xC8, 0x59, 0xEA, 0xC3, 0x7E, 0x6D,
-                                       0x33, 0xCF, 0xE2, 0x69, 0x9D, 0x74, 0xE6,
-                                       0xF6, 0x8A, 0x9E, 0x47, 0xA7, 0xCA};
-const unsigned char kTestCertSha224[] = {
+constexpr unsigned char kTestCertSha1[] = {
+    0xA6, 0xC8, 0x59, 0xEA, 0xC3, 0x7E, 0x6D, 0x33, 0xCF, 0xE2,
+    0x69, 0x9D, 0x74, 0xE6, 0xF6, 0x8A, 0x9E, 0x47, 0xA7, 0xCA};
+constexpr unsigned char kTestCertSha224[] = {
     0xd4, 0xce, 0xc6, 0xcf, 0x28, 0xcb, 0xe9, 0x77, 0x38, 0x36,
     0xcf, 0xb1, 0x3b, 0x4a, 0xd7, 0xbd, 0xae, 0x24, 0x21, 0x08,
     0xcf, 0x6a, 0x44, 0x0d, 0x3f, 0x94, 0x2a, 0x5b};
-const unsigned char kTestCertSha256[] = {
+constexpr unsigned char kTestCertSha256[] = {
     0x41, 0x6b, 0xb4, 0x93, 0x47, 0x79, 0x77, 0x24, 0x77, 0x0b, 0x8b,
     0x2e, 0xa6, 0x2b, 0xe0, 0xf9, 0x0a, 0xed, 0x1f, 0x31, 0xa6, 0xf7,
     0x5c, 0xa1, 0x5a, 0xc4, 0xb0, 0xa2, 0xa4, 0x78, 0xb9, 0x76};
-const unsigned char kTestCertSha384[] = {
+constexpr unsigned char kTestCertSha384[] = {
     0x42, 0x31, 0x9a, 0x79, 0x1d, 0xd6, 0x08, 0xbf, 0x3b, 0xba, 0x36, 0xd8,
     0x37, 0x4a, 0x9a, 0x75, 0xd3, 0x25, 0x6e, 0x28, 0x92, 0xbe, 0x06, 0xb7,
     0xc5, 0xa0, 0x83, 0xe3, 0x86, 0xb1, 0x03, 0xfc, 0x64, 0x47, 0xd6, 0xd8,
     0xaa, 0xd9, 0x36, 0x60, 0x04, 0xcc, 0xbe, 0x7d, 0x6a, 0xe8, 0x34, 0x49};
-const unsigned char kTestCertSha512[] = {
+constexpr unsigned char kTestCertSha512[] = {
     0x51, 0x1d, 0xec, 0x02, 0x3d, 0x51, 0x45, 0xd3, 0xd8, 0x1d, 0xa4,
     0x9d, 0x43, 0xc9, 0xee, 0x32, 0x6f, 0x4f, 0x37, 0xee, 0xab, 0x3f,
     0x25, 0xdf, 0x72, 0xfc, 0x61, 0x1a, 0xd5, 0x92, 0xff, 0x6b, 0x28,
@@ -87,7 +86,7 @@ const unsigned char kTestCertSha512[] = {
 // and the update changes the string form of the keys, these will have to be
 // updated too.  The fingerprint, fingerprint algorithm and base64 certificate
 // were created by calling `identity->certificate().GetStats()`.
-static const char kRSA_PRIVATE_KEY_PEM[] =
+constexpr char kRSA_PRIVATE_KEY_PEM[] =
     "-----BEGIN PRI"   // Linebreak to avoid detection of private
     "VATE KEY-----\n"  // keys by linters.
     "MIICdQIBADANBgkqhkiG9w0BAQEFAASCAl8wggJbAgEAAoGBAMQPqDStRlYeDpkX\n"
@@ -105,14 +104,14 @@ static const char kRSA_PRIVATE_KEY_PEM[] =
     "bhvEzY/fu8gEp+EzsER96/D79az5z1BaMGL5OPM2xHBPJATKlswnAa7Lp3QKGZGk\n"
     "TxslfL18J71s\n"
     "-----END PRIVATE KEY-----\n";
-static const char kRSA_PUBLIC_KEY_PEM[] =
+constexpr char kRSA_PUBLIC_KEY_PEM[] =
     "-----BEGIN PUBLIC KEY-----\n"
     "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDED6g0rUZWHg6ZF3q0Zr/mtZ2j\n"
     "PL0lUmNIBtqZZ656H1YlkVtzEalgvtNtDLCI94T2XkgJ7f8vxS/56+BGuzV3MHUa\n"
     "Nf9cRCu1P3/3I0oNWrp8rxwh8HBXDK99Ryxbx69GYHBcG4CLhSzRJe5CuRzDvQD8\n"
     "9Z7VI3pPAZgY/MjJfQIDAQAB\n"
     "-----END PUBLIC KEY-----\n";
-static const char kRSA_CERT_PEM[] =
+constexpr char kRSA_CERT_PEM[] =
     "-----BEGIN CERTIFICATE-----\n"
     "MIIBnDCCAQWgAwIBAgIJAOEHLgeWYwrpMA0GCSqGSIb3DQEBCwUAMBAxDjAMBgNV\n"
     "BAMMBXRlc3QxMB4XDTE2MDQyNDE4MTAyMloXDTE2MDUyNTE4MTAyMlowEDEOMAwG\n"
@@ -124,11 +123,11 @@ static const char kRSA_CERT_PEM[] =
     "yTpU3ixErjQvoZew5ngXTEvTY8BSQUijJEaLWh8n6NDKRbEGTdAk8nPAmq9hdCFq\n"
     "e3UkexqNHm3g/VxG4NUC1Y+w29ai0/Rgh+VvgbDwK+Q=\n"
     "-----END CERTIFICATE-----\n";
-static const char kRSA_FINGERPRINT[] =
+constexpr char kRSA_FINGERPRINT[] =
     "3C:E8:B2:70:09:CF:A9:09:5A:F4:EF:8F:8D:8A:32:FF:EA:04:91:BA:6E:D4:17:78:16"
     ":2A:EE:F9:9A:DD:E2:2B";
-static const char kRSA_FINGERPRINT_ALGORITHM[] = "sha-256";
-static const char kRSA_BASE64_CERTIFICATE[] =
+constexpr char kRSA_FINGERPRINT_ALGORITHM[] = "sha-256";
+constexpr char kRSA_BASE64_CERTIFICATE[] =
     "MIIBnDCCAQWgAwIBAgIJAOEHLgeWYwrpMA0GCSqGSIb3DQEBCwUAMBAxDjAMBgNVBAMMBXRlc3"
     "QxMB4XDTE2MDQyNDE4MTAyMloXDTE2MDUyNTE4MTAyMlowEDEOMAwGA1UEAwwFdGVzdDEwgZ8w"
     "DQYJKoZIhvcNAQEBBQADgY0AMIGJAoGBAMQPqDStRlYeDpkXerRmv+a1naM8vSVSY0gG2plnrn"
@@ -138,19 +137,19 @@ static const char kRSA_BASE64_CERTIFICATE[] =
     "i8dxyTpU3ixErjQvoZew5ngXTEvTY8BSQUijJEaLWh8n6NDKRbEGTdAk8nPAmq9hdCFqe3Ukex"
     "qNHm3g/VxG4NUC1Y+w29ai0/Rgh+VvgbDwK+Q=";
 
-static const char kECDSA_PRIVATE_KEY_PEM[] =
+constexpr char kECDSA_PRIVATE_KEY_PEM[] =
     "-----BEGIN PRI"   // Linebreak to avoid detection of private
     "VATE KEY-----\n"  // keys by linters.
     "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg/AkEA2hklq7dQ2rN\n"
     "ZxYL6hOUACL4pn7P4FYlA3ZQhIChRANCAAR7YgdO3utP/8IqVRq8G4VZKreMAxeN\n"
     "rUa12twthv4uFjuHAHa9D9oyAjncmn+xvZZRyVmKrA56jRzENcEEHoAg\n"
     "-----END PRIVATE KEY-----\n";
-static const char kECDSA_PUBLIC_KEY_PEM[] =
+constexpr char kECDSA_PUBLIC_KEY_PEM[] =
     "-----BEGIN PUBLIC KEY-----\n"
     "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEe2IHTt7rT//CKlUavBuFWSq3jAMX\n"
     "ja1GtdrcLYb+LhY7hwB2vQ/aMgI53Jp/sb2WUclZiqwOeo0cxDXBBB6AIA==\n"
     "-----END PUBLIC KEY-----\n";
-static const char kECDSA_CERT_PEM[] =
+constexpr char kECDSA_CERT_PEM[] =
     "-----BEGIN CERTIFICATE-----\n"
     "MIIBFDCBu6ADAgECAgkArpkxjw62sW4wCgYIKoZIzj0EAwIwEDEOMAwGA1UEAwwF\n"
     "dGVzdDMwHhcNMTYwNDI0MTgxNDM4WhcNMTYwNTI1MTgxNDM4WjAQMQ4wDAYDVQQD\n"
@@ -159,11 +158,11 @@ static const char kECDSA_CERT_PEM[] =
     "gCAwCgYIKoZIzj0EAwIDSAAwRQIhANyreQ/K5yuPPpirsd0e/4WGLHou6bIOSQks\n"
     "DYzo56NmAiAKOr3u8ol3LmygbUCwEvtWrS8QcJDygxHPACo99hkekw==\n"
     "-----END CERTIFICATE-----\n";
-static const char kECDSA_FINGERPRINT[] =
+constexpr char kECDSA_FINGERPRINT[] =
     "9F:47:FA:88:76:3D:18:B8:00:A0:59:9D:C3:5D:34:0B:1F:B8:99:9E:68:DA:F3:A5:DA"
     ":50:33:A9:FF:4D:31:89";
-static const char kECDSA_FINGERPRINT_ALGORITHM[] = "sha-256";
-static const char kECDSA_BASE64_CERTIFICATE[] =
+constexpr char kECDSA_FINGERPRINT_ALGORITHM[] = "sha-256";
+constexpr char kECDSA_BASE64_CERTIFICATE[] =
     "MIIBFDCBu6ADAgECAgkArpkxjw62sW4wCgYIKoZIzj0EAwIwEDEOMAwGA1UEAwwFdGVzdDMwHh"
     "cNMTYwNDI0MTgxNDM4WhcNMTYwNTI1MTgxNDM4WjAQMQ4wDAYDVQQDDAV0ZXN0MzBZMBMGByqG"
     "SM49AgEGCCqGSM49AwEHA0IABHtiB07e60//wipVGrwbhVkqt4wDF42tRrXa3C2G/i4WO4cAdr"
@@ -515,58 +514,63 @@ class SSLIdentityExpirationTest : public ::testing::Test {
       int64_t want;
     } static const data[] = {
         // clang-format off
-        // clang formatting breaks this nice alignment
+      // clang formatting breaks this nice alignment
 
       // Valid examples.
-      {"19700101000000Z",  true,  0},
-      {"700101000000Z",    false, 0},
-      {"19700101000001Z",  true,  1},
-      {"700101000001Z",    false, 1},
-      {"19700101000100Z",  true,  60},
-      {"19700101000101Z",  true,  61},
-      {"19700101010000Z",  true,  3600},
-      {"19700101010001Z",  true,  3601},
-      {"19700101010100Z",  true,  3660},
-      {"19700101010101Z",  true,  3661},
-      {"710911012345Z",    false, 53400225},
-      {"20000101000000Z",  true,  946684800},
-      {"20000101000000Z",  true,  946684800},
-      {"20151130140156Z",  true,  1448892116},
-      {"151130140156Z",    false, 1448892116},
-      {"20491231235959Z",  true,  2524607999},
-      {"491231235959Z",    false, 2524607999},
-      {"20500101000000Z",  true,  2524607999+1},
-      {"20700101000000Z",  true,  3155760000},
-      {"21000101000000Z",  true,  4102444800},
-      {"24000101000000Z",  true,  13569465600},
+      {.string="19700101000000Z",  .long_format=true,  .want=0},
+      {.string="700101000000Z",    .long_format=false, .want=0},
+      {.string="19700101000001Z",  .long_format=true,  .want=1},
+      {.string="700101000001Z",    .long_format=false, .want=1},
+      {.string="19700101000100Z",  .long_format=true,  .want=60},
+      {.string="19700101000101Z",  .long_format=true,  .want=61},
+      {.string="19700101010000Z",  .long_format=true,  .want=3600},
+      {.string="19700101010001Z",  .long_format=true,  .want=3601},
+      {.string="19700101010100Z",  .long_format=true,  .want=3660},
+      {.string="19700101010101Z",  .long_format=true,  .want=3661},
+      {.string="710911012345Z",    .long_format=false, .want=53400225},
+      {.string="20000101000000Z",  .long_format=true,  .want=946684800},
+      {.string="20000101000000Z",  .long_format=true,  .want=946684800},
+      {.string="20151130140156Z",  .long_format=true,  .want=1448892116},
+      {.string="151130140156Z",    .long_format=false, .want=1448892116},
+      {.string="20491231235959Z",  .long_format=true,  .want=2524607999},
+      {.string="491231235959Z",    .long_format=false, .want=2524607999},
+      {.string="20500101000000Z",  .long_format=true,  .want=2524607999+1},
+      {.string="20700101000000Z",  .long_format=true,  .want=3155760000},
+      {.string="21000101000000Z",  .long_format=true,  .want=4102444800},
+      {.string="24000101000000Z",  .long_format=true,  .want=13569465600},
 
       // Invalid examples.
-      {"19700101000000",    true,  -1},  // missing Z long format
-      {"19700101000000X",   true,  -1},  // X instead of Z long format
-      {"197001010000000",   true,  -1},  // 0 instead of Z long format
-      {"1970010100000000Z", true,  -1},  // excess digits long format
-      {"700101000000",      false, -1},  // missing Z short format
-      {"700101000000X",     false, -1},  // X instead of Z short format
-      {"7001010000000",     false, -1},  // 0 instead of Z short format
-      {"70010100000000Z",   false, -1},  // excess digits short format
-      {":9700101000000Z",   true,  -1},  // invalid character
-      {"1:700101000001Z",   true,  -1},  // invalid character
-      {"19:00101000100Z",   true,  -1},  // invalid character
-      {"197:0101000101Z",   true,  -1},  // invalid character
-      {"1970:101010000Z",   true,  -1},  // invalid character
-      {"19700:01010001Z",   true,  -1},  // invalid character
-      {"197001:1010100Z",   true,  -1},  // invalid character
-      {"1970010:010101Z",   true,  -1},  // invalid character
-      {"70010100:000Z",     false, -1},  // invalid character
-      {"700101000:01Z",     false, -1},  // invalid character
-      {"2000010100:000Z",   true,  -1},  // invalid character
-      {"21000101000:00Z",   true,  -1},  // invalid character
-      {"240001010000:0Z",   true,  -1},  // invalid character
-      {"500101000000Z",     false, -1},  // but too old for epoch
-      {"691231235959Z",     false, -1},  // too old for epoch
-      {"19611118043000Z",   false, -1},  // way too old for epoch
-
-        // clang-format off
+      // Long format: missing Z, X instead of Z, 0 instead of Z,
+      // excess digits.
+      {.string="19700101000000",    .long_format=true,  .want=-1},
+      {.string="19700101000000X",   .long_format=true,  .want=-1},
+      {.string="197001010000000",   .long_format=true,  .want=-1},
+      {.string="1970010100000000Z", .long_format=true,  .want=-1},
+      // Short format: missing Z, X instead of Z, 0 instead of Z,
+      // excess digits.
+      {.string="700101000000",      .long_format=false, .want=-1},
+      {.string="700101000000X",     .long_format=false, .want=-1},
+      {.string="7001010000000",     .long_format=false, .want=-1},
+      {.string="70010100000000Z",   .long_format=false, .want=-1},
+      // Invalid character.
+      {.string=":9700101000000Z",   .long_format=true,  .want=-1},
+      {.string="1:700101000001Z",   .long_format=true,  .want=-1},
+      {.string="19:00101000100Z",   .long_format=true,  .want=-1},
+      {.string="197:0101000101Z",   .long_format=true,  .want=-1},
+      {.string="1970:101010000Z",   .long_format=true,  .want=-1},
+      {.string="19700:01010001Z",   .long_format=true,  .want=-1},
+      {.string="197001:1010100Z",   .long_format=true,  .want=-1},
+      {.string="1970010:010101Z",   .long_format=true,  .want=-1},
+      {.string="70010100:000Z",     .long_format=false, .want=-1},
+      {.string="700101000:01Z",     .long_format=false, .want=-1},
+      {.string="2000010100:000Z",   .long_format=true,  .want=-1},
+      {.string="21000101000:00Z",   .long_format=true,  .want=-1},
+      {.string="240001010000:0Z",   .long_format=true,  .want=-1},
+      // Dates prior to unix epoch (January 1st, 1970).
+      {.string="500101000000Z",     .long_format=false, .want=-1},
+      {.string="691231235959Z",     .long_format=false, .want=-1},
+      {.string="19611118043000Z",   .long_format=false, .want=-1},
+      // clang-format off
     };
 
     unsigned char buf[EVP_MAX_MD_SIZE];

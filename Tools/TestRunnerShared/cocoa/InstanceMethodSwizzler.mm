@@ -36,3 +36,20 @@ InstanceMethodSwizzler::~InstanceMethodSwizzler()
 {
     method_setImplementation(m_method, m_originalImplementation);
 }
+
+InstanceMethodSwapper::InstanceMethodSwapper(Class theClass, SEL originalSelector, SEL swizzledSelector)
+    : m_class { theClass }
+    , m_method { class_getInstanceMethod(theClass, originalSelector) }
+    , m_originalSelector { originalSelector }
+    , m_originalImplementation { method_getImplementation(m_method) }
+{
+    auto swizzledMethod = class_getInstanceMethod(theClass, swizzledSelector);
+    auto swizzledImplementation = method_getImplementation(swizzledMethod);
+    class_replaceMethod(theClass, swizzledSelector, m_originalImplementation, method_getTypeEncoding(m_method));
+    class_replaceMethod(theClass, originalSelector, swizzledImplementation, method_getTypeEncoding(swizzledMethod));
+}
+
+InstanceMethodSwapper::~InstanceMethodSwapper()
+{
+    class_replaceMethod(m_class, m_originalSelector, m_originalImplementation, method_getTypeEncoding(m_method));
+}

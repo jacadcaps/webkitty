@@ -160,6 +160,11 @@ private:
     // Cookies
     void dispatchCookiesChangedEvent();
 
+#if ENABLE(DNR_ON_RULE_MATCHED_DEBUG)
+    // DeclarativeNetRequest
+    void dispatchOnRuleMatchedDebugEvent(const WebCore::ContentRuleListMatchedRule&);
+#endif
+
 #if ENABLE(INSPECTOR_EXTENSIONS)
     // DevTools
     void addInspectorPageIdentifier(WebCore::PageIdentifier, std::optional<WebExtensionTabIdentifier>, std::optional<WebExtensionWindowIdentifier>);
@@ -196,7 +201,7 @@ private:
 
     // Storage
     void setStorageAccessLevel(bool);
-    void dispatchStorageChangedEvent(const String& onChangedJSON, WebExtensionDataType, WebExtensionContentWorldType);
+    void dispatchStorageChangedEvent(const Vector<String>& onChangedJSON, WebExtensionDataType, WebExtensionContentWorldType);
 
     // Tabs
     void dispatchTabsCreatedEvent(const WebExtensionTabParameters&);

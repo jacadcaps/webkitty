@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -70,17 +70,18 @@ void MediaSelectionOptionAVFObjC::setSelected(bool selected)
 
 bool MediaSelectionOptionAVFObjC::selected() const
 {
-    if (!m_group)
-        return false;
-    return this == m_group->selectedOption();
+    RefPtr protectedGroup = m_group.get();
+    return protectedGroup && this == protectedGroup->selectedOption();
 }
 
 int MediaSelectionOptionAVFObjC::index() const
 {
-    if (!m_group)
+    RefPtr protectedGroup = m_group.get();
+    if (!protectedGroup)
         return 0;
 
-    return [[m_group->avMediaSelectionGroup() options] indexOfObject:m_mediaSelectionOption.get()];
+    RetainPtr avMediaSelectionGroup = protectedGroup->avMediaSelectionGroup();
+    return [retainPtr([avMediaSelectionGroup options]) indexOfObject:m_mediaSelectionOption.get()];
 }
 
 AVAssetTrack* MediaSelectionOptionAVFObjC::assetTrack() const
@@ -88,7 +89,8 @@ AVAssetTrack* MediaSelectionOptionAVFObjC::assetTrack() const
     if ([m_mediaSelectionOption respondsToSelector:@selector(track)] && [m_mediaSelectionOption track])
         return [m_mediaSelectionOption track];
     if (selected()) {
-        for (AVPlayerItemTrack* track in [playerItem() tracks]) {
+        RetainPtr item = playerItem();
+        for (AVPlayerItemTrack* track in [item tracks]) {
             if (!track.enabled)
                 continue;
             if (!track.assetTrack)
@@ -103,9 +105,12 @@ AVAssetTrack* MediaSelectionOptionAVFObjC::assetTrack() const
 
 AVPlayerItem *MediaSelectionOptionAVFObjC::playerItem() const
 {
-    if (!m_group)
+    assertIsMainThread();
+
+    RefPtr protectedGroup = m_group.get();
+    if (!protectedGroup)
         return nil;
-    return m_group->playerItem();
+    return protectedGroup->playerItem();
 }
 
 Ref<MediaSelectionGroupAVFObjC> MediaSelectionGroupAVFObjC::create(AVPlayerItem *item, AVMediaSelectionGroup *group, const Vector<String>& characteristics)
@@ -118,6 +123,8 @@ MediaSelectionGroupAVFObjC::MediaSelectionGroupAVFObjC(AVPlayerItem *item, AVMed
     , m_mediaSelectionGroup(group)
     , m_selectionTimer(*this, &MediaSelectionGroupAVFObjC::selectionTimerFired)
 {
+    assertIsMainThread();
+
     updateOptions(characteristics);
 }
 
@@ -129,7 +136,9 @@ MediaSelectionGroupAVFObjC::~MediaSelectionGroupAVFObjC()
 
 void MediaSelectionGroupAVFObjC::updateOptions(const Vector<String>& characteristics)
 {
-    RetainPtr<NSSet> newAVOptions = adoptNS([[NSSet alloc] initWithArray:[PAL::getAVMediaSelectionGroupClass() playableMediaSelectionOptionsFromArray:[m_mediaSelectionGroup options]]]);
+    assertIsMainThread();
+
+    RetainPtr<NSSet> newAVOptions = adoptNS([[NSSet alloc] initWithArray:[PAL::getAVMediaSelectionGroupClassSingleton() playableMediaSelectionOptionsFromArray:[m_mediaSelectionGroup options]]]);
     RetainPtr<NSMutableSet> oldAVOptions = adoptNS([[NSMutableSet alloc] initWithCapacity:m_options.size()]);
     for (auto& avOption : m_options.keys())
         [oldAVOptions addObject:(__bridge AVMediaSelectionOption *)avOption];
@@ -141,25 +150,25 @@ void MediaSelectionGroupAVFObjC::updateOptions(const Vector<String>& characteris
     [removedAVOptions minusSet:newAVOptions.get()];
 
     for (AVMediaSelectionOption* removedAVOption in removedAVOptions.get()) {
-        if (m_selectedOption && removedAVOption == m_selectedOption->avMediaSelectionOption())
+        if (RefPtr protectedSelectedOption = selectedOption(); protectedSelectedOption && removedAVOption == protectedSelectedOption->avMediaSelectionOption())
             m_selectedOption = nullptr;
 
         m_options.remove((__bridge CFTypeRef)removedAVOption);
     }
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    AVMediaSelectionOption* selectedOption = [m_playerItem selectedMediaOptionInMediaSelectionGroup:m_mediaSelectionGroup.get()];
+    RetainPtr<AVMediaSelectionOption> selectedOption = [m_playerItem selectedMediaOptionInMediaSelectionGroup:m_mediaSelectionGroup.get()];
 ALLOW_DEPRECATED_DECLARATIONS_END
     for (AVMediaSelectionOption* addedAVOption in addedAVOptions.get()) {
-        auto addedOption = MediaSelectionOptionAVFObjC::create(*this, addedAVOption);
+        Ref addedOption = MediaSelectionOptionAVFObjC::create(*this, addedAVOption);
         if (addedAVOption == selectedOption)
-            m_selectedOption = addedOption.ptr();
-        m_options.set((__bridge CFTypeRef)addedAVOption, WTFMove(addedOption));
+            m_selectedOption = addedOption.get();
+        m_options.set((__bridge CFTypeRef)addedAVOption, WTF::move(addedOption));
     }
 
     if (!m_shouldSelectOptionAutomatically)
         return;
 
-    NSArray* filteredOptions = [PAL::getAVMediaSelectionGroupClass() mediaSelectionOptionsFromArray:[m_mediaSelectionGroup options]
+    RetainPtr filteredOptions = [PAL::getAVMediaSelectionGroupClassSingleton() mediaSelectionOptionsFromArray:[m_mediaSelectionGroup options]
         filteredAndSortedAccordingToPreferredLanguages:createNSArray(userPreferredLanguages(ShouldMinimizeLanguages::No)).get()];
 
     if (![filteredOptions count] && characteristics.isEmpty())
@@ -169,25 +178,26 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (![filteredOptions count])
         filteredOptions = [m_mediaSelectionGroup options];
 
-    NSArray* optionsWithCharacteristics = [PAL::getAVMediaSelectionGroupClass() mediaSelectionOptionsFromArray:filteredOptions withMediaCharacteristics:createNSArray(characteristics).get()];
+    RetainPtr optionsWithCharacteristics = [PAL::getAVMediaSelectionGroupClassSingleton() mediaSelectionOptionsFromArray:filteredOptions.get() withMediaCharacteristics:createNSArray(characteristics).get()];
     if (optionsWithCharacteristics && [optionsWithCharacteristics count])
         filteredOptions = optionsWithCharacteristics;
 
     if (![filteredOptions count])
         return;
 
-    AVMediaSelectionOption* preferredOption = [filteredOptions objectAtIndex:0];
-    if (m_selectedOption && m_selectedOption->avMediaSelectionOption() == preferredOption)
+    RetainPtr preferredOption = [filteredOptions objectAtIndex:0];
+    if (RefPtr protectedSelectedOption = this->selectedOption(); protectedSelectedOption && protectedSelectedOption->avMediaSelectionOption() == preferredOption)
         return;
 
-    ASSERT(m_options.contains((__bridge CFTypeRef)preferredOption));
-    m_selectedOption = m_options.get((__bridge CFTypeRef)preferredOption);
+    ASSERT(m_options.contains((__bridge CFTypeRef)preferredOption.get()));
+    RefPtr selectedOptionAVFObjC = m_options.get((__bridge CFTypeRef)preferredOption.get());
+    m_selectedOption = selectedOptionAVFObjC;
     m_selectionTimer.startOneShot(0_s);
 }
 
 void MediaSelectionGroupAVFObjC::setSelectedOption(MediaSelectionOptionAVFObjC* option)
 {
-    if (m_selectedOption == option)
+    if (m_selectedOption.get() == option)
         return;
 
     m_shouldSelectOptionAutomatically = false;
@@ -199,8 +209,12 @@ void MediaSelectionGroupAVFObjC::setSelectedOption(MediaSelectionOptionAVFObjC* 
 
 void MediaSelectionGroupAVFObjC::selectionTimerFired()
 {
+    assertIsMainThread();
+
     @try {
-        [m_playerItem selectMediaOption:(m_selectedOption ? m_selectedOption->avMediaSelectionOption() : nil) inMediaSelectionGroup:m_mediaSelectionGroup.get()];
+        RefPtr protectedSelectedOption = selectedOption();
+        RetainPtr mediaSelectionOption = protectedSelectedOption ? protectedSelectedOption->avMediaSelectionOption() : nil;
+        [m_playerItem selectMediaOption:mediaSelectionOption.get() inMediaSelectionGroup:m_mediaSelectionGroup.get()];
     } @catch(NSException *exception) {
         WTFReportError(__FILE__, __LINE__, WTF_PRETTY_FUNCTION, "exception thrown from -selectMediaOption:inMediaSelectionGroup: %s", exception.name.UTF8String);
     }

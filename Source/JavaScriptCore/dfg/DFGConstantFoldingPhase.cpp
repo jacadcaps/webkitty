@@ -965,7 +965,7 @@ private:
                                         ASSERT(isInlineOffset(knownPolyProtoOffset));
                                         m_insertionSet.insertNode(
                                             indexInBlock + 1, SpecNone, PutByOffset, origin, OpInfo(data),
-                                            Edge(node, KnownCellUse), Edge(node, KnownCellUse), Edge(prototypeNode, UntypedUse));
+                                            Edge(node, KnownStorageUse), Edge(node, KnownCellUse), Edge(prototypeNode, UntypedUse));
                                     }
                                     changed = true;
                                     break;
@@ -1093,7 +1093,7 @@ private:
                         Edge use = m_graph.varArgChild(node, 0);
                         if (use->op() == PhantomSpread) {
                             if (use->child1()->op() == PhantomNewArrayBuffer) {
-                                auto* immutableButterfly = use->child1()->castOperand<JSImmutableButterfly*>();
+                                auto* immutableButterfly = use->child1()->castOperand<JSCellButterfly*>();
                                 if (hasContiguous(immutableButterfly->indexingType())) {
                                     node->convertToNewArrayBuffer(m_graph.freeze(immutableButterfly));
                                     changed = true;
@@ -1110,10 +1110,14 @@ private:
                 if (m_graph.isWatchingHavingABadTimeWatchpoint(node)) {
                     if (node->child1().useKind() == Int32Use && node->child1()->isInt32Constant()) {
                         int32_t length = node->child1()->asInt32();
-                        if (length >= 0
+                        if (0 <= length
                             && length < MIN_ARRAY_STORAGE_CONSTRUCTION_LENGTH
-                            && isNewArrayWithConstantSizeIndexingType(node->indexingType())) {
-                                node->convertToNewArrayWithConstantSize(m_graph, length);
+                            && !hasAnyArrayStorage(node->indexingType())) {
+                                m_interpreter.execute(indexInBlock); // Push CFA over this node after we get the state before.
+                                alreadyHandled = true; // Don't allow the default constant folder to do things to this.
+
+                                Node* butterfly = m_insertionSet.insertNode(indexInBlock, SpecNone, NewButterflyWithSize, node->origin, OpInfo(node->indexingType()), node->child1());
+                                node->convertToNewArrayWithButterfly(m_graph, butterfly);
                                 changed = true;
                         }
                     }
@@ -1661,6 +1665,89 @@ private:
                 break;
             }
 
+            case ResolvePromiseFirstResolving: {
+                AbstractValue& argument = m_state.forNode(node->child2());
+                if (argument.isType(~SpecObject)) {
+                    node->setOpAndDefaultFlags(FulfillPromiseFirstResolving);
+                    changed = true;
+                    break;
+                }
+
+                // SpecObject | something.
+                // Only for types having structures, we check "then" existence.
+                auto& structureSet = argument.m_structure;
+                if (structureSet.isFinite() && structureSet.size() == 1) {
+                    JSGlobalObject* globalObject = m_graph.globalObjectFor(node->origin.semantic);
+                    auto conditionSet = m_graph.tryEnsureAbsence(globalObject, structureSet.toStructureSet(), CacheableIdentifier::createFromImmortalIdentifier(m_graph.m_vm.propertyNames->then.impl()));
+                    if (conditionSet.isValid()) {
+                        if (m_graph.watchConditions(conditionSet)) {
+                            node->setOpAndDefaultFlags(FulfillPromiseFirstResolving);
+                            changed = true;
+                            break;
+                        }
+                    }
+                }
+
+                break;
+            }
+
+            case PromiseResolve: {
+                JSGlobalObject* globalObject = m_graph.globalObjectFor(node->origin.semantic);
+                if (JSValue constructor = m_state.forNode(node->child1()).m_value) {
+                    if (constructor == globalObject->promiseConstructor()) {
+                        auto convertToFulfilledPromise = [&](Node* node) {
+                            auto* promise = m_insertionSet.insertNode(indexInBlock, SpecPromiseObject, NewInternalFieldObject, node->origin, OpInfo(m_graph.registerStructure(globalObject->promiseStructure())));
+                            m_insertionSet.insertNode(indexInBlock, SpecNone, ExitOK, node->origin);
+                            m_insertionSet.insertNode(indexInBlock, SpecNone, PutInternalField, node->origin, OpInfo(static_cast<uint32_t>(JSPromise::Field::Flags)), Edge(promise, KnownCellUse), Edge(m_insertionSet.insertConstant(indexInBlock, node->origin, jsNumber(JSPromise::isFirstResolvingFunctionCalledFlag | static_cast<uint32_t>(JSPromise::Status::Fulfilled)))));
+                            m_insertionSet.insertNode(indexInBlock, SpecNone, ExitOK, node->origin);
+                            m_insertionSet.insertNode(indexInBlock, SpecNone, PutInternalField, node->origin, OpInfo(static_cast<uint32_t>(JSPromise::Field::ReactionsOrResult)), Edge(promise, KnownCellUse), node->child2());
+                            m_insertionSet.insertNode(indexInBlock, SpecNone, ExitOK, node->origin);
+                            node->convertToIdentityOn(promise);
+                        };
+
+                        auto& argument = m_state.forNode(node->child2());
+                        if (argument.isType(~SpecObject)) {
+                            m_interpreter.execute(indexInBlock); // Push CFA over this node after we get the state before.
+                            alreadyHandled = true; // Don't allow the default constant folder to do things to this.
+                            convertToFulfilledPromise(node);
+                            changed = true;
+                            break;
+                        }
+
+                        if (argument.isType(SpecPromiseObject)) {
+                            if (m_graph.isWatchingPromiseSpeciesWatchpoint(node)) {
+                                m_interpreter.execute(indexInBlock); // Push CFA over this node after we get the state before.
+                                alreadyHandled = true; // Don't allow the default constant folder to do things to this.
+                                node->convertToIdentityOn(node->child2().node());
+                                changed = true;
+                                break;
+                            }
+                        }
+
+                        // SpecObject | something.
+                        // Only for types having structures, we check "then" existence.
+                        if (argument.isType(~SpecPromiseObject)) {
+                            auto& structureSet = argument.m_structure;
+                            if (structureSet.isFinite() && structureSet.size() == 1) {
+                                JSGlobalObject* globalObject = m_graph.globalObjectFor(node->origin.semantic);
+                                auto conditionSet = m_graph.tryEnsureAbsence(globalObject, structureSet.toStructureSet(), CacheableIdentifier::createFromImmortalIdentifier(m_graph.m_vm.propertyNames->then.impl()));
+                                if (conditionSet.isValid()) {
+                                    if (m_graph.watchConditions(conditionSet)) {
+                                        m_interpreter.execute(indexInBlock); // Push CFA over this node after we get the state before.
+                                        alreadyHandled = true; // Don't allow the default constant folder to do things to this.
+                                        convertToFulfilledPromise(node);
+                                        changed = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+                break;
+            }
+
             case DoubleRep: {
                 switch (node->child1().useKind()) {
                 case NotCellNorBigIntUse:
@@ -1680,7 +1767,8 @@ private:
             }
 
             case PhantomNewObject:
-            case PhantomNewArrayWithConstantSize:
+            case PhantomNewArrayWithButterfly:
+            case PhantomNewButterflyWithSize:
             case PhantomNewFunction:
             case PhantomNewGeneratorFunction:
             case PhantomNewAsyncGeneratorFunction:
@@ -1820,6 +1908,7 @@ private:
             propertyStorage = Edge(m_insertionSet.insertNode(
                 indexInBlock, SpecNone, GetButterfly, node->origin, childEdge));
         }
+        propertyStorage.setUseKind(KnownStorageUse);
         
         StorageAccessData& data = *m_graph.m_storageAccessData.add();
         data.offset = offset;
@@ -1872,15 +1961,15 @@ private:
             ASSERT(variant.oldStructureForTransition()->outOfLineCapacity());
             ASSERT(variant.newStructure()->outOfLineCapacity() > variant.oldStructureForTransition()->outOfLineCapacity());
             ASSERT(!isInlineOffset(variant.offset()));
-
+            Node* butterfly = m_insertionSet.insertNode(indexInBlock, SpecNone, GetButterfly, origin, childEdge);
             Node* reallocatePropertyStorage = m_insertionSet.insertNode(
                 indexInBlock, SpecNone, ReallocatePropertyStorage, origin,
                 OpInfo(transition), childEdge,
-                Edge(m_insertionSet.insertNode(
-                    indexInBlock, SpecNone, GetButterfly, origin, childEdge)));
+                Edge(butterfly, KnownStorageUse));
             propertyStorage = Edge(reallocatePropertyStorage);
             didAllocateStorage = true;
         }
+        propertyStorage.setUseKind(KnownStorageUse);
 
         StorageAccessData& data = *m_graph.m_storageAccessData.add();
         data.offset = variant.offset();
@@ -1928,6 +2017,7 @@ private:
         else
             propertyStorage = Edge(m_insertionSet.insertNode(
                 indexInBlock, SpecNone, GetButterfly, origin, node->child1()));
+        propertyStorage.setUseKind(KnownStorageUse);
 
         StorageAccessData& data = *m_graph.m_storageAccessData.add();
         data.offset = variant.offset();

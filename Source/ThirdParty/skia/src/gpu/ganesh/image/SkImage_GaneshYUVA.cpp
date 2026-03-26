@@ -160,9 +160,8 @@ size_t SkImage_GaneshYUVA::textureSize() const {
     return size;
 }
 
-sk_sp<SkImage> SkImage_GaneshYUVA::onMakeColorTypeAndColorSpace(SkColorType,
-                                                                sk_sp<SkColorSpace> targetCS,
-                                                                GrDirectContext* direct) const {
+sk_sp<SkImage> SkImage_GaneshYUVA::onMakeColorTypeAndColorSpace(
+        GrDirectContext* direct, SkColorType, sk_sp<SkColorSpace> targetCS) const {
     // We explicitly ignore color type changes, for now.
 
     // we may need a mutex here but for now we expect usage to be in a single thread
@@ -186,7 +185,8 @@ sk_sp<SkImage> SkImage_GaneshYUVA::onReinterpretColorSpace(sk_sp<SkColorSpace> n
 
 std::tuple<GrSurfaceProxyView, GrColorType> SkImage_GaneshYUVA::asView(GrRecordingContext* rContext,
                                                                        skgpu::Mipmapped mipmapped,
-                                                                       GrImageTexGenPolicy) const {
+                                                                       GrImageTexGenPolicy,
+                                                                       GrRenderTargetProxy*) const {
     if (!fContext->priv().matches(rContext)) {
         return {};
     }

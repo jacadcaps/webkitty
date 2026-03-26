@@ -26,6 +26,7 @@
 #pragma once
 
 #include "MessageReceiver.h"
+#include <WebCore/PageIdentifier.h>
 #include <WebCore/ScreenOrientationLockType.h>
 #include <WebCore/ScreenOrientationType.h>
 #include <wtf/CompletionHandler.h>
@@ -38,6 +39,7 @@ class Exception;
 namespace WebKit {
 
 class WebPageProxy;
+class WebProcessProxy;
 struct SharedPreferencesForWebProcess;
 
 class WebScreenOrientationManagerProxy final : public IPC::MessageReceiver, public RefCounted<WebScreenOrientationManagerProxy> {
@@ -53,22 +55,23 @@ public:
 
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
-    bool didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
+    void didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
 
     void unlockIfNecessary();
 
     void setCurrentOrientation(WebCore::ScreenOrientationType);
-
-private:
-    WebScreenOrientationManagerProxy(WebPageProxy&, WebCore::ScreenOrientationType);
-
-    std::optional<WebCore::Exception> platformShouldRejectLockRequest() const;
+    WebCore::ScreenOrientationType currentOrientationType() const { return m_currentOrientation; }
 
     // IPC message handlers.
     void currentOrientation(CompletionHandler<void(WebCore::ScreenOrientationType)>&&);
     void lock(WebCore::ScreenOrientationLockType, CompletionHandler<void(std::optional<WebCore::Exception>&&)>&&);
     void unlock();
     void setShouldSendChangeNotification(bool);
+
+private:
+    WebScreenOrientationManagerProxy(WebPageProxy&, WebCore::ScreenOrientationType);
+
+    std::optional<WebCore::Exception> platformShouldRejectLockRequest() const;
 
     Ref<WebPageProxy> protectedPage() const;
 

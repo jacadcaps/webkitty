@@ -61,7 +61,7 @@
 
     _observable = observable;
     _keyPath = keyPath;
-    _callback = WTFMove(callback);
+    _callback = WTF::move(callback);
 
     [_observable addObserver:self forKeyPath:_keyPath.get() options:0 context:nil];
 
@@ -106,7 +106,7 @@ static void waitForSampledPageTopColorToChange(TestWKWebView *webView, Function<
 
 static void waitForSampledPageTopColorToChangeForHTML(TestWKWebView *webView, String&& html)
 {
-    waitForSampledPageTopColorToChange(webView, [webView, html = WTFMove(html)] () mutable {
+    waitForSampledPageTopColorToChange(webView, [webView, html = WTF::move(html)] () mutable {
         [webView synchronouslyLoadHTMLStringAndWaitUntilAllImmediateChildFramesPaint:html.createNSString().get()];
     });
 }
@@ -117,10 +117,10 @@ static String createHTMLGradientWithColorStops(String&& direction, Vector<String
 
     StringBuilder gradientBuilder;
     gradientBuilder.append("<body style=\"background-image: linear-gradient(to "_s);
-    gradientBuilder.append(WTFMove(direction));
-    for (auto&& colorStop : WTFMove(colorStops)) {
+    gradientBuilder.append(WTF::move(direction));
+    for (auto&& colorStop : WTF::move(colorStops)) {
         gradientBuilder.append(", "_s);
-        gradientBuilder.append(WTFMove(colorStop));
+        gradientBuilder.append(WTF::move(colorStop));
     }
     gradientBuilder.append(")\">Test"_s);
     return gradientBuilder.toString();

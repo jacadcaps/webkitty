@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "LineColumn.h"
+#include <JavaScriptCore/LineColumn.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashTraits.h>
 #include <wtf/IterationStatus.h>

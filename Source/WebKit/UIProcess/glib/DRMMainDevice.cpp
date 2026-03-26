@@ -71,6 +71,7 @@ static void drmForeachDevice(Function<bool(drmDevice*)>&& functor)
 }
 #endif
 
+IGNORE_CLANG_WARNINGS_BEGIN("unsafe-buffer-usage")
 static std::optional<std::pair<CString, CString>> drmFirstDeviceWithRenderNode()
 {
 #if USE(LIBDRM)
@@ -79,9 +80,7 @@ static std::optional<std::pair<CString, CString>> drmFirstDeviceWithRenderNode()
         if (!(drmDevice->available_nodes & (1 << DRM_NODE_RENDER)))
             return true;
 
-        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
         device = { CString(drmDevice->nodes[DRM_NODE_PRIMARY]), CString(drmDevice->nodes[DRM_NODE_RENDER]) };
-        WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         return false;
     });
     return device;
@@ -101,13 +100,11 @@ static CString drmPrimaryNodeDeviceForRenderNodeDevice(const CString& renderNode
         if (!(device->available_nodes & (1 << DRM_NODE_RENDER)))
             return true;
 
-        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
         auto node = CString(device->nodes[DRM_NODE_RENDER]);
         if (node == renderNode) {
             primaryNode = CString(device->nodes[DRM_NODE_PRIMARY]);
             return false;
         }
-        WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
         return true;
     });
@@ -129,14 +126,12 @@ static CString drmRenderNodeDeviceFromPrimaryNodeDevice(const CString& primaryNo
         if (!(device->available_nodes & (1 << DRM_NODE_PRIMARY)))
             return true;
 
-        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
         auto node = CString(device->nodes[DRM_NODE_PRIMARY]);
         if (node == primaryNode) {
             if (device->available_nodes & (1 << DRM_NODE_RENDER))
                 renderNode = CString(device->nodes[DRM_NODE_RENDER]);
             return false;
         }
-        WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
         return true;
     });
@@ -146,6 +141,7 @@ static CString drmRenderNodeDeviceFromPrimaryNodeDevice(const CString& primaryNo
     return { };
 #endif
 }
+IGNORE_CLANG_WARNINGS_END
 
 static EGLDisplay currentEGLDisplay()
 {
@@ -221,11 +217,11 @@ const WebCore::DRMDevice& drmMainDevice()
             if (auto renderNode = drmRenderNodeDevice(device)) {
                 // If we can get the render node from EGL we should use that even if it's nullptr (which is the case
                 // with software rasterization). Then, we try to get the primary node using EGL first and DRM as fallback..
-                mainDevice->renderNode = WTFMove(*renderNode);
+                mainDevice->renderNode = WTF::move(*renderNode);
                 if (!mainDevice->renderNode.isNull()) {
                     auto primaryNode = drmPrimaryNodeDevice(device);
                     if (primaryNode && !primaryNode->isNull())
-                        mainDevice->primaryNode = WTFMove(*primaryNode);
+                        mainDevice->primaryNode = WTF::move(*primaryNode);
                     else
                         mainDevice->primaryNode = drmPrimaryNodeDeviceForRenderNodeDevice(mainDevice->renderNode);
                 }
@@ -235,7 +231,7 @@ const WebCore::DRMDevice& drmMainDevice()
             // If EGL device doesn't support querying the render node, try with the primary node and then use DRM to
             // get the associated render node.
             if (auto primaryNode = drmPrimaryNodeDevice(device)) {
-                mainDevice->primaryNode = WTFMove(*primaryNode);
+                mainDevice->primaryNode = WTF::move(*primaryNode);
                 mainDevice->renderNode = drmRenderNodeDeviceFromPrimaryNodeDevice(mainDevice->primaryNode);
                 return;
             }
@@ -243,8 +239,8 @@ const WebCore::DRMDevice& drmMainDevice()
 
         // If EGL device is not supported fallback to use DRM to find the first device with a render node.
         if (auto device = drmFirstDeviceWithRenderNode()) {
-            mainDevice->primaryNode = WTFMove(device->first);
-            mainDevice->renderNode = WTFMove(device->second);
+            mainDevice->primaryNode = WTF::move(device->first);
+            mainDevice->renderNode = WTF::move(device->second);
         }
     });
     return mainDevice.get();

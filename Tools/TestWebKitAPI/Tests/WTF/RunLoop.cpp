@@ -120,7 +120,7 @@ TEST(WTF_RunLoop, CallOnMainCrossThreadWhileNested)
     Util::run(&done);
 }
 
-class DerivedOneShotTimer : public RunLoop::Timer, public CanMakeCheckedPtr<DerivedOneShotTimer> {
+class DerivedOneShotTimer : public CanMakeWeakPtr<DerivedOneShotTimer>, public CanMakeCheckedPtr<DerivedOneShotTimer>, public RunLoop::Timer {
     WTF_DEPRECATED_MAKE_FAST_ALLOCATED(DerivedOneShotTimer);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(DerivedOneShotTimer);
 public:
@@ -149,12 +149,12 @@ TEST(WTF_RunLoop, OneShotTimer)
     WTF::initializeMainThread();
 
     bool testFinished = false;
-    DerivedOneShotTimer timer(testFinished);
-    timer.startOneShot(100_ms);
+    auto timer = makeUniqueRef<DerivedOneShotTimer>(testFinished);
+    timer->startOneShot(100_ms);
     Util::run(&testFinished);
 }
 
-class DerivedRepeatingTimer : public RunLoop::Timer, public CanMakeCheckedPtr<DerivedRepeatingTimer> {
+class DerivedRepeatingTimer : public CanMakeWeakPtr<DerivedRepeatingTimer>, public CanMakeCheckedPtr<DerivedRepeatingTimer>, public RunLoop::Timer {
     WTF_DEPRECATED_MAKE_FAST_ALLOCATED(DerivedRepeatingTimer);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(DerivedRepeatingTimer);
 public:
@@ -188,10 +188,10 @@ TEST(WTF_RunLoop, RepeatingTimer)
     WTF::initializeMainThread();
 
     bool testFinished = false;
-    DerivedRepeatingTimer timer(testFinished);
-    timer.startRepeating(10_ms);
+    auto timer = makeUniqueRef<DerivedRepeatingTimer>(testFinished);
+    timer->startRepeating(10_ms);
     Util::run(&testFinished);
-    ASSERT_FALSE(timer.isActive());
+    ASSERT_FALSE(timer->isActive());
 }
 
 TEST(WTF_RunLoop, ManyTimes)
@@ -273,10 +273,8 @@ TEST(WTF_RunLoop, Create)
         });
         semaphore.wait();
     }
-    {
-        Locker threadsLock { Thread::allThreadsLock() };
-        EXPECT_TRUE(Thread::allThreads().contains(runLoopThread));
-    }
+
+    EXPECT_TRUE(Thread::allThreads().contains(*runLoopThread));
 
     runLoop->dispatch([] {
         RunLoop::currentSingleton().stop();
@@ -285,10 +283,8 @@ TEST(WTF_RunLoop, Create)
     Util::runFor(.2_s);
 
     // Expect that RunLoop Thread does not leak.
-    {
-        Locker threadsLock { Thread::allThreadsLock() };
-        EXPECT_FALSE(Thread::allThreads().contains(runLoopThread));
-    }
+    // Don't use Thread::allThreads().contains(*runLoopThread) here since ASan complains runLoopThread is already freed.
+    EXPECT_FALSE(Thread::allThreads().values().containsIf([&](auto& thread) { return thread.ptr() == runLoopThread; }));
 }
 
 // FIXME(https://bugs.webkit.org/show_bug.cgi?id=246569): glib and Windows runloop does not match Cocoa.

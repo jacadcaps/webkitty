@@ -92,7 +92,7 @@ std::optional<RequestedScrollData> RemoteScrollingCoordinatorProxy::commitScroll
 {
     m_requestedScroll = { };
 
-    auto stateTree = WTFMove(const_cast<RemoteScrollingCoordinatorTransaction&>(transaction).scrollingStateTree());
+    auto stateTree = WTF::move(const_cast<RemoteScrollingCoordinatorTransaction&>(transaction).scrollingStateTree());
 
     auto* layerTreeHost = this->layerTreeHost();
     if (!layerTreeHost) {
@@ -104,7 +104,7 @@ std::optional<RequestedScrollData> RemoteScrollingCoordinatorProxy::commitScroll
 
     ASSERT(stateTree);
     connectStateNodeLayers(*stateTree, *layerTreeHost);
-    bool succeeded = m_scrollingTree->commitTreeState(WTFMove(stateTree), identifier);
+    bool succeeded = m_scrollingTree->commitTreeState(WTF::move(stateTree), identifier);
 
     MESSAGE_CHECK_WITH_RETURN_VALUE(succeeded, std::nullopt);
 
@@ -263,6 +263,11 @@ bool RemoteScrollingCoordinatorProxy::hasScrollableMainFrame() const
 WebCore::ScrollbarWidth RemoteScrollingCoordinatorProxy::mainFrameScrollbarWidth() const
 {
     return m_scrollingTree->mainFrameScrollbarWidth();
+}
+
+std::optional<ScrollbarColor> RemoteScrollingCoordinatorProxy::mainFrameScrollbarColor() const
+{
+    return m_scrollingTree->mainFrameScrollbarColor();
 }
 
 OverscrollBehavior RemoteScrollingCoordinatorProxy::mainFrameHorizontalOverscrollBehavior() const

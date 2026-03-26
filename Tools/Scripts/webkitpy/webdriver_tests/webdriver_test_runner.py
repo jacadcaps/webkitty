@@ -73,11 +73,11 @@ class WebDriverTestRunner(object):
         self._port = port
         _log.info('Using port %s' % self._port.name())
         _log.info('Test configuration: %s' % self._port.test_configuration())
-        _log.info('Using display server %s' % (self._port._display_server))
 
         self._display_driver = self._port._driver_class()(self._port, worker_number=0, pixel_tests=False, no_timeout=True)
         if not self._display_driver.check_driver(self._port):
             raise RuntimeError("Failed to check driver %s" % self._display_driver.__class__.__name__)
+        _log.info('Using display server %s' % (self._display_driver.__class__.__name__))
 
         driver = create_driver(self._port)
         _log.info('Using driver at %s' % (driver.binary_path()))
@@ -85,7 +85,11 @@ class WebDriverTestRunner(object):
 
         _log.info('Parsing expectations')
         self._tests_dir = WebKitFinder(self._port.host.filesystem).path_from_webkit_base('WebDriverTests')
-        expectations_file = os.path.join(self._tests_dir, 'TestExpectations.json')
+        if self._port.get_option('force'):
+            _log.info('Force mode enabled: Ignoring test expectations')
+            expectations_file = ''
+        else:
+            expectations_file = os.path.join(self._tests_dir, 'TestExpectations.json')
         build_type = 'Debug' if self._port.get_option('debug') else 'Release'
         self._expectations = TestExpectations(self._port.name(), expectations_file, build_type)
         for test in self._expectations._expectations.keys():

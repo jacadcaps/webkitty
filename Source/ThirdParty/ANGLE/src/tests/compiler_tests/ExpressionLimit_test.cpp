@@ -3,6 +3,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
+
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_libc_calls
+#endif
+
 #include <sstream>
 #include <string>
 #include <vector>
@@ -236,7 +241,6 @@ constexpr char kExpressionTooComplex[] = "Expression too complex";
 constexpr char kCallStackTooDeep[]     = "Call stack too deep";
 constexpr char kHasRecursion[]         = "Recursive function call in the following call chain";
 constexpr char kTooManyParameters[]    = "Function has too many parameters";
-constexpr char kTooComplexSwitch[]     = "too complex expressions inside a switch statement";
 constexpr char kGlobalVariableInit[] = "global variable initializers must be constant expressions";
 constexpr char kTooManyFields[]      = "Too many fields in the struct";
 
@@ -583,7 +587,7 @@ TEST_F(ExpressionLimitTest, NestingInsideSwitch)
     // gracefully.
     EXPECT_TRUE(CheckShaderCompilation(compiler,
                                        GenerateShaderWithNestingInsideSwitch(5000).c_str(),
-                                       compileOptions, kTooComplexSwitch));
+                                       compileOptions, kExpressionTooComplex));
     // Test nesting over the limit without limit does not fail.
     compileOptions.limitExpressionComplexity = false;
     EXPECT_TRUE(CheckShaderCompilation(

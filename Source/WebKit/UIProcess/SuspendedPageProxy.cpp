@@ -29,10 +29,13 @@
 #include "APIPageConfiguration.h"
 #include "BrowsingContextGroup.h"
 #include "DrawingAreaProxy.h"
+#include "EnhancedSecurity.h"
 #include "HandleMessage.h"
 #include "Logging.h"
 #include "MessageSenderInlines.h"
 #include "WebBackForwardCache.h"
+#include "WebBackForwardList.h"
+#include "WebBackForwardListMessages.h"
 #include "WebFrameProxy.h"
 #include "WebPageMessages.h"
 #include "WebPageProxy.h"
@@ -58,7 +61,7 @@ static WeakHashSet<SuspendedPageProxy>& allSuspendedPages()
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(SuspendedPageProxy);
 
-RefPtr<WebProcessProxy> SuspendedPageProxy::findReusableSuspendedPageProcess(WebProcessPool& processPool, const RegistrableDomain& registrableDomain, WebsiteDataStore& dataStore, WebProcessProxy::LockdownMode lockdownMode, const API::PageConfiguration& pageConfiguration)
+RefPtr<WebProcessProxy> SuspendedPageProxy::findReusableSuspendedPageProcess(WebProcessPool& processPool, const RegistrableDomain& registrableDomain, WebsiteDataStore& dataStore, WebProcessProxy::LockdownMode lockdownMode, EnhancedSecurity enhancedSecurity, const API::PageConfiguration& pageConfiguration)
 {
     for (Ref suspendedPage : allSuspendedPages()) {
         Ref process = suspendedPage->process();
@@ -67,6 +70,7 @@ RefPtr<WebProcessProxy> SuspendedPageProxy::findReusableSuspendedPageProcess(Web
             && process->websiteDataStore() == &dataStore
             && process->crossOriginMode() != CrossOriginMode::Isolated
             && process->lockdownMode() == lockdownMode
+            && process->enhancedSecurity() == enhancedSecurity
             && !process->wasTerminated()
             && process->hasSameGPUAndNetworkProcessPreferencesAs(pageConfiguration)) {
             return process;
@@ -79,29 +83,29 @@ RefPtr<WebProcessProxy> SuspendedPageProxy::findReusableSuspendedPageProcess(Web
 using MessageNameSet = HashSet<IPC::MessageName, WTF::IntHash<IPC::MessageName>, WTF::StrongEnumHashTraits<IPC::MessageName>>;
 static const MessageNameSet& messageNamesToIgnoreWhileSuspended()
 {
-    static NeverDestroyed<MessageNameSet> messageNames;
-    static std::once_flag onceFlag;
-    std::call_once(onceFlag, [] {
-        messageNames.get().add(IPC::MessageName::WebPageProxy_BackForwardAddItem);
-        messageNames.get().add(IPC::MessageName::WebPageProxy_ClearAllEditCommands);
-        messageNames.get().add(IPC::MessageName::WebPageProxy_DidChangeContentSize);
-        messageNames.get().add(IPC::MessageName::WebPageProxy_DidChangeMainDocument);
-        messageNames.get().add(IPC::MessageName::WebPageProxy_DidChangeProgress);
-        messageNames.get().add(IPC::MessageName::WebPageProxy_DidCommitLoadForFrame);
-        messageNames.get().add(IPC::MessageName::WebPageProxy_DidFinishDocumentLoadForFrame);
-        messageNames.get().add(IPC::MessageName::WebPageProxy_DidFinishProgress);
-        messageNames.get().add(IPC::MessageName::WebPageProxy_DidFirstLayoutForFrame);
-        messageNames.get().add(IPC::MessageName::WebPageProxy_DidFirstVisuallyNonEmptyLayoutForFrame);
-        messageNames.get().add(IPC::MessageName::WebPageProxy_DidNavigateWithNavigationData);
-        messageNames.get().add(IPC::MessageName::WebPageProxy_DidReachLayoutMilestone);
-        messageNames.get().add(IPC::MessageName::WebPageProxy_DidRestoreScrollPosition);
-        messageNames.get().add(IPC::MessageName::WebPageProxy_DidStartProgress);
-        messageNames.get().add(IPC::MessageName::WebPageProxy_DidStartProvisionalLoadForFrame);
-        messageNames.get().add(IPC::MessageName::WebPageProxy_EditorStateChanged);
-        messageNames.get().add(IPC::MessageName::WebPageProxy_PageExtendedBackgroundColorDidChange);
-        messageNames.get().add(IPC::MessageName::WebPageProxy_SetRenderTreeSize);
-        messageNames.get().add(IPC::MessageName::WebPageProxy_SetNetworkRequestsInProgress);
-    });
+    static NeverDestroyed<MessageNameSet> messageNames = [] {
+        MessageNameSet messageNames;
+        messageNames.add(IPC::MessageName::WebBackForwardList_BackForwardAddItem);
+        messageNames.add(IPC::MessageName::WebPageProxy_ClearAllEditCommands);
+        messageNames.add(IPC::MessageName::WebPageProxy_DidChangeContentSize);
+        messageNames.add(IPC::MessageName::WebPageProxy_DidChangeMainDocument);
+        messageNames.add(IPC::MessageName::WebPageProxy_DidChangeProgress);
+        messageNames.add(IPC::MessageName::WebPageProxy_DidCommitLoadForFrame);
+        messageNames.add(IPC::MessageName::WebPageProxy_DidFinishDocumentLoadForFrame);
+        messageNames.add(IPC::MessageName::WebPageProxy_DidFinishProgress);
+        messageNames.add(IPC::MessageName::WebPageProxy_DidFirstLayoutForFrame);
+        messageNames.add(IPC::MessageName::WebPageProxy_DidFirstVisuallyNonEmptyLayoutForFrame);
+        messageNames.add(IPC::MessageName::WebPageProxy_DidNavigateWithNavigationData);
+        messageNames.add(IPC::MessageName::WebPageProxy_DidReachLayoutMilestone);
+        messageNames.add(IPC::MessageName::WebPageProxy_DidRestoreScrollPosition);
+        messageNames.add(IPC::MessageName::WebPageProxy_DidStartProgress);
+        messageNames.add(IPC::MessageName::WebPageProxy_DidStartProvisionalLoadForFrame);
+        messageNames.add(IPC::MessageName::WebPageProxy_EditorStateChanged);
+        messageNames.add(IPC::MessageName::WebPageProxy_PageExtendedBackgroundColorDidChange);
+        messageNames.add(IPC::MessageName::WebPageProxy_SetRenderTreeSize);
+        messageNames.add(IPC::MessageName::WebPageProxy_SetNetworkRequestsInProgress);
+        return messageNames;
+    }();
 
     return messageNames;
 }
@@ -109,15 +113,15 @@ static const MessageNameSet& messageNamesToIgnoreWhileSuspended()
 
 Ref<SuspendedPageProxy> SuspendedPageProxy::create(WebPageProxy& page, Ref<WebProcessProxy>&& process, Ref<WebFrameProxy>&& mainFrame, Ref<BrowsingContextGroup>&& browsingContextGroup, ShouldDelayClosingUntilFirstLayerFlush shouldDelayClosingUntilFirstLayerFlush)
 {
-    return adoptRef(*new SuspendedPageProxy(page, WTFMove(process), WTFMove(mainFrame), WTFMove(browsingContextGroup), shouldDelayClosingUntilFirstLayerFlush));
+    return adoptRef(*new SuspendedPageProxy(page, WTF::move(process), WTF::move(mainFrame), WTF::move(browsingContextGroup), shouldDelayClosingUntilFirstLayerFlush));
 }
 
 SuspendedPageProxy::SuspendedPageProxy(WebPageProxy& page, Ref<WebProcessProxy>&& process, Ref<WebFrameProxy>&& mainFrame, Ref<BrowsingContextGroup>&& browsingContextGroup, ShouldDelayClosingUntilFirstLayerFlush shouldDelayClosingUntilFirstLayerFlush)
     : m_page(page)
     , m_webPageID(page.webPageIDInMainFrameProcess())
-    , m_process(WTFMove(process))
-    , m_mainFrame(WTFMove(mainFrame))
-    , m_browsingContextGroup(WTFMove(browsingContextGroup))
+    , m_process(WTF::move(process))
+    , m_mainFrame(WTF::move(mainFrame))
+    , m_browsingContextGroup(WTF::move(browsingContextGroup))
     , m_shouldDelayClosingUntilFirstLayerFlush(shouldDelayClosingUntilFirstLayerFlush)
     , m_suspensionTimeoutTimer(RunLoop::mainSingleton(), "SuspendedPageProxy::SuspensionTimeoutTimer"_s, this, &SuspendedPageProxy::suspensionTimedOut)
 #if USE(RUNNINGBOARD)
@@ -132,7 +136,7 @@ SuspendedPageProxy::SuspendedPageProxy(WebPageProxy& page, Ref<WebProcessProxy>&
 {
     allSuspendedPages().add(*this);
     m_process->addSuspendedPageProxy(*this);
-    m_messageReceiverRegistration.startReceivingMessages(m_process, m_webPageID, *this);
+    m_messageReceiverRegistration.startReceivingMessages(m_process, m_webPageID, *this, *this);
     m_suspensionTimeoutTimer.startOneShot(suspensionTimeout);
     sendWithAsyncReply(Messages::WebPage::SetIsSuspended(true), [weakThis = WeakPtr { *this }](std::optional<bool> didSuspend) {
         RefPtr protectedThis = weakThis.get();
@@ -159,7 +163,7 @@ SuspendedPageProxy::~SuspendedPageProxy()
     allSuspendedPages().remove(*this);
 
     if (m_readyToUnsuspendHandler) {
-        RunLoop::mainSingleton().dispatch([readyToUnsuspendHandler = WTFMove(m_readyToUnsuspendHandler)]() mutable {
+        RunLoop::mainSingleton().dispatch([readyToUnsuspendHandler = WTF::move(m_readyToUnsuspendHandler)]() mutable {
             readyToUnsuspendHandler(nullptr);
         });
     }
@@ -196,7 +200,7 @@ void SuspendedPageProxy::waitUntilReadyToUnsuspend(CompletionHandler<void(Suspen
 
     switch (m_suspensionState) {
     case SuspensionState::Suspending:
-        m_readyToUnsuspendHandler = WTFMove(completionHandler);
+        m_readyToUnsuspendHandler = WTF::move(completionHandler);
         break;
     case SuspensionState::FailedToSuspend:
     case SuspensionState::Suspended:
@@ -294,7 +298,7 @@ WebPageProxy* SuspendedPageProxy::page() const
 
 void SuspendedPageProxy::didReceiveMessage(IPC::Connection& connection, IPC::Decoder& decoder)
 {
-    ASSERT(decoder.messageReceiverName() == Messages::WebPageProxy::messageReceiverName());
+    ASSERT(decoder.messageReceiverName() == Messages::WebPageProxy::messageReceiverName() || decoder.messageReceiverName() == Messages::WebBackForwardList::messageReceiverName());
 
     if (decoder.messageName() == Messages::WebPageProxy::DidDestroyNavigation::name()) {
         IPC::handleMessage<Messages::WebPageProxy::DidDestroyNavigation>(connection, decoder, this, &SuspendedPageProxy::didDestroyNavigation);
@@ -307,9 +311,8 @@ void SuspendedPageProxy::didReceiveMessage(IPC::Connection& connection, IPC::Dec
 #endif
 }
 
-bool SuspendedPageProxy::didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&)
+void SuspendedPageProxy::didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&)
 {
-    return false;
 }
 
 #if !LOG_DISABLED

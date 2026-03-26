@@ -19,6 +19,7 @@
 #include "api/video/encoded_image.h"
 #include "api/video/recordable_encoded_frame.h"
 #include "api/video/video_codec_type.h"
+#include "api/video/video_rotation.h"
 #include "api/video/video_sink_interface.h"
 #include "test/gmock.h"
 #include "test/gtest.h"
@@ -126,7 +127,7 @@ class TestFrame : public RecordableEncodedFrame {
   VideoCodecType codec() const override { return kVideoCodecGeneric; }
   bool is_key_frame() const override { return false; }
   EncodedResolution resolution() const override {
-    return EncodedResolution{0, 0};
+    return EncodedResolution{.width = 0, .height = 0};
   }
   Timestamp render_time() const override { return Timestamp::Zero(); }
 };

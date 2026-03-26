@@ -100,7 +100,7 @@ function(WEBKIT_ADD_COMPILER_FLAGS _compiler _kind _subject)
     foreach (_flag IN LISTS ARGN)
         WEBKIT_CHECK_COMPILER_FLAGS(${_compiler} flag_supported "${_flag}")
         if (flag_supported)
-            set_property(${_kind} ${_subject} APPEND PROPERTY COMPILE_OPTIONS "${_flag}")
+            set_property(${_kind} ${_subject} APPEND PROPERTY COMPILE_OPTIONS "$<$<COMPILE_LANGUAGE:C,CXX,OBJC,OBJCXX>:${_flag}>")
         endif ()
     endforeach ()
 endfunction()
@@ -123,6 +123,7 @@ endmacro()
 
 
 option(DEVELOPER_MODE_FATAL_WARNINGS "Build with warnings as errors if DEVELOPER_MODE is also enabled" ON)
+set(DEVELOPER_MODE_CXX_FLAGS)
 if (DEVELOPER_MODE AND DEVELOPER_MODE_FATAL_WARNINGS)
     if (MSVC)
         set(FATAL_WARNINGS_FLAG /WX)
@@ -184,7 +185,8 @@ if (COMPILER_IS_GCC_OR_CLANG)
                                          -Wno-maybe-uninitialized
                                          -Wno-parentheses-equality
                                          -Wno-misleading-indentation
-                                         -Wno-psabi)
+                                         -Wno-psabi
+                                         -Wno-nullability-completeness)
 
     # GCC < 12.0 gives false warnings for mismatched-new-delete <https://webkit.org/b/241516>
     if ((CMAKE_CXX_COMPILER_ID MATCHES "GNU") AND (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "12.0.0"))
@@ -195,6 +197,16 @@ if (COMPILER_IS_GCC_OR_CLANG)
     # GCC gives false warnings for subobject-linkage <https://gcc.gnu.org/bugzilla/show_bug.cgi?id=105595>
     if (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
         WEBKIT_PREPEND_GLOBAL_COMPILER_FLAGS(-Wno-subobject-linkage)
+    endif ()
+
+    # Older GCC versions sometimes miscompile switches with that flag on.
+    # Observed in testMoveConditionallyFloatingPointSameArg (testmasm), turn it
+    # off throughout to avoid hard-to-diagnose bugs.
+    if (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+      # This and later versions don't seem to exhibit the issue.
+      if (${CMAKE_CXX_COMPILER_VERSION} VERSION_LESS "14.0.1")
+        WEBKIT_PREPEND_GLOBAL_COMPILER_FLAGS(-fno-unswitch-loops)
+      endif ()
     endif ()
 
     WEBKIT_PREPEND_GLOBAL_CXX_FLAGS(-Wno-noexcept-type)
@@ -241,6 +253,9 @@ if (COMPILER_IS_GCC_OR_CLANG)
 
     WEBKIT_PREPEND_GLOBAL_COMPILER_FLAGS(-Werror=undefined-inline
                                          -Werror=undefined-internal)
+
+    # FIXME: https://bugs.webkit.org/show_bug.cgi?id=299689
+    WEBKIT_PREPEND_GLOBAL_COMPILER_FLAGS(-Wno-character-conversion)
 endif ()
 
 if (COMPILER_IS_GCC_OR_CLANG AND NOT MSVC)
@@ -337,7 +352,6 @@ if (UNIX AND NOT APPLE AND NOT ENABLED_COMPILER_SANITIZERS)
     set(CMAKE_SHARED_LINKER_FLAGS "-Wl,--no-undefined ${CMAKE_SHARED_LINKER_FLAGS}")
 endif ()
 
-
 if (MSVC)
     set(CODE_GENERATOR_PREPROCESSOR "\"${CMAKE_CXX_COMPILER}\" /nologo /EP /TP")
 elseif (COMPILER_IS_QCC)
@@ -345,7 +359,6 @@ elseif (COMPILER_IS_QCC)
 else ()
     set(CODE_GENERATOR_PREPROCESSOR "\"${CMAKE_CXX_COMPILER}\" -E -P -x c++")
 endif ()
-
 
 # Ensure that the default include system directories are added to the list of CMake implicit includes.
 # This workarounds an issue that happens when using GCC 6 and using system includes (-isystem).
@@ -500,6 +513,29 @@ int main() {
 }
   ")
   check_cxx_source_compiles("${FLOAT16_TEST_SOURCE}" HAVE_FLOAT16)
+endif ()
+
+if (WTF_CPU_ARM)
+    set(ARM_THUMB2_TEST_SOURCE
+    "
+    #if !defined(thumb2) && !defined(__thumb2__)
+    #error \"Thumb2 instruction set isn't available\"
+    #endif
+    int main() {}
+    ")
+
+    if (COMPILER_IS_GCC_OR_CLANG AND NOT (${CMAKE_SYSTEM_NAME} STREQUAL "Darwin"))
+        set(CLANG_EXTRA_ARM_ARGS " -mthumb")
+    endif ()
+
+    set(CMAKE_REQUIRED_FLAGS "${CLANG_EXTRA_ARM_ARGS}")
+    CHECK_CXX_SOURCE_COMPILES("${ARM_THUMB2_TEST_SOURCE}" ARM_THUMB2_DETECTED)
+    unset(CMAKE_REQUIRED_FLAGS)
+
+    if (ARM_THUMB2_DETECTED AND NOT (${CMAKE_SYSTEM_NAME} STREQUAL "Darwin"))
+        string(APPEND CMAKE_C_FLAGS " ${CLANG_EXTRA_ARM_ARGS}")
+        string(APPEND CMAKE_CXX_FLAGS " ${CLANG_EXTRA_ARM_ARGS}")
+    endif ()
 endif ()
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU" AND WTF_CPU_MIPS)

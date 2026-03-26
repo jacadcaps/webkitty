@@ -29,25 +29,33 @@
 
 #if ENABLE(GPU_PROCESS) && ENABLE(WEBGL) && USE(COORDINATED_GRAPHICS) && USE(GBM)
 
+#include <wtf/TZoneMalloc.h>
+#include <wtf/TZoneMallocInlines.h>
+
 namespace WebKit {
 
 class RemoteGraphicsContextGLGBM final : public RemoteGraphicsContextGL {
+    WTF_MAKE_TZONE_ALLOCATED(RemoteGraphicsContextGLGBM);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RemoteGraphicsContextGLGBM);
+
 public:
-    RemoteGraphicsContextGLGBM(GPUConnectionToWebProcess&, GraphicsContextGLIdentifier, RemoteRenderingBackend&, Ref<IPC::StreamServerConnection>&&);
+    RemoteGraphicsContextGLGBM(GPUConnectionToWebProcess&, RemoteGraphicsContextGLIdentifier, RemoteRenderingBackend&, Ref<IPC::StreamServerConnection>&&);
 
 private:
     void platformWorkQueueInitialize(WebCore::GraphicsContextGLAttributes&&) final;
     void prepareForDisplay(CompletionHandler<void(uint64_t, std::optional<WebCore::DMABufBuffer::Attributes>&&, UnixFileDescriptor&&)>&&) final;
 };
 
-RemoteGraphicsContextGLGBM::RemoteGraphicsContextGLGBM(GPUConnectionToWebProcess& connection, GraphicsContextGLIdentifier identifier, RemoteRenderingBackend& renderingBackend, Ref<IPC::StreamServerConnection>&& streamConnection)
-    : RemoteGraphicsContextGL(connection, identifier, renderingBackend, WTFMove(streamConnection))
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteGraphicsContextGLGBM);
+
+RemoteGraphicsContextGLGBM::RemoteGraphicsContextGLGBM(GPUConnectionToWebProcess& connection, RemoteGraphicsContextGLIdentifier identifier, RemoteRenderingBackend& renderingBackend, Ref<IPC::StreamServerConnection>&& streamConnection)
+    : RemoteGraphicsContextGL(connection, identifier, renderingBackend, WTF::move(streamConnection))
 { }
 
 void RemoteGraphicsContextGLGBM::platformWorkQueueInitialize(WebCore::GraphicsContextGLAttributes&& attributes)
 {
     assertIsCurrent(workQueue());
-    m_context = WebCore::GraphicsContextGLTextureMapperGBM::create(WTFMove(attributes));
+    m_context = WebCore::GraphicsContextGLTextureMapperGBM::create(WTF::move(attributes));
 }
 
 void RemoteGraphicsContextGLGBM::prepareForDisplay(CompletionHandler<void(uint64_t, std::optional<WebCore::DMABufBuffer::Attributes>&&, UnixFileDescriptor&&)>&& completionHandler)
@@ -67,13 +75,13 @@ void RemoteGraphicsContextGLGBM::prepareForDisplay(CompletionHandler<void(uint64
         return;
     }
 
-    completionHandler(buffer->id(), buffer->takeAttributes(), WTFMove(fenceFD));
+    completionHandler(buffer->id(), buffer->takeAttributes(), WTF::move(fenceFD));
 }
 
-Ref<RemoteGraphicsContextGL> RemoteGraphicsContextGL::create(GPUConnectionToWebProcess& connection, WebCore::GraphicsContextGLAttributes&& attributes, GraphicsContextGLIdentifier identifier, RemoteRenderingBackend& renderingBackend, Ref<IPC::StreamServerConnection>&& streamConnection)
+Ref<RemoteGraphicsContextGL> RemoteGraphicsContextGL::create(GPUConnectionToWebProcess& connection, WebCore::GraphicsContextGLAttributes&& attributes, RemoteGraphicsContextGLIdentifier identifier, RemoteRenderingBackend& renderingBackend, Ref<IPC::StreamServerConnection>&& streamConnection)
 {
-    auto instance = adoptRef(*new RemoteGraphicsContextGLGBM(connection, identifier, renderingBackend, WTFMove(streamConnection)));
-    instance->initialize(WTFMove(attributes));
+    auto instance = adoptRef(*new RemoteGraphicsContextGLGBM(connection, identifier, renderingBackend, WTF::move(streamConnection)));
+    instance->initialize(WTF::move(attributes));
     return instance;
 }
 

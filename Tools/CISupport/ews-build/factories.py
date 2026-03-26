@@ -79,23 +79,6 @@ class StyleFactory(factory.BuildFactory):
         self.addStep(CheckStyle())
 
 
-class WatchListFactory(factory.BuildFactory):
-    def __init__(self, platform, configuration=None, architectures=None, triggers=None, remotes=None, additionalArguments=None, **kwargs):
-        factory.BuildFactory.__init__(self)
-        self.addStep(ConfigureBuild(platform=platform, configuration=configuration, architectures=architectures, buildOnly=False, triggers=triggers, remotes=remotes, additionalArguments=additionalArguments))
-        self.addStep(ValidateChange())
-        self.addStep(PrintConfiguration())
-        self.addStep(CleanGitRepo())
-        self.addStep(SetCredentialHelper())
-        self.addStep(CheckOutSource())
-        self.addStep(FetchBranches())
-        self.addStep(UpdateWorkingDirectory())
-        self.addStep(ShowIdentifier())
-        self.addStep(ApplyPatch())
-        self.addStep(CheckOutPullRequest())
-        self.addStep(ApplyWatchList())
-
-
 class SaferCPPStaticAnalyzerFactory(factory.BuildFactory):
     findModifiedLayoutTests = False
 
@@ -110,14 +93,15 @@ class SaferCPPStaticAnalyzerFactory(factory.BuildFactory):
         self.addStep(CheckOutSource())
         self.addStep(FetchBranches())
         self.addStep(ShowIdentifier())
-        self.addStep(InstallCMake())
-        self.addStep(InstallNinja())
-        self.addStep(PrintClangVersion())
-        self.addStep(CheckOutLLVMProject())
-        self.addStep(UpdateClang())
         self.addStep(CheckOutPullRequest())
         self.addStep(KillOldProcesses())
         self.addStep(ValidateChange(addURLs=False))
+        self.addStep(InstallCMake())
+        self.addStep(InstallNinja())
+        self.addStep(GetLLVMVersion())
+        self.addStep(PrintClangVersion())
+        self.addStep(CheckOutLLVMProject())
+        self.addStep(UpdateClang())
         self.addStep(FindModifiedSaferCPPExpectations())
         self.addStep(ScanBuild())
 
@@ -222,6 +206,16 @@ class JSCBuildAndTestsFactory(Factory):
             self.addStep(RunJavaScriptCoreTests())
 
 
+class JSCBuildO3AndTestsFactory(Factory):
+    def __init__(self, platform, configuration='debug', architectures=None, remotes=None, additionalArguments=None, runTests='true', **kwargs):
+        Factory.__init__(self, platform=platform, configuration=configuration, architectures=architectures, buildOnly=False, remotes=remotes, additionalArguments=additionalArguments, checkRelevance=True)
+        self.addStep(KillOldProcesses())
+        self.addStep(ValidateChange(addURLs=False))
+        self.addStep(SetO3OptimizationLevel())
+        self.addStep(CompileJSC(skipUpload=True))
+        self.addStep(RunJavaScriptCoreTests())
+
+
 class JSCTestsFactory(Factory):
     def __init__(self, platform, configuration='release', architectures=None, remotes=None, additionalArguments=None, **kwargs):
         Factory.__init__(self, platform=platform, configuration=configuration, architectures=architectures, buildOnly=False, remotes=remotes, additionalArguments=additionalArguments, checkRelevance=True)
@@ -324,7 +318,7 @@ class WPEBuildFactory(BuildFactory):
     branches = [r'main', r'webkit.+']
 
 
-class WPECairoBuildFactory(WPEBuildFactory):
+class WPECairoLibWebRTCBuildFactory(WPEBuildFactory):
     skipUpload = True
 
 

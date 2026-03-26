@@ -29,9 +29,7 @@
 #include <wtf/Platform.h>
 #include <wtf/text/WTFString.h>
 
-#if __has_include("WebKitLogDefinitions.h")
 #include "WebKitLogDefinitions.h"
-#endif
 
 #define COMMA() ,
 #define OPTIONAL_ARGS(...) __VA_OPT__(COMMA()) __VA_ARGS__
@@ -103,9 +101,12 @@ extern "C" {
     M(DiskPersistency) \
     M(DragAndDrop) \
     M(EME) \
+    M(EnhancedSecurity) \
     M(Extensions) \
+    M(FrameTree) \
     M(Fullscreen) \
     M(Gamepad) \
+    M(GestureHandling) \
     M(IPC) \
     M(IPCMessages) \
     M(ITPDebug) \
@@ -138,6 +139,7 @@ extern "C" {
     M(PageLoadObserver) \
     M(Pasteboard) \
     M(PerformanceLogging) \
+    M(PointerLock) \
     M(Plugins) \
     M(Printing) \
     M(PrivateClickMeasurement) \
@@ -167,10 +169,12 @@ extern "C" {
     M(StorageAPI) \
     M(SystemPreview) \
     M(Telephony) \
+    M(TextExtraction) \
     M(TextInput) \
     M(TextInteraction) \
     M(Translation) \
     M(UIHitTesting) \
+    M(UserContentController) \
     M(ViewGestures) \
     M(ViewState) \
     M(ViewportSizing) \

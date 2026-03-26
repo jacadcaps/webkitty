@@ -10,10 +10,9 @@
 
 #include "modules/rtp_rtcp/source/rtcp_sender.h"
 
-#include <string.h>  // memcpy
-
-#include <algorithm>  // std::min
+#include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <optional>
 #include <string>
@@ -54,7 +53,6 @@
 #include "modules/rtp_rtcp/source/rtcp_packet/tmmbn.h"
 #include "modules/rtp_rtcp/source/rtcp_packet/tmmbr.h"
 #include "modules/rtp_rtcp/source/rtp_rtcp_config.h"
-#include "modules/rtp_rtcp/source/rtp_rtcp_interface.h"
 #include "modules/rtp_rtcp/source/tmmbr_help.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
@@ -68,8 +66,6 @@ namespace {
 const uint32_t kRtcpAnyExtendedReports = kRtcpXrReceiverReferenceTime |
                                          kRtcpXrDlrrReportBlock |
                                          kRtcpXrTargetBitrate;
-constexpr int32_t kDefaultVideoReportInterval = 1000;
-constexpr int32_t kDefaultAudioReportInterval = 5000;
 }  // namespace
 
 // Helper to put several RTCP packets into lower layer datagram RTCP packet.
@@ -119,36 +115,14 @@ RTCPSender::FeedbackState::~FeedbackState() = default;
 class RTCPSender::RtcpContext {
  public:
   RtcpContext(const FeedbackState& feedback_state,
-              int32_t nack_size,
-              const uint16_t* nack_list,
+              ArrayView<const uint16_t> nacks,
               Timestamp now)
-      : feedback_state_(feedback_state),
-        nack_size_(nack_size),
-        nack_list_(nack_list),
-        now_(now) {}
+      : feedback_state_(feedback_state), nacks_(nacks), now_(now) {}
 
   const FeedbackState& feedback_state_;
-  const int32_t nack_size_;
-  const uint16_t* nack_list_;
+  const ArrayView<const uint16_t> nacks_;
   const Timestamp now_;
 };
-
-RTCPSender::Configuration RTCPSender::Configuration::FromRtpRtcpConfiguration(
-    const RtpRtcpInterface::Configuration& configuration) {
-  RTCPSender::Configuration result;
-  result.audio = configuration.audio;
-  result.local_media_ssrc = configuration.local_media_ssrc;
-  result.outgoing_transport = configuration.outgoing_transport;
-  result.non_sender_rtt_measurement = configuration.non_sender_rtt_measurement;
-  if (configuration.rtcp_report_interval_ms) {
-    result.rtcp_report_interval =
-        TimeDelta::Millis(configuration.rtcp_report_interval_ms);
-  }
-  result.receive_statistics = configuration.receive_statistics;
-  result.rtcp_packet_type_counter_observer =
-      configuration.rtcp_packet_type_counter_observer;
-  return result;
-}
 
 RTCPSender::RTCPSender(const Environment& env, Configuration config)
     : env_(env),
@@ -157,30 +131,26 @@ RTCPSender::RTCPSender(const Environment& env, Configuration config)
       random_(env_.clock().TimeInMicroseconds()),
       method_(RtcpMode::kOff),
       transport_(config.outgoing_transport),
-      report_interval_(config.rtcp_report_interval.value_or(
-          TimeDelta::Millis(config.audio ? kDefaultAudioReportInterval
-                                         : kDefaultVideoReportInterval))),
-      schedule_next_rtcp_send_evaluation_function_(
-          std::move(config.schedule_next_rtcp_send_evaluation_function)),
+      report_interval_(config.rtcp_report_interval),
+      schedule_next_rtcp_send_evaluation_(
+          std::move(config.schedule_next_rtcp_send_evaluation)),
       sending_(false),
       timestamp_offset_(0),
       last_rtp_timestamp_(0),
       remote_ssrc_(0),
       receive_statistics_(config.receive_statistics),
-
       sequence_number_fir_(0),
-
       remb_bitrate_(0),
-
       tmmbr_send_bps_(0),
       packet_oh_send_(0),
       max_packet_size_(IP_PACKET_SIZE - 28),  // IPv4 + UDP by default.
-
       xr_send_receiver_reference_time_enabled_(
           config.non_sender_rtt_measurement),
       packet_type_counter_observer_(config.rtcp_packet_type_counter_observer),
       send_video_bitrate_allocation_(false),
       last_payload_type_(-1) {
+  RTC_CHECK(schedule_next_rtcp_send_evaluation_);
+  RTC_CHECK_GT(report_interval_, TimeDelta::Zero());
   RTC_DCHECK(transport_ != nullptr);
 
   builders_[kRtcpSr] = &RTCPSender::BuildSR;
@@ -262,8 +232,7 @@ int32_t RTCPSender::SendLossNotification(const FeedbackState& feedback_state,
 
     sender.emplace(callback, max_packet_size_);
     auto result = ComputeCompoundRTCPPacket(
-        feedback_state, RTCPPacketType::kRtcpLossNotification, 0, nullptr,
-        *sender);
+        feedback_state, RTCPPacketType::kRtcpLossNotification, {}, *sender);
     if (result) {
       return *result;
     }
@@ -538,11 +507,11 @@ void RTCPSender::BuildNACK(const RtcpContext& ctx, PacketSender& sender) {
   rtcp::Nack nack;
   nack.SetSenderSsrc(ssrc_);
   nack.SetMediaSsrc(remote_ssrc_);
-  nack.SetPacketIds(ctx.nack_list_, ctx.nack_size_);
+  nack.SetPacketIds(ctx.nacks_.data(), ctx.nacks_.size());
 
   // Report stats.
-  for (int idx = 0; idx < ctx.nack_size_; ++idx) {
-    nack_stats_.ReportRequest(ctx.nack_list_[idx]);
+  for (uint16_t sequence_number : ctx.nacks_) {
+    nack_stats_.ReportRequest(sequence_number);
   }
   packet_type_counter_.nack_requests = nack_stats_.requests();
   packet_type_counter_.unique_nack_requests = nack_stats_.unique_requests();
@@ -593,8 +562,7 @@ void RTCPSender::BuildExtendedReports(const RtcpContext& ctx,
 
 int32_t RTCPSender::SendRTCP(const FeedbackState& feedback_state,
                              RTCPPacketType packet_type,
-                             int32_t nack_size,
-                             const uint16_t* nack_list) {
+                             ArrayView<const uint16_t> nacks) {
   int32_t error_code = -1;
   auto callback = [&](ArrayView<const uint8_t> packet) {
     if (transport_->SendRtcp(packet, /*packet_options=*/{})) {
@@ -607,8 +575,8 @@ int32_t RTCPSender::SendRTCP(const FeedbackState& feedback_state,
   {
     MutexLock lock(&mutex_rtcp_sender_);
     sender.emplace(callback, max_packet_size_);
-    auto result = ComputeCompoundRTCPPacket(feedback_state, packet_type,
-                                            nack_size, nack_list, *sender);
+    auto result =
+        ComputeCompoundRTCPPacket(feedback_state, packet_type, nacks, *sender);
     if (result) {
       return *result;
     }
@@ -621,8 +589,7 @@ int32_t RTCPSender::SendRTCP(const FeedbackState& feedback_state,
 std::optional<int32_t> RTCPSender::ComputeCompoundRTCPPacket(
     const FeedbackState& feedback_state,
     RTCPPacketType packet_type,
-    int32_t nack_size,
-    const uint16_t* nack_list,
+    ArrayView<const uint16_t> nacks,
     PacketSender& sender) {
   if (method_ == RtcpMode::kOff) {
     RTC_LOG(LS_WARNING) << "Can't send RTCP if it is disabled.";
@@ -649,8 +616,7 @@ std::optional<int32_t> RTCPSender::ComputeCompoundRTCPPacket(
   }
 
   // We need to send our NTP even if we haven't received any reports.
-  RtcpContext context(feedback_state, nack_size, nack_list,
-                      env_.clock().CurrentTime());
+  RtcpContext context(feedback_state, nacks, env_.clock().CurrentTime());
 
   PrepareReport(feedback_state);
 
@@ -910,10 +876,7 @@ void RTCPSender::SendCombinedRtcpPacket(
 
 void RTCPSender::SetNextRtcpSendEvaluationDuration(TimeDelta duration) {
   next_time_to_send_rtcp_ = env_.clock().CurrentTime() + duration;
-  // TODO(bugs.webrtc.org/11581): make unconditional once downstream consumers
-  // are using the callback method.
-  if (schedule_next_rtcp_send_evaluation_function_)
-    schedule_next_rtcp_send_evaluation_function_(duration);
+  schedule_next_rtcp_send_evaluation_(duration);
 }
 
 }  // namespace webrtc

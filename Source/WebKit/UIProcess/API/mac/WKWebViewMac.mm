@@ -42,6 +42,7 @@
 #import "_WKHitTestResultInternal.h"
 #import "_WKWarningView.h"
 #import <WebCore/CGWindowUtilities.h>
+#import <WebCore/LegacyNSPasteboardTypes.h>
 #import <WebKit/WKUIDelegatePrivate.h>
 #import <pal/spi/mac/NSTextFinderSPI.h>
 #import <pal/spi/mac/NSTextInputContextSPI.h>
@@ -170,7 +171,7 @@ static WebCore::FloatBoxExtent coreBoxExtentsFromEdgeInsets(NSEdgeInsets insets)
     if (self.hidden)
         return NO;
 
-    _windowSnapshotReadinessHandler = makeBlockPtr([self.window _holdResizeSnapshotWithReason:@"full screen"]);
+    _windowSnapshotReadinessHandler = makeBlockPtr([retainPtr(self.window) _holdResizeSnapshotWithReason:@"full screen"]);
     if (!_windowSnapshotReadinessHandler)
         return NO;
 
@@ -719,7 +720,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 
 - (NSArray *)validAttributesForMarkedText
 {
-    return _impl->validAttributesForMarkedText();
+    return _impl->validAttributesForMarkedTextSingleton();
 }
 
 - (void)insertTextPlaceholderWithSize:(CGSize)size completionHandler:(void (^)(NSTextPlaceholder *))completionHandler
@@ -874,7 +875,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 - (NSArray<NSString *> *)accessibilityParameterizedAttributeNames
 ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 {
-    NSArray<NSString *> *names = [super accessibilityParameterizedAttributeNames];
+    RetainPtr<NSArray<NSString *>> names = [super accessibilityParameterizedAttributeNames];
     return [names arrayByAddingObject:@"AXConvertRelativeFrame"];
 }
 
@@ -990,19 +991,24 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     return _textFinderClient.get();
 }
 
+- (RetainPtr<WKTextFinderClient>)_protectedTextFinderClient
+{
+    return [self _ensureTextFinderClient];
+}
+
 - (void)findMatchesForString:(NSString *)targetString relativeToMatch:(id <NSTextFinderAsynchronousDocumentFindMatch>)relativeMatch findOptions:(NSTextFinderAsynchronousDocumentFindOptions)findOptions maxResults:(NSUInteger)maxResults resultCollector:(void (^)(NSArray *matches, BOOL didWrap))resultCollector
 {
-    [[self _ensureTextFinderClient] findMatchesForString:targetString relativeToMatch:relativeMatch findOptions:findOptions maxResults:maxResults resultCollector:resultCollector];
+    [[self _protectedTextFinderClient] findMatchesForString:targetString relativeToMatch:relativeMatch findOptions:findOptions maxResults:maxResults resultCollector:resultCollector];
 }
 
 - (void)replaceMatches:(NSArray *)matches withString:(NSString *)replacementString inSelectionOnly:(BOOL)selectionOnly resultCollector:(void (^)(NSUInteger replacementCount))resultCollector
 {
-    [[self _ensureTextFinderClient] replaceMatches:matches withString:replacementString inSelectionOnly:selectionOnly resultCollector:resultCollector];
+    [[self _protectedTextFinderClient] replaceMatches:matches withString:replacementString inSelectionOnly:selectionOnly resultCollector:resultCollector];
 }
 
 - (void)scrollFindMatchToVisible:(id<NSTextFinderAsynchronousDocumentFindMatch>)match
 {
-    [[self _ensureTextFinderClient] scrollFindMatchToVisible:match];
+    [[self _protectedTextFinderClient] scrollFindMatchToVisible:match];
 }
 
 - (NSView *)documentContainerView
@@ -1012,12 +1018,12 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (void)getSelectedText:(void (^)(NSString *selectedTextString))completionHandler
 {
-    [[self _ensureTextFinderClient] getSelectedText:completionHandler];
+    [[self _protectedTextFinderClient] getSelectedText:completionHandler];
 }
 
 - (void)selectFindMatch:(id <NSTextFinderAsynchronousDocumentFindMatch>)findMatch completionHandler:(void (^)(void))completionHandler
 {
-    [[self _ensureTextFinderClient] selectFindMatch:findMatch completionHandler:completionHandler];
+    [[self _protectedTextFinderClient] selectFindMatch:findMatch completionHandler:completionHandler];
 }
 
 #if ENABLE(DRAG_SUPPORT)
@@ -1151,7 +1157,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     if (!_page->preferences().contentInsetBackgroundFillEnabled())
         return NO;
 
-    return _page->obscuredContentInsets().top() > 0;
+    return _page->obscuredContentInsets().top() > 0 || _page->overflowHeightForTopScrollEdgeEffect() > 0;
 }
 
 - (void)registerPocketContainer:(NSView *)container onEdge:(NSScrollPocketEdge)edge
@@ -1288,12 +1294,12 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 - (id)_web_immediateActionAnimationControllerForHitTestResultInternal:(API::HitTestResult*)hitTestResult withType:(uint32_t)type userData:(API::Object*)userData
 {
     RetainPtr data = userData ? static_cast<id<NSSecureCoding>>(userData->wrapper()) : nil;
-    return [self _immediateActionAnimationControllerForHitTestResult:wrapper(*hitTestResult) withType:(_WKImmediateActionType)type userData:data.get()];
+    return [self _immediateActionAnimationControllerForHitTestResult:protectedWrapper(*hitTestResult).get() withType:(_WKImmediateActionType)type userData:data.get()];
 }
 
 - (void)_web_prepareForImmediateActionAnimation
 {
-    id <WKUIDelegatePrivate> uiDelegate = (id <WKUIDelegatePrivate>)[self UIDelegate];
+    RetainPtr<id <WKUIDelegatePrivate>> uiDelegate = (id <WKUIDelegatePrivate>)[self UIDelegate];
     if ([uiDelegate respondsToSelector:@selector(_prepareForImmediateActionAnimationForWebView:)])
         [uiDelegate _prepareForImmediateActionAnimationForWebView:self];
     else
@@ -1302,7 +1308,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)_web_cancelImmediateActionAnimation
 {
-    id <WKUIDelegatePrivate> uiDelegate = (id <WKUIDelegatePrivate>)[self UIDelegate];
+    RetainPtr<id <WKUIDelegatePrivate>> uiDelegate = (id <WKUIDelegatePrivate>)[self UIDelegate];
     if ([uiDelegate respondsToSelector:@selector(_cancelImmediateActionAnimationForWebView:)])
         [uiDelegate _cancelImmediateActionAnimationForWebView:self];
     else
@@ -1311,7 +1317,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)_web_completeImmediateActionAnimation
 {
-    id <WKUIDelegatePrivate> uiDelegate = (id <WKUIDelegatePrivate>)[self UIDelegate];
+    RetainPtr<id <WKUIDelegatePrivate>> uiDelegate = (id <WKUIDelegatePrivate>)[self UIDelegate];
     if ([uiDelegate respondsToSelector:@selector(_completeImmediateActionAnimationForWebView:)])
         [uiDelegate _completeImmediateActionAnimationForWebView:self];
     else
@@ -1349,7 +1355,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (WKDragDestinationAction)_web_dragDestinationActionForDraggingInfo:(id <NSDraggingInfo>)draggingInfo
 {
-    id <WKUIDelegatePrivate> uiDelegate = (id <WKUIDelegatePrivate>)[self UIDelegate];
+    RetainPtr<id <WKUIDelegatePrivate>> uiDelegate = (id <WKUIDelegatePrivate>)[self UIDelegate];
     if ([uiDelegate respondsToSelector:@selector(_webView:dragDestinationActionMaskForDraggingInfo:)])
         return [uiDelegate _webView:self dragDestinationActionMaskForDraggingInfo:draggingInfo];
 
@@ -1361,7 +1367,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)_web_didPerformDragOperation:(BOOL)handled
 {
-    id <WKUIDelegatePrivate> uiDelegate = (id <WKUIDelegatePrivate>)self.UIDelegate;
+    RetainPtr<id <WKUIDelegatePrivate>> uiDelegate = (id <WKUIDelegatePrivate>)self.UIDelegate;
     if ([uiDelegate respondsToSelector:@selector(_webView:didPerformDragOperation:)])
         [uiDelegate _webView:self didPerformDragOperation:handled];
 }
@@ -1438,6 +1444,46 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 - (void)endPreviewPanelControl:(QLPreviewPanel *)panel
 {
     _impl->endPreviewPanelControl(panel);
+}
+
+- (Vector<String>)_promisedFileMIMETypes:(id<NSDraggingInfo>)info
+{
+    __block Vector<String> mimeTypes;
+    [info enumerateDraggingItemsWithOptions:0 forView:self classes:@[NSFilePromiseReceiver.class] searchOptions:@{ } usingBlock:^(NSDraggingItem *item, NSInteger, BOOL *) {
+        RetainPtr receiver = dynamic_objc_cast<NSFilePromiseReceiver>(item.item);
+        if (!receiver)
+            return;
+
+        for (NSString *typeIdentifier in [receiver fileTypes]) {
+            RetainPtr type = [UTType typeWithIdentifier:typeIdentifier];
+            if (!type)
+                continue;
+
+            if (RetainPtr mimeType = [type preferredMIMEType])
+                mimeTypes.append({ mimeType.get() });
+        }
+    }];
+
+    if (mimeTypes.isEmpty()) {
+        RetainPtr filenames = dynamic_objc_cast<NSArray>([info.draggingPasteboard propertyListForType:WebCore::legacyFilenamesPasteboardTypeSingleton()]);
+        if (!filenames)
+            return { };
+
+        for (id name in filenames.get()) {
+            RetainPtr pathExtension = [dynamic_objc_cast<NSString>(name) pathExtension];
+            if (![pathExtension length])
+                continue;
+
+            RetainPtr type = [UTType typeWithFilenameExtension:pathExtension.get()];
+            if (!type)
+                continue;
+
+            if (RetainPtr mimeType = [type preferredMIMEType])
+                mimeTypes.append({ mimeType.get() });
+        }
+    }
+
+    return mimeTypes;
 }
 
 #pragma mark - NSTextCheckingClient_WritingTools
@@ -1566,9 +1612,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)_setTopContentInset:(CGFloat)inset
 {
-    auto insets = _impl->obscuredContentInsets();
-    insets.setTop(static_cast<float>(inset));
-    _impl->setObscuredContentInsets(insets);
+    [self _setTopContentInset:inset immediate:NO];
 }
 
 - (CGFloat)_topContentInset
@@ -1592,6 +1636,10 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         return;
     }
 
+#if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
+    _impl->setClientImplicitlyRequestedTopScrollPocket();
+#endif
+
     _impl->setObscuredContentInsets(coreBoxExtentsFromEdgeInsets(insets));
 
     if (immediate)
@@ -1609,6 +1657,30 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     );
 }
 
+- (CGFloat)_overflowHeightForTopScrollEdgeEffect
+{
+    return _page->overflowHeightForTopScrollEdgeEffect();
+}
+
+- (void)_setOverflowHeightForTopScrollEdgeEffect:(CGFloat)height
+{
+#if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
+    _impl->setClientImplicitlyRequestedTopScrollPocket();
+#endif
+
+    if (_page->overflowHeightForTopScrollEdgeEffect() == height)
+        return;
+
+    _page->setOverflowHeightForTopScrollEdgeEffect(height);
+
+#if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
+    _impl->updateScrollPocket();
+#endif
+
+    if (RetainPtr attachedInspectorWebView = [self _horizontallyAttachedInspectorWebView])
+        [attachedInspectorWebView _setOverflowHeightForTopScrollEdgeEffect:height];
+}
+
 - (NSColor *)_overrideTopScrollEdgeEffectColor
 {
     return _overrideTopScrollEdgeEffectColor.get();
@@ -1616,6 +1688,10 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)_setOverrideTopScrollEdgeEffectColor:(NSColor *)color
 {
+#if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
+    _impl->setClientImplicitlyRequestedTopScrollPocket();
+#endif
+
     if (_overrideTopScrollEdgeEffectColor == color || [_overrideTopScrollEdgeEffectColor isEqual:color])
         return;
 
@@ -1635,10 +1711,27 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     return _impl->topScrollPocket();
 }
 
-#endif
+- (BOOL)_prefersSolidColorHardScrollPocket
+{
+    return _preferSolidColorHardPocketReasons.contains(WebKit::PreferSolidColorHardPocketReason::RequestedByClient);
+}
+
+- (void)_setPrefersSolidColorHardScrollPocket:(BOOL)value
+{
+    if (value)
+        [self _addReasonToPreferSolidColorHardPocket:WebKit::PreferSolidColorHardPocketReason::RequestedByClient];
+    else
+        [self _removeReasonToPreferSolidColorHardPocket:WebKit::PreferSolidColorHardPocketReason::RequestedByClient];
+}
+
+#endif // ENABLE(CONTENT_INSET_BACKGROUND_FILL)
 
 - (void)_setUsesAutomaticContentInsetBackgroundFill:(BOOL)value
 {
+#if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
+    _impl->setClientImplicitlyRequestedTopScrollPocket();
+#endif
+
     if (_usesAutomaticContentInsetBackgroundFill == value)
         return;
 
@@ -1905,7 +1998,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 {
     auto insets = _impl->customSwipeViewsObscuredContentInsets();
     insets.setTop(topContentInset);
-    _impl->setCustomSwipeViewsObscuredContentInsets(WTFMove(insets));
+    _impl->setCustomSwipeViewsObscuredContentInsets(WTF::move(insets));
 }
 
 - (void)_setCustomSwipeViewsObscuredContentInsets:(NSEdgeInsets)insets
@@ -2010,6 +2103,39 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 #endif
 }
 
+- (BOOL)_isSmartListsEnabled
+{
+    return _impl->isSmartListsEnabled();
+}
+
+- (void)_setSmartListsEnabled:(BOOL)flag
+{
+    _impl->setSmartListsEnabled(flag);
+}
+
+- (void)_toggleSmartLists:(id)sender
+{
+    _impl->toggleSmartLists();
+}
+
+- (void)_storePrivateClickMeasurementWithSourceID:(uint8_t)sourceID destinationURL:(NSURL *)destinationURL reportEndpoint:(NSURL *)reportEndpoint
+{
+    WebCore::PrivateClickMeasurement measurement(
+        WebCore::PrivateClickMeasurement::SourceID(sourceID),
+        WebCore::PCM::SourceSite(reportEndpoint),
+        WebCore::PCM::AttributionDestinationSite(destinationURL),
+        applicationBundleIdentifier(),
+        WallTime::now(),
+        WebCore::PCM::AttributionEphemeral::No
+    );
+    _page->setPrivateClickMeasurementImmediately(WTF::move(measurement));
+}
+
+- (void)_storeSimulatedPrivateClickMeasurementConversionWithPriority:(uint8_t)priority triggerData:(uint8_t)triggerData sourceURL:(NSURL *)sourceURL destinationURL:(NSURL *)destinationURL
+{
+    _page->simulatePrivateClickMeasurementConversion(priority, triggerData, sourceURL, destinationURL);
+}
+
 @end // WKWebView (WKPrivateMac)
 
 @implementation WKWebView (WKWindowSnapshot)
@@ -2019,7 +2145,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (!snapshot)
         return nil;
 
-    return [[NSImage alloc] initWithCGImage:snapshot.get() size:NSZeroSize];
+    SUPPRESS_RETAINPTR_CTOR_ADOPT return [[NSImage alloc] initWithCGImage:snapshot.get() size:NSZeroSize];
 }
 @end
 

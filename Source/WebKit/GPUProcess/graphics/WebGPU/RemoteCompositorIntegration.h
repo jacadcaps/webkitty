@@ -70,7 +70,7 @@ class RemoteCompositorIntegration final : public IPC::StreamMessageReceiver {
 public:
     static Ref<RemoteCompositorIntegration> create(WebCore::WebGPU::CompositorIntegration& compositorIntegration, WebGPU::ObjectHeap& objectHeap, Ref<IPC::StreamServerConnection>&& streamConnection, RemoteGPU& gpu, WebGPUIdentifier identifier)
     {
-        return adoptRef(*new RemoteCompositorIntegration(compositorIntegration, objectHeap, WTFMove(streamConnection), gpu, identifier));
+        return adoptRef(*new RemoteCompositorIntegration(compositorIntegration, objectHeap, WTF::move(streamConnection), gpu, identifier));
     }
 
     virtual ~RemoteCompositorIntegration();
@@ -97,14 +97,12 @@ private:
     Ref<WebGPU::ObjectHeap> protectedObjectHeap() const { return m_objectHeap.get(); }
     Ref<RemoteGPU> protectedGPU() const { return m_gpu.get(); }
 
-    RefPtr<IPC::Connection> connection() const;
-
     void didReceiveStreamMessage(IPC::StreamServerConnection&, IPC::Decoder&) final;
     void destruct();
     void paintCompositedResultsToCanvas(WebCore::RenderingResourceIdentifier, uint32_t, CompletionHandler<void()>&&);
 
 #if PLATFORM(COCOA)
-    void recreateRenderBuffers(int width, int height, WebCore::DestinationColorSpace&&, WebCore::AlphaPremultiplication, WebCore::WebGPU::TextureFormat, WebKit::WebGPUIdentifier deviceIdentifier, CompletionHandler<void(Vector<MachSendRight>&&)>&&);
+    void recreateRenderBuffers(int width, int height, WebCore::DestinationColorSpace&&, WebCore::AlphaPremultiplication, WebCore::WebGPU::TextureFormat, unsigned bufferCount, WebKit::WebGPUIdentifier deviceIdentifier, CompletionHandler<void(Vector<MachSendRight>&&)>&&);
 #endif
 
     void prepareForDisplay(uint32_t frameIndex, CompletionHandler<void(bool)>&&);

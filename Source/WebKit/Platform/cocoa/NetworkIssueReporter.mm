@@ -31,6 +31,7 @@
 #import <pal/spi/cf/CFNetworkSPI.h>
 #import <wtf/SoftLinking.h>
 #import <wtf/TZoneMallocInlines.h>
+#import <wtf/URL.h>
 
 SOFT_LINK_SYSTEM_LIBRARY(libsystem_networkextension)
 SOFT_LINK_OPTIONAL(libsystem_networkextension, ne_tracker_create_xcode_issue, void, __cdecl, (const char*, const void*, size_t))
@@ -63,14 +64,10 @@ bool NetworkIssueReporter::shouldReport(NSURLSessionTaskMetrics *metrics)
 NetworkIssueReporter::NetworkIssueReporter()
 {
     if (auto* copyStacktrace = ne_tracker_copy_current_stacktracePtr())
-        m_stackTrace = copyStacktrace(&m_stackTraceSize);
+        m_stackTrace = adoptSystemMalloc(copyStacktrace(&m_stackTraceSize));
 }
 
-NetworkIssueReporter::~NetworkIssueReporter()
-{
-    if (m_stackTrace)
-        free(m_stackTrace);
-}
+NetworkIssueReporter::~NetworkIssueReporter() = default;
 
 void NetworkIssueReporter::report(const URL& requestURL)
 {
@@ -82,7 +79,7 @@ void NetworkIssueReporter::report(const URL& requestURL)
         return;
 
     if (auto createIssue = ne_tracker_create_xcode_issuePtr())
-        createIssue(host.utf8().data(), m_stackTrace, m_stackTraceSize);
+        createIssue(host.utf8().data(), m_stackTrace.get(), m_stackTraceSize);
 }
 
 } // namespace WebKit

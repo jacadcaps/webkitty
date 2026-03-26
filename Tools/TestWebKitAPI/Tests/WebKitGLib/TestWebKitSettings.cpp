@@ -33,7 +33,6 @@
 #include "TestMain.h"
 #include "WebKitTestServer.h"
 #include "WebViewTest.h"
-#include <WebCore/SoupVersioning.h>
 #include <wtf/HashSet.h>
 #include <wtf/glib/GRefPtr.h>
 #include <wtf/text/MakeString.h>
@@ -132,6 +131,14 @@ static void testWebKitSettings(Test*, gconstpointer)
     g_assert_cmpstr(webkit_settings_get_pictograph_font_family(settings), ==, "serif");
     webkit_settings_set_pictograph_font_family(settings, "sans-serif");
     g_assert_cmpstr(webkit_settings_get_pictograph_font_family(settings), ==, "sans-serif");
+
+    // Default math font family is nullptr.
+    g_assert_null(webkit_settings_get_math_font_family(settings));
+    webkit_settings_set_math_font_family(settings, "sans-serif");
+    g_assert_cmpstr(webkit_settings_get_math_font_family(settings), ==, "sans-serif");
+    // Can be reset to default by passing nullptr again.
+    webkit_settings_set_math_font_family(settings, nullptr);
+    g_assert_null(webkit_settings_get_math_font_family(settings));
 
     // Default font size is 16.
     g_assert_cmpuint(webkit_settings_get_default_font_size(settings), ==, 16);
@@ -462,7 +469,7 @@ void testWebKitFeatures(Test* test, gconstpointer)
 
             auto identifier = String::fromUTF8(webkit_feature_get_identifier(feature));
             g_assert_false(featureIdentifiers.contains(identifier));
-            featureIdentifiers.add(WTFMove(identifier));
+            featureIdentifiers.add(WTF::move(identifier));
         }
 
         g_assert_cmpuint(featureIdentifiers.size(), ==, allFeaturesCount);
@@ -652,11 +659,7 @@ static void testWebKitSettingsJavaScriptMarkup(WebViewTest* test, gconstpointer)
     webkit_settings_set_enable_javascript_markup(webkit_web_view_get_settings(test->webView()), TRUE);
 }
 
-#if USE(SOUP2)
-static void serverCallback(SoupServer* server, SoupMessage* message, const char* path, GHashTable*, SoupClientContext*, gpointer)
-#else
 static void serverCallback(SoupServer* server, SoupServerMessage* message, const char* path, GHashTable*, gpointer)
-#endif
 {
     if (soup_server_message_get_method(message) != SOUP_METHOD_GET) {
         soup_server_message_set_status(message, SOUP_STATUS_NOT_IMPLEMENTED, nullptr);

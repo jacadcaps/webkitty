@@ -34,7 +34,7 @@ namespace WebKit {
 
 struct PlatformPopupMenuData {
 #if PLATFORM(COCOA)
-    WebKit::PlatformFontInfo fontInfo;
+    WebCore::InstalledFont font;
     bool shouldPopOver { false };
     bool hideArrows { false };
     WebCore::PopupMenuStyle::Size menuSize { WebCore::PopupMenuStyle::Size::Normal };

@@ -32,7 +32,7 @@ namespace TestWebKitAPI {
 
 class InjectedBundleTest {
 public:
-    virtual ~InjectedBundleTest() { }
+    virtual ~InjectedBundleTest() = default;
 
     virtual void initialize(WKBundleRef, WKTypeRef) { }
 

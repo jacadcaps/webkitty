@@ -26,7 +26,8 @@
 typedef DOMString NamedCurve;
 
 [
-    JSGenerateToJSObject
+    JSGenerateToJSObject,
+    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary CryptoEcKeyAlgorithm : CryptoKeyAlgorithm {
     // The named curve that the key uses
     required NamedCurve namedCurve;

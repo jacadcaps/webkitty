@@ -20,9 +20,9 @@
 
 #pragma once
 
-#include "EventTargetInlines.h"
-#include "JSDOMWrapper.h"
+#include "EventTarget.h"
 #include "JSEventTarget.h"
+#include <WebCore/JSDOMWrapper.h>
 
 namespace WebCore {
 
@@ -34,7 +34,7 @@ public:
     using DOMWrapped = WorkletGlobalScope;
     static JSWorkletGlobalScope* create(JSC::VM& vm, JSC::Structure* structure, Ref<WorkletGlobalScope>&& impl, JSC::JSGlobalProxy* proxy)
     {
-        JSWorkletGlobalScope* ptr = new (NotNull, JSC::allocateCell<JSWorkletGlobalScope>(vm)) JSWorkletGlobalScope(vm, structure, WTFMove(impl));
+        JSWorkletGlobalScope* ptr = new (NotNull, JSC::allocateCell<JSWorkletGlobalScope>(vm)) JSWorkletGlobalScope(vm, structure, WTF::move(impl));
         ptr->finishCreation(vm, proxy);
         return ptr;
     }

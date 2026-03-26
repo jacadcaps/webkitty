@@ -63,7 +63,7 @@ namespace WebKit {
 
 bool methodSignaturesAreCompatible(NSString *wire, NSString *local)
 {
-    if ([local isEqualToString:wire] ==  NSOrderedSame)
+    if ([local isEqualToString:wire])
         return true;
 
     if (local.length != wire.length)
@@ -96,7 +96,7 @@ bool methodSignaturesAreCompatible(NSString *wire, NSString *local)
     RefPtr<API::Array> _objectStream;
 
     RefPtr<API::Dictionary> _currentDictionary;
-    HashSet<NSObject *> _objectsBeingEncoded; // Used to detect cycles.
+    HashSet<RetainPtr<NSObject>> _objectsBeingEncoded; // Used to detect cycles.
 }
 
 - (id)init
@@ -132,7 +132,7 @@ static void ensureObjectStream(WKRemoteObjectEncoder *encoder)
     Ref<API::Array> objectStream = API::Array::create();
     encoder->_objectStream = objectStream.ptr();
 
-    encoder->_rootDictionary->set(objectStreamKey, WTFMove(objectStream));
+    encoder->_rootDictionary->set(objectStreamKey, WTF::move(objectStream));
 }
 
 static void encodeToObjectStream(WKRemoteObjectEncoder *encoder, id value)
@@ -145,7 +145,7 @@ static void encodeToObjectStream(WKRemoteObjectEncoder *encoder, id value)
 
     auto encodedObject = createEncodedObject(encoder, value);
     ASSERT(!objectStream->elements()[position]);
-    objectStream->elements()[position] = WTFMove(encodedObject);
+    objectStream->elements()[position] = WTF::move(encodedObject);
 }
 
 static void encodeInvocationArguments(WKRemoteObjectEncoder *encoder, NSInvocation *invocation, NSUInteger firstArgument)
@@ -336,15 +336,18 @@ static void encodeString(WKRemoteObjectEncoder *encoder, NSString *string)
 
 static RetainPtr<id> decodeObjCObject(WKRemoteObjectDecoder *decoder, Class objectClass)
 {
+    // This is OK because we'll adopt below after -init.
     SUPPRESS_UNRETAINED_LOCAL id allocation = [objectClass allocWithZone:decoder.zone];
     if (!allocation)
         [NSException raise:NSInvalidUnarchiveOperationException format:@"Class \"%@\" returned nil from +alloc while being decoded", NSStringFromClass(objectClass)];
 
-    RetainPtr<id> result = adoptNS([allocation initWithCoder:decoder]);
+    // This is OK because we're adopting the +1 from alloc above.
+    SUPPRESS_RETAINPTR_CTOR_ADOPT RetainPtr<id> result = adoptNS([allocation initWithCoder:decoder]);
     if (!result)
         [NSException raise:NSInvalidUnarchiveOperationException format:@"Object of class \"%@\" returned nil from -initWithCoder: while being decoded", NSStringFromClass(objectClass)];
 
-    result = adoptNS([result.leakRef() awakeAfterUsingCoder:decoder]);
+    // This is OK because -awakeAfterUsingCoder consumes its argument and returns +1 (NS_REPLACES_RECEIVER).
+    SUPPRESS_RETAINPTR_CTOR_ADOPT result = adoptNS([result.leakRef() awakeAfterUsingCoder:decoder]);
     if (!result)
         [NSException raise:NSInvalidUnarchiveOperationException format:@"Object of class \"%@\" returned nil from -awakeAfterUsingCoder: while being decoded", NSStringFromClass(objectClass)];
 
@@ -455,7 +458,8 @@ static void encodeObject(WKRemoteObjectEncoder *encoder, id object)
     if (![object conformsToProtocol:@protocol(NSSecureCoding)] && ![object isKindOfClass:[NSInvocation class]])
         [NSException raise:NSInvalidArgumentException format:@"%@ does not conform to NSSecureCoding", object];
 
-    if (class_isMetaClass(object_getClass(object)))
+    // FIXME: This is a safer cpp false positive (rdar://163108778).
+    SUPPRESS_UNRETAINED_ARG if (class_isMetaClass(object_getClass(object)))
         [NSException raise:NSInvalidArgumentException format:@"Class objects may not be encoded"];
 
     RetainPtr<Class> objectClass = [object classForCoder];
@@ -463,8 +467,9 @@ static void encodeObject(WKRemoteObjectEncoder *encoder, id object)
         [NSException raise:NSInvalidArgumentException format:@"-classForCoder returned nil for %@", object];
 
     if (encoder->_objectsBeingEncoded.contains(object)) {
-        RELEASE_LOG_FAULT(IPC, "WKRemoteObjectCode::encodeObject: Object of type '%{private}s' contains a cycle", class_getName(object_getClass(object)));
-        [NSException raise:NSInvalidArgumentException format:@"Object of type '%s' contains a cycle", class_getName(object_getClass(object))];
+        // FIXME: This is a safer cpp false positive (rdar://163108778).
+        SUPPRESS_UNRETAINED_ARG RELEASE_LOG_FAULT(IPC, "WKRemoteObjectCode::encodeObject: Object of type '%{private}s' contains a cycle", class_getName(object_getClass(object)));
+        SUPPRESS_UNRETAINED_ARG [NSException raise:NSInvalidArgumentException format:@"Object of type '%s' contains a cycle", class_getName(object_getClass(object))];
         return;
     }
 
@@ -502,7 +507,7 @@ static RefPtr<API::Dictionary> createEncodedObject(WKRemoteObjectEncoder *encode
 
     encodeObject(encoder, object);
 
-    return WTFMove(dictionary);
+    return WTF::move(dictionary);
 }
 
 - (void)encodeValueOfObjCType:(const char *)type at:(const void *)address
@@ -669,7 +674,7 @@ static NSString *escapeKey(NSString *key)
 
     _interface = interface;
 
-    lazyInitialize(_rootDictionary, WTFMove(rootObjectDictionary));
+    lazyInitialize(_rootDictionary, WTF::move(rootObjectDictionary));
     _currentDictionary = _rootDictionary;
 
     _replyToSelector = replyToSelector;

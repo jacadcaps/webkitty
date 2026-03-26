@@ -455,12 +455,18 @@ static inline bool valuesAreWithinOnePixel(CGFloat a, CGFloat b)
 
 - (void)setScrollEnabled:(BOOL)value
 {
+    if (value == _scrollEnabledByClient)
+        return;
+
     _scrollEnabledByClient = value;
     [self _updateScrollability];
 }
 
 - (void)_setScrollEnabledInternal:(BOOL)value
 {
+    if (value == _scrollEnabledInternal)
+        return;
+
     _scrollEnabledInternal = value;
     [self _updateScrollability];
 }
@@ -614,10 +620,10 @@ static inline bool valuesAreWithinOnePixel(CGFloat a, CGFloat b)
         if (!originalEffect)
             return nil;
 
-        wrapper = adoptNS([[WKUIScrollEdgeEffect alloc] initWithScrollEdgeEffect:originalEffect.get() boxSide:WebCore::BoxSide::Top]);
+        wrapper = adoptNS([[WKUIScrollEdgeEffect alloc] initWithScrollView:self scrollEdgeEffect:originalEffect.get() boxSide:WebCore::BoxSide::Top]);
         _edgeEffectWrappers.setAt(WebCore::BoxSide::Top, wrapper);
     }
-    return wrapper.get();
+    return wrapper.autorelease();
 }
 
 - (WKUIScrollEdgeEffect *)_wk_leftEdgeEffect
@@ -628,10 +634,10 @@ static inline bool valuesAreWithinOnePixel(CGFloat a, CGFloat b)
         if (!originalEffect)
             return nil;
 
-        wrapper = adoptNS([[WKUIScrollEdgeEffect alloc] initWithScrollEdgeEffect:originalEffect.get() boxSide:WebCore::BoxSide::Left]);
+        wrapper = adoptNS([[WKUIScrollEdgeEffect alloc] initWithScrollView:self scrollEdgeEffect:originalEffect.get() boxSide:WebCore::BoxSide::Left]);
         _edgeEffectWrappers.setAt(WebCore::BoxSide::Left, wrapper);
     }
-    return wrapper.get();
+    return wrapper.autorelease();
 }
 
 - (WKUIScrollEdgeEffect *)_wk_rightEdgeEffect
@@ -642,10 +648,10 @@ static inline bool valuesAreWithinOnePixel(CGFloat a, CGFloat b)
         if (!originalEffect)
             return nil;
 
-        wrapper = adoptNS([[WKUIScrollEdgeEffect alloc] initWithScrollEdgeEffect:originalEffect.get() boxSide:WebCore::BoxSide::Right]);
+        wrapper = adoptNS([[WKUIScrollEdgeEffect alloc] initWithScrollView:self scrollEdgeEffect:originalEffect.get() boxSide:WebCore::BoxSide::Right]);
         _edgeEffectWrappers.setAt(WebCore::BoxSide::Right, wrapper);
     }
-    return wrapper.get();
+    return wrapper.autorelease();
 }
 
 - (WKUIScrollEdgeEffect *)_wk_bottomEdgeEffect
@@ -656,23 +662,30 @@ static inline bool valuesAreWithinOnePixel(CGFloat a, CGFloat b)
         if (!originalEffect)
             return nil;
 
-        wrapper = adoptNS([[WKUIScrollEdgeEffect alloc] initWithScrollEdgeEffect:originalEffect.get() boxSide:WebCore::BoxSide::Bottom]);
+        wrapper = adoptNS([[WKUIScrollEdgeEffect alloc] initWithScrollView:self scrollEdgeEffect:originalEffect.get() boxSide:WebCore::BoxSide::Bottom]);
         _edgeEffectWrappers.setAt(WebCore::BoxSide::Bottom, wrapper);
     }
-    return wrapper.get();
+    return wrapper.autorelease();
 }
 
 - (void)_setInternalTopPocketColor:(UIColor *)color
 {
+    if ([_topPocketColorSetInternally isEqual:color] || _topPocketColorSetInternally == color)
+        return;
+
     _topPocketColorSetInternally = color;
 
     [self _updateTopPocketColor];
 }
 
+ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 - (void)_setPocketColor:(UIColor *)color forEdge:(UIRectEdge)edge
+ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 {
     if (edge != UIRectEdgeTop) {
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         [super _setPocketColor:color forEdge:edge];
+ALLOW_DEPRECATED_DECLARATIONS_END
         return;
     }
 
@@ -684,12 +697,24 @@ static inline bool valuesAreWithinOnePixel(CGFloat a, CGFloat b)
 - (void)_updateTopPocketColor
 {
     RetainPtr colorToSet = _topPocketColorSetByClient ?: _topPocketColorSetInternally;
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     [super _setPocketColor:colorToSet.get() forEdge:UIRectEdgeTop];
+ALLOW_DEPRECATED_DECLARATIONS_END
 }
 
 - (BOOL)_usesHardTopScrollEdgeEffect
 {
     return [[self _wk_topEdgeEffect] usesHardStyle];
+}
+
+- (void)_didChangeTopScrollEdgeEffectStyle
+{
+    RetainPtr webView = _internalDelegate;
+    if (!webView)
+        return;
+
+    [webView _updateTopScrollPocketCaptureColor];
+    [webView _updatePrefersSolidColorHardPocket];
 }
 
 #endif // HAVE(LIQUID_GLASS)

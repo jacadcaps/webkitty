@@ -27,8 +27,8 @@
 
 #if USE(APPKIT)
 
-#include "Color.h"
-#include "SystemImage.h"
+#include <WebCore/Color.h>
+#include <WebCore/SystemImage.h>
 #include <optional>
 #include <wtf/ArgumentCoder.h>
 #include <wtf/Forward.h>
@@ -64,7 +64,7 @@ protected:
     AppKitControlSystemImage(AppKitControlSystemImageType);
 
 private:
-    friend struct IPC::ArgumentCoder<AppKitControlSystemImage, void>;
+    friend struct IPC::ArgumentCoder<AppKitControlSystemImage>;
     AppKitControlSystemImageType m_controlType;
 
     Color m_tintColor;

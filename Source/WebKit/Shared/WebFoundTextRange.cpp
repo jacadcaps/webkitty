@@ -50,14 +50,37 @@ unsigned WebFoundTextRange::hash() const
 
 bool WebFoundTextRange::operator==(const WebFoundTextRange& other) const
 {
-    if (frameIdentifier.isHashTableDeletedValue())
-        return other.frameIdentifier.isHashTableDeletedValue();
-    if (other.frameIdentifier.isHashTableDeletedValue())
+    if (pathToFrame.isHashTableDeletedValue())
+        return other.pathToFrame.isHashTableDeletedValue();
+    if (other.pathToFrame.isHashTableDeletedValue())
         return false;
 
     return data == other.data
-        && frameIdentifier == other.frameIdentifier
+        && pathToFrame == other.pathToFrame
         && order == other.order;
+}
+
+TextStream& operator<<(TextStream& ts, const WebFoundTextRange& range)
+{
+    WTF::switchOn(range.data,
+        [&] (const WebFoundTextRange::DOMData& domData) {
+            ts << "WebFoundTextRange"_s;
+            ts.dumpProperty("DOMData"_s, domData);
+        },
+        [&] (const WebFoundTextRange::PDFData& pdfData) {
+            ts << "WebFoundTextRange"_s;
+            ts.dumpProperty("PDFData"_s, pdfData);
+        }
+    );
+    ts.dumpProperty("order"_s, range.order);
+    ts.dumpProperty("pathToFrame"_s, range.pathToFrame);
+    return ts;
+}
+
+TextStream& operator<<(TextStream& ts, const WebFoundTextRange::DOMData& data)
+{
+    ts << "[location: " << data.location << ", length: " << data.length << "]";
+    return ts;
 }
 
 TextStream& operator<<(TextStream& ts, const WebFoundTextRange::PDFData& data)

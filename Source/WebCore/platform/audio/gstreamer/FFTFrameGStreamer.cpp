@@ -77,8 +77,8 @@ FFTFrame::FFTFrame(const FFTFrame& frame)
     m_inverseFft.reset(gst_fft_f32_new(fftLength, TRUE));
 
     // Copy/setup frame data.
-    memcpy(realData().data(), frame.realData().data(), sizeof(float) * realData().size());
-    memcpy(imagData().data(), frame.imagData().data(), sizeof(float) * imagData().size());
+    memcpySpan(m_realData.span(), frame.realData().span());
+    memcpySpan(m_imagData.span(), frame.imagData().span());
 }
 
 void FFTFrame::initialize()

@@ -54,7 +54,7 @@ scm = local.Git(os.getcwd())
 
 filter_dirs = [ 'gobject', 'glib', 'soup', 'cairo', 'gstreamer', 'atspi', 'adwaita',
                 'unix', 'linux', 'CoordinatedGraphics', 'texmap', 'coordinated', 'skia',
-                'WebDriver', 'harfbuzz', 'freetype', 'egl', 'buildstream' ]
+                'WebDriver', 'harfbuzz', 'freetype', 'egl' ]
 if port.name() == 'gtk':
     filter_dirs.extend([ 'gtk', 'wayland', 'x11' ])
 elif port.name() == 'wpe':

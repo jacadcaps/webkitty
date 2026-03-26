@@ -29,8 +29,10 @@
 #include "config.h"
 #include "AccessibilityTableColumn.h"
 
+#include "AXLoggerBase.h"
 #include "AXObjectCache.h"
-#include "AccessibilityTable.h"
+#include "AccessibilityObjectInlines.h"
+#include "AccessibilityNodeObject.h"
 
 namespace WebCore {
 
@@ -49,10 +51,10 @@ Ref<AccessibilityTableColumn> AccessibilityTableColumn::create(AXID axID, AXObje
 void AccessibilityTableColumn::setParent(AccessibilityObject* parent)
 {
     AccessibilityMockObject::setParent(parent);
-    
+
     clearChildren();
 }
-    
+
 LayoutRect AccessibilityTableColumn::elementRect() const
 {
     // This used to be cached during the call to addChildren(), but calling elementRect()
@@ -72,7 +74,7 @@ void AccessibilityTableColumn::setColumnIndex(unsigned columnIndex)
     m_columnIndex = columnIndex;
 
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
-    if (auto* cache = axObjectCache())
+    if (CheckedPtr cache = axObjectCache())
         cache->columnIndexChanged(*this);
 #endif
 }
@@ -82,17 +84,17 @@ bool AccessibilityTableColumn::computeIsIgnored() const
 #if PLATFORM(IOS_FAMILY) || USE(ATSPI)
     return true;
 #endif
-    
-    return !m_parent || m_parent->isIgnored();
+
+    return !m_parent || RefPtr { *m_parent }->isIgnored();
 }
-    
+
 void AccessibilityTableColumn::addChildren()
 {
-    ASSERT(!m_childrenInitialized); 
+    AX_ASSERT(!m_childrenInitialized);
     m_childrenInitialized = true;
 
-    RefPtr parentTable = dynamicDowncast<AccessibilityTable>(m_parent.get());
-    if (!parentTable || !parentTable->isExposable())
+    RefPtr parentTable = dynamicDowncast<AccessibilityNodeObject>(m_parent.get());
+    if (!parentTable || !parentTable->isExposableTable())
         return;
 
     int numRows = parentTable->rowCount();
@@ -112,5 +114,5 @@ void AccessibilityTableColumn::addChildren()
     verifyChildrenIndexInParent();
 #endif
 }
-    
+
 } // namespace WebCore

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,6 +31,7 @@
 #import <WebKit/WKProcessPoolPrivate.h>
 #import <WebKit/WKUserContentControllerPrivate.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
+#import <WebKit/WKWebsiteDataStore.h>
 #import <WebKit/WebKit.h>
 #import <WebKit/_WKProcessPoolConfiguration.h>
 #import <WebKit/_WKUserStyleSheet.h>
@@ -64,20 +65,30 @@ TEST(WKWebView, LocalStorageNullEntries)
     NSURL *targetURL = [NSURL fileURLWithPath:[@"~/Library/WebKit/com.apple.WebKit.TestWebKitAPI/WebsiteData/LocalStorage/" stringByExpandingTildeInPath]];
     [[NSFileManager defaultManager] createDirectoryAtURL:targetURL withIntermediateDirectories:YES attributes:nil error:nil];
 
-    [[NSFileManager defaultManager] copyItemAtURL:url1 toURL:[targetURL URLByAppendingPathComponent:@"file__0.localstorage"] error:nil];
-    [[NSFileManager defaultManager] copyItemAtURL:url2 toURL:[targetURL URLByAppendingPathComponent:@"file__0.localstorage-shm"] error:nil];
+    NSURL *localStorageURL = [targetURL URLByAppendingPathComponent:@"file__0.localstorage"];
+    NSURL *localStorageSHMURL = [targetURL URLByAppendingPathComponent:@"file__0.localstorage-shm"];
 
-    RetainPtr<WKWebView> webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    [[NSFileManager defaultManager] copyItemAtURL:url1 toURL:localStorageURL error:nil];
+    [[NSFileManager defaultManager] copyItemAtURL:url2 toURL:localStorageSHMURL error:nil];
 
-    NSURLRequest *request = [NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"LocalStorageNullEntries" withExtension:@"html"]];
-    [webView loadRequest:request];
+    @autoreleasepool {
+        RetainPtr<WKWebView> webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
 
+        NSURLRequest *request = [NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"LocalStorageNullEntries" withExtension:@"html"]];
+        [webView loadRequest:request];
+
+        readyToContinue = false;
+        TestWebKitAPI::Util::run(&readyToContinue);
+
+        webView = nil;
+    }
+
+    // Clean up using WKWebsiteDataStore to properly close the database.
     readyToContinue = false;
+    [[WKWebsiteDataStore defaultDataStore] removeDataOfTypes:[WKWebsiteDataStore allWebsiteDataTypes] modifiedSince:[NSDate distantPast] completionHandler:^() {
+        EXPECT_FALSE([[NSFileManager defaultManager] fileExistsAtPath:localStorageURL.path]);
+        EXPECT_FALSE([[NSFileManager defaultManager] fileExistsAtPath:localStorageSHMURL.path]);
+        readyToContinue = true;
+    }];
     TestWebKitAPI::Util::run(&readyToContinue);
-
-    webView = nil;
-
-    // Clean up.
-    [[NSFileManager defaultManager] removeItemAtURL:[targetURL URLByAppendingPathComponent:@"file__0.localstorage"] error:nil];
-    [[NSFileManager defaultManager] removeItemAtURL:[targetURL URLByAppendingPathComponent:@"file__0.localstorage-shm"] error:nil];
 }

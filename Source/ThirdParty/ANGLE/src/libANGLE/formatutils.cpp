@@ -6,6 +6,10 @@
 
 // formatutils.cpp: Queries for GL image formats.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_libc_calls
+#endif
+
 #include "libANGLE/formatutils.h"
 
 #include "anglebase/no_destructor.h"
@@ -1758,7 +1762,7 @@ bool InternalFormat::computeRowDepthSkipBytes(GLenum formatType,
                                               GLuint *skipBytesOut) const
 {
     GLuint rowPitch = 0;
-    if (!computeRowPitch(type, area.width, unpack.alignment, unpack.rowLength, &rowPitch))
+    if (!computeRowPitch(formatType, area.width, unpack.alignment, unpack.rowLength, &rowPitch))
     {
         return false;
     }
@@ -1772,7 +1776,8 @@ bool InternalFormat::computeRowDepthSkipBytes(GLenum formatType,
     const GLuint skipRows   = static_cast<GLuint>(unpack.skipRows);
     const GLuint skipPixels = static_cast<GLuint>(unpack.skipPixels);
     const GLuint skipImages = is3D ? static_cast<GLuint>(unpack.skipImages) : 0u;
-    if (!computeSkipBytes(type, rowPitch, depthPitch, skipRows, skipPixels, skipImages, &skipBytes))
+    if (!computeSkipBytes(formatType, rowPitch, depthPitch, skipRows, skipPixels, skipImages,
+                          &skipBytes))
     {
         return false;
     }
@@ -1789,7 +1794,7 @@ bool InternalFormat::computeRowSkipBytes(GLenum formatType,
                                          GLuint *skipBytesOut) const
 {
     GLuint rowPitch = 0;
-    if (!computeRowPitch(type, width, pack.alignment, pack.rowLength, &rowPitch))
+    if (!computeRowPitch(formatType, width, pack.alignment, pack.rowLength, &rowPitch))
     {
         return false;
     }
@@ -1798,7 +1803,8 @@ bool InternalFormat::computeRowSkipBytes(GLenum formatType,
     const GLuint skipRows   = static_cast<GLuint>(pack.skipRows);
     const GLuint skipPixels = static_cast<GLuint>(pack.skipPixels);
     const GLuint skipImages = 0u;
-    if (!computeSkipBytes(type, rowPitch, depthPitch, skipRows, skipPixels, skipImages, &skipBytes))
+    if (!computeSkipBytes(formatType, rowPitch, depthPitch, skipRows, skipPixels, skipImages,
+                          &skipBytes))
     {
         return false;
     }

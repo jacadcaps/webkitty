@@ -36,6 +36,7 @@
 #include <WebCore/SerializedScriptValue.h>
 #include <wtf/ArgumentCoder.h>
 #include <wtf/RefCounted.h>
+#include <wtf/RetainReleaseSwift.h>
 #include <wtf/RunLoop.h>
 #include <wtf/URL.h>
 #include <wtf/Vector.h>
@@ -124,6 +125,8 @@ public:
 
     Vector<Ref<FrameState>> children;
 
+    bool isEqualForTesting(const FrameState&) const;
+
 private:
     FrameState(String&& urlString, String&& originalURLString, String&& referrer, AtomString&& target, std::optional<WebCore::FrameIdentifier>, std::optional<Vector<uint8_t>>&& stateObjectData, int64_t documentSequenceNumber, int64_t itemSequenceNumber, WebCore::IntPoint scrollPosition, bool shouldRestoreScrollPosition, float pageScaleFactor, std::optional<HTTPBody>&&, std::optional<WebCore::BackForwardItemIdentifier>, std::optional<WebCore::BackForwardFrameItemIdentifier>, bool hasCachedPage, String&& title, WebCore::ShouldOpenExternalURLsPolicy, RefPtr<WebCore::SerializedScriptValue>&& sessionStateObject, bool wasCreatedByJSWithoutUserInteraction, bool wasRestoredFromSession,  std::optional<WebCore::PolicyContainer>&&,
 #if PLATFORM(IOS_FAMILY)
@@ -140,11 +143,13 @@ private:
     );
 
     Vector<AtomString> m_documentState;
-};
+} SWIFT_SHARED_REFERENCE(refFrameState, derefFrameState);
 
 struct BackForwardListState {
     Vector<Ref<FrameState>> items;
     std::optional<uint32_t> currentIndex;
+
+    bool isEqualForTesting(const BackForwardListState&) const;
 };
 
 struct SessionState {
@@ -152,6 +157,18 @@ struct SessionState {
     uint64_t renderTreeSize;
     URL provisionalURL;
     bool isAppInitiated { true };
+
+    bool isEqualForTesting(const SessionState&) const;
 };
 
 } // namespace WebKit
+
+inline void refFrameState(WebKit::FrameState* obj)
+{
+    WTF::ref(obj);
+}
+
+inline void derefFrameState(WebKit::FrameState* obj)
+{
+    WTF::deref(obj);
+}

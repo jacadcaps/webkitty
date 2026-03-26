@@ -30,7 +30,6 @@
 #include "PDFDocumentLayout.h"
 #include "PDFPageCoverage.h"
 #include <WebCore/FloatRect.h>
-#include <WebCore/GraphicsLayer.h>
 #include <WebCore/IntPoint.h>
 #include <WebCore/TiledBacking.h>
 #include <limits>
@@ -47,6 +46,10 @@
 #endif
 
 OBJC_CLASS PDFDocument;
+
+namespace WebCore {
+class GraphicsLayer;
+}
 
 namespace WebKit {
 
@@ -179,6 +182,9 @@ public:
     static Ref<AsyncPDFRenderer> create(PDFPresentationController&);
 
     virtual ~AsyncPDFRenderer();
+
+    // WebCore::TiledBackingClient.
+    WTF_ABSTRACT_THREAD_SAFE_REF_COUNTED_AND_CAN_MAKE_WEAK_PTR_IMPL;
 
     void startTrackingLayer(WebCore::GraphicsLayer&);
     void stopTrackingLayer(WebCore::GraphicsLayer&);

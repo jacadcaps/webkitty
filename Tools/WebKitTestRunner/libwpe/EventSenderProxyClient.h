@@ -42,6 +42,8 @@ public:
     virtual void mouseScrollBy(int, int, double, double, double) = 0;
 
     virtual void keyDown(WKStringRef, double, WKEventModifiers, unsigned) = 0;
+    virtual void rawKeyDown(WKStringRef, WKEventModifiers, unsigned) = 0;
+    virtual void rawKeyUp(WKStringRef, WKEventModifiers, unsigned) = 0;
 
 #if ENABLE(TOUCH_EVENTS)
     virtual void addTouchPoint(int, int, double) { };

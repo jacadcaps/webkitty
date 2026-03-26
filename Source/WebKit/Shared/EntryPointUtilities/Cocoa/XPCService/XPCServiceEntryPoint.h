@@ -55,7 +55,7 @@ namespace WebKit {
 
 class XPCServiceInitializerDelegate {
 public:
-    XPCServiceInitializerDelegate(OSObjectPtr<xpc_connection_t>, xpc_object_t initializerMessage);
+    XPCServiceInitializerDelegate(XPCObjectPtr<xpc_connection_t>, xpc_object_t initializerMessage);
 
     virtual ~XPCServiceInitializerDelegate();
 
@@ -73,14 +73,14 @@ protected:
     bool hasEntitlement(ASCIILiteral entitlement);
     bool isClientSandboxed();
 
-    OSObjectPtr<xpc_connection_t> m_connection;
-    xpc_object_t m_initializerMessage;
+    XPCObjectPtr<xpc_connection_t> m_connection;
+    XPCObjectPtr<xpc_object_t> m_initializerMessage;
 };
 
 template<typename XPCServiceType>
 void initializeAuxiliaryProcess(AuxiliaryProcessInitializationParameters&& parameters)
 {
-    XPCServiceType::singleton().initialize(WTFMove(parameters));
+    XPCServiceType::singleton().initialize(WTF::move(parameters));
 }
 
 #if !USE(RUNNINGBOARD)
@@ -88,20 +88,23 @@ void setOSTransaction(OSObjectPtr<os_transaction_t>&&);
 #endif
 
 enum class EnableLockdownMode: bool { No, Yes };
+enum class EnableEnhancedSecurity: bool { No, Yes };
 
-void setJSCOptions(xpc_object_t initializerMessage, EnableLockdownMode, bool isWebContentProcess);
+void setJSCOptions(xpc_object_t initializerMessage, EnableLockdownMode, EnableEnhancedSecurity, bool isWebContentProcess);
 void disableJSC(NOESCAPE WTF::CompletionHandler<void(void)>&& beforeFinalizeHandler);
 
 template<typename XPCServiceType, typename XPCServiceInitializerDelegateType, bool isWebContentProcess = false>
-void XPCServiceInitializer(OSObjectPtr<xpc_connection_t> connection, xpc_object_t initializerMessage)
+void XPCServiceInitializer(XPCObjectPtr<xpc_connection_t> connection, xpc_object_t initializerMessage)
 {
-    XPCServiceInitializerDelegateType delegate(WTFMove(connection), initializerMessage);
+    XPCServiceInitializerDelegateType delegate(WTF::move(connection), initializerMessage);
 
     // We don't want XPC to be in charge of whether the process should be terminated or not,
     // so ensure that we have an outstanding transaction here. This is not needed when using
     // RunningBoard because the UIProcess takes process assertions on behalf of its child processes.
 #if !USE(RUNNINGBOARD)
-    setOSTransaction(adoptOSObject(os_transaction_create("WebKit XPC Service")));
+    // Supress this warning for when this header file is included in WKWebProcess.cpp
+    // since os_transaction_create's annotation is only effective in Objective-C files.
+    SUPPRESS_RETAINPTR_CTOR_ADOPT setOSTransaction(adoptOSObject(os_transaction_create("WebKit XPC Service")));
 #endif
 
     AuxiliaryProcessInitializationParameters parameters;
@@ -113,7 +116,8 @@ void XPCServiceInitializer(OSObjectPtr<xpc_connection_t> connection, xpc_object_
         JSC::Options::machExceptionHandlerSandboxPolicy = JSC::Options::SandboxPolicy::Allow;
     if (initializerMessage) {
         bool enableLockdownMode = parameters.extraInitializationData.get<HashTranslatorASCIILiteral>("enable-lockdown-mode"_s) == "1"_s;
-        setJSCOptions(initializerMessage, enableLockdownMode ? EnableLockdownMode::Yes : EnableLockdownMode::No, isWebContentProcess);
+        bool enableEnhancedSecurity = parameters.extraInitializationData.get<HashTranslatorASCIILiteral>("enable-enhanced-security"_s) == "1"_s;
+        setJSCOptions(initializerMessage, enableLockdownMode ? EnableLockdownMode::Yes : EnableLockdownMode::No, enableEnhancedSecurity ? EnableEnhancedSecurity::Yes : EnableEnhancedSecurity::No, isWebContentProcess);
     }
 
     // InitializeWebKit2() calls linkedOnOrAfterSDKWithBehavior(), so SDK-aligned behaviors must be
@@ -159,7 +163,7 @@ void XPCServiceInitializer(OSObjectPtr<xpc_connection_t> connection, xpc_object_
         Thread::setGlobalMaxQOSClass(QOS_CLASS_UTILITY);
 #endif
 
-    initializeAuxiliaryProcess<XPCServiceType>(WTFMove(parameters));
+    initializeAuxiliaryProcess<XPCServiceType>(WTF::move(parameters));
 }
 
 int XPCServiceMain(int, const char**);

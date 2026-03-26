@@ -28,8 +28,8 @@
 
 #if USE(GTK4)
 
+#include "GtkUtilities.h"
 #include "WebPasteboardProxy.h"
-#include <WebCore/ImageAdapter.h>
 #include <WebCore/PasteboardCustomData.h>
 #include <WebCore/SelectionData.h>
 #include <WebCore/SharedBuffer.h>
@@ -76,25 +76,22 @@ void Clipboard::formats(CompletionHandler<void(Vector<String>&&)>&& completionHa
     });
     WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-    completionHandler(WTFMove(result));
+    completionHandler(WTF::move(result));
 }
 
 class ClipboardTask final : public RefCounted<ClipboardTask> {
 public:
-
     static Ref<ClipboardTask> create(GdkClipboard* clipboard, Clipboard::ReadMode readMode)
     {
         return adoptRef(*new ClipboardTask(clipboard, readMode));
     }
-
-    ~ClipboardTask() = default;
 
     using ReadTextCompletionHandler = CompletionHandler<void(String&&)>;
 
     void readText(ReadTextCompletionHandler&& completionHandler)
     {
         RefPtr protectedThis = RefPtr { this };
-        m_completionHandler = WTFMove(completionHandler);
+        m_completionHandler = WTF::move(completionHandler);
         gdk_clipboard_read_text_async(m_clipboard, m_cancellable.get(), [](GObject* clipboard, GAsyncResult* result, gpointer userData) {
             auto task = adoptRef(static_cast<ClipboardTask*>(userData));
             GUniqueOutPtr<GError> error;
@@ -110,7 +107,7 @@ public:
     void readFilePaths(ReadFilePathsCompletionHandler&& completionHandler)
     {
         RefPtr protectedThis = RefPtr { this };
-        m_completionHandler = WTFMove(completionHandler);
+        m_completionHandler = WTF::move(completionHandler);
         gdk_clipboard_read_value_async(m_clipboard, GDK_TYPE_FILE_LIST, G_PRIORITY_DEFAULT, m_cancellable.get(), [](GObject* clipboard, GAsyncResult* result, gpointer userData) {
             auto task = adoptRef(static_cast<ClipboardTask*>(userData));
             Vector<String> filePaths;
@@ -127,7 +124,7 @@ public:
                         filePaths.append(String::fromUTF8(filename.get()));
                 }
             }
-            std::get<ReadFilePathsCompletionHandler>(task->m_completionHandler)(WTFMove(filePaths));
+            std::get<ReadFilePathsCompletionHandler>(task->m_completionHandler)(WTF::move(filePaths));
             task->done(error.get());
         }, protectedThis.leakRef());
         run();
@@ -138,7 +135,7 @@ public:
     void readBuffer(const char* format, ReadBufferCompletionHandler&& completionHandler)
     {
         RefPtr protectedThis = RefPtr { this };
-        m_completionHandler = WTFMove(completionHandler);
+        m_completionHandler = WTF::move(completionHandler);
         const char* mimeTypes[] = { format, nullptr };
         gdk_clipboard_read_async(m_clipboard, mimeTypes, G_PRIORITY_DEFAULT, m_cancellable.get(), [](GObject* clipboard, GAsyncResult* result, gpointer userData) {
             auto task = adoptRef(static_cast<ClipboardTask*>(userData));
@@ -176,7 +173,7 @@ public:
     void readURL(ReadURLCompletionHandler&& completionHandler)
     {
         RefPtr protectedThis = RefPtr { this };
-        m_completionHandler = WTFMove(completionHandler);
+        m_completionHandler = WTF::move(completionHandler);
         gdk_clipboard_read_value_async(m_clipboard, GDK_TYPE_FILE_LIST, G_PRIORITY_DEFAULT, m_cancellable.get(), [](GObject* clipboard, GAsyncResult* result, gpointer userData) {
             auto task = adoptRef(static_cast<ClipboardTask*>(userData));
             GUniqueOutPtr<GError> error;
@@ -242,22 +239,22 @@ private:
 
 void Clipboard::readText(CompletionHandler<void(String&&)>&& completionHandler, ReadMode readMode)
 {
-    ClipboardTask::create(m_clipboard, readMode)->readText(WTFMove(completionHandler));
+    ClipboardTask::create(m_clipboard, readMode)->readText(WTF::move(completionHandler));
 }
 
 void Clipboard::readFilePaths(CompletionHandler<void(Vector<String>&&)>&& completionHandler, ReadMode readMode)
 {
-    ClipboardTask::create(m_clipboard, readMode)->readFilePaths(WTFMove(completionHandler));
+    ClipboardTask::create(m_clipboard, readMode)->readFilePaths(WTF::move(completionHandler));
 }
 
 void Clipboard::readBuffer(const char* format, CompletionHandler<void(Ref<WebCore::SharedBuffer>&&)>&& completionHandler, ReadMode readMode)
 {
-    ClipboardTask::create(m_clipboard, readMode)->readBuffer(format, WTFMove(completionHandler));
+    ClipboardTask::create(m_clipboard, readMode)->readBuffer(format, WTF::move(completionHandler));
 }
 
 void Clipboard::readURL(CompletionHandler<void(String&& url, String&& title)>&& completionHandler, ReadMode readMode)
 {
-    ClipboardTask::create(m_clipboard, readMode)->readURL(WTFMove(completionHandler));
+    ClipboardTask::create(m_clipboard, readMode)->readURL(WTF::move(completionHandler));
 }
 
 void Clipboard::write(WebCore::SelectionData&& selectionData, CompletionHandler<void(int64_t)>&& completionHandler)
@@ -276,7 +273,7 @@ void Clipboard::write(WebCore::SelectionData&& selectionData, CompletionHandler<
     }
 
     if (selectionData.hasImage()) {
-        auto pixbuf = selectionData.image()->adapter().gdkPixbuf();
+        auto pixbuf = selectionDataImageAsGdkPixbuf(selectionData);
         providers.append(gdk_content_provider_new_typed(GDK_TYPE_PIXBUF, pixbuf.get()));
     }
 

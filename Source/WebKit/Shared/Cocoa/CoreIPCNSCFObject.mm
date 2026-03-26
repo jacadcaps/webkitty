@@ -71,14 +71,6 @@ static ObjectValue valueFromID(id object)
     case IPC::NSType::CNPostalAddress:
         return CoreIPCCNPostalAddress((CNPostalAddress *)object);
 #endif
-#if ENABLE(DATA_DETECTION) && HAVE(WK_SECURE_CODING_DATA_DETECTORS)
-    case IPC::NSType::DDScannerResult:
-        return CoreIPCDDScannerResult((DDScannerResult *)object);
-#if PLATFORM(MAC)
-    case IPC::NSType::WKDDActionContext:
-        return CoreIPCDDSecureActionContext((WKDDActionContext *)object);
-#endif
-#endif
     case IPC::NSType::NSDateComponents:
         return CoreIPCDateComponents((NSDateComponents *)object);
     case IPC::NSType::Data:
@@ -91,8 +83,6 @@ static ObjectValue valueFromID(id object)
         return CoreIPCError((NSError *)object);
     case IPC::NSType::Locale:
         return CoreIPCLocale((NSLocale *)object);
-    case IPC::NSType::Font:
-        return CoreIPCFont((WebCore::CocoaFont *)object);
     case IPC::NSType::NSValue:
         return CoreIPCNSValue((NSValue *)object);
     case IPC::NSType::Number:
@@ -121,7 +111,7 @@ CoreIPCNSCFObject::CoreIPCNSCFObject(id object)
 }
 
 CoreIPCNSCFObject::CoreIPCNSCFObject(UniqueRef<ObjectValue>&& value)
-    : m_value(WTFMove(value))
+    : m_value(WTF::move(value))
 {
 }
 
@@ -174,7 +164,7 @@ std::optional<UniqueRef<WebKit::ObjectValue>> ArgumentCoder<UniqueRef<WebKit::Ob
     auto object = decoder.decode<WebKit::ObjectValue>();
     if (!object)
         return std::nullopt;
-    return makeUniqueRefWithoutFastMallocCheck<WebKit::ObjectValue>(WTFMove(*object));
+    return makeUniqueRefWithoutFastMallocCheck<WebKit::ObjectValue>(WTF::move(*object));
 }
 
 } // namespace IPC

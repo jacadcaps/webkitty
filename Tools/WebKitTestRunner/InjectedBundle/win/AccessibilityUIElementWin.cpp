@@ -1096,4 +1096,3 @@ bool AccessibilityUIElement::isLastItemInSuggestion() const
 }
 
 } // namespace WTR
-

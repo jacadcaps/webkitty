@@ -33,6 +33,7 @@
 #include "LayerPool.h"
 #include "PlatformCALayerClient.h"
 #include "PlatformCALayerDelegatedContents.h"
+#include "PlatformScreen.h"
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreText/CoreText.h>
 #include <QuartzCore/CABase.h>
@@ -87,7 +88,7 @@ void PlatformCALayer::drawRepaintIndicator(GraphicsContext& graphicsContext, Pla
     fontDescription.setSpecifiedSize(fontSize);
     fontDescription.setComputedSize(fontSize);
 
-    FontCascade cascade(WTFMove(fontDescription));
+    FontCascade cascade(WTF::move(fontDescription));
     cascade.update(nullptr);
 
     float textWidth = cascade.width(textRun);
@@ -204,13 +205,13 @@ void PlatformCALayer::moveToLayerPool()
 {
     ASSERT(!superlayer());
     if (auto pool = layerPool())
-        pool->addLayer(this);
+        pool->addLayer(*this);
 }
 
 LayerPool* PlatformCALayer::layerPool()
 {
-    static LayerPool* sharedPool = new LayerPool;
-    return sharedPool;
+    static NeverDestroyed<UniqueRef<LayerPool>> sharedPool = makeUniqueRef<LayerPool>();
+    return sharedPool->ptr();
 }
 
 void PlatformCALayer::clearContents()
@@ -220,7 +221,7 @@ void PlatformCALayer::clearContents()
 
 void PlatformCALayer::setMaskLayer(RefPtr<PlatformCALayer>&& layer)
 {
-    m_maskLayer = WTFMove(layer);
+    m_maskLayer = WTF::move(layer);
 }
 
 PlatformCALayer* PlatformCALayer::maskLayer() const
@@ -248,7 +249,7 @@ bool PlatformCALayer::needsPlatformContext() const
     return m_owner && m_owner->platformCALayerNeedsPlatformContext(this);
 }
 
-#if ENABLE(THREADED_ANIMATION_RESOLUTION)
+#if ENABLE(THREADED_ANIMATIONS)
 void PlatformCALayer::clearAcceleratedEffectsAndBaseValues()
 {
 }

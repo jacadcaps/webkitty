@@ -383,7 +383,7 @@ void JIT::emit_op_put_getter_by_val(const JSInstruction* currentInstruction)
     auto bytecode = currentInstruction->as<OpPutGetterByVal>();
 
     using SlowOperation = decltype(operationPutGetterByVal);
-    constexpr GPRReg globalObjectGRP = preferredArgumentGPR<SlowOperation, 0>();
+    constexpr GPRReg globalObjectGPR = preferredArgumentGPR<SlowOperation, 0>();
     constexpr GPRReg baseGPR = preferredArgumentGPR<SlowOperation, 1>();
     constexpr JSValueRegs propertyJSR = preferredArgumentJSR<SlowOperation, 2>();
     // Attributes in argument 3
@@ -393,8 +393,8 @@ void JIT::emit_op_put_getter_by_val(const JSInstruction* currentInstruction)
     emitGetVirtualRegister(bytecode.m_property, propertyJSR);
     int32_t attributes = bytecode.m_attributes;
     emitGetVirtualRegisterPayload(bytecode.m_accessor, setterGPR);
-    loadGlobalObject(globalObjectGRP);
-    callOperation(operationPutGetterByVal, globalObjectGRP, baseGPR, propertyJSR, attributes, setterGPR);
+    loadGlobalObject(globalObjectGPR);
+    callOperation(operationPutGetterByVal, globalObjectGPR, baseGPR, propertyJSR, attributes, setterGPR);
 }
 
 void JIT::emit_op_put_setter_by_val(const JSInstruction* currentInstruction)
@@ -402,7 +402,7 @@ void JIT::emit_op_put_setter_by_val(const JSInstruction* currentInstruction)
     auto bytecode = currentInstruction->as<OpPutSetterByVal>();
 
     using SlowOperation = decltype(operationPutSetterByVal);
-    constexpr GPRReg globalObjectGRP = preferredArgumentGPR<SlowOperation, 0>();
+    constexpr GPRReg globalObjectGPR = preferredArgumentGPR<SlowOperation, 0>();
     constexpr GPRReg baseGPR = preferredArgumentGPR<SlowOperation, 1>();
     constexpr JSValueRegs propertyJSR = preferredArgumentJSR<SlowOperation, 2>();
     // Attributes in argument 3
@@ -412,8 +412,8 @@ void JIT::emit_op_put_setter_by_val(const JSInstruction* currentInstruction)
     emitGetVirtualRegister(bytecode.m_property, propertyJSR);
     int32_t attributes = bytecode.m_attributes;
     emitGetVirtualRegisterPayload(bytecode.m_accessor, setterGPR);
-    loadGlobalObject(globalObjectGRP);
-    callOperation(operationPutSetterByVal, globalObjectGRP, baseGPR, propertyJSR, attributes, setterGPR);
+    loadGlobalObject(globalObjectGPR);
+    callOperation(operationPutSetterByVal, globalObjectGPR, baseGPR, propertyJSR, attributes, setterGPR);
 }
 
 void JIT::emit_op_del_by_id(const JSInstruction* currentInstruction)
@@ -973,6 +973,8 @@ void JIT::emit_op_resolve_scope(const JSInstruction* currentInstruction)
         auto resolveTypeAddress = metadataAddress.withOffset(Metadata::offsetOfResolveType());
         auto globalLexicalBindingEpochAddress = metadataAddress.withOffset(Metadata::offsetOfGlobalLexicalBindingEpoch());
 
+        // FIXME: This code is weird when caching fails because it goes to a slow path that will check the exact same condition before falling into the C++ slow path.
+        // It's unclear if that makes a meaningful difference for perf but we should consider doing something smarter.
         switch (profiledResolveType) {
         case GlobalProperty: {
             addSlowCase(branch32(NotEqual, resolveTypeAddress, TrustedImm32(profiledResolveType)));
@@ -1044,6 +1046,7 @@ void JIT::emitSlow_op_resolve_scope(const JSInstruction* currentInstruction, Vec
         addPtr(TrustedImm32(m_profiledCodeBlock->metadataTable()->offsetInMetadataTable(bytecode)), GPRInfo::metadataTableRegister, metadataGPR);
 
     MacroAssemblerCodeRef<JITThunkPtrTag> code;
+    // FIXME: Why do we generate the cases for the thunks we already emitted in the fast path. It seems like those should just go straight to the generic slow path thunk.
     if (profiledResolveType == ClosureVarWithVarInjectionChecks)
         code = vm().getCTIStub(generateOpResolveScopeThunk<ClosureVarWithVarInjectionChecks>);
     else if (profiledResolveType == GlobalVar)
@@ -1267,12 +1270,12 @@ void JIT::emit_op_get_from_scope(const JSInstruction* currentInstruction)
         static_assert(!(metadataPointerAlignment % metadataMinAlignment));
         static_assert(!(alignof(Metadata) % metadataPointerAlignment));
         static_assert(!(Metadata::offsetOfGetPutInfo() % metadataMinAlignment));
-        static_assert(!(Metadata::offsetOfStructure() % metadataMinAlignment));
+        static_assert(!(Metadata::offsetOfStructureID() % metadataMinAlignment));
         static_assert(!(Metadata::offsetOfOperand() % metadataPointerAlignment));
         auto metadataAddress = computeBaseAddressForMetadata<metadataMinAlignment>(bytecode, metadataGPR);
 
         auto getPutInfoAddress = metadataAddress.withOffset(Metadata::offsetOfGetPutInfo());
-        auto structureAddress = metadataAddress.withOffset(Metadata::offsetOfStructure());
+        auto structureIDAddress = metadataAddress.withOffset(Metadata::offsetOfStructureID());
         auto operandAddress = metadataAddress.withOffset(Metadata::offsetOfOperand());
 
         load32(getPutInfoAddress, scratch1GPR);
@@ -1281,9 +1284,7 @@ void JIT::emit_op_get_from_scope(const JSInstruction* currentInstruction)
         switch (profiledResolveType) {
         case GlobalProperty: {
             addSlowCase(branch32(NotEqual, scratch1GPR, TrustedImm32(profiledResolveType)));
-            loadPtr(structureAddress, scratch1GPR);
-            addSlowCase(branchTestPtr(Zero, scratch1GPR));
-            emitEncodeStructureID(scratch1GPR, scratch1GPR);
+            load32(structureIDAddress, scratch1GPR);
             emitGetVirtualRegisterPayload(scope, scopeGPR);
             addSlowCase(branch32(NotEqual, Address(scopeGPR, JSCell::structureIDOffset()), scratch1GPR));
             loadPtr(operandAddress, scratch1GPR);
@@ -1418,9 +1419,7 @@ MacroAssemblerCodeRef<JITThunkPtrTag> JIT::generateOpGetFromScopeThunk(VM& vm)
         case GlobalProperty:
         case GlobalPropertyWithVarInjectionChecks: {
             // Structure check covers var injection since we don't cache structures for anything but the GlobalObject. Additionally, resolve_scope handles checking for the var injection.
-            jit.loadPtr(Address(metadataGPR, OpGetFromScope::Metadata::offsetOfStructure()), scratch1GPR);
-            slowCase.append(jit.branchTestPtr(Zero, scratch1GPR));
-            jit.emitEncodeStructureID(scratch1GPR, scratch1GPR);
+            jit.load32(Address(metadataGPR, OpGetFromScope::Metadata::offsetOfStructureID()), scratch1GPR);
             slowCase.append(jit.branch32(NotEqual, Address(scopeGPR, JSCell::structureIDOffset()), scratch1GPR));
 
             jit.jitAssert(scopedLambda<Jump(void)>([&] () -> Jump {
@@ -1577,12 +1576,12 @@ void JIT::emit_op_put_to_scope(const JSInstruction* currentInstruction)
 
     constexpr size_t metadataPointerAlignment = alignof(void*);
     static_assert(!(Metadata::offsetOfGetPutInfo() % metadataPointerAlignment));
-    static_assert(!(Metadata::offsetOfStructure() % metadataPointerAlignment));
+    static_assert(!(Metadata::offsetOfStructureID() % metadataPointerAlignment));
     static_assert(!(Metadata::offsetOfOperand() % metadataPointerAlignment));
     static_assert(!(Metadata::offsetOfWatchpointSet() % metadataPointerAlignment));
     auto metadataAddress = computeBaseAddressForMetadata<metadataPointerAlignment>(bytecode, metadataGPR);
     auto getPutInfoAddress = metadataAddress.withOffset(Metadata::offsetOfGetPutInfo());
-    auto structureAddress = metadataAddress.withOffset(Metadata::offsetOfStructure());
+    auto structureIDAddress = metadataAddress.withOffset(Metadata::offsetOfStructureID());
     auto operandAddress = metadataAddress.withOffset(Metadata::offsetOfOperand());
     auto watchpointSetAddress = metadataAddress.withOffset(Metadata::offsetOfWatchpointSet());
 
@@ -1597,10 +1596,8 @@ void JIT::emit_op_put_to_scope(const JSInstruction* currentInstruction)
             constexpr GPRReg scratch1GPR1 = regT3;
             constexpr GPRReg scratch1GPR2 = regT4;
             static_assert(noOverlap(valueJSR, scopeGPR, scratch1GPR1, scratch1GPR2));
-            loadPtr(structureAddress, scratch1GPR1);
+            load32(structureIDAddress, scratch1GPR1);
             emitGetVirtualRegisterPayload(scope, scopeGPR);
-            addSlowCase(branchTestPtr(Zero, scratch1GPR1));
-            emitEncodeStructureID(scratch1GPR1, scratch1GPR1);
             addSlowCase(branch32(NotEqual, Address(scopeGPR, JSCell::structureIDOffset()), scratch1GPR1));
 
             emitGetVirtualRegister(value, valueJSR);

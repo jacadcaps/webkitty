@@ -11,68 +11,67 @@ add_custom_target(TestWebKitAPI-forwarding-headers
 list(APPEND TestWebKit_DEPENDENCIES TestWebKitAPI-forwarding-headers)
 add_dependencies(TestWebKitAPIInjectedBundle TestWebKitAPI-forwarding-headers)
 
-set(test_main_SOURCES gtk/main.cpp)
-
 # TestWTF
 list(APPEND TestWTF_SOURCES
-    ${test_main_SOURCES}
-
+    Tests/WTF/glib/ActivityObserver.cpp
+    Tests/WTF/glib/GMallocString.cpp
     Tests/WTF/glib/GRefPtr.cpp
     Tests/WTF/glib/GUniquePtr.cpp
     Tests/WTF/glib/GWeakPtr.cpp
     Tests/WTF/glib/WorkQueueGLib.cpp
-)
 
-list(APPEND TestWTF_SYSTEM_INCLUDE_DIRECTORIES
-    ${GLIB_INCLUDE_DIRS}
+    generic/main.cpp
 )
 
 list(APPEND TestWTF_LIBRARIES
-    GTK::GTK
+    GLib::GLib
+)
+
+# TestJavaScriptCore
+list(APPEND TestJavaScriptCore_SOURCES
+    generic/main.cpp
+)
+
+list(APPEND TestJavaScriptCore_LIBRARIES
+    GLib::GLib
 )
 
 # TestWebCore
 list(APPEND TestWebCore_SOURCES
-    ${test_main_SOURCES}
-
     Tests/WebCore/UserAgentQuirks.cpp
 
     Tests/WebCore/glib/Damage.cpp
+    Tests/WebCore/glib/GraphicsContextGLTextureMapper.cpp
+    Tests/WebCore/glib/RunLoopObserver.cpp
 
     Tests/WebCore/gstreamer/GStreamerTest.cpp
     Tests/WebCore/gstreamer/GstElementHarness.cpp
     Tests/WebCore/gstreamer/GstMappedBuffer.cpp
+
+    generic/main.cpp
 )
 
 list(APPEND TestWebCore_SYSTEM_INCLUDE_DIRECTORIES
-    ${GLIB_INCLUDE_DIRS}
     ${GSTREAMER_INCLUDE_DIRS}
     ${GSTREAMER_AUDIO_INCLUDE_DIRS}
     ${GSTREAMER_PBUTILS_INCLUDE_DIRS}
     ${GSTREAMER_VIDEO_INCLUDE_DIRS}
-    ${LIBSOUP_INCLUDE_DIRS}
 )
 
 list(APPEND TestWebCore_LIBRARIES
-    GTK::GTK
+    GLib::GLib
 )
 
 # TestWebKit
 list(APPEND TestWebKit_SOURCES
-    ${test_main_SOURCES}
-
     gtk/PlatformUtilitiesGtk.cpp
     gtk/PlatformWebViewGtk.cpp
+    gtk/main.cpp
 )
 
 list(APPEND TestWebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${CMAKE_SOURCE_DIR}/Source"
     ${WebKitGTK_FRAMEWORK_HEADERS_DIR}
-)
-
-list(APPEND TestWebKit_SYSTEM_INCLUDE_DIRECTORIES
-    ${GIO_UNIX_INCLUDE_DIRS}
-    ${GLIB_INCLUDE_DIRS}
 )
 
 list(APPEND TestWebKit_LIBRARIES
@@ -89,17 +88,10 @@ target_sources(TestWebKitAPIInjectedBundle PRIVATE
 target_include_directories(TestWebKitAPIInjectedBundle PRIVATE
     "${CMAKE_SOURCE_DIR}/Source"
 )
-target_include_directories(TestWebKitAPIInjectedBundle SYSTEM PRIVATE
-    ${GLIB_INCLUDE_DIRS}
-)
 
 # TestJSC
 set(TestJSC_SOURCES
     Tests/JavaScriptCore/glib/TestJSC.cpp
-)
-
-set(TestJSC_SYSTEM_INCLUDE_DIRECTORIES
-    ${GLIB_INCLUDE_DIRS}
 )
 
 set(TestJSC_PRIVATE_INCLUDE_DIRECTORIES
@@ -109,8 +101,6 @@ set(TestJSC_PRIVATE_INCLUDE_DIRECTORIES
 )
 
 set(TestJSC_LIBRARIES
-    ${GLIB_LIBRARIES}
-    ${GLIB_GMODULE_LIBRARIES}
     WebKit::JavaScriptCore
 )
 
@@ -120,8 +110,3 @@ set(TestJSC_DEFINITIONS
 
 WEBKIT_EXECUTABLE_DECLARE(TestJSC)
 WEBKIT_TEST(TestJSC)
-
-# TestJavaScriptCore
-list(APPEND TestJavaScriptCore_SYSTEM_INCLUDE_DIRECTORIES
-    ${GLIB_INCLUDE_DIRS}
-)

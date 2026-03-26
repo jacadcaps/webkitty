@@ -94,7 +94,7 @@ private:
     WebCore::ResourceRequest m_request;
     RefPtr<NetworkDataTask> m_task;
     const Ref<NetworkLoadChecker> m_networkLoadChecker;
-    Vector<RefPtr<WebCore::BlobDataFileReference>> m_blobFiles;
+    Vector<Ref<WebCore::BlobDataFileReference>> m_blobFiles;
 };
 
 }

@@ -89,6 +89,9 @@ class Port(object):
     # Subclasses override this. This should indicate the basic implementation
     # part of the port name, e.g., 'win', 'gtk'; there is probably (?) one unique value per class.
 
+    class UnsupportedDriverError(ValueError):
+        pass
+
     # FIXME: We should probably rename this to something like 'implementation_name'.
     port_name = None
 
@@ -100,6 +103,7 @@ class Port(object):
     DEFAULT_ARCHITECTURE = 'x86'
     DEVICE_TYPE = None
     DEFAULT_DEVICE_TYPES = []
+    DRIVER_NAMES = ('WebKitTestRunner',)
 
     # Do test runners support alias hostnames such as web-platform.test
     supports_localhost_aliases = False
@@ -110,14 +114,22 @@ class Port(object):
     _websocket_server = None
 
     @classmethod
+    def is_webkitlegacy_driver(cls, driver):
+        return 'dumprendertree' in driver.lower()
+
+    @classmethod
     def determine_full_port_name(cls, host, options, port_name):
         """Return a fully-specified port name that can be used to construct objects."""
         # Subclasses will usually override this.
         options = options or {}
         assert port_name.startswith(cls.port_name)
-        if getattr(options, 'webkit_test_runner', False) and not '-wk2' in port_name:
+        if not cls.is_webkitlegacy_driver(cls.determine_driver_name(options)) and '-wk2' not in port_name:
             return port_name + '-wk2'
         return port_name
+
+    @classmethod
+    def determine_driver_name(cls, options):
+        return (getattr(options, 'driver_names', []) or cls.DRIVER_NAMES)[0]
 
     def __init__(self, host, port_name, options=None, **kwargs):
 
@@ -134,7 +146,10 @@ class Port(object):
         self._options = options or optparse.Values()
 
         if self._name and '-wk2' in self._name:
-            self._options.webkit_test_runner = True
+            self._options.driver_names = [self.DRIVER_NAMES[0]]
+
+        if not self.driver_name().startswith(self.DRIVER_NAMES):
+            raise UnsupportedDriverError(f'{self.driver_name()} is not supported on this platform.')
 
         self.host = host
         self._executive = host.executive
@@ -159,6 +174,9 @@ class Port(object):
         self._layout_tests_dir = hasattr(options, 'layout_tests_dir') and options.layout_tests_dir and self._filesystem.abspath(options.layout_tests_dir)
         self._w3c_resource_files = None
         self._display_server = None
+
+    def is_webkitlegacy(self):
+        return self.is_webkitlegacy_driver(self.driver_name())
 
     def target_host(self, worker_number=None):
         return self.host
@@ -229,7 +247,7 @@ class Port(object):
         """Return a list of absolute paths to directories to search under for
         baselines. The directories are searched in order."""
         search_paths = []
-        if self.get_option('webkit_test_runner'):
+        if not self.is_webkitlegacy():
             search_paths.append(self._wk2_port_name())
         search_paths.append(self.name())
         if self.name() != self.port_name:
@@ -261,11 +279,11 @@ class Port(object):
 
         return paths
 
-    def sharding_groups(self):
+    def sharding_groups(self, suite=None):
         return {}
 
-    def group_for_shard(self, shard):
-        for group, filter_fn in self.sharding_groups().items():
+    def group_for_shard(self, shard, suite=None):
+        for group, filter_fn in self.sharding_groups(suite=suite).items():
             if filter_fn(shard):
                 return group
         return None
@@ -396,11 +414,7 @@ class Port(object):
         pass
 
     def driver_name(self):
-        if self.get_option('driver_name'):
-            return self.get_option('driver_name')
-        if self.get_option('webkit_test_runner'):
-            return 'WebKitTestRunner'
-        return 'DumpRenderTree'
+        return self.determine_driver_name(self._options)
 
     def _expected_baselines_for_suffixes(self, test_name, suffixes, all_baselines=False, device_type=None):
         baseline_search_path = self.baseline_search_path(device_type=device_type) + [self.layout_tests_dir()]
@@ -1038,7 +1052,7 @@ class Port(object):
         if non_wk2_name != self.port_name:
             search_paths.append(non_wk2_name)
 
-        if self.get_option('webkit_test_runner'):
+        if not self.is_webkitlegacy():
             # Because nearly all of the skipped tests for WebKit 2 are due to cross-platform
             # issues, all wk2 ports share a skipped list under platform/wk2.
             search_paths.extend(["wk2", self._wk2_port_name()])
@@ -1117,9 +1131,6 @@ class Port(object):
     def _is_arch_based(self):
         return self._filesystem.exists('/etc/arch-release')
 
-    def _is_flatpak(self):
-        return self._filesystem.exists('/.flatpak-info')
-
     def _apache_version(self):
         config = self._executive.run_command([self._path_to_apache(), '-v'])
         return re.sub(r'(?:.|\n)*Server version: Apache/(\d+\.\d+)(?:.|\n)*', r'\1', config)
@@ -1137,8 +1148,6 @@ class Port(object):
                 return 'debian-httpd-' + self._apache_version() + '.conf'
             if self._is_arch_based():
                 return 'archlinux-httpd.conf'
-            if self._is_flatpak():
-                return 'flatpak-httpd.conf'
         # All platforms use apache2 except for CYGWIN (and Mac OS X Tiger and prior, which we no longer support).
         return 'apache' + self._apache_version() + '-httpd.conf'
 
@@ -1238,8 +1247,11 @@ class Port(object):
 
     API_TEST_BINARY_NAMES = ['TestWTF', 'TestWebKitAPI']
 
+    def path_to_api_test(self, program_name):
+        return self._build_path(program_name)
+
     def path_to_api_test_binaries(self):
-        return {binary: self._build_path(binary) for binary in self.API_TEST_BINARY_NAMES}
+        return {binary: self.path_to_api_test(binary) for binary in self.API_TEST_BINARY_NAMES}
 
     def _webkit_baseline_path(self, platform):
         """Return the  full path to the top of the baseline tree for a
@@ -1277,13 +1289,7 @@ class Port(object):
     def sample_process(self, name, pid, target_host=None):
         pass
 
-    def _in_flatpak_sandbox(self):
-        return self._filesystem.exists("/.flatpak-info")
-
     def _should_use_jhbuild(self):
-        if self._in_flatpak_sandbox():
-            return False
-
         suffix = ""
         if self.port_name:
             suffix = self.port_name.upper()
@@ -1323,7 +1329,7 @@ class Port(object):
         # DumpRenderTree includes TestNetscapePlugin. It should be factored out into its own project.
         try:
             self._run_script("build-dumprendertree", args=self._build_driver_flags(), env=env)
-            if self.get_option('webkit_test_runner'):
+            if not self.is_webkitlegacy():
                 self._run_script("build-webkittestrunner", args=self._build_driver_flags(), env=env)
         except ScriptError as e:
             _log.error(e.message_with_output(output_limit=None))

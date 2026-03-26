@@ -131,7 +131,7 @@ void JSTestDelegateToSharedSyntheticAttributePrototype::finishCreation(VM& vm)
 const ClassInfo JSTestDelegateToSharedSyntheticAttribute::s_info = { "TestDelegateToSharedSyntheticAttribute"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestDelegateToSharedSyntheticAttribute) };
 
 JSTestDelegateToSharedSyntheticAttribute::JSTestDelegateToSharedSyntheticAttribute(Structure* structure, JSDOMGlobalObject& globalObject, Ref<TestDelegateToSharedSyntheticAttribute>&& impl)
-    : JSDOMWrapper<TestDelegateToSharedSyntheticAttribute>(structure, globalObject, WTFMove(impl))
+    : JSDOMWrapper<TestDelegateToSharedSyntheticAttribute>(structure, globalObject, WTF::move(impl))
 {
 }
 
@@ -156,7 +156,7 @@ JSValue JSTestDelegateToSharedSyntheticAttribute::getConstructor(VM& vm, const J
 
 void JSTestDelegateToSharedSyntheticAttribute::destroy(JSC::JSCell* cell)
 {
-    JSTestDelegateToSharedSyntheticAttribute* thisObject = static_cast<JSTestDelegateToSharedSyntheticAttribute*>(cell);
+    SUPPRESS_MEMORY_UNSAFE_CAST JSTestDelegateToSharedSyntheticAttribute* thisObject = static_cast<JSTestDelegateToSharedSyntheticAttribute*>(cell);
     thisObject->JSTestDelegateToSharedSyntheticAttribute::~JSTestDelegateToSharedSyntheticAttribute();
 }
 
@@ -267,7 +267,7 @@ bool JSTestDelegateToSharedSyntheticAttributeOwner::isReachableFromOpaqueRoots(J
 
 void JSTestDelegateToSharedSyntheticAttributeOwner::finalize(JSC::Handle<JSC::Unknown> handle, void* context)
 {
-    auto* jsTestDelegateToSharedSyntheticAttribute = static_cast<JSTestDelegateToSharedSyntheticAttribute*>(handle.slot()->asCell());
+    SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestDelegateToSharedSyntheticAttribute = static_cast<JSTestDelegateToSharedSyntheticAttribute*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
     uncacheWrapper(world, jsTestDelegateToSharedSyntheticAttribute->protectedWrapped().ptr(), jsTestDelegateToSharedSyntheticAttribute);
 }
@@ -281,7 +281,7 @@ extern "C" { extern void (*const __identifier("??_7TestDelegateToSharedSynthetic
 extern "C" { extern void* _ZTVN7WebCore38TestDelegateToSharedSyntheticAttributeE[]; }
 #endif
 template<std::same_as<TestDelegateToSharedSyntheticAttribute> T>
-static inline void verifyVTable(TestDelegateToSharedSyntheticAttribute* ptr) 
+static inline void verifyVTable(TestDelegateToSharedSyntheticAttribute* ptr)
 {
     if constexpr (std::is_polymorphic_v<T>) {
         const void* actualVTablePointer = getVTablePointer<T>(ptr);
@@ -301,12 +301,13 @@ static inline void verifyVTable(TestDelegateToSharedSyntheticAttribute* ptr)
 #endif
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestDelegateToSharedSyntheticAttribute>&& impl)
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<TestDelegateToSharedSyntheticAttribute>&& impl)
 {
+    UNUSED_PARAM(lexicalGlobalObject);
 #if ENABLE(BINDING_INTEGRITY)
     verifyVTable<TestDelegateToSharedSyntheticAttribute>(impl.ptr());
 #endif
-    return createWrapper<TestDelegateToSharedSyntheticAttribute>(globalObject, WTFMove(impl));
+    return createWrapper<TestDelegateToSharedSyntheticAttribute>(globalObject, WTF::move(impl));
 }
 
 JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestDelegateToSharedSyntheticAttribute& impl)

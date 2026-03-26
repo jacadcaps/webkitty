@@ -28,8 +28,11 @@
 
 #if PLATFORM(IOS_FAMILY)
 
+#import "AXNotifications.h"
 #import "AccessibilityObject.h"
 #import "Chrome.h"
+#import "DocumentPage.h"
+#import "DocumentView.h"
 #import "RenderObject.h"
 #import "WebAccessibilityObjectWrapperIOS.h"
 #import <wtf/RetainPtr.h>
@@ -100,7 +103,7 @@ ASCIILiteral AXObjectCache::notificationPlatformName(AXNotification notification
 void AXObjectCache::relayNotification(String&& notificationName, RetainPtr<NSData>&& notificationData)
 {
     if (RefPtr page = document() ? document()->page() : nullptr)
-        page->chrome().relayAccessibilityNotification(WTFMove(notificationName), WTFMove(notificationData));
+        page->chrome().relayAccessibilityNotification(WTF::move(notificationName), WTF::move(notificationData));
 }
 
 void AXObjectCache::postPlatformNotification(AccessibilityObject& object, AXNotification notification)
@@ -130,6 +133,52 @@ void AXObjectCache::postPlatformAnnouncementNotification(const String& message)
     }
 }
 
+void AXObjectCache::postPlatformARIANotifyNotification(AccessibilityObject&, const AriaNotifyData& notificationData)
+{
+    if (RefPtr page = document() ? document()->page() : nullptr)
+        page->chrome().relayAriaNotifyNotification(AriaNotifyData { notificationData });
+
+    // For tests, also call the wrapper's accessibilityPostedNotification.
+    if (gShouldRepostNotificationsForTests) [[unlikely]] {
+        if (RefPtr root = getOrCreate(m_document->view())) {
+            RetainPtr notificationName = notificationPlatformName(AXNotification::AnnouncementRequested).createNSString();
+            RetainPtr message = notificationData.message.createNSString();
+            RetainPtr announcementString = adoptNS([[NSAttributedString alloc] initWithString:message.get() attributes:@{
+                @"UIAccessibilityARIAPriority": notifyPriorityToAXValueString(notificationData.priority).get(),
+                @"UIAccessibilityARIAInterruptBehavior": interruptBehaviorToAXValueString(notificationData.interrupt).get(),
+                @"UIAccessibilitySpeechAttributeLanguage": notificationData.language.createNSString().get()
+            }]);
+            [root->wrapper() accessibilityPostedNotification:notificationName.get() userInfo:@{ notificationName.get() : announcementString.get() }];
+        }
+    }
+}
+
+// These are re-defined here for testing purposes. They are not in a header to prevent colliding with the SDK constants.
+static NSString * const UIAccessibilityPriorityLow = @"UIAccessibilityPriorityLow";
+static NSString * const UIAccessibilityPriorityDefault = @"UIAccessibilityPriorityDefault";
+static NSString * const UIAccessibilitySpeechAttributeAnnouncementPriority = @"UIAccessibilitySpeechAttributeAnnouncementPriority";
+static NSString * const UIAccessibilityTokenLiveRegionAnnouncement = @"UIAccessibilityTokenLiveRegionAnnouncement";
+
+void AXObjectCache::postPlatformLiveRegionNotification(AccessibilityObject&, const LiveRegionAnnouncementData& notificationData)
+{
+    if (RefPtr page = document() ? document()->page() : nullptr)
+        page->chrome().relayLiveRegionNotification(LiveRegionAnnouncementData { notificationData });
+
+    // For tests, also call the wrapper's accessibilityPostedNotification.
+    if (gShouldRepostNotificationsForTests) [[unlikely]] {
+        if (RefPtr root = getOrCreate(m_document->view())) {
+            RetainPtr notificationName = notificationPlatformName(AXNotification::AnnouncementRequested).createNSString();
+            RetainPtr priority = notificationData.status == LiveRegionStatus::Assertive ? UIAccessibilityPriorityDefault : UIAccessibilityPriorityLow;
+
+            auto mutableAttributedString = adoptNS([[NSMutableAttributedString alloc] initWithAttributedString:notificationData.message.nsAttributedString().get()]);
+            [mutableAttributedString addAttribute:UIAccessibilitySpeechAttributeAnnouncementPriority value:priority.get() range:NSMakeRange(0, [mutableAttributedString length])];
+            [mutableAttributedString addAttribute:UIAccessibilityTokenLiveRegionAnnouncement value:@(YES) range:NSMakeRange(0, [mutableAttributedString length])];
+
+            [root->wrapper() accessibilityPostedNotification:notificationName.get() userInfo:@{ notificationName.get() : mutableAttributedString.get() }];
+        }
+    }
+}
+
 void AXObjectCache::postTextSelectionChangePlatformNotification(AccessibilityObject* object, const AXTextStateChangeIntent&, const VisibleSelection&)
 {
     if (object)
@@ -154,13 +203,18 @@ void AXObjectCache::postTextReplacementPlatformNotificationForTextControl(Access
         postPlatformNotification(*object, AXNotification::ValueChanged);
 }
 
-void AXObjectCache::frameLoadingEventPlatformNotification(AccessibilityObject* axFrameObject, AXLoadingEvent loadingEvent)
+void AXObjectCache::frameLoadingEventPlatformNotification(RenderView* renderView, AXLoadingEvent loadingEvent)
 {
-    if (!axFrameObject)
+    if (!renderView || loadingEvent != AXLoadingEvent::Finished) {
+        // It's not always safe to call getOrCreate (e.g. if layout is dirty), so
+        // only do so if necessary based on the loading event type.
         return;
+    }
 
-    if (loadingEvent == AXLoadingEvent::Finished && axFrameObject->document() == axFrameObject->topDocument())
-        postPlatformNotification(*axFrameObject, AXNotification::LoadComplete);
+    if (renderView->document().isTopDocument()) {
+        if (RefPtr axWebArea = getOrCreate(*renderView))
+            postPlatformNotification(*axWebArea, AXNotification::LoadComplete);
+    }
 }
 
 void AXObjectCache::platformHandleFocusedUIElementChanged(Element*, Element* newElement)
@@ -176,6 +230,6 @@ void AXObjectCache::platformPerformDeferredCacheUpdate()
 {
 }
 
-}
+} // namespace WebCore
 
 #endif // PLATFORM(IOS_FAMILY)

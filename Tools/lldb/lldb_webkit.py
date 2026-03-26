@@ -76,6 +76,97 @@ def addSummaryAndSyntheticFormattersForRawBitmaskType(debugger, type_name, enume
     debugger.HandleCommand('type synthetic add %s --python-class lldb_webkit.%s' % (type_name, synthetic_provider_class_name))
 
 
+class WebCoreStyleLengthProviderBase:
+    KEYWORDS = []
+
+    def __init__(self, valobj, dict):
+        self.valobj = valobj
+
+    def has_quirk(self):
+        length_wrapper_data = self.valobj.GetChildMemberWithName("m_value")
+        has_quirk = length_wrapper_data.GetChildMemberWithName("m_hasQuirk").GetValueAsUnsigned()
+        return bool(has_quirk)
+
+    def has_keywords(self):
+        return len(self.KEYWORDS) > 0
+
+    def fixed_type_value(self):
+        return len(self.KEYWORDS)
+
+    def percentage_type_value(self):
+        return self.fixed_type_value() + 1
+
+    def calculated_type_value(self):
+        return self.fixed_type_value() + 2
+
+    def get_type_value(self):
+        length_wrapper_data = self.valobj.GetChildMemberWithName("m_value")
+        opaque_type = length_wrapper_data.GetChildMemberWithName("m_opaqueType")
+        return opaque_type.GetValueAsUnsigned()
+
+    def is_keyword(self):
+        type_value = self.get_type_value()
+        return type_value < len(self.KEYWORDS)
+
+    def keyword_string(self):
+        type_value = self.get_type_value()
+        if type_value < len(self.KEYWORDS):
+            return self.KEYWORDS[type_value]
+        return "Unknown Keyword"
+
+    def is_fixed(self):
+        return self.get_type_value() == self.fixed_type_value()
+
+    def is_percentage(self):
+        return self.get_type_value() == self.percentage_type_value()
+
+    def is_calculated(self):
+        return self.get_type_value() == self.calculated_type_value()
+
+    def get_numeric_value(self):
+        if self.is_keyword() or self.is_calculated():
+            return None
+
+        length_wrapper_data = self.valobj.GetChildMemberWithName("m_value")
+        float_value = length_wrapper_data.GetChildMemberWithName("m_floatValue")
+
+        return float_value.GetValue()
+
+    def get_summary(self):
+        if self.is_keyword():
+            return "%s" % self.keyword_string()
+
+        if self.is_fixed():
+            return "%spx" % self.get_numeric_value()
+
+        if self.is_percentage():
+            return "%s%%" % self.get_numeric_value()
+
+        if self.is_calculated():
+            return "calc"
+
+        return None
+
+
+def addSummaryProviderForWebCoreStyleLength(debugger, type_name, keywords):
+    class WebCoreStyleLengthProviderDerived(WebCoreStyleLengthProviderBase):
+        KEYWORDS = keywords
+
+    def webcore_style_length_provider(valobj, dict):
+        provider = WebCoreStyleLengthProviderDerived(valobj, dict)
+
+        if summary := provider.get_summary():
+            quirky = '(quirky)' if provider.has_quirk() else ""
+            return "{ %s%s }" % (summary, quirky)
+        return "Unknown Value"
+
+    # e.g. WebCore::Style::PreferredSize -> WebCoreStylePreferredSize.
+    python_type_name = type_name.replace("::", "")
+    summary_provider_function_name = python_type_name + "_SummaryProvider"
+    globals()[summary_provider_function_name] = webcore_style_length_provider
+
+    debugger.HandleCommand('type summary add -F lldb_webkit.%s %s' % (summary_provider_function_name, type_name))
+
 def __lldb_init_module(debugger, dict):
     debugger.HandleCommand('command script add -f lldb_webkit.btjs btjs')
     debugger.HandleCommand('command script add -f lldb_webkit.llintLocate llintLocate')
@@ -112,6 +203,39 @@ def __lldb_init_module(debugger, dict):
     debugger.HandleCommand('type summary add -F lldb_webkit.WebCoreFloatRect_SummaryProvider WebCore::FloatRect')
 
     debugger.HandleCommand('type summary add -F lldb_webkit.WebCoreLength_SummaryProvider WebCore::Length')
+
+    preferred_size_keywords = [
+        "Auto",
+        "MinContent",
+        "MaxContent",
+        "FitContent",
+        "WebKitFillAvailable",
+        "Intrinsic",
+        "MinIntrinsic"
+    ]
+    addSummaryProviderForWebCoreStyleLength(debugger, "WebCore::Style::PreferredSize", preferred_size_keywords)
+
+    minimum_size_keywords = [
+        "Auto",
+        "MinContent",
+        "MaxContent",
+        "FitContent",
+        "WebKitFillAvailable",
+        "Intrinsic",
+        "MinIntrinsic"
+    ]
+    addSummaryProviderForWebCoreStyleLength(debugger, "WebCore::Style::MinimumSize", minimum_size_keywords)
+
+    maximum_size_keywords = [
+        "None",
+        "MinContent",
+        "MaxContent",
+        "FitContent",
+        "WebKitFillAvailable",
+        "Intrinsic",
+        "MinIntrinsic"
+    ]
+    addSummaryProviderForWebCoreStyleLength(debugger, "WebCore::Style::MaximumSize", maximum_size_keywords)
 
     debugger.HandleCommand('type summary add -F lldb_webkit.WebCoreStyleSelfAlignmentData_SummaryProvider WebCore::StyleSelfAlignmentData')
 
@@ -341,7 +465,7 @@ def btjs(debugger, command, result, internal_dict):
     thread = process.GetSelectedThread()
     jscModule = target.module["JavaScriptCore"] or target.module["libJavaScriptCore.so.1"]
 
-    if jscModule.FindSymbol("JSC::CallFrame::describeFrame").GetSize() or jscModule.FindSymbol("_ZN3JSC9CallFrame13describeFrameEv").GetSize():
+    if jscModule.FindSymbol("CallFrame::describeFrame").GetSize() or jscModule.FindSymbol("_ZN3JSC9CallFrame13describeFrameEv").GetSize():
         annotateJSFrames = True
     else:
         annotateJSFrames = False
@@ -605,6 +729,7 @@ class WebCoreColorProvider:
             'DisplayP3',
             'ExtendedA98RGB',
             'ExtendedDisplayP3',
+            'ExtendedLinearDisplayP3',
             'ExtendedLinearSRGB',
             'ExtendedProPhotoRGB',
             'ExtendedRec2020',
@@ -613,6 +738,7 @@ class WebCoreColorProvider:
             'HWB',
             'LCH',
             'Lab',
+            'LinearDisplayP3',
             'LinearSRGB',
             'OKLCH',
             'OKLab',
@@ -1334,6 +1460,8 @@ class WTFMediaTimeProvider:
 
 
 def SummarizeJSValue(valobj, dict):
+    if "*" in valobj.GetTypeName():
+        valobj = valobj.Dereference()
     mirror = JSValueMirror(valobj)
     return mirror.summary()
 
@@ -1399,10 +1527,24 @@ class JSValueMirror:
         return self.bits == self.VALUE_TRUE
 
     def isInt32(self):
-        return self.bits & self.NUMBER_TAG == self.NUMBER_TAG
+        return self.bits & self.NUMBER_TAG == self.NUMBER_TAG or self.isHeapInt32()
+
+    def isHeapInt32(self):
+        if not self.isCell():
+            return False
+        cell = castSBValueToPointerType("JSCell", self.valobj)
+        mirror = JSCellMirror(cell, self.bits)
+        return mirror.m_type == JSCellMirror.Type.HEAP_INT32
+
+    def isHeapDouble(self):
+        if not self.isCell():
+            return False
+        cell = castSBValueToPointerType("JSCell", self.valobj)
+        mirror = JSCellMirror(cell, self.bits)
+        return mirror.m_type == JSCellMirror.Type.HEAP_DOUBLE
 
     def isNumber(self):
-        return self.bits & self.NUMBER_TAG != 0
+        return self.bits & self.NUMBER_TAG != 0 or self.isHeapDouble() or self.isHeapInt32()
 
     def isDouble(self):
         return self.isNumber() and not self.isInt32()
@@ -1412,20 +1554,34 @@ class JSValueMirror:
 
     def toInt32(self):
         assert self.isInt32()
+        if self.isHeapInt32():
+            return self.toHeapInt32()
         masked = self.bits & 0xFFFFFFFF
         if masked > 0x80000000:
             return masked - 0x100000000  # => -1
         else:
             return masked
 
+    def toHeapInt32(self):
+        assert self.isHeapInt32()
+        cell = castSBValueToPointerType("JSInt32", self.valobj)
+        return cell.GetChildMemberWithName("m_value").GetValueAsSigned()
+
+    def toHeapDouble(self):
+        assert self.isHeapDouble()
+        cell = castSBValueToPointerType("JSDouble", self.valobj)
+        return cell.GetChildMemberWithName("m_value").GetValueAsDouble()
+
     def toDouble(self):
         assert self.isDouble()
+        if self.isHeapDouble():
+            return self.toHeapDouble()
         corrected = self.bits - (1 << 49)
         return struct.unpack('<d', corrected.to_bytes(8, 'little'))[0]
 
     def summary(self):
         if self.isCell():
-            cell = castSBValueToPointerType("JSC::JSCell", self.valobj)
+            cell = castSBValueToPointerType("JSCell", self.valobj)
             mirror = JSCellMirror(cell, self.bits)
             return mirror.summary()
         if self.isNull():
@@ -1451,7 +1607,7 @@ class JSCellMirror:
         self.valobj = valobj
         self.bits = bits
         self.type = valobj.GetChildMemberWithName("m_type").GetValueAsUnsigned(0)
-        typeEnum = valobj.GetTarget().FindFirstType("JSC::JSType")
+        typeEnum = valobj.GetTarget().FindFirstType("enum JSType")
         self.enumMembers = typeEnum.GetEnumMembers()
 
     def enumMemberValue(self, enumMemberName):
@@ -1479,12 +1635,12 @@ class JSCellMirror:
 
     def summary(self):
         if self.isString():
-            string = castSBValueToPointerType("JSC::JSString", self.valobj)
+            string = castSBValueToPointerType("JSString", self.valobj)
             mirror = JSStringMirror(string)
             return mirror.summary(verbose=False)
         if self.isObject():
-            return "{JS object %s}" % (self.enumMemberName(self.type))
-        return "{{JS cell %s}}}" % (self.enumMemberName(self.type))
+            return "{JS object %s %010x}" % (self.enumMemberName(self.type), self.bits)
+        return "{JS cell %s %010x}" % (self.enumMemberName(self.type), self.bits)
 
 
 class JSStringMirror:

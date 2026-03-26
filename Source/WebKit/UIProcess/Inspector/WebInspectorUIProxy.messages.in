@@ -62,4 +62,6 @@ messages -> WebInspectorUIProxy {
     StartWindowDrag()
 
     SetInspectorPageDeveloperExtrasEnabled(bool enabled)
+
+    SetPageAndTextZoomFactors(double pageZoomFactor, double textZoomFactor)
 }

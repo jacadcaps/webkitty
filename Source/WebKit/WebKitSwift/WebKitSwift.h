@@ -23,7 +23,17 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#import "CredentialUpdaterShim.h"
+
 #import "WKGroupSession.h"
+#import "WKIdentityDocumentPresentmentController.h"
+#import "WKIdentityDocumentPresentmentDelegate.h"
+#import "WKIdentityDocumentPresentmentError.h"
+#import "WKIdentityDocumentPresentmentMobileDocumentRequest.h"
+#import "WKIdentityDocumentPresentmentRawRequest.h"
+#import "WKIdentityDocumentPresentmentRequest.h"
+#import "WKIdentityDocumentPresentmentResponse.h"
+#import "WKIdentityDocumentRawRequestValidator.h"
 #import "WKIntelligenceReplacementTextEffectCoordinator.h"
 #import "WKIntelligenceSmartReplyTextEffectCoordinator.h"
 #import "WKIntelligenceTextEffectCoordinator.h"
@@ -34,14 +44,3 @@
 #import "WKSLinearMediaTypes.h"
 #import "WKStageMode.h"
 #import "WKTextAnimationManagerIOS.h"
-
-#if HAVE(DIGITAL_CREDENTIALS_UI)
-#import "WKIdentityDocumentPresentmentController.h"
-#import "WKIdentityDocumentPresentmentDelegate.h"
-#import "WKIdentityDocumentPresentmentError.h"
-#import "WKIdentityDocumentPresentmentMobileDocumentRequest.h"
-#import "WKIdentityDocumentPresentmentRawRequest.h"
-#import "WKIdentityDocumentPresentmentRequest.h"
-#import "WKIdentityDocumentPresentmentResponse.h"
-#import "WKIdentityDocumentRawRequestValidator.h"
-#endif

@@ -28,10 +28,9 @@
 #include "config.h"
 #include "WebEventFactory.h"
 
+#include "GtkUtilities.h"
+#include "GtkVersioning.h"
 #include "WebEventConversion.h"
-#include <WebCore/GtkUtilities.h>
-#include <WebCore/GtkVersioning.h>
-#include <WebCore/PlatformKeyboardEvent.h>
 #include <WebCore/Scrollbar.h>
 #include <WebCore/WindowsKeyboardCodes.h>
 #include <gdk/gdk.h>
@@ -48,7 +47,7 @@ static inline bool isGdkKeyCodeFromKeyPad(unsigned keyval)
     return keyval >= GDK_KEY_KP_Space && keyval <= GDK_KEY_KP_9;
 }
 
-static WallTime wallTimeForEvent(const GdkEvent* event)
+static MonotonicTime monotonicTimeForEvent(const GdkEvent* event)
 {
     // This works if and only if the X server or Wayland compositor happens to
     // be using CLOCK_MONOTONIC for its monotonic time, and so long as
@@ -56,14 +55,14 @@ static WallTime wallTimeForEvent(const GdkEvent* event)
     // MonotonicTime continues to use g_get_monotonic_time().
 #if USE(GTK4)
     if (!event)
-        return WallTime::now();
+        return MonotonicTime::now();
     auto time = gdk_event_get_time(const_cast<GdkEvent*>(event));
 #else
     auto time = gdk_event_get_time(event);
 #endif
     if (time == GDK_CURRENT_TIME)
-        return WallTime::now();
-    return wallTimeForEventTimeInMilliseconds(time);
+        return MonotonicTime::now();
+    return monotonicTimeForEventTimeInMilliseconds(time);
 }
 
 static inline OptionSet<WebEventModifier> modifiersForEvent(const GdkEvent* event)
@@ -192,16 +191,19 @@ WebMouseEvent WebEventFactory::createWebMouseEvent(const GdkEvent* event, int cu
     double x, y;
     gdk_event_get_coords(event, &x, &y);
 
-    return createWebMouseEvent(event, { clampToInteger(x), clampToInteger(y) }, currentClickCount, delta);
+    return createWebMouseEvent(event, DoublePoint(x, y), currentClickCount, delta);
 }
 
-WebMouseEvent WebEventFactory::createWebMouseEvent(const GdkEvent* event, const IntPoint& position, int currentClickCount, std::optional<FloatSize> delta)
+WebMouseEvent WebEventFactory::createWebMouseEvent(const GdkEvent* event, const DoublePoint& position, int currentClickCount, std::optional<FloatSize> delta)
 {
 #if USE(GTK4)
     // This can happen when a NativeWebMouseEvent representing a crossing event is copied.
     if (!event)
         return createWebMouseEvent(position);
 #endif
+    double xRoot, yRoot;
+    gdk_event_get_root_coords(event, &xRoot, &yRoot);
+    DoublePoint globalPosition { xRoot, yRoot };
 
     GdkModifierType state = static_cast<GdkModifierType>(0);
     gdk_event_get_state(event, &state);
@@ -241,13 +243,11 @@ WebMouseEvent WebEventFactory::createWebMouseEvent(const GdkEvent* event, const 
         ASSERT_NOT_REACHED();
     }
 
-    double xRoot, yRoot;
-    gdk_event_get_root_coords(event, &xRoot, &yRoot);
-    return WebMouseEvent({ type, modifiersForEvent(event), wallTimeForEvent(event) },
+    return WebMouseEvent({ type, modifiersForEvent(event), monotonicTimeForEvent(event) },
         buttonForEvent(event),
         pressedMouseButtons(state),
         position,
-        { clampToInteger(xRoot), clampToInteger(yRoot) },
+        globalPosition,
         movementDelta.width(),
         movementDelta.height(),
         0 /* deltaZ */,
@@ -255,10 +255,10 @@ WebMouseEvent WebEventFactory::createWebMouseEvent(const GdkEvent* event, const 
         );
 }
 
-WebMouseEvent WebEventFactory::createWebMouseEvent(const IntPoint& position)
+WebMouseEvent WebEventFactory::createWebMouseEvent(const DoublePoint& position)
 {
     // Mouse events without GdkEvent are crossing events, handled as a mouse move.
-    return WebMouseEvent({ WebEventType::MouseMove, { }, WallTime::now() }, WebMouseEventButton::None, 0, position, position, 0, 0, 0, 0);
+    return WebMouseEvent({ WebEventType::MouseMove, { }, MonotonicTime::now() }, WebMouseEventButton::None, 0, position, position, 0, 0, 0, 0);
 }
 
 WebKeyboardEvent WebEventFactory::createWebKeyboardEvent(const GdkEvent* event, const String& text, bool isAutoRepeat, bool handledByInputMethod, std::optional<Vector<CompositionUnderline>>&& preeditUnderlines, std::optional<EditingRange>&& preeditSelectionRange, Vector<String>&& commands)
@@ -270,17 +270,17 @@ WebKeyboardEvent WebEventFactory::createWebKeyboardEvent(const GdkEvent* event, 
     GdkEventType type = gdk_event_get_event_type(const_cast<GdkEvent*>(event));
 
     return WebKeyboardEvent(
-        { type == GDK_KEY_RELEASE ? WebEventType::KeyUp : WebEventType::KeyDown, modifiersForEvent(event), wallTimeForEvent(event) },
-        text.isNull() ? PlatformKeyboardEvent::singleCharacterString(keyval) : text,
-        PlatformKeyboardEvent::keyValueForGdkKeyCode(keyval),
-        PlatformKeyboardEvent::keyCodeForHardwareKeyCode(keycode),
-        PlatformKeyboardEvent::keyIdentifierForGdkKeyCode(keyval),
-        PlatformKeyboardEvent::windowsKeyCodeForGdkKeyCode(keyval),
+        { type == GDK_KEY_RELEASE ? WebEventType::KeyUp : WebEventType::KeyDown, modifiersForEvent(event), monotonicTimeForEvent(event) },
+        text.isNull() ? WebKeyboardEvent::singleCharacterStringForGdkKeyval(keyval) : text,
+        WebKeyboardEvent::keyValueStringForGdkKeyval(keyval),
+        WebKeyboardEvent::keyCodeStringForGdkKeycode(keycode),
+        WebKeyboardEvent::keyIdentifierForGdkKeyval(keyval),
+        WebKeyboardEvent::windowsKeyCodeForGdkKeyval(keyval),
         static_cast<int>(keyval),
         handledByInputMethod,
-        WTFMove(preeditUnderlines),
-        WTFMove(preeditSelectionRange),
-        WTFMove(commands),
+        WTF::move(preeditUnderlines),
+        WTF::move(preeditSelectionRange),
+        WTF::move(commands),
         isAutoRepeat,
         isGdkKeyCodeFromKeyPad(keyval)
         );
@@ -308,13 +308,13 @@ WebTouchEvent WebEventFactory::createWebTouchEvent(const GdkEvent* event, Vector
         ASSERT_NOT_REACHED();
     }
 
-    return WebTouchEvent({ type, modifiersForEvent(event), wallTimeForEvent(event) }, WTFMove(touchPoints), { }, { });
+    return WebTouchEvent({ type, modifiersForEvent(event), monotonicTimeForEvent(event) }, WTF::move(touchPoints), { }, { });
 }
 #endif
 
 WebWheelEvent WebEventFactory::createWebWheelEvent(const GdkEvent* event, const WebCore::IntPoint& position, const WebCore::IntPoint& globalPosition, const WebCore::FloatSize& delta, const WebCore::FloatSize& wheelTicks, WebWheelEvent::Phase phase, WebWheelEvent::Phase momentumPhase, bool hasPreciseDeltas)
 {
-    return WebWheelEvent({ WebEventType::Wheel, modifiersForEvent(event), wallTimeForEvent(event) }, position, globalPosition, delta, wheelTicks, WebWheelEvent::ScrollByPixelWheelEvent, phase, momentumPhase, hasPreciseDeltas);
+    return WebWheelEvent({ WebEventType::Wheel, modifiersForEvent(event), monotonicTimeForEvent(event) }, position, globalPosition, delta, wheelTicks, WebWheelEvent::Granularity::ScrollByPixelWheelEvent, phase, momentumPhase, hasPreciseDeltas);
 }
 
 } // namespace WebKit

@@ -27,17 +27,18 @@
 
 #if ENABLE(VIDEO_PRESENTATION_MODE)
 
+#include "FrameInfoData.h"
 #include "LayerHostingContext.h"
 #include "MessageReceiver.h"
 #include "PlaybackSessionContextIdentifier.h"
 #include <WebCore/AudioSession.h>
 #include <WebCore/CocoaView.h>
 #include <WebCore/HostingContext.h>
+#include <WebCore/ImmersiveVideoMetadata.h>
 #include <WebCore/MediaPlayerIdentifier.h>
 #include <WebCore/PlatformLayer.h>
 #include <WebCore/PlatformVideoPresentationInterface.h>
 #include <WebCore/ShareableBitmap.h>
-#include <WebCore/SpatialVideoMetadata.h>
 #include <WebCore/VideoPresentationModel.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
@@ -81,6 +82,7 @@ private:
 
     void setVideoDimensions(const WebCore::FloatSize&);
     void audioSessionCategoryChanged(WebCore::AudioSessionCategory, WebCore::AudioSessionMode, WebCore::RouteSharingPolicy);
+    void routingContextUIDChanged(const String&);
 
     // VideoPresentationModel
     void addClient(WebCore::VideoPresentationModelClient&) override;
@@ -89,7 +91,7 @@ private:
     void setVideoLayerFrame(WebCore::FloatRect) override;
     void setVideoLayerGravity(WebCore::MediaPlayerEnums::VideoGravity) override;
     void setVideoFullscreenFrame(WebCore::FloatRect) override;
-    void fullscreenModeChanged(WebCore::HTMLMediaElementEnums::VideoFullscreenMode) override;
+    void fullscreenModeChanged(WebCore::HTMLMediaElementEnums::VideoFullscreenMode, ShouldNotifyMediaElement) override;
     bool hasVideo() const override { return m_hasVideo; }
     bool isChildOfElementFullscreen() const final { return m_isChildOfElementFullscreen; }
 
@@ -122,6 +124,11 @@ private:
 #endif
     void setRequiresTextTrackRepresentation(bool) final;
     void setTextTrackRepresentationBounds(const WebCore::IntRect&) final;
+
+#if ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
+    void requestShowCaptionDisplaySettingsPreview() final;
+    void requestHideCaptionDisplaySettingsPreview() final;
+#endif
 
 #if !RELEASE_LOG_DISABLED
     uint64_t logIdentifier() const final;
@@ -179,8 +186,6 @@ public:
 
     void forEachSession(Function<void(VideoPresentationModelContext&, WebCore::PlatformVideoPresentationInterface&)>&&);
 
-    void requestBitmapImageForCurrentTime(PlaybackSessionContextIdentifier, CompletionHandler<void(std::optional<WebCore::ShareableBitmap::Handle>&&)>&&);
-
 #if PLATFORM(IOS_FAMILY)
     RefPtr<WebCore::PlatformVideoPresentationInterface> returningToStandbyInterface() const;
     AVPlayerViewController *playerViewController(PlaybackSessionContextIdentifier) const;
@@ -225,6 +230,10 @@ private:
 
     RetainPtr<WKLayerHostView> createLayerHostViewWithID(PlaybackSessionContextIdentifier, const WebCore::HostingContext&, const WebCore::FloatSize& initialSize, float hostingScaleFactor);
 
+#if USE(EXTENSIONKIT)
+    void setVisibilityPropagationViewForLayerHostView(UIView *, WKLayerHostView *);
+#endif
+
     // Messages from VideoPresentationManager
     void setupFullscreenWithID(PlaybackSessionContextIdentifier, const WebCore::HostingContext&, const WebCore::FloatRect& screenRect, const WebCore::FloatSize& initialSize, const WebCore::FloatSize& videoDimensions, float hostingScaleFactor, WebCore::HTMLMediaElementEnums::VideoFullscreenMode, bool allowsPictureInPicture, bool standby, bool blocksReturnToFullscreenFromPictureInPicture);
     void setInlineRect(PlaybackSessionContextIdentifier, const WebCore::FloatRect& inlineRect, bool visible);
@@ -233,6 +242,7 @@ private:
     void setDocumentVisibility(PlaybackSessionContextIdentifier, bool);
     void setIsChildOfElementFullscreen(PlaybackSessionContextIdentifier, bool);
     void audioSessionCategoryChanged(PlaybackSessionContextIdentifier, WebCore::AudioSessionCategory, WebCore::AudioSessionMode, WebCore::RouteSharingPolicy);
+    void routingContextUIDChanged(PlaybackSessionContextIdentifier, const String&);
     void hasBeenInteractedWith(PlaybackSessionContextIdentifier);
     void setVideoDimensions(PlaybackSessionContextIdentifier, const WebCore::FloatSize&);
     void enterFullscreen(PlaybackSessionContextIdentifier);
@@ -249,6 +259,12 @@ private:
     void textTrackRepresentationSetHidden(PlaybackSessionContextIdentifier, bool hidden);
     void setRequiresTextTrackRepresentation(PlaybackSessionContextIdentifier, bool);
     void setTextTrackRepresentationBounds(PlaybackSessionContextIdentifier, const WebCore::IntRect&);
+
+#if ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
+    void requestShowCaptionDisplaySettingsPreview(PlaybackSessionContextIdentifier);
+    void requestHideCaptionDisplaySettingsPreview(PlaybackSessionContextIdentifier);
+    void performCaptionDisplaySettingsAction(PlaybackSessionContextIdentifier, Function<void(WebPageProxy&, const FrameInfoData&, WebCore::HTMLMediaElementIdentifier)>&& action);
+#endif
 
     // Messages to VideoPresentationManager
     void requestFullscreenMode(PlaybackSessionContextIdentifier, WebCore::HTMLMediaElementEnums::VideoFullscreenMode, bool finishedWithMedia = false);

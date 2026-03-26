@@ -177,14 +177,14 @@ public:
     static constexpr bool isStreamBatched = false;
 
     explicit SendMachSendRight(MachSendRight&& a1)
-        : m_a1(WTFMove(a1))
+        : m_a1(WTF::move(a1))
     {
     }
 
     template<typename Encoder>
     void encode(Encoder& encoder)
     {
-        encoder << WTFMove(m_a1);
+        encoder << WTF::move(m_a1);
     }
 
 private:
@@ -240,20 +240,71 @@ public:
     using ReplyArguments = std::tuple<MachSendRight>;
     using Reply = CompletionHandler<void(MachSendRight&&)>;
     explicit SendAndReceiveMachSendRight(MachSendRight&& a1)
-        : m_a1(WTFMove(a1))
+        : m_a1(WTF::move(a1))
     {
     }
 
     template<typename Encoder>
     void encode(Encoder& encoder)
     {
-        encoder << WTFMove(m_a1);
+        encoder << WTF::move(m_a1);
     }
 
 private:
     MachSendRight&& m_a1;
 };
 #endif
+
+class SendStringAsyncReply {
+public:
+    using Arguments = std::tuple<int64_t>;
+
+    static IPC::MessageName name() { return IPC::MessageName::TestWithStream_SendStringAsyncReply; }
+    static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
+    static constexpr bool isStreamEncodable = true;
+    static constexpr bool isStreamBatched = false;
+
+    explicit SendStringAsyncReply(int64_t returnValue)
+        : m_returnValue(returnValue)
+    {
+    }
+
+    template<typename Encoder>
+    void encode(Encoder& encoder)
+    {
+        encoder << m_returnValue;
+    }
+
+private:
+    int64_t m_returnValue;
+};
+
+class CallWithIdentifierReply {
+public:
+    using Arguments = std::tuple<>;
+
+    static IPC::MessageName name() { return IPC::MessageName::TestWithStream_CallWithIdentifierReply; }
+    static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
+    static constexpr bool isStreamEncodable = true;
+    static constexpr bool isStreamBatched = false;
+
+    CallWithIdentifierReply()
+    {
+    }
+
+    template<typename Encoder>
+    void encode(Encoder& encoder)
+    {
+    }
+
+private:
+};
 
 } // namespace TestWithStream
 } // namespace Messages

@@ -26,10 +26,14 @@
 #import "config.h"
 #import "AXCoreObject.h"
 
+#import "AXLoggerBase.h"
 #import "AXObjectCache.h"
+#import "AXTreeStoreInlines.h"
+#import "AccessibilityObjectInlines.h"
 #import "ColorCocoa.h"
 #import "RenderObjectInlines.h"
 #import "WebAccessibilityObjectWrapperBase.h"
+#import "Widget.h"
 
 #if PLATFORM(IOS_FAMILY)
 #import <wtf/SoftLinking.h>
@@ -37,17 +41,17 @@
 SOFT_LINK_PRIVATE_FRAMEWORK(AXRuntime);
 
 SOFT_LINK_CONSTANT(AXRuntime, UIAccessibilityTokenFontName, NSString *);
-#define AccessibilityTokenFontName getUIAccessibilityTokenFontName()
+#define AccessibilityTokenFontName getUIAccessibilityTokenFontNameSingleton()
 SOFT_LINK_CONSTANT(AXRuntime, UIAccessibilityTokenFontFamily, NSString *);
-#define AccessibilityTokenFontFamily getUIAccessibilityTokenFontFamily()
+#define AccessibilityTokenFontFamily getUIAccessibilityTokenFontFamilySingleton()
 SOFT_LINK_CONSTANT(AXRuntime, UIAccessibilityTokenFontSize, NSString *);
-#define AccessibilityTokenFontSize getUIAccessibilityTokenFontSize()
+#define AccessibilityTokenFontSize getUIAccessibilityTokenFontSizeSingleton()
 SOFT_LINK_CONSTANT(AXRuntime, UIAccessibilityTokenBold, NSString *);
-#define AccessibilityTokenBold getUIAccessibilityTokenBold()
+#define AccessibilityTokenBold getUIAccessibilityTokenBoldSingleton()
 SOFT_LINK_CONSTANT(AXRuntime, UIAccessibilityTokenItalic, NSString *);
-#define AccessibilityTokenItalic getUIAccessibilityTokenItalic()
+#define AccessibilityTokenItalic getUIAccessibilityTokenItalicSingleton()
 SOFT_LINK_CONSTANT(AXRuntime, UIAccessibilityTokenAttachment, NSString *);
-#define AccessibilityTokenAttachment getUIAccessibilityTokenAttachment()
+#define AccessibilityTokenAttachment getUIAccessibilityTokenAttachmentSingleton()
 
 #endif // PLATFORM(IOS_FAMILY)
 
@@ -64,15 +68,26 @@ String AXCoreObject::speechHint() const
     auto speakAs = this->speakAs();
 
     StringBuilder builder;
-    builder.append((speakAs & SpeakAs::SpellOut) ? "spell-out"_s : "normal"_s);
-    if (speakAs & SpeakAs::Digits)
+    builder.append(speakAs.contains(Style::SpeakAsValue::SpellOut) ? "spell-out"_s : "normal"_s);
+    if (speakAs.contains(Style::SpeakAsValue::Digits))
         builder.append(" digits"_s);
-    if (speakAs & SpeakAs::LiteralPunctuation)
+    if (speakAs.contains(Style::SpeakAsValue::LiteralPunctuation))
         builder.append(" literal-punctuation"_s);
-    if (speakAs & SpeakAs::NoPunctuation)
+    if (speakAs.contains(Style::SpeakAsValue::NoPunctuation))
         builder.append(" no-punctuation"_s);
 
     return builder.toString();
+}
+
+// FIXME: We should create an AXCoreObjectInline.h file and move protectedWrapper() and protectedPlatformWidget() into it.
+RetainPtr<AccessibilityObjectWrapper> AXCoreObject::protectedWrapper() const
+{
+    return m_wrapper.get();
+}
+
+RetainPtr<PlatformWidget> AXCoreObject::protectedPlatformWidget() const
+{
+    return platformWidget();
 }
 
 // When modifying attributed strings, the range can come from a source which may provide faulty information (e.g. the spell checker).
@@ -259,6 +274,11 @@ RetainPtr<NSMutableAttributedString> AXCoreObject::createAttributedString(String
 
         if (ancestor->role() == AccessibilityRole::Blockquote)
             ++blockquoteLevel;
+
+        if (ancestor->isExposableTable()) {
+            if (id wrapper = ancestor->wrapper())
+                [string.get() addAttribute:NSAccessibilityTableAttribute value:(__bridge id)adoptCF(NSAccessibilityCreateAXUIElementRef(wrapper)).get() range:range];
+        }
     }
     if (blockquoteLevel)
         [string.get() addAttribute:NSAccessibilityBlockQuoteLevelAttribute value:@(blockquoteLevel) range:range];
@@ -273,8 +293,7 @@ RetainPtr<NSMutableAttributedString> AXCoreObject::createAttributedString(String
     // attributedStringSetCompositionAttributes(string.get(), node, textRange);
 
     if (spellCheck == AXCoreObject::SpellCheck::Yes) {
-        RefPtr node = this->node();
-        if (AXObjectCache::shouldSpellCheck() && node) {
+        if (RefPtr node = AXObjectCache::shouldSpellCheck() ? this->node() : nullptr) {
             // FIXME: This eagerly resolves misspellings, and since it requires a node, we will
             // never do this if `this` is an AXIsolatedObject`. We might need to figure out how
             // to spellcheck off the main-thread.
@@ -435,7 +454,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         // descendants. These anonymous renderers are the only accessible objects
         // containing the operator.
         role = AccessibilityRole::StaticText;
-    } else if (role == AccessibilityRole::Canvas && firstUnignoredChild() && !containsOnlyStaticText()) {
+    } else if (role == AccessibilityRole::Canvas && hasUnignoredChild() && !containsOnlyStaticText()) {
         // If this is a canvas with fallback content (one or more non-text thing), re-map to group.
         role = AccessibilityRole::Group;
     } else {
@@ -468,17 +487,17 @@ bool AXCoreObject::isEmptyGroup()
         return false;
 
     return [rolePlatformString().createNSString() isEqual:NSAccessibilityGroupRole]
-        && !firstUnignoredChild()
+        && !hasUnignoredChild()
         && ![renderWidgetChildren(*this) count];
 }
 
-AXCoreObject::AccessibilityChildrenVector AXCoreObject::sortedDescendants(size_t limit, PreSortedObjectType type) const
+AXCoreObject::AccessibilityChildrenVector AXCoreObject::crossFrameSortedDescendants(size_t limit, PreSortedObjectType type) const
 {
-    ASSERT(type == PreSortedObjectType::LiveRegion || type == PreSortedObjectType::WebArea);
+    AX_ASSERT(type == PreSortedObjectType::LiveRegion || type == PreSortedObjectType::WebArea);
     auto sortedObjects = type == PreSortedObjectType::LiveRegion ? allSortedLiveRegions() : allSortedNonRootWebAreas();
     AXCoreObject::AccessibilityChildrenVector results;
     for (const Ref<AXCoreObject>& object : sortedObjects) {
-        if (isAncestorOfObject(object)) {
+        if (crossFrameIsAncestorOfObject(object)) {
             results.append(object);
             if (results.size() >= limit)
                 break;
@@ -493,9 +512,9 @@ PlatformRoleMap createPlatformRoleMap()
 {
     struct RoleEntry {
         AccessibilityRole value;
-        NSString *string;
+        RetainPtr<NSString> string;
     };
-    static const RoleEntry roles[] = {
+    static const NeverDestroyed roles = std::to_array<RoleEntry>({
         { AccessibilityRole::Unknown, NSAccessibilityUnknownRole },
         { AccessibilityRole::Button, NSAccessibilityButtonRole },
         { AccessibilityRole::RadioButton, NSAccessibilityRadioButtonRole },
@@ -624,10 +643,12 @@ PlatformRoleMap createPlatformRoleMap()
         { AccessibilityRole::Model, NSAccessibilityGroupRole },
         { AccessibilityRole::Suggestion, NSAccessibilityGroupRole },
         { AccessibilityRole::RemoteFrame, NSAccessibilityGroupRole },
-    };
+        { AccessibilityRole::LocalFrame, NSAccessibilityGroupRole },
+        { AccessibilityRole::FrameHost, NSAccessibilityGroupRole },
+    });
     PlatformRoleMap roleMap;
-    for (auto& role : roles)
-        roleMap.add(static_cast<unsigned>(role.value), role.string);
+    for (auto& role : roles.get())
+        roleMap.add(static_cast<unsigned>(role.value), role.string.get());
     return roleMap;
 }
 
@@ -642,7 +663,7 @@ std::optional<AXTextMarkerRange> markerRangeFrom(NSRange range, const AXCoreObje
     auto markerToRangeEnd = markerToLocation.nextMarkerFromOffset(range.length, ForceSingleOffsetMovement::Yes, stopAtID);
     if (!markerToRangeEnd.isValid())
         return std::nullopt;
-    return std::optional(AXTextMarkerRange { WTFMove(markerToLocation), WTFMove(markerToRangeEnd) });
+    return std::optional(AXTextMarkerRange { WTF::move(markerToLocation), WTF::move(markerToRangeEnd) });
 }
 #endif // ENABLE(AX_THREAD_TEXT_APIS)
 

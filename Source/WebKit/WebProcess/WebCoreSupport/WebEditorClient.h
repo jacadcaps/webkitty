@@ -47,7 +47,7 @@ class WebEditorClient final : public WebCore::EditorClient, public WebCore::Text
     WTF_MAKE_TZONE_ALLOCATED(WebEditorClient);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WebEditorClient);
 public:
-    WebEditorClient(WebPage* page)
+    WebEditorClient(WebPage& page)
         : m_page(page)
     {
     }
@@ -142,6 +142,8 @@ private:
     bool isAutomaticLinkDetectionEnabled() final;
     void toggleAutomaticLinkDetection() final;
     bool isAutomaticDashSubstitutionEnabled() final;
+    bool isSmartListsEnabled() final;
+    void toggleSmartLists() final;
     void toggleAutomaticDashSubstitution() final;
     bool isAutomaticTextReplacementEnabled() final;
     void toggleAutomaticTextReplacement() final;
@@ -175,6 +177,7 @@ private:
     void getGuessesForWord(const String& word, const String& context, const WebCore::VisibleSelection& currentSelection, Vector<String>& guesses) final;
     void setInputMethodState(WebCore::Element*) final;
     void requestCheckingOfString(WebCore::TextCheckingRequest&, const WebCore::VisibleSelection& currentSelection) final;
+    void requestExtendedCheckingOfString(WebCore::TextCheckingRequest&, const WebCore::VisibleSelection& currentSelection) final;
 
 #if PLATFORM(GTK)
     bool shouldShowUnicodeMenu() final;
@@ -208,7 +211,7 @@ private:
     bool shouldDrawVisuallyContiguousBidiSelection() const final;
 #endif
 
-    WeakPtr<WebPage> m_page;
+    const WeakPtr<WebPage> m_page;
 };
 
 } // namespace WebKit

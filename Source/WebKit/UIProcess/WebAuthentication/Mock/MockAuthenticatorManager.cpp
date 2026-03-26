@@ -28,6 +28,7 @@
 
 #if ENABLE(WEB_AUTHN)
 
+#include "Logging.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
@@ -36,11 +37,11 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(MockAuthenticatorManager);
 
 Ref<MockAuthenticatorManager> MockAuthenticatorManager::create(WebCore::MockWebAuthenticationConfiguration&& configuration)
 {
-    return adoptRef(*new MockAuthenticatorManager(WTFMove(configuration)));
+    return adoptRef(*new MockAuthenticatorManager(WTF::move(configuration)));
 }
 
 MockAuthenticatorManager::MockAuthenticatorManager(WebCore::MockWebAuthenticationConfiguration&& configuration)
-    : m_testConfiguration(WTFMove(configuration))
+    : m_testConfiguration(WTF::move(configuration))
 {
 }
 
@@ -49,12 +50,20 @@ Ref<AuthenticatorTransportService> MockAuthenticatorManager::createService(WebCo
     return AuthenticatorTransportService::createMock(transport, observer, m_testConfiguration);
 }
 
-void MockAuthenticatorManager::respondReceivedInternal(Respond&& respond)
+void MockAuthenticatorManager::respondReceivedInternal(Respond&& respond, bool shouldComplete)
 {
+    validateHidExpectedCommands();
+    if (shouldComplete) {
+        invokePendingCompletionHandler(WTF::move(respond));
+        clearStateAsync();
+        requestTimeOutTimer().stop();
+        return;
+    }
+
     if (m_testConfiguration.silentFailure)
         return;
 
-    invokePendingCompletionHandler(WTFMove(respond));
+    invokePendingCompletionHandler(WTF::move(respond));
     clearStateAsync();
     requestTimeOutTimer().stop();
 }
@@ -68,6 +77,14 @@ void MockAuthenticatorManager::filterTransports(TransportSet& transports) const
     if (!m_testConfiguration.ccid)
         transports.remove(WebCore::AuthenticatorTransport::SmartCard);
     transports.remove(WebCore::AuthenticatorTransport::Ble);
+}
+
+void MockAuthenticatorManager::validateHidExpectedCommands()
+{
+    for (auto& service : services())
+        service->validateExpectedCommandsCompleted();
+
+    RELEASE_LOG(WebAuthn, "MockAuthenticatorManager: validateHidExpectedCommandscompleted");
 }
 
 } // namespace WebKit

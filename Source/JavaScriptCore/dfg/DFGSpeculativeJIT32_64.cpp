@@ -229,7 +229,7 @@ void SpeculativeJIT::cachedGetById(
     }
 
     addGetById(gen, slowPath.get());
-    addSlowPathGenerator(WTFMove(slowPath));
+    addSlowPathGenerator(WTF::move(slowPath));
 }
 
 void SpeculativeJIT::cachedGetByIdWithThis(Node* node,
@@ -271,7 +271,7 @@ void SpeculativeJIT::cachedGetByIdWithThis(Node* node,
     }
 
     addGetByIdWithThis(gen, slowPath.get());
-    addSlowPathGenerator(WTFMove(slowPath));
+    addSlowPathGenerator(WTF::move(slowPath));
 }
 
 void SpeculativeJIT::nonSpeculativeNonPeepholeCompareNullOrUndefined(Edge operand)
@@ -973,7 +973,7 @@ void SpeculativeJIT::emitCall(Node* node)
                     preserved.add(callTargetGPR, IgnoreVectors);
                 preserved.add(BaselineJITRegisters::Call::calleeJSR.payloadGPR(), IgnoreVectors);
                 preserved.add(BaselineJITRegisters::Call::calleeJSR.tagGPR(), IgnoreVectors);
-                prepareForTailCallSlow(WTFMove(preserved));
+                prepareForTailCallSlow(WTF::move(preserved));
             }
         }));
         abortWithReason(JITDidReturnFromTailCall);
@@ -1890,7 +1890,7 @@ void SpeculativeJIT::compileGetByVal(Node* node, const ScopedLambda<std::tuple<J
             }
 
             addGetByVal(gen, slowPath.get());
-            addSlowPathGenerator(WTFMove(slowPath));
+            addSlowPathGenerator(WTF::move(slowPath));
 
             jsValueResult(resultRegs, node);
         };
@@ -2727,7 +2727,7 @@ void SpeculativeJIT::compile(Node* node)
 
     case PutByValDirect:
     case PutByVal:
-    case PutByValAlias: {
+    case PutByValDirectResolved: {
         compilePutByVal(node);
         break;
     }
@@ -3191,8 +3191,13 @@ void SpeculativeJIT::compile(Node* node)
         break;
     }
 
-    case NewArrayWithConstantSize: {
-        compileNewArrayWithConstantSize(node);
+    case NewButterflyWithSize: {
+        compileNewButterflyWithSize(node);
+        break;
+    }
+
+    case NewArrayWithButterfly: {
+        compileNewArrayWithButterfly(node);
         break;
     }
 
@@ -3917,10 +3922,6 @@ void SpeculativeJIT::compile(Node* node)
         compileIsEmptyStorage(node);
         break;
 
-    case MapStorage:
-        compileMapStorage(node);
-        break;
-
     case MapStorageOrSentinel:
         compileMapStorageOrSentinel(node);
         break;
@@ -4306,10 +4307,6 @@ void SpeculativeJIT::compile(Node* node)
         compileMaterializeNewObject(node);
         break;
 
-    case MaterializeNewArrayWithConstantSize:
-        compileMaterializeNewArrayWithConstantSize(node);
-        break;
-
     case PutDynamicVar: {
         compilePutDynamicVar(node);
         break;
@@ -4341,6 +4338,30 @@ void SpeculativeJIT::compile(Node* node)
     case CheckJSCast:
     case CheckNotJSCast:
         compileCheckJSCast(node);
+        break;
+
+    case ResolvePromiseFirstResolving:
+        compileResolvePromiseFirstResolving(node);
+        break;
+
+    case RejectPromiseFirstResolving:
+        compileRejectPromiseFirstResolving(node);
+        break;
+
+    case FulfillPromiseFirstResolving:
+        compileFulfillPromiseFirstResolving(node);
+        break;
+
+    case PromiseResolve:
+        compilePromiseResolve(node);
+        break;
+
+    case PromiseReject:
+        compilePromiseReject(node);
+        break;
+
+    case PromiseThen:
+        compilePromiseThen(node);
         break;
 
     case Unreachable:
@@ -4399,7 +4420,8 @@ void SpeculativeJIT::compile(Node* node)
     case CheckBadValue:
     case BottomValue:
     case PhantomNewObject:
-    case PhantomNewArrayWithConstantSize:
+    case PhantomNewArrayWithButterfly:
+    case PhantomNewButterflyWithSize:
     case PhantomNewFunction:
     case PhantomNewGeneratorFunction:
     case PhantomNewAsyncFunction:
@@ -4411,6 +4433,7 @@ void SpeculativeJIT::compile(Node* node)
     case CheckStructureImmediate:
     case MaterializeCreateActivation:
     case MaterializeNewInternalFieldObject:
+    case MaterializeNewArrayWithButterfly:
     case PutStack:
     case KillStack:
     case GetStack:
@@ -4443,6 +4466,7 @@ void SpeculativeJIT::compile(Node* node)
     case DateGetTime:
     case DateSetTime:
     case CallWasm:
+    case TailCallInlinedCallerWasm:
     case FunctionBind:
     case NewBoundFunction:
     case EnumeratorPutByVal:
@@ -4456,6 +4480,7 @@ void SpeculativeJIT::compile(Node* node)
     case InByValMegamorphic:
     case MultiGetByVal:
     case MultiPutByVal:
+    case MapStorage:
         DFG_CRASH(m_graph, node, "unexpected node in DFG backend");
         break;
     }
@@ -4657,7 +4682,7 @@ void SpeculativeJIT::compileDeleteById(Node* node)
             resultGPR, CellValue(baseGPR), TrustedImmPtr(gen.stubInfo()));
 
         addDelById(gen, slowPath.get());
-        addSlowPathGenerator(WTFMove(slowPath));
+        addSlowPathGenerator(WTF::move(slowPath));
 
         unblessedBooleanResult(resultGPR, node);
         return;
@@ -4714,7 +4739,7 @@ void SpeculativeJIT::compileDeleteByVal(Node* node)
             resultGPR, CellValue(baseGPR), keyRegs, TrustedImmPtr(gen.stubInfo()));
 
         addDelByVal(gen, slowPath.get());
-        addSlowPathGenerator(WTFMove(slowPath));
+        addSlowPathGenerator(WTF::move(slowPath));
 
         unblessedBooleanResult(resultGPR, node);
         return;
@@ -4764,7 +4789,7 @@ void SpeculativeJIT::compileInById(Node* node)
         resultRegs, CellValue(baseGPR), TrustedImmPtr(gen.stubInfo()));
 
     addInById(gen, slowPath.get());
-    addSlowPathGenerator(WTFMove(slowPath));
+    addSlowPathGenerator(WTF::move(slowPath));
 
     blessedBooleanResult(resultRegs.payloadGPR(), node, UseChildrenCalledExplicitly);
 }
@@ -4800,7 +4825,7 @@ void SpeculativeJIT::compileInByVal(Node* node)
         resultRegs, CellValue(baseGPR), keyRegs, TrustedImmPtr(gen.stubInfo()), nullptr);
 
     addInByVal(gen, slowPath.get());
-    addSlowPathGenerator(WTFMove(slowPath));
+    addSlowPathGenerator(WTF::move(slowPath));
 
     blessedBooleanResult(resultRegs.payloadGPR(), node, UseChildrenCalledExplicitly);
 }
@@ -4842,7 +4867,7 @@ void SpeculativeJIT::compileHasPrivate(Node* node, AccessType type)
         resultRegs, CellValue(baseGPR), CellValue(propertyOrBrandGPR), TrustedImmPtr(gen.stubInfo()));
 
     addInByVal(gen, slowPath.get());
-    addSlowPathGenerator(WTFMove(slowPath));
+    addSlowPathGenerator(WTF::move(slowPath));
 
     blessedBooleanResult(resultRegs.payloadGPR(), node, UseChildrenCalledExplicitly);
 }
@@ -4952,7 +4977,7 @@ void SpeculativeJIT::compilePutByVal(Node* node)
             NoResult, baseRegs, propertyRegs, valueRegs, TrustedImmPtr(gen.stubInfo()), nullptr);
 
         addPutByVal(gen, slowPath.get());
-        addSlowPathGenerator(WTFMove(slowPath));
+        addSlowPathGenerator(WTF::move(slowPath));
 
         noResult(node);
         break;
@@ -4981,7 +5006,7 @@ void SpeculativeJIT::compilePutByVal(Node* node)
         JSValueRegs valueRegs = value.jsValueRegs();
         GPRReg storageReg = storage.gpr();
 
-        if (node->op() == PutByValAlias) {
+        if (node->op() == PutByValDirectResolved) {
             // Store the value to the array.
             GPRReg propertyReg = property.gpr();
             storeValue(valueRegs, BaseIndex(storageReg, propertyReg, TimesEight, ArrayStorage::vectorOffset()));
@@ -5105,7 +5130,7 @@ void SpeculativeJIT::compileGetPrivateNameByVal(Node* node, JSValueRegs baseRegs
         : makeSlowPathICCall(baseRegs, stubInfoConstant);
 
     addGetByVal(gen, slowPath.get());
-    addSlowPathGenerator(WTFMove(slowPath));
+    addSlowPathGenerator(WTF::move(slowPath));
 
     jsValueResult(result.regs(), node, DataFormatJS);
 }
@@ -5206,7 +5231,7 @@ void SpeculativeJIT::compilePutPrivateName(Node* node)
         NoResult, CellValue(baseGPR), CellValue(propertyGPR), valueRegs, TrustedImmPtr(gen.stubInfo()), nullptr);
 
     addPutByVal(gen, slowPath.get());
-    addSlowPathGenerator(WTFMove(slowPath));
+    addSlowPathGenerator(WTF::move(slowPath));
 
     noResult(node);
 }
@@ -5262,7 +5287,7 @@ void SpeculativeJIT::compileCheckPrivateBrand(Node* node)
         baseRegs, CellValue(brandGPR), TrustedImmPtr(gen.stubInfo()));
 
     addPrivateBrandAccess(gen, slowPath.get());
-    addSlowPathGenerator(WTFMove(slowPath));
+    addSlowPathGenerator(WTF::move(slowPath));
 
     noResult(node);
 }
@@ -5299,7 +5324,7 @@ void SpeculativeJIT::compileSetPrivateBrand(Node* node)
         CellValue(baseGPR), CellValue(brandGPR), TrustedImmPtr(gen.stubInfo()));
 
     addPrivateBrandAccess(gen, slowPath.get());
-    addSlowPathGenerator(WTFMove(slowPath));
+    addSlowPathGenerator(WTF::move(slowPath));
 
     noResult(node);
 }
@@ -5323,7 +5348,7 @@ void SpeculativeJIT::compileInstanceOfForCells(Node* node, JSValueRegs valueRegs
     auto slowPath = slowPathCall(slowCases, this, operationInstanceOfOptimize, resultGPR, valueRegs, prototypeRegs, TrustedImmPtr(gen.stubInfo()));
 
     addInstanceOf(gen, slowPath.get());
-    addSlowPathGenerator(WTFMove(slowPath));
+    addSlowPathGenerator(WTF::move(slowPath));
 }
 
 void SpeculativeJIT::compileInstanceOf(Node* node)
@@ -5435,12 +5460,31 @@ void SpeculativeJIT::cachedPutById(Node* node, CodeOrigin codeOrigin, GPRReg bas
     auto slowPath = slowPathCall(slowCases, this, operation, NoResult, valueRegs, CellValue(baseGPR), TrustedImmPtr(gen.stubInfo()));
 
     addPutById(gen, slowPath.get());
-    addSlowPathGenerator(WTFMove(slowPath));
+    addSlowPathGenerator(WTF::move(slowPath));
 }
 
 void SpeculativeJIT::speculateInt32(Edge edge, JSValueRegs regs)
 {
     speculationCheck(BadType, regs, edge, branchIfNotInt32(regs.tagGPR()));
+}
+
+void SpeculativeJIT::compileMapIteratorNext(Node* node)
+{
+    SpeculateCellOperand mapIterator(this, node->child1());
+    GPRReg mapIteratorGPR = mapIterator.gpr();
+
+    if (node->child1().useKind() == MapIteratorObjectUse)
+        speculateMapIteratorObject(node->child1(), mapIteratorGPR);
+    else if (node->child1().useKind() == SetIteratorObjectUse)
+        speculateSetIteratorObject(node->child1(), mapIteratorGPR);
+    else
+        RELEASE_ASSERT_NOT_REACHED();
+
+    flushRegisters();
+    JSValueRegsFlushedCallResult result(this);
+    JSValueRegs resultRegs = result.regs();
+    callOperationWithoutExceptionCheck(node->child1().useKind() == MapIteratorObjectUse ? operationMapIteratorNext : operationSetIteratorNext, resultRegs, TrustedImmPtr(&vm()), mapIteratorGPR);
+    jsValueResult(resultRegs, node);
 }
 
 #endif

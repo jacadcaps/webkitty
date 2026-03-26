@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2004-2025 Apple Inc. All rights reserved.
  * Copyright (C) 2006 James G. Speth (speth@end.com)
- * Copyright (C) 2006 Samuel Weinig (sam.weinig@gmail.com)
+ * Copyright (C) 2006-2026 Samuel Weinig (sam.weinig@gmail.com)
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -40,7 +40,7 @@
 #import <WebCore/BoundaryPointInlines.h>
 #import <WebCore/CachedImage.h>
 #import <WebCore/ContainerNodeInlines.h>
-#import <WebCore/DocumentInlines.h>
+#import <WebCore/DocumentView.h>
 #import <WebCore/DragImage.h>
 #import <WebCore/FocusController.h>
 #import <WebCore/FontCascade.h>
@@ -61,7 +61,7 @@
 #import <WebCore/Range.h>
 #import <WebCore/RenderImage.h>
 #import <WebCore/RenderObjectInlines.h>
-#import <WebCore/RenderStyleInlines.h>
+#import <WebCore/RenderStyle+GettersInlines.h>
 #import <WebCore/RenderView.h>
 #import <WebCore/ScriptController.h>
 #import <WebCore/SimpleRange.h>
@@ -179,10 +179,10 @@ static Class elementClass(const QualifiedName& tag, Class defaultClass)
 {
     if (!elementClassMap)
         createElementClassMap();
-    Class objcClass = lookupElementClass(tag);
+    RetainPtr<Class> objcClass = lookupElementClass(tag);
     if (!objcClass)
         objcClass = defaultClass;
-    return objcClass;
+    return objcClass.autorelease();
 }
 
 #if PLATFORM(IOS_FAMILY)
@@ -448,9 +448,9 @@ id <DOMEventTarget> kit(EventTarget* target)
     auto& style = renderer->style();
     IntRect boundingBox = renderer->absoluteBoundingBoxRect(true /* use transforms*/);
 
-    boundingBox.move(WebCore::Style::evaluate(style.borderLeftWidth()), WebCore::Style::evaluate(style.borderTopWidth()));
-    boundingBox.setWidth(boundingBox.width() - WebCore::Style::evaluate(style.borderLeftWidth()) - WebCore::Style::evaluate(style.borderRightWidth()));
-    boundingBox.setHeight(boundingBox.height() - WebCore::Style::evaluate(style.borderBottomWidth()) - WebCore::Style::evaluate(style.borderTopWidth()));
+    boundingBox.move(WebCore::Style::evaluate<float>(style.usedBorderLeftWidth(), WebCore::Style::ZoomNeeded { }), WebCore::Style::evaluate<float>(style.usedBorderTopWidth(), WebCore::Style::ZoomNeeded { }));
+    boundingBox.setWidth(boundingBox.width() - WebCore::Style::evaluate<float>(style.usedBorderLeftWidth(), WebCore::Style::ZoomNeeded { }) - WebCore::Style::evaluate<float>(style.usedBorderRightWidth(), WebCore::Style::ZoomNeeded { }));
+    boundingBox.setHeight(boundingBox.height() - WebCore::Style::evaluate<float>(style.usedBorderBottomWidth(), WebCore::Style::ZoomNeeded { }) - WebCore::Style::evaluate<float>(style.usedBorderTopWidth(), WebCore::Style::ZoomNeeded { }));
 
     // FIXME: This function advertises returning a quad, but it actually returns a bounding box (so there is no rotation, for instance).
     return wkQuadFromFloatQuad(FloatQuad(boundingBox));
@@ -650,7 +650,7 @@ id <DOMEventTarget> kit(EventTarget* target)
     auto* renderer = core(self)->renderer();
     if (!renderer)
         return nil;
-    return renderer->style().fontCascade().primaryFont()->getCTFont();
+    return renderer->style().fontCascade().primaryFont()->ctFont();
 }
 
 #if PLATFORM(MAC)
@@ -780,10 +780,10 @@ DOMNodeFilter *kit(WebCore::NodeFilter* impl)
 {
     if (!impl)
         return nil;
-    
-    if (DOMNodeFilter *wrapper = getDOMWrapper(impl))
-        return retainPtr(wrapper).autorelease();
-    
+
+    if (RetainPtr wrapper = getDOMWrapper(impl))
+        return wrapper.autorelease();
+
     auto wrapper = adoptNS([[DOMNodeFilter alloc] _init]);
     wrapper->_internal = reinterpret_cast<DOMObjectInternal*>(impl);
     impl->ref();

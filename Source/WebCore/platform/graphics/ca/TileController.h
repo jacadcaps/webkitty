@@ -25,23 +25,24 @@
 
 #pragma once
 
-#include "BoxExtents.h"
-#include "FloatRect.h"
-#include "IntRect.h"
-#include "LengthBox.h"
-#include "PlatformCALayer.h"
-#include "PlatformCALayerClient.h"
-#include "TiledBacking.h"
-#include "Timer.h"
-#include "VelocityData.h"
+#include <WebCore/BoxExtents.h>
+#include <WebCore/ContentsFormat.h>
+#include <WebCore/FloatRect.h>
+#include <WebCore/IntRect.h>
+#include <WebCore/PlatformCALayer.h>
+#include <WebCore/PlatformCALayerClient.h>
+#include <WebCore/TiledBacking.h>
+#include <WebCore/Timer.h>
+#include <WebCore/VelocityData.h>
 #include <wtf/Deque.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/Platform.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/Seconds.h>
 #include <wtf/TZoneMalloc.h>
 
 #if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
-#include "DynamicContentScalingDisplayList.h"
+#include <WebCore/DynamicContentScalingDisplayList.h>
 #endif
 
 namespace WebCore {
@@ -95,8 +96,8 @@ public:
     WEBCORE_EXPORT void setTilesOpaque(bool);
     bool tilesAreOpaque() const { return m_tilesAreOpaque; }
 
-    PlatformCALayer& rootLayer() { return *m_tileCacheLayer; }
-    const PlatformCALayer& rootLayer() const { return *m_tileCacheLayer; }
+    Ref<PlatformCALayer> rootLayer() { return m_tileCacheLayer.get().releaseNonNull(); }
+    Ref<const PlatformCALayer> rootLayer() const { return m_tileCacheLayer.get().releaseNonNull(); }
 
     WEBCORE_EXPORT void setTileDebugBorderWidth(float);
     WEBCORE_EXPORT void setTileDebugBorderColor(Color);
@@ -229,15 +230,15 @@ private:
 
     IntRect boundsForSize(const FloatSize&) const;
 
-    PlatformCALayerClient* owningGraphicsLayer() const { return m_tileCacheLayer->owner(); }
+    PlatformCALayerClient* owningGraphicsLayer() const { return m_tileCacheLayer.get()->owner(); }
 
     void clearObscuredInsetsAdjustments() final { m_obscuredInsetsDelta = std::nullopt; }
-    void obscuredInsetsWillChange(FloatBoxExtent&& obscuredInsetsDelta) final { m_obscuredInsetsDelta = WTFMove(obscuredInsetsDelta); }
+    void obscuredInsetsWillChange(FloatBoxExtent&& obscuredInsetsDelta) final { m_obscuredInsetsDelta = WTF::move(obscuredInsetsDelta); }
     FloatRect adjustedTileClipRectForObscuredInsets(const FloatRect&) const;
 
-    PlatformCALayer* m_tileCacheLayer;
+    ThreadSafeWeakPtr<PlatformCALayer> m_tileCacheLayer;
 
-    WeakPtr<TiledBackingClient> m_client;
+    ThreadSafeWeakPtr<TiledBackingClient> m_client;
 
     float m_zoomedOutContentsScale { 0 };
     float m_deviceScaleFactor;

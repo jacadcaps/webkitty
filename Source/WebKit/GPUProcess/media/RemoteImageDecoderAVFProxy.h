@@ -55,7 +55,7 @@ public:
 
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
-    bool didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
+    void didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
 
     bool allowsExitUnderMemoryPressure() const;
 
@@ -75,7 +75,7 @@ private:
     void encodedDataStatusChanged(WebCore::ImageDecoderIdentifier);
 
     ThreadSafeWeakPtr<GPUConnectionToWebProcess> m_connectionToWebProcess;
-    HashMap<WebCore::ImageDecoderIdentifier, RefPtr<WebCore::ImageDecoderAVFObjC>> m_imageDecoders;
+    HashMap<WebCore::ImageDecoderIdentifier, Ref<WebCore::ImageDecoderAVFObjC>> m_imageDecoders;
     WebCore::ProcessIdentity m_resourceOwner;
 };
 

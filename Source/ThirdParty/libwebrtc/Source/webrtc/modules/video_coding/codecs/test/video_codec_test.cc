@@ -40,8 +40,7 @@
 #include "modules/video_coding/svc/scalability_mode_util.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/strings/string_builder.h"
-#include "test/explicit_key_value_config.h"
-#include "test/field_trial.h"
+#include "test/create_test_field_trials.h"
 #include "test/gtest.h"
 #include "test/test_flags.h"
 #include "test/testsupport/file_utils.h"
@@ -83,7 +82,6 @@ ABSL_FLAG(int,
           std::numeric_limits<int>::max(),
           "Keyframe interval in frames.");
 ABSL_FLAG(int, num_frames, 300, "Number of frames to encode and/or decode.");
-ABSL_FLAG(std::string, field_trials, "", "Field trials to apply.");
 ABSL_FLAG(std::string, test_name, "", "Test name.");
 ABSL_FLAG(bool, dump_decoder_input, false, "Dump decoder input.");
 ABSL_FLAG(bool, dump_decoder_output, false, "Dump decoder output.");
@@ -114,7 +112,7 @@ VideoInfo kFourPeople_1280x720_30 = {
     .resolution = {.width = 1280, .height = 720},
     .framerate = Frequency::Hertz(30)};
 
-static constexpr Frequency k90kHz = Frequency::Hertz(90000);
+constexpr Frequency k90kHz = Frequency::Hertz(90000);
 
 VideoSourceSettings ToSourceSettings(VideoInfo video_info) {
   return VideoSourceSettings{.file_path = ResourcePath(video_info.name, "yuv"),
@@ -330,7 +328,7 @@ TEST_P(SpatialQualityTest, SpatialQuality) {
   VideoSourceSettings source_settings = ToSourceSettings(video_info);
 
   EncodingSettings encoding_settings = VideoCodecTester::CreateEncodingSettings(
-      env, codec_type, /*scalability_mode=*/"L1T1", width, height,
+      env, codec_type, /*scalability_name=*/"L1T1", width, height,
       {DataRate::KilobitsPerSec(bitrate_kbps)},
       Frequency::Hertz(framerate_fps));
 
@@ -415,14 +413,14 @@ TEST_P(BitrateAdaptationTest, BitrateAdaptation) {
   VideoSourceSettings source_settings = ToSourceSettings(video_info);
 
   EncodingSettings encoding_settings = VideoCodecTester::CreateEncodingSettings(
-      env, codec_type, /*scalability_mode=*/"L1T1",
+      env, codec_type, /*scalability_name=*/"L1T1",
       /*width=*/640, /*height=*/360,
       {DataRate::KilobitsPerSec(bitrate_kbps.first)},
       /*framerate=*/Frequency::Hertz(30));
 
   EncodingSettings encoding_settings2 =
       VideoCodecTester::CreateEncodingSettings(
-          env, codec_type, /*scalability_mode=*/"L1T1",
+          env, codec_type, /*scalability_name=*/"L1T1",
           /*width=*/640, /*height=*/360,
           {DataRate::KilobitsPerSec(bitrate_kbps.second)},
           /*framerate=*/Frequency::Hertz(30));
@@ -507,14 +505,14 @@ TEST_P(FramerateAdaptationTest, FramerateAdaptation) {
   VideoSourceSettings source_settings = ToSourceSettings(video_info);
 
   EncodingSettings encoding_settings = VideoCodecTester::CreateEncodingSettings(
-      env, codec_type, /*scalability_mode=*/"L1T1",
+      env, codec_type, /*scalability_name=*/"L1T1",
       /*width=*/640, /*height=*/360,
       /*bitrate=*/{DataRate::KilobitsPerSec(512)},
       Frequency::Hertz(framerate_fps.first));
 
   EncodingSettings encoding_settings2 =
       VideoCodecTester::CreateEncodingSettings(
-          env, codec_type, /*scalability_mode=*/"L1T1",
+          env, codec_type, /*scalability_name=*/"L1T1",
           /*width=*/640, /*height=*/360,
           /*bitrate=*/{DataRate::KilobitsPerSec(512)},
           Frequency::Hertz(framerate_fps.second));
@@ -576,10 +574,7 @@ INSTANTIATE_TEST_SUITE_P(All,
                          FramerateAdaptationTest::TestParamsToString);
 
 TEST(VideoCodecTest, DISABLED_EncodeDecode) {
-  ScopedFieldTrials field_trials(absl::GetFlag(FLAGS_field_trials));
-  const Environment env =
-      CreateEnvironment(std::make_unique<ExplicitKeyValueConfig>(
-          absl::GetFlag(FLAGS_field_trials)));
+  const Environment env = CreateEnvironment(CreateTestFieldTrialsPtr());
 
   VideoSourceSettings source_settings{
       .file_path = absl::GetFlag(FLAGS_input_path),

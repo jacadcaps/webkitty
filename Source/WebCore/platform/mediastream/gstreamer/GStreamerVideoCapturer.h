@@ -42,12 +42,13 @@ public:
     void tearDown(bool disconnectSignals) final;
     void setupPipeline() final;
     GstElement* createConverter() final;
-    const char* name() final { return "Video"; }
+    ASCIILiteral name() final { return "Video"_s; }
 
     using SinkVideoFrameCallback = Function<void(Ref<VideoFrameGStreamer>&&)>;
     void setSinkVideoFrameCallback(SinkVideoFrameCallback&&);
 
 private:
+    void handleSample(GRefPtr<GstSample>&&);
     bool setSize(const IntSize&);
     const IntSize& size() const { return m_size; }
 
@@ -57,7 +58,8 @@ private:
     bool isCapturingDisplay() const;
 
     GRefPtr<GstElement> m_videoSrcMIMETypeFilter;
-    std::pair<unsigned long, SinkVideoFrameCallback> m_sinkVideoFrameCallback;
+
+    std::pair<GStreamerCapturer::SinkSignalsHolder, SinkVideoFrameCallback> m_sinkVideoFrameCallback;
     IntSize m_size;
 };
 

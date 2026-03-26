@@ -60,11 +60,12 @@ static NSString * const onclickKey = @"onclick";
 static NSString * const parentIdKey = @"parentId";
 static NSString * const targetURLPatternsKey = @"targetUrlPatterns";
 static NSString * const titleKey = @"title";
-static NSString * const typeKey = @"type";
 static NSString * const visibleKey = @"visible";
 
 #if ENABLE(WK_WEB_EXTENSIONS_ICON_VARIANTS)
-static NSString * const iconVariantsKey = @"icon_variants";
+static NSString * const iconVariantsKey = @"iconVariants";
+// FIXME: <https://webkit.org/b/300927> Deprecate `icon_variants` key.
+static NSString * const deprecatedIconVariantsKey = @"icon_variants";
 #endif
 
 static NSString * const normalKey = @"normal";
@@ -76,7 +77,6 @@ static NSString * const allKey = @"all";
 
 static NSString * const editableKey = @"editable";
 static NSString * const frameIDKey = @"frameId";
-static NSString * const frameURLKey = @"frameUrl";
 static NSString * const linkTextKey = @"linkText";
 static NSString * const linkURLKey = @"linkUrl";
 static NSString * const mediaTypeKey = @"mediaType";
@@ -117,23 +117,24 @@ bool WebExtensionAPIMenus::parseCreateAndUpdateProperties(ForUpdate forUpdate, N
         iconsKey: [NSOrderedSet orderedSetWithObjects:NSString.class, NSDictionary.class, NSNull.class, nil],
 #if ENABLE(WK_WEB_EXTENSIONS_ICON_VARIANTS)
         iconVariantsKey: [NSOrderedSet orderedSetWithObjects:@[ NSDictionary.class ], NSNull.class, nil],
+        deprecatedIconVariantsKey: [NSOrderedSet orderedSetWithObjects:@[ NSDictionary.class ], NSNull.class, nil],
 #endif
         idKey: [NSOrderedSet orderedSetWithObjects:NSString.class, NSNumber.class, nil],
         onclickKey: JSValue.class,
         parentIdKey: [NSOrderedSet orderedSetWithObjects:NSString.class, NSNumber.class, nil],
         targetURLPatternsKey: @[ NSString.class ],
         titleKey: NSString.class,
-        typeKey: NSString.class,
+        @"type": NSString.class,
         visibleKey: @YES.class,
     };
 
-    bool isSeparator = [objectForKey<NSString>(properties, typeKey) isEqualToString:separatorKey];
+    bool isSeparator = [objectForKey<NSString>(properties, @"type") isEqualToString:separatorKey];
     if (!validateDictionary(properties, @"properties", isSeparator || forUpdate == ForUpdate::Yes ? nil : requiredKeys, types, outExceptionString))
         return false;
 
     WebExtensionMenuItemParameters parameters;
 
-    if (NSString *type = properties[typeKey]) {
+    if (NSString *type = properties[@"type"]) {
         if ([type isEqualToString:normalKey])
             parameters.type = WebExtensionMenuItemType::Normal;
         else if ([type isEqualToString:checkboxKey])
@@ -143,7 +144,7 @@ bool WebExtensionAPIMenus::parseCreateAndUpdateProperties(ForUpdate forUpdate, N
         else if ([type isEqualToString:separatorKey])
             parameters.type = WebExtensionMenuItemType::Separator;
         else {
-            *outExceptionString = toErrorString(nullString(), typeKey, @"it must specify either 'normal', 'checkbox', 'radio', or 'separator'").createNSString().autorelease();
+            *outExceptionString = toErrorString(nullString(), @"type", @"it must specify either 'normal', 'checkbox', 'radio', or 'separator'").createNSString().autorelease();
             return false;
         }
     }
@@ -247,12 +248,12 @@ bool WebExtensionAPIMenus::parseCreateAndUpdateProperties(ForUpdate forUpdate, N
     }
 
     if (JSValue *clickCallback = properties[onclickKey]) {
-        if (!clickCallback._isFunction) {
+        if (!isFunction(clickCallback.context.JSGlobalContextRef, clickCallback.JSValueRef)) {
             *outExceptionString = toErrorString(nullString(), onclickKey, @"it must be a function").createNSString().autorelease();
             return false;
         }
 
-        outClickCallback = WebExtensionCallbackHandler::create(clickCallback);
+        outClickCallback = WebExtensionCallbackHandler::create(clickCallback.context.JSGlobalContextRef, JSValueToObject(clickCallback.context.JSGlobalContextRef, clickCallback.JSValueRef, nullptr), protectedRuntime());
     }
 
     NSDictionary *iconDictionary;
@@ -267,9 +268,10 @@ bool WebExtensionAPIMenus::parseCreateAndUpdateProperties(ForUpdate forUpdate, N
     }
 
 #if ENABLE(WK_WEB_EXTENSIONS_ICON_VARIANTS)
+    auto *usedIconVariantsKey = properties[iconVariantsKey] ? iconVariantsKey : deprecatedIconVariantsKey;
     NSArray *iconVariants;
-    if (auto *variants = objectForKey<NSArray>(properties, iconVariantsKey, false)) {
-        iconVariants = WebExtensionAPIAction::parseIconVariants(variants, baseURL, iconVariantsKey, outExceptionString);
+    if (auto *variants = objectForKey<NSArray>(properties, usedIconVariantsKey, false)) {
+        iconVariants = WebExtensionAPIAction::parseIconVariants(variants, baseURL, usedIconVariantsKey, outExceptionString);
         if (!iconVariants)
             return false;
     }
@@ -284,7 +286,7 @@ bool WebExtensionAPIMenus::parseCreateAndUpdateProperties(ForUpdate forUpdate, N
 
     // An explicit null icon variants or icons will clear the current icon.
 #if ENABLE(WK_WEB_EXTENSIONS_ICON_VARIANTS)
-    if (properties[iconVariantsKey] && objectForKey<NSNull>(properties, iconVariantsKey))
+    if (properties[usedIconVariantsKey] && objectForKey<NSNull>(properties, usedIconVariantsKey))
         parameters.iconsJSON = emptyString();
     else
 #endif
@@ -328,7 +330,7 @@ id WebExtensionAPIMenus::createMenu(WebPage& page, WebFrame& frame, NSDictionary
     if (parameters.value().identifier.isEmpty())
         parameters.value().identifier = createVersion4UUIDString();
 
-    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::MenusCreate(parameters.value()), [this, protectedThis = Ref { *this }, callback = WTFMove(callback), clickCallback = WTFMove(clickCallback), identifier = parameters.value().identifier](Expected<void, WebExtensionError>&& result) mutable {
+    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::MenusCreate(parameters.value()), [this, protectedThis = Ref { *this }, callback = WTF::move(callback), clickCallback = WTF::move(clickCallback), identifier = parameters.value().identifier](Expected<void, WebExtensionError>&& result) mutable {
         if (!result) {
             callback->reportError(result.error().createNSString().get());
             return;
@@ -367,7 +369,7 @@ void WebExtensionAPIMenus::update(WebPage& page, WebFrame& frame, id identifier,
     else
         identifierString = dynamic_objc_cast<NSString>(identifier);
 
-    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::MenusUpdate(identifierString, parameters.value()), [this, protectedThis = Ref { *this }, callback = WTFMove(callback), clickCallback = WTFMove(clickCallback), newIdentifier = parameters.value().identifier, oldIdentifier = String(identifierString)](Expected<void, WebExtensionError>&& result) mutable {
+    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::MenusUpdate(identifierString, parameters.value()), [this, protectedThis = Ref { *this }, callback = WTF::move(callback), clickCallback = WTF::move(clickCallback), newIdentifier = parameters.value().identifier, oldIdentifier = String(identifierString)](Expected<void, WebExtensionError>&& result) mutable {
         if (!result) {
             callback->reportError(result.error().createNSString().get());
             return;
@@ -407,7 +409,7 @@ void WebExtensionAPIMenus::remove(id identifier, Ref<WebExtensionCallbackHandler
     else
         identifierString = dynamic_objc_cast<NSString>(identifier);
 
-    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::MenusRemove(identifierString), [this, protectedThis = Ref { *this }, callback = WTFMove(callback), identifier = String(identifierString)](Expected<void, WebExtensionError>&& result) {
+    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::MenusRemove(identifierString), [this, protectedThis = Ref { *this }, callback = WTF::move(callback), identifier = String(identifierString)](Expected<void, WebExtensionError>&& result) {
         if (!result) {
             callback->reportError(result.error().createNSString().get());
             return;
@@ -426,7 +428,7 @@ void WebExtensionAPIMenus::removeAll(Ref<WebExtensionCallbackHandler>&& callback
 {
     // Documentation: https://developer.mozilla.org/docs/Mozilla/Add-ons/WebExtensions/API/menus/removeAll
 
-    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::MenusRemoveAll(), [this, protectedThis = Ref { *this }, callback = WTFMove(callback)](Expected<void, WebExtensionError>&& result) {
+    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::MenusRemoveAll(), [this, protectedThis = Ref { *this }, callback = WTF::move(callback)](Expected<void, WebExtensionError>&& result) {
         if (!result) {
             callback->reportError(result.error().createNSString().get());
             return;
@@ -497,7 +499,7 @@ void WebExtensionContextProxy::dispatchMenusClickedEvent(const WebExtensionMenuI
         if (isMainFrame(contextParameters.frameIdentifier))
             info[pageURLKey] = contextParameters.frameURL.string().createNSString().get();
         else
-            info[frameURLKey] = contextParameters.frameURL.string().createNSString().get();
+            info[@"frameUrl"] = contextParameters.frameURL.string().createNSString().get();
     }
 
     auto *tab = tabParameters ? toWebAPI(tabParameters.value()) : nil;
@@ -507,7 +509,7 @@ void WebExtensionContextProxy::dispatchMenusClickedEvent(const WebExtensionMenuI
         WebCore::UserGestureIndicator gestureIndicator(WebCore::IsProcessingUserGesture::Yes, coreFrame ? coreFrame->document() : nullptr);
 
         if (RefPtr clickHandler = namespaceObject.menus().clickHandlers().get(menuItemParameters.identifier))
-            clickHandler->call(info, tab);
+            clickHandler->call(toJSValueRef(clickHandler->globalContext(), info), toJSValueRef(clickHandler->globalContext(), tab));
 
         namespaceObject.menus().onClicked().invokeListenersWithArgument(info, tab);
     });

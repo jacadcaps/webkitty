@@ -35,6 +35,7 @@
 #import <wtf/RetainPtr.h>
 #import <wtf/StdLibExtras.h>
 #import <wtf/ThreadSafeRefCounted.h>
+#import <wtf/darwin/DispatchExtras.h>
 #import <wtf/text/Base64.h>
 #import <wtf/text/MakeString.h>
 #import <wtf/text/ParsingUtilities.h>
@@ -81,7 +82,7 @@ static RetainPtr<nw_protocol_definition_t> proxyDefinition(HTTPServer::Protocol 
                         "Proxy-Authenticate: Basic realm=\"testrealm\"\r\n"
                         "Content-Length: 0\r\n"
                         "\r\n";
-                    auto response = adoptNS(dispatch_data_create(challengeResponse, strlen(challengeResponse), nullptr, nullptr));
+                    auto response = adoptOSObject(dispatch_data_create(challengeResponse, strlen(challengeResponse), nullptr, nullptr));
                     nw_framer_write_output_data(retainedFramer.get(), response.get());
                     state = State::DidRequestCredentials;
                     break;
@@ -93,7 +94,7 @@ static RetainPtr<nw_protocol_definition_t> proxyDefinition(HTTPServer::Protocol 
                     const char* negotiationResponse = ""
                         "HTTP/1.1 200 Connection Established\r\n"
                         "Connection: close\r\n\r\n";
-                    auto response = adoptNS(dispatch_data_create(negotiationResponse, strlen(negotiationResponse), nullptr, nullptr));
+                    auto response = adoptOSObject(dispatch_data_create(negotiationResponse, strlen(negotiationResponse), nullptr, nullptr));
                     nw_framer_write_output_data(retainedFramer.get(), response.get());
                     nw_framer_mark_ready(retainedFramer.get());
                     state = State::PassThrough;
@@ -130,7 +131,7 @@ RetainPtr<nw_parameters_t> HTTPServer::listenerParameters(Protocol protocol, Cer
     if (protocol != Protocol::Http && !customTestIdentity)
         customTestIdentity = testIdentity();
 
-    auto configureTLS = [protocol, verifier = WTFMove(verifier), testIdentity = WTFMove(customTestIdentity)] (nw_protocol_options_t protocolOptions) mutable {
+    auto configureTLS = [protocol, verifier = WTF::move(verifier), testIdentity = WTF::move(customTestIdentity)] (nw_protocol_options_t protocolOptions) mutable {
         auto options = adoptNS(nw_tls_copy_sec_protocol_options(protocolOptions));
         auto identity = adoptNS(sec_identity_create(testIdentity.get()));
         sec_protocol_options_set_local_identity(options.get(), identity.get());
@@ -142,15 +143,15 @@ RetainPtr<nw_parameters_t> HTTPServer::listenerParameters(Protocol protocol, Cer
         }
         if (verifier) {
             sec_protocol_options_set_peer_authentication_required(options.get(), true);
-            sec_protocol_options_set_verify_block(options.get(), makeBlockPtr([verifier = WTFMove(verifier)](sec_protocol_metadata_t metadata, sec_trust_t trust, sec_protocol_verify_complete_t completion) {
+            sec_protocol_options_set_verify_block(options.get(), makeBlockPtr([verifier = WTF::move(verifier)](sec_protocol_metadata_t metadata, sec_trust_t trust, sec_protocol_verify_complete_t completion) {
                 verifier(metadata, trust, completion);
-            }).get(), dispatch_get_main_queue());
+            }).get(), mainDispatchQueueSingleton());
         }
         if (protocol == Protocol::Http2)
             sec_protocol_options_add_tls_application_protocol(options.get(), "h2");
     };
 
-    auto configureTLSBlock = shouldDisableTLS(protocol) ? makeBlockPtr(NW_PARAMETERS_DISABLE_PROTOCOL) : makeBlockPtr(WTFMove(configureTLS));
+    auto configureTLSBlock = shouldDisableTLS(protocol) ? makeBlockPtr(NW_PARAMETERS_DISABLE_PROTOCOL) : makeBlockPtr(WTF::move(configureTLS));
     auto parameters = adoptNS(nw_parameters_create_secure_tcp(configureTLSBlock.get(), NW_PARAMETERS_DEFAULT_CONFIGURATION));
     if (port)
         nw_parameters_set_local_endpoint(parameters.get(), nw_endpoint_create_host("::", makeString(*port).utf8().data()));
@@ -201,20 +202,20 @@ void HTTPServer::cancel()
 
 void HTTPServer::terminateAllConnections(CompletionHandler<void()>&& completionHandler)
 {
-    auto aggregator = CallbackAggregator::create(WTFMove(completionHandler));
+    auto aggregator = CallbackAggregator::create(WTF::move(completionHandler));
     for (auto& connection : std::exchange(m_requestData->connections, { }))
         connection.terminate([aggregator] { });
 }
 
 HTTPServer::HTTPServer(std::initializer_list<std::pair<String, HTTPResponse>> responses, Protocol protocol, CertificateVerifier&& verifier, SecIdentityRef identity, std::optional<uint16_t> port)
     : m_requestData(adoptRef(*new RequestData(responses)))
-    , m_listener(adoptNS(nw_listener_create(listenerParameters(protocol, WTFMove(verifier), identity, port).get())))
+    , m_listener(adoptNS(nw_listener_create(listenerParameters(protocol, WTF::move(verifier), identity, port).get())))
     , m_protocol(protocol)
 {
-    nw_listener_set_queue(m_listener.get(), dispatch_get_main_queue());
+    nw_listener_set_queue(m_listener.get(), mainDispatchQueueSingleton());
     nw_listener_set_new_connection_handler(m_listener.get(), makeBlockPtr([requestData = m_requestData](nw_connection_t connection) {
         requestData->connections.append(Connection(connection));
-        nw_connection_set_queue(connection, dispatch_get_main_queue());
+        nw_connection_set_queue(connection, mainDispatchQueueSingleton());
         nw_connection_start(connection);
         respondToRequests(Connection(connection), requestData);
     }).get());
@@ -226,10 +227,10 @@ HTTPServer::HTTPServer(Function<void(Connection)>&& connectionHandler, Protocol 
     , m_listener(adoptNS(nw_listener_create(listenerParameters(protocol, nullptr, nullptr, { }).get())))
     , m_protocol(protocol)
 {
-    nw_listener_set_queue(m_listener.get(), dispatch_get_main_queue());
-    nw_listener_set_new_connection_handler(m_listener.get(), makeBlockPtr([requestData = m_requestData, connectionHandler = WTFMove(connectionHandler)] (nw_connection_t connection) {
+    nw_listener_set_queue(m_listener.get(), mainDispatchQueueSingleton());
+    nw_listener_set_new_connection_handler(m_listener.get(), makeBlockPtr([requestData = m_requestData, connectionHandler = WTF::move(connectionHandler)] (nw_connection_t connection) {
         requestData->connections.append(Connection(connection));
-        nw_connection_set_queue(connection, dispatch_get_main_queue());
+        nw_connection_set_queue(connection, mainDispatchQueueSingleton());
         nw_connection_start(connection);
         connectionHandler(Connection(connection));
     }).get());
@@ -241,10 +242,10 @@ HTTPServer::HTTPServer(UseCoroutines, Function<ConnectionTask(Connection)>&& con
     , m_listener(adoptNS(nw_listener_create(listenerParameters(protocol, nullptr, nullptr, { }).get())))
     , m_protocol(protocol)
 {
-    nw_listener_set_queue(m_listener.get(), dispatch_get_main_queue());
-    nw_listener_set_new_connection_handler(m_listener.get(), makeBlockPtr([requestData = m_requestData, connectionHandler = WTFMove(connectionHandler)] (nw_connection_t connection) {
+    nw_listener_set_queue(m_listener.get(), mainDispatchQueueSingleton());
+    nw_listener_set_new_connection_handler(m_listener.get(), makeBlockPtr([requestData = m_requestData, connectionHandler = WTF::move(connectionHandler)] (nw_connection_t connection) {
         requestData->connections.append(Connection(connection));
-        nw_connection_set_queue(connection, dispatch_get_main_queue());
+        nw_connection_set_queue(connection, mainDispatchQueueSingleton());
         nw_connection_start(connection);
         requestData->coroutineHandles.append(connectionHandler(Connection(connection)).handle);
     }).get());
@@ -256,13 +257,13 @@ HTTPServer::~HTTPServer() = default;
 void HTTPServer::addResponse(String&& path, HTTPResponse&& response)
 {
     RELEASE_ASSERT(!m_requestData->requestMap.contains(path));
-    m_requestData->requestMap.add(WTFMove(path), WTFMove(response));
+    m_requestData->requestMap.add(WTF::move(path), WTF::move(response));
 }
 
 void HTTPServer::setResponse(String&& path, HTTPResponse&& response)
 {
     ASSERT(m_requestData->requestMap.contains(path));
-    m_requestData->requestMap.set(WTFMove(path), WTFMove(response));
+    m_requestData->requestMap.set(WTF::move(path), WTF::move(response));
 }
 
 void HTTPServer::respondWithChallengeThenOK(Connection connection)
@@ -342,7 +343,7 @@ static ASCIILiteral statusText(unsigned statusCode)
 static Vector<uint8_t> toUTF8Vector(const String& string)
 {
     Vector<uint8_t> result;
-    string.tryGetUTF8([&](std::span<const char8_t> utf8) {
+    std::ignore = string.tryGetUTF8([&](std::span<const char8_t> utf8) {
         result.append(byteCast<uint8_t>(utf8));
         return true;
     });
@@ -529,7 +530,7 @@ Vector<uint8_t> HTTPResponse::serialize(IncludeContentLength includeContentLengt
 void H2::Connection::send(Frame&& frame, CompletionHandler<void()>&& completionHandler) const
 {
     auto frameType = frame.type();
-    auto sendFrame = [tlsConnection = m_tlsConnection, frame = WTFMove(frame), completionHandler = WTFMove(completionHandler)] () mutable {
+    auto sendFrame = [tlsConnection = m_tlsConnection, frame = WTF::move(frame), completionHandler = WTF::move(completionHandler)] () mutable {
         // https://http2.github.io/http2-spec/#rfc.section.4.1
         Vector<uint8_t> bytes;
         constexpr size_t frameHeaderLength = 9;
@@ -544,13 +545,13 @@ void H2::Connection::send(Frame&& frame, CompletionHandler<void()>&& completionH
         bytes.append(frame.streamID() >> 8);
         bytes.append(frame.streamID() >> 0);
         bytes.appendVector(frame.payload());
-        tlsConnection.send(WTFMove(bytes), WTFMove(completionHandler));
+        tlsConnection.send(WTF::move(bytes), WTF::move(completionHandler));
     };
 
     if (m_sendServerConnectionPreface && frameType != Frame::Type::Settings) {
         // https://http2.github.io/http2-spec/#rfc.section.3.5
         m_sendServerConnectionPreface = false;
-        send(Frame(Frame::Type::Settings, 0, 0, { }), WTFMove(sendFrame));
+        send(Frame(Frame::Type::Settings, 0, 0, { }), WTF::move(sendFrame));
     } else
         sendFrame();
 }
@@ -561,16 +562,16 @@ void H2::Connection::receive(CompletionHandler<void(Frame&&)>&& completionHandle
         // https://http2.github.io/http2-spec/#rfc.section.3.5
         constexpr size_t clientConnectionPrefaceLength = 24;
         if (m_receiveBuffer.size() < clientConnectionPrefaceLength) {
-            m_tlsConnection.receiveBytes([this, protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)] (Vector<uint8_t>&& bytes) mutable {
+            m_tlsConnection.receiveBytes([this, protectedThis = Ref { *this }, completionHandler = WTF::move(completionHandler)] (Vector<uint8_t>&& bytes) mutable {
                 m_receiveBuffer.appendVector(bytes);
-                receive(WTFMove(completionHandler));
+                receive(WTF::move(completionHandler));
             });
             return;
         }
         ASSERT(spanHasPrefix(m_receiveBuffer.span(), "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"_span));
         m_receiveBuffer.removeAt(0, clientConnectionPrefaceLength);
         m_expectClientConnectionPreface = false;
-        return receive(WTFMove(completionHandler));
+        return receive(WTF::move(completionHandler));
     }
 
     // https://http2.github.io/http2-spec/#rfc.section.4.1
@@ -589,13 +590,13 @@ void H2::Connection::receive(CompletionHandler<void(Frame&&)>&& completionHandle
             Vector<uint8_t> payload;
             payload.append(m_receiveBuffer.subspan(frameHeaderLength, payloadLength));
             m_receiveBuffer.removeAt(0, frameHeaderLength + payloadLength);
-            return completionHandler(Frame(type, flags, streamID, WTFMove(payload)));
+            return completionHandler(Frame(type, flags, streamID, WTF::move(payload)));
         }
     }
     
-    m_tlsConnection.receiveBytes([this, protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)] (Vector<uint8_t>&& bytes) mutable {
+    m_tlsConnection.receiveBytes([this, protectedThis = Ref { *this }, completionHandler = WTF::move(completionHandler)] (Vector<uint8_t>&& bytes) mutable {
         m_receiveBuffer.appendVector(bytes);
-        receive(WTFMove(completionHandler));
+        receive(WTF::move(completionHandler));
     });
 }
 
@@ -647,7 +648,7 @@ Vector<uint8_t> HTTPServer::testCertificate()
     "3vjZD3y9kZk7mre9XHwkI8MdK5s="_s);
     
     auto decodedCertificate = base64Decode(pemEncodedCertificate);
-    return WTFMove(*decodedCertificate);
+    return WTF::move(*decodedCertificate);
 }
 
 Vector<uint8_t> HTTPServer::testPrivateKey()
@@ -705,7 +706,7 @@ Vector<uint8_t> HTTPServer::testPrivateKey()
     "qJfU8bbdbu2pi47Y4FdJK0HLffl5Rw=="_s);
 
     auto decodedPrivateKey = base64Decode(pemEncodedPrivateKey);
-    return WTFMove(*decodedPrivateKey);
+    return WTF::move(*decodedPrivateKey);
 }
     
 } // namespace TestWebKitAPI

@@ -62,7 +62,6 @@
 
 - (instancetype)initWithCallback:(WebCore::ScreenCaptureKitSharingSessionManager*)callback;
 - (void)disconnect;
-- (BOOL)hasObservingSession;
 - (void)startObservingSession:(SCContentSharingSession *)session;
 - (void)stopObservingSession:(SCContentSharingSession *)session;
 - (void)sessionDidEnd:(SCContentSharingSession *)session;
@@ -95,11 +94,6 @@
     for (auto& session : _sessions)
         [session setDelegate:nil];
     _sessions.clear();
-}
-
-- (BOOL)hasObservingSession
-{
-    return _sessions.isEmpty();
 }
 
 - (void)startObservingSession:(SCContentSharingSession *)session
@@ -178,6 +172,8 @@
     if (_observingPicker)
         return;
 
+    [picker setActive:YES];
+
     _observingPicker = YES;
     [picker addObserver:self];
 }
@@ -186,6 +182,8 @@
 {
     if (!_observingPicker)
         return;
+
+    [picker setActive:NO];
 
     _observingPicker = NO;
     [picker removeObserver:self];
@@ -199,11 +197,11 @@ namespace WebCore {
 bool ScreenCaptureKitSharingSessionManager::isAvailable()
 {
 #if HAVE(SC_CONTENT_SHARING_PICKER)
-    if (PAL::getSCContentSharingPickerClass() && PAL::getSCContentSharingPickerConfigurationClass())
+    if (PAL::getSCContentSharingPickerClassSingleton() && PAL::getSCContentSharingPickerConfigurationClassSingleton())
         return true;
 #endif
 
-    return PAL::getSCContentSharingSessionClass();
+    return PAL::getSCContentSharingSessionClassSingleton();
 }
 
 bool ScreenCaptureKitSharingSessionManager::useSCContentSharingPicker()
@@ -256,11 +254,10 @@ void ScreenCaptureKitSharingSessionManager::cancelPicking()
     };
 #if HAVE(SC_CONTENT_SHARING_PICKER)
     if (useSCContentSharingPicker()) {
-        RetainPtr picker = [PAL::getSCContentSharingPickerClass() sharedPicker];
-        if (![m_promptHelper hasObservingSession])
-            [picker setActive:NO];
-        if (m_activeSources.isEmpty())
+        if (m_activeSources.isEmpty()) {
+            RetainPtr picker = [PAL::getSCContentSharingPickerClassSingleton() sharedPicker];
             [m_promptHelper stopObservingPicker:picker.get()];
+        }
     }
 #endif
 
@@ -356,7 +353,7 @@ void ScreenCaptureKitSharingSessionManager::sharingSessionDidChangeContent(SCCon
     }
 
     activeSource->updateContentFilter(sharingSession.content);
-    activeSource->observer()->sessionFilterDidChange(sharingSession.content);
+    activeSource->checkedObserver()->sessionFilterDidChange(sharingSession.content);
 }
 
 void ScreenCaptureKitSharingSessionManager::contentSharingPickerSelectedFilterForStream(SCContentFilter* contentFilter, SCStream*)
@@ -413,7 +410,7 @@ void ScreenCaptureKitSharingSessionManager::promptForGetDisplayMedia(DisplayCapt
     if (!m_promptHelper)
         m_promptHelper = adoptNS([[WebDisplayMediaPromptHelper alloc] initWithCallback:this]);
 
-    m_completionHandler = WTFMove(completionHandler);
+    m_completionHandler = WTF::move(completionHandler);
 
     bool showingPicker = useSCContentSharingPicker() ? promptWithSCContentSharingPicker(promptType) : promptWithSCContentSharingSession(promptType);
     if (!showingPicker) {
@@ -470,10 +467,9 @@ bool ScreenCaptureKitSharingSessionManager::promptWithSCContentSharingPicker(Dis
         break;
     }
 
-    RetainPtr picker = [PAL::getSCContentSharingPickerClass() sharedPicker];
+    RetainPtr picker = [PAL::getSCContentSharingPickerClassSingleton() sharedPicker];
     [picker setDefaultConfiguration:configuration.get()];
     [picker setMaximumStreamCount:@(std::numeric_limits<unsigned>::max())];
-    [picker setActive:YES];
     [m_promptHelper startObservingPicker:picker.get()];
 
     if (shareableContentStyle != SCShareableContentStyleNone && [picker respondsToSelector:@selector(presentPickerUsingContentStyle:)])
@@ -580,7 +576,7 @@ RefPtr<ScreenCaptureSessionSource> ScreenCaptureKitSharingSessionManager::create
             protectedThis->cleanupSessionSource(source);
     };
 
-    auto newSession = ScreenCaptureSessionSource::create(WTFMove(observer), WTFMove(stream), contentFilter, sharingSession, WTFMove(cleanupFunction));
+    auto newSession = ScreenCaptureSessionSource::create(WTF::move(observer), WTF::move(stream), contentFilter, sharingSession, WTF::move(cleanupFunction));
     m_activeSources.append(newSession);
 
     return newSession;
@@ -611,15 +607,15 @@ void ScreenCaptureKitSharingSessionManager::cleanupSharingSession(SCContentShari
 
 Ref<ScreenCaptureSessionSource> ScreenCaptureSessionSource::create(WeakPtr<ScreenCaptureSessionSourceObserver> observer, RetainPtr<SCStream> stream, RetainPtr<SCContentFilter> filter, RetainPtr<SCContentSharingSession> sharingSession, CleanupFunction&& cleanupFunction)
 {
-    return adoptRef(*new ScreenCaptureSessionSource(WTFMove(observer), WTFMove(stream), WTFMove(filter), WTFMove(sharingSession), WTFMove(cleanupFunction)));
+    return adoptRef(*new ScreenCaptureSessionSource(WTF::move(observer), WTF::move(stream), WTF::move(filter), WTF::move(sharingSession), WTF::move(cleanupFunction)));
 }
 
 ScreenCaptureSessionSource::ScreenCaptureSessionSource(WeakPtr<ScreenCaptureSessionSourceObserver>&& observer, RetainPtr<SCStream>&& stream, RetainPtr<SCContentFilter>&& filter, RetainPtr<SCContentSharingSession>&& sharingSession, CleanupFunction&& cleanupFunction)
-    : m_stream(WTFMove(stream))
-    , m_contentFilter(WTFMove(filter))
-    , m_sharingSession(WTFMove(sharingSession))
-    , m_observer(WTFMove(observer))
-    , m_cleanupFunction(WTFMove(cleanupFunction))
+    : m_stream(WTF::move(stream))
+    , m_contentFilter(WTF::move(filter))
+    , m_sharingSession(WTF::move(sharingSession))
+    , m_observer(WTF::move(observer))
+    , m_cleanupFunction(WTF::move(cleanupFunction))
 {
 }
 
@@ -646,13 +642,13 @@ void ScreenCaptureSessionSource::updateContentFilter(SCContentFilter* contentFil
 {
     ASSERT(m_observer);
     m_contentFilter = contentFilter;
-    m_observer->sessionFilterDidChange(contentFilter);
+    CheckedRef { *m_observer }->sessionFilterDidChange(contentFilter);
 }
 
 void ScreenCaptureSessionSource::streamDidEnd()
 {
     ASSERT(m_observer);
-    m_observer->sessionStreamDidEnd(m_stream.get());
+    CheckedRef { *m_observer }->sessionStreamDidEnd(m_stream.get());
 }
 
 } // namespace WebCore

@@ -24,10 +24,8 @@
 #include <utility>
 #include <vector>
 
-#include "api/candidate.h"
 #include "api/data_channel_interface.h"
 #include "api/jsep.h"
-#include "api/jsep_ice_candidate.h"
 #include "api/legacy_stats_types.h"
 #include "api/make_ref_counted.h"
 #include "api/media_stream_interface.h"
@@ -136,17 +134,16 @@ class MockPeerConnectionObserver : public PeerConnectionObserver {
         new_state == PeerConnectionInterface::kIceGatheringComplete;
     callback_triggered_ = true;
   }
-  void OnIceCandidate(const IceCandidateInterface* candidate) override {
+  void OnIceCandidate(const IceCandidate* candidate) override {
     RTC_DCHECK(pc_);
-    candidates_.push_back(std::make_unique<JsepIceCandidate>(
+    candidates_.push_back(std::make_unique<IceCandidate>(
         candidate->sdp_mid(), candidate->sdp_mline_index(),
         candidate->candidate()));
     callback_triggered_ = true;
   }
 
-  void OnIceCandidatesRemoved(
-      const std::vector<Candidate>& candidates) override {
-    num_candidates_removed_++;
+  void OnIceCandidateRemoved(const IceCandidate* candidate) override {
+    ++num_candidates_removed_;
     callback_triggered_ = true;
   }
 
@@ -209,7 +206,7 @@ class MockPeerConnectionObserver : public PeerConnectionObserver {
     return "";
   }
 
-  IceCandidateInterface* last_candidate() {
+  IceCandidate* last_candidate() {
     if (candidates_.empty()) {
       return nullptr;
     } else {
@@ -217,16 +214,16 @@ class MockPeerConnectionObserver : public PeerConnectionObserver {
     }
   }
 
-  std::vector<const IceCandidateInterface*> GetAllCandidates() {
-    std::vector<const IceCandidateInterface*> candidates;
+  std::vector<const IceCandidate*> GetAllCandidates() {
+    std::vector<const IceCandidate*> candidates;
     for (const auto& candidate : candidates_) {
       candidates.push_back(candidate.get());
     }
     return candidates;
   }
 
-  std::vector<IceCandidateInterface*> GetCandidatesByMline(int mline_index) {
-    std::vector<IceCandidateInterface*> candidates;
+  std::vector<IceCandidate*> GetCandidatesByMline(int mline_index) {
+    std::vector<IceCandidate*> candidates;
     for (const auto& candidate : candidates_) {
       if (candidate->sdp_mline_index() == mline_index) {
         candidates.push_back(candidate.get());
@@ -250,7 +247,7 @@ class MockPeerConnectionObserver : public PeerConnectionObserver {
 
   scoped_refptr<PeerConnectionInterface> pc_;
   PeerConnectionInterface::SignalingState state_;
-  std::vector<std::unique_ptr<IceCandidateInterface>> candidates_;
+  std::vector<std::unique_ptr<IceCandidate>> candidates_;
   scoped_refptr<DataChannelInterface> last_datachannel_;
   scoped_refptr<StreamCollection> remote_streams_;
   bool renegotiation_needed_ = false;
@@ -353,42 +350,72 @@ class MockSetSessionDescriptionObserver : public SetSessionDescriptionObserver {
   std::string error_;
 };
 
-class FakeSetLocalDescriptionObserver
-    : public SetLocalDescriptionObserverInterface {
+// Base implementation class for fake local/remote description
+// observer classes. Handles the case where the usage of the observer class
+// is not on the same thread as the callback comes in on. In that case
+// a task is posted to the original test thread to set the error variable.
+// This is to be compatible with polling `WaitUntil` loops that poll the
+// `called()` state from the test thread. If the callback were to be
+// allowed to change the called() state, then we'd be checking and modifying
+// the state of the `error_` variable on two different thread without
+// synchronization, which is a problem.
+class FakeDescriptionObserver {
  public:
-  bool called() const { return error_.has_value(); }
+  FakeDescriptionObserver() : thread_(Thread::Current()) {
+    RTC_DCHECK(thread_);
+  }
+
+  bool called() const {
+    RTC_DCHECK_RUN_ON(thread_);
+    return error_.has_value();
+  }
+
   RTCError& error() {
+    RTC_DCHECK_RUN_ON(thread_);
     RTC_DCHECK(error_.has_value());
     return *error_;
   }
 
-  // SetLocalDescriptionObserverInterface implementation.
-  void OnSetLocalDescriptionComplete(RTCError error) override {
-    error_ = std::move(error);
+ protected:
+  void OnCallback(RTCError error) {
+    if (Thread::Current() == thread_) {
+      RTC_DCHECK_RUN_ON(thread_);
+      error_ = std::move(error);
+    } else {
+      thread_->PostTask([this, error = std::move(error)]() {
+        RTC_DCHECK_RUN_ON(thread_);
+        error_ = std::move(error);
+      });
+    }
   }
 
  private:
-  // Set on complete, on success this is set to an RTCError::OK() error.
-  std::optional<RTCError> error_;
+  Thread* const thread_;
+  std::optional<RTCError> error_ RTC_GUARDED_BY(thread_);
+};
+
+class FakeSetLocalDescriptionObserver
+    : public SetLocalDescriptionObserverInterface,
+      public FakeDescriptionObserver {
+ public:
+  FakeSetLocalDescriptionObserver() = default;
+
+ private:
+  void OnSetLocalDescriptionComplete(RTCError error) override {
+    OnCallback(std::move(error));
+  }
 };
 
 class FakeSetRemoteDescriptionObserver
-    : public SetRemoteDescriptionObserverInterface {
+    : public SetRemoteDescriptionObserverInterface,
+      public FakeDescriptionObserver {
  public:
-  bool called() const { return error_.has_value(); }
-  RTCError& error() {
-    RTC_DCHECK(error_.has_value());
-    return *error_;
-  }
-
-  // SetRemoteDescriptionObserverInterface implementation.
-  void OnSetRemoteDescriptionComplete(RTCError error) override {
-    error_ = std::move(error);
-  }
+  FakeSetRemoteDescriptionObserver() = default;
 
  private:
-  // Set on complete, on success this is set to an RTCError::OK() error.
-  std::optional<RTCError> error_;
+  void OnSetRemoteDescriptionComplete(RTCError error) override {
+    OnCallback(std::move(error));
+  }
 };
 
 class MockDataChannelObserver : public DataChannelObserver {

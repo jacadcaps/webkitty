@@ -4,6 +4,10 @@
 // found in the LICENSE file.
 //
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include <variant>
 
 #include "test_utils/ANGLETest.h"
@@ -6561,8 +6565,7 @@ TEST_P(ClearTextureEXTTestES31Renderable, ClearMultisampleArray)
 ANGLE_INSTANTIATE_TEST_ES2_AND_ES3_AND(
     ClearTest,
     ES3_VULKAN().enable(Feature::ForceFallbackFormat),
-    ES3_VULKAN().enable(Feature::PreferDrawClearOverVkCmdClearAttachments),
-    ES2_WEBGPU());
+    ES3_VULKAN().enable(Feature::PreferDrawClearOverVkCmdClearAttachments));
 
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ClearTestES3);
 ANGLE_INSTANTIATE_TEST_ES3_AND(
@@ -6616,7 +6619,8 @@ ANGLE_INSTANTIATE_TEST(ClearTestRGB_ES3, ES3_D3D11(), ES3_VULKAN(), ES3_METAL())
 
 ANGLE_INSTANTIATE_TEST_ES3(ClearTextureEXTTest);
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ClearTextureEXTTestES31Renderable);
-ANGLE_INSTANTIATE_TEST_ES31(ClearTextureEXTTestES31Renderable);
+ANGLE_INSTANTIATE_TEST_ES31_AND(ClearTextureEXTTestES31Renderable,
+                                ES31_VULKAN_SWIFTSHADER().enable(Feature::PreferBGR565ToRGB565));
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ClearTextureEXTTestES31Unrenderable);
 ANGLE_INSTANTIATE_TEST_ES31(ClearTextureEXTTestES31Unrenderable);
 

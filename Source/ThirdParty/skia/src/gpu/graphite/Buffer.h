@@ -8,11 +8,18 @@
 #ifndef skgpu_graphite_Buffer_DEFINED
 #define skgpu_graphite_Buffer_DEFINED
 
-#include "include/gpu/GpuTypes.h"
+#include "include/gpu/graphite/GraphiteTypes.h"
 #include "src/gpu/graphite/Resource.h"
 #include "src/gpu/graphite/ResourceTypes.h"
 
+#include <cstddef>
+
+namespace skgpu {
+enum class Protected : bool;
+}
+
 namespace skgpu::graphite {
+class SharedContext;
 
 class Buffer : public Resource {
 public:
@@ -39,11 +46,13 @@ protected:
     Buffer(const SharedContext* sharedContext,
            size_t size,
            Protected isProtected,
-           bool reusableRequiresPurgeable = false)
+           bool reusableRequiresPurgeable = false,
+           bool requiresPrepareForReturnToCache = false)
             : Resource(sharedContext,
                        Ownership::kOwned,
                        size,
-                       reusableRequiresPurgeable)
+                       reusableRequiresPurgeable,
+                       requiresPrepareForReturnToCache)
             , fSize(size)
             , fIsProtected(isProtected) {}
 

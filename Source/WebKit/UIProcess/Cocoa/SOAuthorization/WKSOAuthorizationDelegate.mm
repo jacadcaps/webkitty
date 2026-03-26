@@ -139,13 +139,21 @@
     ASSERT(RunLoop::isMain());
     WKSOAUTHORIZATIONDELEGATE_RELEASE_LOG("authorization:didCompleteWithError: (authorization = %p, _session = %p)", authorization, _session.get());
     if (error.code)
-        LOG_ERROR("Could not complete AppSSO operation. Error: %d", error.code);
+        LOG_ERROR("Could not complete AppSSO operation. Error: %zd", error.code);
     RefPtr session = _session;
     if (!session) {
         WKSOAUTHORIZATIONDELEGATE_RELEASE_LOG("authorization:didCompleteWithError: No session, so returning early.");
         ASSERT_NOT_REACHED();
         return;
     }
+
+    NSString *authenticationErrorDomain = @"AKAuthenticationError"; // AKAppleIDAuthenticationErrorDomain
+    constexpr NSInteger userCanceled = -7003; // AKAuthenticationErrorUserCanceled
+    if ([error.domain isEqualToString:authenticationErrorDomain] && error.code == userCanceled) {
+        WKSOAUTHORIZATIONDELEGATE_RELEASE_LOG("authorization:didCompleteWithError: User cancelled");
+        return session->fallBackToWebPath(WebKit::SOAuthorizationSession::UserCancel::Yes);
+    }
+
     WKSOAUTHORIZATIONDELEGATE_RELEASE_LOG("authorization:didCompleteWithError: Falling back to web path.");
     session->fallBackToWebPath();
 }

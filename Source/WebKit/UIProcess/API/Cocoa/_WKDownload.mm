@@ -38,7 +38,7 @@
 
 
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-static NSMapTable<WKDownload *, _WKDownload *> *downloadWrapperMap()
+static NSMapTable<WKDownload *, _WKDownload *> *downloadWrapperMapSingleton()
 {
     static NeverDestroyed<RetainPtr<NSMapTable>> table;
     if (!table.get())
@@ -57,39 +57,39 @@ IGNORE_WARNINGS_END
 {
     if (!(self = [super init]))
         return nil;
-    _download = download;
+    lazyInitialize(_download, retainPtr(download));
     return self;
 }
 
 + (instancetype)downloadWithDownload:(WKDownload *)download
 {
-    if (_WKDownload *wrapper = [downloadWrapperMap() objectForKey:download])
-        return wrapper;
+    if (RetainPtr<_WKDownload> wrapper = [downloadWrapperMapSingleton() objectForKey:download])
+        return wrapper.autorelease();
     auto wrapper = adoptNS([[_WKDownload alloc] initWithDownload2:download]);
-    [downloadWrapperMap() setObject:wrapper.get() forKey:download];
+    [downloadWrapperMapSingleton() setObject:wrapper.get() forKey:download];
     return wrapper.autorelease();
 }
 
 - (void)cancel
 {
-    _download->_download->cancel([download = Ref { *_download->_download }] (auto*) {
-        download->client().legacyDidCancel(download.get());
+    Ref { *_download->_download }->cancel([download = Ref { *_download->_download }] (auto*) {
+        download->protectedClient()->legacyDidCancel(download.get());
     });
 }
 
 - (void)publishProgressAtURL:(NSURL *)URL
 {
-    _download->_download->publishProgress(URL);
+    Ref { *_download->_download }->publishProgress(URL);
 }
 
 - (NSURLRequest *)request
 {
-    return _download->_download->request().nsURLRequest(WebCore::HTTPBodyUpdatePolicy::DoNotUpdateHTTPBody);
+    return _download->_download->request().protectedNSURLRequest(WebCore::HTTPBodyUpdatePolicy::DoNotUpdateHTTPBody).autorelease();
 }
 
 - (WKWebView *)originatingWebView
 {
-    RefPtr page = _download->_download->originatingPage();
+    RefPtr page = Ref { *_download->_download }->originatingPage();
     return page ? page->cocoaView().autorelease() : nil;
 }
 

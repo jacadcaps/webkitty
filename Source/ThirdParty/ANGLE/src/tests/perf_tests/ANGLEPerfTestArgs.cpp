@@ -7,6 +7,10 @@
 //   Parse command line arguments for angle_perftests.
 //
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include "ANGLEPerfTestArgs.h"
 #include <string.h>
 #include <sstream>
@@ -54,6 +58,8 @@ const char *gTraceInterpreter      = nullptr;
 const char *gPrintExtensionsToFile = nullptr;
 const char *gRequestedExtensions   = nullptr;
 bool gIncludeInactiveResources     = false;
+bool gTrackGPUTime                 = false;
+bool gAddSwapIntoGPUTime           = false;
 
 namespace
 {
@@ -98,7 +104,9 @@ bool TraceTestArg(int *argc, char **argv, int argIndex)
                            &gPrintExtensionsToFile) ||
            ParseCStringArg("--request-extensions", argc, argv, argIndex, &gRequestedExtensions) ||
            ParseFlag("--include-inactive-resources", argc, argv, argIndex,
-                     &gIncludeInactiveResources);
+                     &gIncludeInactiveResources) ||
+           ParseFlag("--track-gpu-time", argc, argv, argIndex, &gTrackGPUTime) ||
+           ParseFlag("--add-swap-into-gpu-time", argc, argv, argIndex, &gAddSwapIntoGPUTime);
 }
 }  // namespace
 }  // namespace angle

@@ -25,8 +25,8 @@
 
 #pragma once
 
-#import "TextIndicator.h"
 #import <QuartzCore/CALayer.h>
+#import <WebCore/TextIndicator.h>
 #import <wtf/Noncopyable.h>
 #import <wtf/RefPtr.h>
 #import <wtf/RetainPtr.h>
@@ -42,7 +42,7 @@ WEBCORE_EXPORT @interface WebTextIndicatorLayer : CALayer {
 
 - (instancetype)initWithFrame:(CGRect)frame textIndicator:(RefPtr<WebCore::TextIndicator>)textIndicator margin:(CGSize)margin offset:(CGPoint)offset;
 
-- (void)updateWithFrame:(CGRect)frame textIndicator:(RefPtr<WebCore::TextIndicator>)textIndicator margin:(CGSize)margin offset:(CGPoint)offset updatingIndicator:(BOOL)updatingIndicator;
+- (void)updateWithFrame:(CGRect)frame textIndicator:(WebCore::TextIndicator*)textIndicator margin:(CGSize)margin offset:(CGPoint)offset updatingIndicator:(BOOL)updatingIndicator;
 
 - (void)present;
 - (void)hideWithCompletionHandler:(void(^)(void))completionHandler;

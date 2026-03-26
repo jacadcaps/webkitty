@@ -56,10 +56,9 @@
 /third_party/gles1_conform
 /third_party/glmark2/src
 /third_party/glslang/src
-/third_party/googletest
+/third_party/googletest/src
 /third_party/ijar
 /third_party/jdk/current
-/third_party/jdk/extras/java_8
 /third_party/jinja2
 /third_party/jsoncpp
 /third_party/kotlin_stdlib
@@ -134,6 +133,7 @@
 /tools/rust
 /tools/skia_goldctl
 /tools/valgrind
+/tools/win
 angle.iml
 angle_debug.txt
 /build

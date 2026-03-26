@@ -47,6 +47,31 @@ static RetainPtr<NSString> EncodeResourceAsArrayString(NSString* resource, NSStr
     return adoptNS([[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding]);
 }
 
+static void loadFontFace(WKWebView *webView, NSString *fontFamily, NSString *encodedFontData, NSString *targetElement, NSString *fontFamilyValue)
+{
+    [webView objectByEvaluatingJavaScript:[NSString stringWithFormat:@""
+        "{"
+        "  window.fontLoadComplete = false;"
+        "  let fontData = new Uint8Array(%@);"
+        "  let font = new FontFace('%@', fontData);"
+        "  void font.load().then(() => {"
+        "    document.fonts.add(font);"
+        "    %@.style.setProperty('font-family', '%@');"
+        "    window.fontLoadComplete = true;"
+        "  }).catch(() => {"
+        "    %@.style.setProperty('font-family', '%@');"
+        "    window.fontLoadComplete = true;"
+        "  });"
+        "}", encodedFontData, fontFamily, targetElement, fontFamilyValue, targetElement, fontFamilyValue]];
+}
+
+static void waitForFontLoad(WKWebView *webView)
+{
+    Util::waitForConditionWithLogging([&] {
+        return [[webView objectByEvaluatingJavaScript:@"window.fontLoadComplete"] boolValue];
+    }, 3, @"Expected font to load.");
+}
+
 // rdar://136524076
 #if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 150000
 TEST(LockdownMode, DISABLED_SVGFonts)
@@ -84,11 +109,10 @@ TEST(LockdownMode, NotAllowedFontLoadingAPI)
             "let target = document.getElementById('target');"
             "let reference = document.getElementById('reference');"];
         auto beforeTargetResult = static_cast<NSNumber *>([webView objectByEvaluatingJavaScript:@"target.offsetWidth"]).intValue;
-        [webView objectByEvaluatingJavaScript:[NSString stringWithFormat:@""
-            "let fontData = new Uint8Array(%@);"
-            "let font = new FontFace('WebFont', fontData);"
-            "document.fonts.add(font);"
-            "target.style.setProperty('font-family', 'WebFont, Helvetica');", encoded.get()]];
+
+        loadFontFace(webView.get(), @"WebFont", encoded.get(), @"target", @"WebFont, Helvetica");
+        waitForFontLoad(webView.get());
+
         auto targetResult = static_cast<NSNumber *>([webView objectByEvaluatingJavaScript:@"target.offsetWidth"]).intValue;
         auto referenceResult = static_cast<NSNumber *>([webView objectByEvaluatingJavaScript:@"reference.offsetWidth"]).intValue;
 
@@ -118,11 +142,10 @@ TEST(LockdownMode, AllowedFontLoadingAPI)
             "let target = document.getElementById('target');"
             "let reference = document.getElementById('reference');"];
         auto beforeTargetResult = static_cast<NSNumber *>([webView objectByEvaluatingJavaScript:@"target.offsetWidth"]).intValue;
-        [webView objectByEvaluatingJavaScript:[NSString stringWithFormat:@""
-            "let fontData = new Uint8Array(%@);"
-            "let font = new FontFace('WebFont', fontData);"
-            "document.fonts.add(font);"
-            "target.style.setProperty('font-family', 'WebFont, Helvetica');", encoded.get()]];
+
+        loadFontFace(webView.get(), @"WebFont", encoded.get(), @"target", @"WebFont, Helvetica");
+        waitForFontLoad(webView.get());
+
         auto targetResult = static_cast<NSNumber *>([webView objectByEvaluatingJavaScript:@"target.offsetWidth"]).intValue;
         auto referenceResult = static_cast<NSNumber *>([webView objectByEvaluatingJavaScript:@"reference.offsetWidth"]).intValue;
 
@@ -147,11 +170,10 @@ TEST(LockdownMode, NotSupportedFontLoadingAPI)
             "let target = document.getElementById('target');"
             "let reference = document.getElementById('reference');"];
         auto beforeTargetResult = static_cast<NSNumber *>([webView objectByEvaluatingJavaScript:@"target.offsetWidth"]).intValue;
-        [webView objectByEvaluatingJavaScript:[NSString stringWithFormat:@""
-            "let fontData = new Uint8Array(%@);"
-            "let font = new FontFace('WebFont', fontData);"
-            "document.fonts.add(font);"
-            "target.style.setProperty('font-family', 'WebFont, Helvetica');", encoded.get()]];
+
+        loadFontFace(webView.get(), @"WebFont", encoded.get(), @"target", @"WebFont, Helvetica");
+        waitForFontLoad(webView.get());
+
         auto targetResult = static_cast<NSNumber *>([webView objectByEvaluatingJavaScript:@"target.offsetWidth"]).intValue;
         auto referenceResult = static_cast<NSNumber *>([webView objectByEvaluatingJavaScript:@"reference.offsetWidth"]).intValue;
 
@@ -228,11 +250,8 @@ TEST(LockdownMode, DISABLED_ImmediateParsedViaSafeFontParser)
 
         auto beforeTargetResult = static_cast<NSNumber *>([webView objectByEvaluatingJavaScript:@"target.offsetWidth"]).intValue;
 
-        [webView objectByEvaluatingJavaScript:[NSString stringWithFormat:@""
-            "let fontData = new Uint8Array(%@);"
-            "let font = new FontFace('WebFont', fontData);"
-            "document.fonts.add(font);"
-            "target.style.setProperty('font-family', 'WebFont, Helvetica');", encoded.get()]];
+        loadFontFace(webView.get(), @"WebFont", encoded.get(), @"target", @"WebFont, Helvetica");
+        waitForFontLoad(webView.get());
 
         auto targetResult = static_cast<NSNumber *>([webView objectByEvaluatingJavaScript:@"target.offsetWidth"]).intValue;
         auto referenceResult = static_cast<NSNumber *>([webView objectByEvaluatingJavaScript:@"reference.offsetWidth"]).intValue;
@@ -255,11 +274,8 @@ TEST(LockdownMode, DISABLED_ImmediateParsedViaSafeFontParser)
         // in FontParser, giving us some signal of which was used.
         auto canaryEncoded = EncodeResourceAsArrayString(@"SafeFontParser-Invalid", @"ttf");
 
-        [webView objectByEvaluatingJavaScript:[NSString stringWithFormat:@""
-            "let canaryFontData = new Uint8Array(%@);"
-            "let canaryFont = new FontFace('CanaryFont', canaryFontData);"
-            "document.fonts.add(canaryFont);"
-            "target.style.setProperty('font-family', 'CanaryFont, WebFont');", canaryEncoded.get()]];
+        loadFontFace(webView.get(), @"CanaryFont", canaryEncoded.get(), @"target", @"CanaryFont, WebFont");
+        waitForFontLoad(webView.get());
 
         targetResult = static_cast<NSNumber *>([webView objectByEvaluatingJavaScript:@"target.offsetWidth"]).intValue;
 
@@ -295,11 +311,8 @@ TEST(LockdownMode, DISABLED_CanaryFontSucceedsInFontParser)
 
         auto beforeTargetResult = static_cast<NSNumber *>([webView objectByEvaluatingJavaScript:@"target.offsetWidth"]).intValue;
 
-        [webView objectByEvaluatingJavaScript:[NSString stringWithFormat:@""
-            "let fontData = new Uint8Array(%@);"
-            "let font = new FontFace('WebFont', fontData);"
-            "document.fonts.add(font);"
-            "target.style.setProperty('font-family', 'WebFont, Helvetica');", encoded.get()]];
+        loadFontFace(webView.get(), @"WebFont", encoded.get(), @"target", @"WebFont, Helvetica");
+        waitForFontLoad(webView.get());
 
         auto targetResult = static_cast<NSNumber *>([webView objectByEvaluatingJavaScript:@"target.offsetWidth"]).intValue;
         auto referenceResult = static_cast<NSNumber *>([webView objectByEvaluatingJavaScript:@"reference.offsetWidth"]).intValue;

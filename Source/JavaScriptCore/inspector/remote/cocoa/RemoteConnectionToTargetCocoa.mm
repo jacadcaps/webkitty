@@ -33,6 +33,7 @@
 #import "RemoteInspectionTarget.h"
 #import "RemoteInspector.h"
 #import <dispatch/dispatch.h>
+#import <wtf/NeverDestroyed.h>
 #import <wtf/RunLoop.h>
 
 #if USE(WEB_THREAD)
@@ -42,13 +43,18 @@
 namespace Inspector {
 
 static Lock rwiQueueMutex;
-static CFRunLoopSourceRef rwiRunLoopSource;
 static RemoteTargetQueue* rwiQueue;
+
+static RetainPtr<CFRunLoopSourceRef>& rwiRunLoopSource()
+{
+    static NeverDestroyed<RetainPtr<CFRunLoopSourceRef>> source;
+    return source.get();
+}
 
 static void RemoteTargetHandleRunSourceGlobal(void*)
 {
     ASSERT(CFRunLoopGetCurrent() == CFRunLoopGetMain());
-    ASSERT(rwiRunLoopSource);
+    ASSERT(rwiRunLoopSource());
     ASSERT(rwiQueue);
 
     RemoteTargetQueue queueCopy;
@@ -63,16 +69,16 @@ static void RemoteTargetHandleRunSourceGlobal(void*)
 
 static void RemoteTargetQueueTaskOnGlobalQueue(Function<void ()>&& function)
 {
-    ASSERT(rwiRunLoopSource);
+    ASSERT(rwiRunLoopSource());
     ASSERT(rwiQueue);
 
     {
         Locker locker { rwiQueueMutex };
-        rwiQueue->append(WTFMove(function));
+        rwiQueue->append(WTF::move(function));
     }
 
-    CFRunLoopSourceSignal(rwiRunLoopSource);
-    CFRunLoopWakeUp(CFRunLoopGetMain());
+    CFRunLoopSourceSignal(rwiRunLoopSource().get());
+    CFRunLoopWakeUp(RetainPtr { CFRunLoopGetMain() }.get());
 }
 
 static void RemoteTargetInitializeGlobalQueue()
@@ -82,13 +88,14 @@ static void RemoteTargetInitializeGlobalQueue()
         rwiQueue = new RemoteTargetQueue;
 
         CFRunLoopSourceContext runLoopSourceContext = { 0, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, RemoteTargetHandleRunSourceGlobal };
-        rwiRunLoopSource = CFRunLoopSourceCreate(kCFAllocatorDefault, 1, &runLoopSourceContext);
+        rwiRunLoopSource() = adoptCF(CFRunLoopSourceCreate(kCFAllocatorDefault, 1, &runLoopSourceContext));
 
         // Add to the default run loop mode for default handling, and the JSContext remote inspector run loop mode when paused.
-        CFRunLoopAddSource(CFRunLoopGetMain(), rwiRunLoopSource, kCFRunLoopDefaultMode);
-        auto mode = JSGlobalObjectDebugger::runLoopMode();
-        if (mode != DefaultRunLoopMode)
-            CFRunLoopAddSource(CFRunLoopGetMain(), rwiRunLoopSource, mode);
+        RetainPtr mainRunLoop = CFRunLoopGetMain();
+        CFRunLoopAddSource(mainRunLoop.get(), rwiRunLoopSource().get(), kCFRunLoopDefaultMode);
+        RetainPtr mode = JSGlobalObjectDebugger::runLoopModeSingleton();
+        if (mode.get() != DefaultRunLoopMode)
+            CFRunLoopAddSource(mainRunLoop.get(), rwiRunLoopSource().get(), mode.get());
     });
 }
 
@@ -131,6 +138,11 @@ NSString *RemoteConnectionToTarget::connectionIdentifier() const
     return adoptNS([m_connectionIdentifier copy]).autorelease();
 }
 
+RetainPtr<NSString> RemoteConnectionToTarget::protectedConnectionIdentifier() const
+{
+    return connectionIdentifier();
+}
+
 NSString *RemoteConnectionToTarget::destination() const
 {
     return adoptNS([m_destination copy]).autorelease();
@@ -139,13 +151,13 @@ NSString *RemoteConnectionToTarget::destination() const
 void RemoteConnectionToTarget::dispatchAsyncOnTarget(Function<void ()>&& callback)
 {
     if (m_runLoop) {
-        queueTaskOnPrivateRunLoop(WTFMove(callback));
+        queueTaskOnPrivateRunLoop(WTF::move(callback));
         return;
     }
 
 #if USE(WEB_THREAD)
     if (WebCoreWebThreadIsEnabled && WebCoreWebThreadIsEnabled()) {
-        __block auto blockCallback(WTFMove(callback));
+        __block auto blockCallback(WTF::move(callback));
         WebCoreWebThreadRun(^{
             blockCallback();
         });
@@ -153,7 +165,7 @@ void RemoteConnectionToTarget::dispatchAsyncOnTarget(Function<void ()>&& callbac
     }
 #endif
 
-    RemoteTargetQueueTaskOnGlobalQueue(WTFMove(callback));
+    RemoteTargetQueueTaskOnGlobalQueue(WTF::move(callback));
 }
 
 bool RemoteConnectionToTarget::setup(bool isAutomaticInspection, bool automaticallyPause)
@@ -180,9 +192,9 @@ bool RemoteConnectionToTarget::setup(bool isAutomaticInspection, bool automatica
             return;
         }
 
-        if (auto* inspectionTarget = dynamicDowncast<RemoteInspectionTarget>(target.get()))
+        if (RefPtr inspectionTarget = dynamicDowncast<RemoteInspectionTarget>(target.get()))
             inspectionTarget->connect(*this, isAutomaticInspection, automaticallyPause);
-        else if (auto* automationTarget = dynamicDowncast<RemoteAutomationTarget>(target.get()))
+        else if (RefPtr automationTarget = dynamicDowncast<RemoteAutomationTarget>(target.get()))
             automationTarget->connect(*this);
 
         m_connectionState = ConnectionState::Connected;
@@ -274,9 +286,9 @@ void RemoteConnectionToTarget::setupRunLoop()
     m_runLoopSource = adoptCF(CFRunLoopSourceCreate(kCFAllocatorDefault, 1, &runLoopSourceContext));
 
     CFRunLoopAddSource(m_runLoop.get(), m_runLoopSource.get(), kCFRunLoopDefaultMode);
-    auto mode = JSGlobalObjectDebugger::runLoopMode();
-    if (mode != DefaultRunLoopMode)
-        CFRunLoopAddSource(m_runLoop.get(), m_runLoopSource.get(), mode);
+    RetainPtr mode = JSGlobalObjectDebugger::runLoopModeSingleton();
+    if (mode.get() != DefaultRunLoopMode)
+        CFRunLoopAddSource(m_runLoop.get(), m_runLoopSource.get(), mode.get());
 }
 
 void RemoteConnectionToTarget::teardownRunLoop()
@@ -285,9 +297,9 @@ void RemoteConnectionToTarget::teardownRunLoop()
         return;
 
     CFRunLoopRemoveSource(m_runLoop.get(), m_runLoopSource.get(), kCFRunLoopDefaultMode);
-    auto mode = JSGlobalObjectDebugger::runLoopMode();
-    if (mode != DefaultRunLoopMode)
-        CFRunLoopRemoveSource(m_runLoop.get(), m_runLoopSource.get(), mode);
+    RetainPtr mode = JSGlobalObjectDebugger::runLoopModeSingleton();
+    if (mode.get() != DefaultRunLoopMode)
+        CFRunLoopRemoveSource(m_runLoop.get(), m_runLoopSource.get(), mode.get());
 
     m_runLoop = nullptr;
     m_runLoopSource = nullptr;
@@ -299,7 +311,7 @@ void RemoteConnectionToTarget::queueTaskOnPrivateRunLoop(Function<void ()>&& fun
 
     {
         Locker lock { m_queueMutex };
-        m_queue.append(WTFMove(function));
+        m_queue.append(WTF::move(function));
     }
 
     CFRunLoopSourceSignal(m_runLoopSource.get());

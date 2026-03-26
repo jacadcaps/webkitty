@@ -46,11 +46,6 @@ use Test::Harness;
 use lib $FindBin::Bin; # so this script can be run from any directory.
 use VCSUtils;
 
-if (shouldUseFlatpak()) {
-    my @command = (File::Spec->catfile(sourceDir(), "Tools", "Scripts", "test-webkitperl"));
-    runInFlatpak(@command);
-}
-
 # Change the working directory so that we can pass shorter, relative
 # paths to runtests(), rather than longer, absolute paths.
 #

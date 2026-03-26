@@ -25,7 +25,6 @@
 
 #pragma once
 
-#include "ArgumentCoders.h"
 #include "IdentifierTypes.h"
 #include <WebCore/Color.h>
 #include <WebCore/ElementContext.h>
@@ -135,8 +134,6 @@ struct EditorState {
         uint64_t surroundingContextCursorPosition { 0 };
         uint64_t surroundingContextSelectionPosition { 0 };
 #endif
-
-        std::optional<WebCore::FontAttributes> fontAttributes;
 
         bool canCut { false };
         bool canCopy { false };

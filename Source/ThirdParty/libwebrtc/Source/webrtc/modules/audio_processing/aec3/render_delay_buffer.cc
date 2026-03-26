@@ -10,11 +10,12 @@
 
 #include "modules/audio_processing/aec3/render_delay_buffer.h"
 
-#include <string.h>
-
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <memory>
 #include <numeric>
 #include <optional>
@@ -25,11 +26,11 @@
 #include "modules/audio_processing/aec3/aec3_common.h"
 #include "modules/audio_processing/aec3/aec3_fft.h"
 #include "modules/audio_processing/aec3/alignment_mixer.h"
+#include "modules/audio_processing/aec3/block.h"
 #include "modules/audio_processing/aec3/block_buffer.h"
 #include "modules/audio_processing/aec3/decimator.h"
 #include "modules/audio_processing/aec3/downsampled_render_buffer.h"
 #include "modules/audio_processing/aec3/fft_buffer.h"
-#include "modules/audio_processing/aec3/fft_data.h"
 #include "modules/audio_processing/aec3/render_buffer.h"
 #include "modules/audio_processing/aec3/spectrum_buffer.h"
 #include "modules/audio_processing/logging/apm_data_dumper.h"
@@ -334,7 +335,11 @@ void RenderDelayBufferImpl::SetAudioBufferDelay(int delay_ms) {
   }
 
   // Convert delay from milliseconds to blocks (rounded down).
-  external_audio_buffer_delay_ = delay_ms / 4;
+  constexpr int kSampleRateForFixedCaptureDelay = 16000;
+  constexpr int kNumSamplesPerMs = kSampleRateForFixedCaptureDelay / 1000;
+  external_audio_buffer_delay_ = (delay_ms * kNumSamplesPerMs +
+                                  config_.delay.fixed_capture_delay_samples) /
+                                 (kBlockSizeMs * kNumSamplesPerMs);
 }
 
 bool RenderDelayBufferImpl::HasReceivedBufferDelay() {

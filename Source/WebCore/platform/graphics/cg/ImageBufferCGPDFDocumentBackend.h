@@ -27,14 +27,14 @@
 
 #if USE(CG)
 
-#include "ImageBuffer.h"
-#include "ImageBufferCGBackend.h"
+#include <WebCore/ImageBuffer.h>
+#include <WebCore/ImageBufferCGBackend.h>
 #include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class ImageBufferCGPDFDocumentBackend : public ImageBufferCGBackend {
-    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(ImageBufferCGPDFDocumentBackend);
+    WTF_MAKE_TZONE_ALLOCATED(ImageBufferCGPDFDocumentBackend);
     WTF_MAKE_NONCOPYABLE(ImageBufferCGPDFDocumentBackend);
 public:
     WEBCORE_EXPORT static size_t calculateMemoryCost(const Parameters&);

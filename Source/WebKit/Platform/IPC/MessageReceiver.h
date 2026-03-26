@@ -25,9 +25,8 @@
 
 #pragma once
 
-#include <wtf/AbstractRefCounted.h>
+#include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 #include <wtf/Assertions.h>
-#include <wtf/CanMakeWeakPtr.h>
 #include <wtf/WeakPtr.h>
 
 namespace IPC {
@@ -36,7 +35,7 @@ class Connection;
 class Decoder;
 class Encoder;
 
-class MessageReceiver : public CanMakeWeakPtr<MessageReceiver>, public AbstractRefCounted {
+class MessageReceiver : public AbstractRefCountedAndCanMakeWeakPtr<MessageReceiver> {
 public:
     virtual ~MessageReceiver()
     {
@@ -53,10 +52,9 @@ public:
         ASSERT_NOT_REACHED();
     }
 
-    virtual bool didReceiveSyncMessage(Connection&, Decoder&, UniqueRef<Encoder>&)
+    virtual void didReceiveSyncMessage(Connection&, Decoder&, UniqueRef<Encoder>&)
     {
         ASSERT_NOT_REACHED();
-        return false;
     }
 
 private:

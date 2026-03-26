@@ -32,10 +32,11 @@ from .macho import APIReport
 F = Path('/libdoesntexist.dylib')
 F_Hash = 1234567890
 F_NonNormalized = Path('/foo/../libdoesntexist.dylib')
+R_Selector = APIReport.Selector('initWithData:', 'WKDoesntExist')
 R = APIReport(
     file=F, arch='arm64e',
     exports={'_WKDoesntExistLibraryVersion', '_OBJC_CLASS_$_WKDoesntExist'},
-    methods={'initWithData:'}
+    methods={R_Selector}
 )
 
 F_Client = Path('/libdoesntexist_client.dylib')
@@ -49,13 +50,24 @@ R_MissingSymbol = MissingName(name='_WKDoesntExistLibraryVersion',
 R_MissingClass = MissingName(name='WKDoesntExist', file=F_Client, arch='arm64e', kind=OBJC_CLS)
 R_MissingSelector = MissingName(name='initWithData:', file=F_Client, arch='arm64e', kind=OBJC_SEL)
 
-A = AllowList.from_dict({'sdkdb-unittest':
-                         {'rdar://12345':
-                          {'classes': ['WKDoesntExist'],
-                           'selectors': ['initWithData:'],
-                           'symbols': ['_WKDoesntExistLibraryVersion']}}})
+A = AllowList.from_dict({'temporary-usage': [
+    {'request': 'rdar://12345',
+     'cleanup': 'rdar://12346',
+     'classes': ['WKDoesntExist'],
+     'selectors': [{'name': 'initWithData:', 'class': '?'}],
+     'symbols': ['WKDoesntExistLibraryVersion']}
+]})
 A_File = Path('/allowed.toml')
 A_Hash = 23456
+A_ExplicitlyAllowUnused = AllowList.from_dict({'temporary-usage': [
+    {'request': 'rdar://12345',
+     'cleanup': 'rdar://12346',
+     'classes': ['WKDoesntExist'],
+     'selectors': [{'name': 'initWithData:', 'class': '?'}],
+     'symbols': ['WKDoesntExistLibraryVersion'],
+     'allow-unused': True}
+]})
+
 A_UnusedAllow = UnusedAllowedName(name='WKDoesntExist', file=A_File,
                                   kind=OBJC_CLS)
 A_AllowedAPI = UnnecessaryAllowedName(name='WKDoesntExist', file=A_File,
@@ -63,57 +75,91 @@ A_AllowedAPI = UnnecessaryAllowedName(name='WKDoesntExist', file=A_File,
 
 R_Uses_Own_Selector = APIReport(
     file=F_Client, arch='arm64e',
-    methods={'someInternalMethodWithObject:'},
+    methods={APIReport.Selector('someInternalMethodWithObject:', 'Class')},
     selrefs={'someInternalMethodWithObject:'}
 )
 
-A_Conditional = AllowList.from_dict(
-    {'sdkdb-unittest': {'rdar://12345': {
-        'classes': ['WKDoesntExist'],
-        'selectors': ['initWithData:'],
-        'symbols': ['_WKDoesntExistLibraryVersion'],
-        'requires': ['ENABLE_FEATURE']}
-    }}
-)
+A_Conditional = AllowList.from_dict({'temporary-usage': [
+    {'request': 'rdar://12345',
+     'cleanup': 'rdar://12346',
+     'classes': ['WKDoesntExist'],
+     'selectors': [{'name': 'initWithData:', 'class': '?'}],
+     'symbols': ['WKDoesntExistLibraryVersion'],
+     'requires': ['ENABLE_FEATURE']}
+]})
 
-A_NegatedConditional = AllowList.from_dict(
-    {'sdkdb-unittest': {'rdar://12345': {
-        'classes': ['WKDoesntExist'],
-        'selectors': ['initWithData:'],
-        'symbols': ['_WKDoesntExistLibraryVersion'],
-        'requires': ['!ENABLE_FEATURE']}
-    }}
-)
+A_NegatedConditional = AllowList.from_dict({'temporary-usage': [
+    {'request': 'rdar://12345',
+     'cleanup': 'rdar://12346',
+     'classes': ['WKDoesntExist'],
+     'selectors': [{'name': 'initWithData:', 'class': '?'}],
+     'symbols': ['WKDoesntExistLibraryVersion'],
+     'requires': ['!ENABLE_FEATURE']}
+]})
 
-A_MultipleConditions = AllowList.from_dict(
-    {'sdkdb-unittest': {'rdar://12345': {
-        'classes': ['WKDoesntExist'],
-        'selectors': ['initWithData:'],
-        'symbols': ['_WKDoesntExistLibraryVersion'],
-        'requires': ['ENABLE_A', 'ENABLE_B', '!ENABLE_C']}
-    }}
-)
+A_MultipleConditions = AllowList.from_dict({'temporary-usage': [
+    {'request': 'rdar://12345',
+     'cleanup': 'rdar://12346',
+     'classes': ['WKDoesntExist'],
+     'selectors': [{'name': 'initWithData:', 'class': '?'}],
+     'symbols': ['WKDoesntExistLibraryVersion'],
+     'requires': ['ENABLE_A', 'ENABLE_B', '!ENABLE_C']}
+]})
+
+A_QualifiedSelector = AllowList.from_dict({'temporary-usage': [
+    {'request': 'rdar://12345',
+     'cleanup': 'rdar://12346',
+     'classes': ['WKDoesntExist'],
+     'selectors': [{'name': 'initWithData:', 'class': 'WKDoesntExist'}],
+     'symbols': ['WKDoesntExistLibraryVersion']}
+]})
+
+S = {
+    'PublicSDKContentRoot': [{
+        'target': 'arm64-apple-ios18.5',
+        'interfaces': [{
+            'name': 'NSData',
+            'access': 'public',
+            'instanceMethods': [
+                {'access': 'public', 'name': 'initWithData:'},
+            ],
+        }]
+    }]
+}
+S_File = Path('/Foundation.partial.sdkdb')
+S_Hash = 3456789
+S_UnnecessarySelector = UnnecessaryAllowedName(name='initWithData:', file=A_File, kind=OBJC_SEL, exported_in=S_File)
 
 class TestSDKDB(TestCase):
     def setUp(self):
         self.dbfile = tempfile.NamedTemporaryFile(prefix='TestSDKDB-')
         self.sdkdb = SDKDB(Path(self.dbfile.name))
 
-    def add_library(self):
-        with self.sdkdb:
-            self.sdkdb._cache_hit_preparing_to_insert(F, F_Hash)
-            self.sdkdb._add_api_report(R, F)
+    def tearDown(self):
+        self.sdkdb.con.close()
 
-    def add_allowlist(self):
+    def add_library(self, fixture=R, file=F, file_hash=F_Hash):
         with self.sdkdb:
-            self.sdkdb._cache_hit_preparing_to_insert(A_File, A_Hash)
-            self.sdkdb._add_allowlist(A, A_File)
+            self.sdkdb._cache_hit_preparing_to_insert(file, file_hash)
+            self.sdkdb._add_api_report(fixture, file)
+
+    def add_partial_sdkdb(self):
+        with self.sdkdb:
+            self.sdkdb._cache_hit_preparing_to_insert(S_File, S_Hash)
+            self.sdkdb._add_partial_sdkdb(S, S_File, spi=False, abi=False)
+
+    def add_allowlist(self, fixture=A, file=A_File, hash=A_Hash):
+        with self.sdkdb:
+            self.sdkdb._cache_hit_preparing_to_insert(file, hash)
+            self.sdkdb._add_allowlist(fixture, file)
 
     def reconnect(self):
         self.sdkdb = SDKDB(Path(self.dbfile.name))
 
-    def audit_with(self, fixture: APIReport):
-        self.sdkdb.add_for_auditing(fixture)
+    def audit_with(self, fixture: APIReport, file_hash=54321):
+        self.sdkdb._cache_hit_preparing_to_insert(fixture.file, file_hash)
+        self.sdkdb._add_api_report(fixture, fixture.file)
+        self.sdkdb._add_imports(fixture)
         return self.sdkdb.audit()
 
     def assertEmpty(self, seq):
@@ -164,51 +210,37 @@ class TestSDKDB(TestCase):
         self.assertEmpty(self.audit_with(R_Client))
 
     def test_audit_allowed_conditional(self):
-        with self.sdkdb:
-            self.sdkdb._cache_hit_preparing_to_insert(A_File, A_Hash)
-            self.sdkdb._add_allowlist(A_Conditional, A_File)
+        self.add_allowlist(A_Conditional)
         self.sdkdb.add_defines(['ENABLE_FEATURE'])
         self.assertEmpty(self.audit_with(R_Client))
 
     def test_audit_missing_name_conditional(self):
-        with self.sdkdb:
-            self.sdkdb._cache_hit_preparing_to_insert(A_File, A_Hash)
-            self.sdkdb._add_allowlist(A_Conditional, A_File)
+        self.add_allowlist(A_Conditional)
         self.sdkdb.add_defines(['OTHER_FEATURE'])
         self.assertIn(R_MissingSymbol, self.audit_with(R_Client))
 
     def test_audit_missing_name_negated_conditional(self):
-        with self.sdkdb:
-            self.sdkdb._cache_hit_preparing_to_insert(A_File, A_Hash)
-            self.sdkdb._add_allowlist(A_NegatedConditional, A_File)
+        self.add_allowlist(A_NegatedConditional)
         self.sdkdb.add_defines(['ENABLE_FEATURE'])
         self.assertIn(R_MissingSymbol, self.audit_with(R_Client))
 
     def test_audit_allowed_negated_conditional(self):
-        with self.sdkdb:
-            self.sdkdb._cache_hit_preparing_to_insert(A_File, A_Hash)
-            self.sdkdb._add_allowlist(A_NegatedConditional, A_File)
+        self.add_allowlist(A_NegatedConditional)
         self.sdkdb.add_defines(['OTHER_FEATURE'])
         self.assertEmpty(self.audit_with(R_Client))
 
     def test_audit_allowed_multiple_conditions(self):
-        with self.sdkdb:
-            self.sdkdb._cache_hit_preparing_to_insert(A_File, A_Hash)
-            self.sdkdb._add_allowlist(A_MultipleConditions, A_File)
+        self.add_allowlist(A_MultipleConditions)
         self.sdkdb.add_defines(['ENABLE_A', 'ENABLE_B'])
         self.assertEmpty(self.audit_with(R_Client))
 
     def test_audit_missing_name_multiple_conditions(self):
-        with self.sdkdb:
-            self.sdkdb._cache_hit_preparing_to_insert(A_File, A_Hash)
-            self.sdkdb._add_allowlist(A_MultipleConditions, A_File)
+        self.add_allowlist(A_MultipleConditions)
         self.sdkdb.add_defines(['ENABLE_A'])
         self.assertIn(R_MissingSymbol, self.audit_with(R_Client))
 
     def test_audit_missing_name_multiple_conditions_negation(self):
-        with self.sdkdb:
-            self.sdkdb._cache_hit_preparing_to_insert(A_File, A_Hash)
-            self.sdkdb._add_allowlist(A_MultipleConditions, A_File)
+        self.add_allowlist(A_MultipleConditions)
         self.sdkdb.add_defines(['ENABLE_A', 'ENABLE_B', 'ENABLE_C'])
         self.assertIn(R_MissingSymbol, self.audit_with(R_Client))
 
@@ -241,8 +273,27 @@ class TestSDKDB(TestCase):
     def test_audit_allowed_own_methods(self):
         self.assertEmpty(self.audit_with(R_Uses_Own_Selector))
 
+    def test_audit_unnecessary_allow_from_selector(self):
+        self.add_partial_sdkdb()
+        self.add_allowlist()
+        self.assertIn(S_UnnecessarySelector, self.audit_with(R_Client))
+
+    def test_audit_allowed_fully_qualified_selector(self):
+        self.add_partial_sdkdb()
+        self.add_allowlist(A_QualifiedSelector)
+        self.assertEmpty(self.audit_with(R_Client))
+
     def test_audit_unused_allow_from_loaded_allowlist(self):
         self.add_allowlist()
+        self.assertIn(A_UnusedAllow, self.sdkdb.audit())
+
+    def test_audit_no_unused_when_explicitly_allowed(self):
+        self.add_allowlist(A_ExplicitlyAllowUnused)
+        self.assertNotIn(A_UnusedAllow, self.sdkdb.audit())
+
+    def test_audit_unused_allow_from_conflicting_allow_unused_keys(self):
+        self.add_allowlist()
+        self.add_allowlist(A_ExplicitlyAllowUnused)
         self.assertIn(A_UnusedAllow, self.sdkdb.audit())
 
     def test_audit_no_unused_allow_from_unloaded_allowlist(self):
@@ -251,8 +302,10 @@ class TestSDKDB(TestCase):
         self.assertEmpty(self.sdkdb.audit())
 
     def test_audit_api_in_loaded_and_unloaded_library(self):
+        # When two libraries which implement the same method are in the cache,
+        # and one is unloaded, the other method should still be matched.
         other_library = APIReport(file=Path('/libunrelated.dylib'),
-                                  arch='arm64e', methods={'initWithData:'})
+                                  arch='arm64e', methods={R_Selector})
         with self.sdkdb:
             self.sdkdb._cache_hit_preparing_to_insert(other_library.file, 23456789)
             self.sdkdb._add_api_report(other_library, other_library.file)
@@ -265,7 +318,9 @@ class TestSDKDB(TestCase):
         self.add_allowlist()
         self.reconnect()
 
-        other_allowlist = AllowList.from_dict({'test': {'legacy': {'selectors': ['initWithData:']}}})
+        other_allowlist = AllowList.from_dict(
+            {'legacy': [{'selectors': [{'name': 'initWithData:',
+                                        'class': '?'}]}]})
         other_file = Path('/allowed2.toml')
         with self.sdkdb:
             self.sdkdb._cache_hit_preparing_to_insert(other_file, 34567890)
@@ -278,7 +333,9 @@ class TestSDKDB(TestCase):
         self.reconnect()
         self.add_library()
 
-        other_allowlist = AllowList.from_dict({'test': {'legacy': {'selectors': ['initWithData:']}}})
+        other_allowlist = AllowList.from_dict(
+            {'legacy': [{'selectors': [{'name': 'initWithData:',
+                                                'class': '?'}]}]})
         other_file = Path('/allowed2.toml')
         with self.sdkdb:
             self.sdkdb._cache_hit_preparing_to_insert(other_file, 34567890)
@@ -296,7 +353,9 @@ class TestSDKDB(TestCase):
         self.add_allowlist()
         self.add_library()
 
-        other_allowlist = AllowList.from_dict({'test': {'legacy': {'selectors': ['initWithData:']}}})
+        other_allowlist = AllowList.from_dict(
+            {'legacy': [{'selectors': [{'name': 'initWithData:',
+                                                'class': '?'}]}]})
         other_file = Path('/allowed2.toml')
         with self.sdkdb:
             self.sdkdb._cache_hit_preparing_to_insert(other_file, 34567890)
@@ -309,3 +368,51 @@ class TestSDKDB(TestCase):
         self.assertIn(UnnecessaryAllowedName(name='initWithData:',
                                              kind=OBJC_SEL, file=A_File,
                                              exported_in=F), diagnostics)
+
+    def test_audit_allow_different_fully_qualified_methods_same_name(self):
+        allowlist = AllowList.from_dict({'temporary-usage': [
+            {'request': 'rdar://12345',
+             'cleanup': 'rdar://12346',
+             'classes': ['WKDoesntExist'],
+             'selectors': [{'name': 'initWithData:', 'class': 'WKDoesntExist'}],
+             'symbols': ['WKDoesntExistLibraryVersion']}
+        ]})
+        self.add_allowlist(allowlist)
+        client = APIReport(file=F_Client, arch='arm64e',
+                           methods={APIReport.Selector('initWithData:',
+                                                       'UnrelatedClass')},
+                           imports={'_WKDoesntExistLibraryVersion',
+                                    '_OBJC_CLASS_$_WKDoesntExist'},
+                           selrefs={'initWithData:'})
+        self.assertEmpty(self.audit_with(client))
+
+    def test_audit_unnecessary_allow_unqualified_methods_same_name(self):
+        self.add_allowlist()
+        client = APIReport(file=F_Client, arch='arm64e',
+                           methods={APIReport.Selector('initWithData:',
+                                                       'UnrelatedClass')},
+                           imports={'_WKDoesntExistLibraryVersion',
+                                    '_OBJC_CLASS_$_WKDoesntExist'},
+                           selrefs={'initWithData:'})
+        self.assertIn(UnnecessaryAllowedName(name='initWithData:', file=A_File,
+                                             kind=OBJC_SEL,
+                                             exported_in=F_Client),
+                      self.audit_with(client))
+
+    def test_exported_in_nonnull(self):
+        # Add the same API declarations twice (i.e. two different SDKs loaded
+        # into the same cache).
+        self.add_library(file=Path('/some/other/sdk/libdoesntexist.dylib'))
+        self.add_library()
+
+        # Reconnect and load only the second source of our symbols.
+        self.reconnect()
+        self.add_library()
+
+        # Cause an UnnecessaryAllowedName. It should have a nonnull
+        # export_path.
+        self.add_allowlist()
+        self.assertIn(UnnecessaryAllowedName(name='initWithData:',
+                                             kind=OBJC_SEL, file=A_File,
+                                             exported_in=F),
+                      self.audit_with(R_Client))

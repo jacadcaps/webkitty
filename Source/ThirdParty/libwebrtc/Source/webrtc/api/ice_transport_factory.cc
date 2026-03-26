@@ -20,7 +20,6 @@
 #include "p2p/base/ice_transport_internal.h"
 #include "p2p/base/p2p_constants.h"
 #include "p2p/base/p2p_transport_channel.h"
-#include "p2p/base/port_allocator.h"
 #include "rtc_base/thread_annotations.h"
 
 namespace webrtc {
@@ -53,16 +52,9 @@ class IceTransportWithTransportChannel : public IceTransportInterface {
 
 }  // namespace
 
-scoped_refptr<IceTransportInterface> CreateIceTransport(
-    PortAllocator* port_allocator) {
-  IceTransportInit init;
-  init.set_port_allocator(port_allocator);
-  return CreateIceTransport(std::move(init));
-}
-
 scoped_refptr<IceTransportInterface> CreateIceTransport(IceTransportInit init) {
   return make_ref_counted<IceTransportWithTransportChannel>(
-      P2PTransportChannel::Create("", ICE_CANDIDATE_COMPONENT_RTP,
+      P2PTransportChannel::Create("standalone", ICE_CANDIDATE_COMPONENT_RTP,
                                   std::move(init)));
 }
 

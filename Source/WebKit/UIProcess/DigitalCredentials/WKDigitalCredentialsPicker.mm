@@ -41,7 +41,7 @@
 #import <Foundation/Foundation.h>
 #import <JavaScriptCore/ConsoleTypes.h>
 #import <Security/SecTrust.h>
-#import <WebCore/DigitalCredentialRequest.h>
+#import <WebCore/DigitalCredentialGetRequest.h>
 #import <WebCore/DigitalCredentialsProtocols.h>
 #import <WebCore/DigitalCredentialsRequestData.h>
 #import <WebCore/DigitalCredentialsResponseData.h>
@@ -111,10 +111,17 @@ using WebCore::IdentityCredentialProtocol;
 {
     self = [super init];
     if (self) {
-        _requestDataBytes = requestDataBytes;
-        _protocol = protocol;
+        self.requestDataBytes = requestDataBytes;
+        self.protocol = protocol;
     }
     return self;
+}
+
+- (void)dealloc
+{
+    self.requestDataBytes = nil;
+
+    [super dealloc];
 }
 
 @end // WKRequestDataResult
@@ -182,8 +189,8 @@ static RetainPtr<NSArray<NSArray<WKIdentityDocumentPresentmentRequestAuthenticat
 
         CFIndex count = CFArrayGetCount(certificateChain.get());
         for (CFIndex i = 0; i < count; ++i) {
-            auto certificate = checked_cf_cast<SecCertificateRef>(CFArrayGetValueAtIndex(certificateChain.get(), i));
-            RetainPtr mappedCertificate = adoptNS([WebKit::allocWKIdentityDocumentPresentmentRequestAuthenticationCertificateInstance() initWithCertificate:certificate]);
+            RetainPtr certificate = checked_cf_cast<SecCertificateRef>(CFArrayGetValueAtIndex(certificateChain.get(), i));
+            RetainPtr mappedCertificate = adoptNS([WebKit::allocWKIdentityDocumentPresentmentRequestAuthenticationCertificateInstance() initWithCertificate:certificate.get()]);
             [mappedCertificateChain addObject:mappedCertificate.get()];
         }
         [mappedRequestAuthenticationCertificates addObject:mappedCertificateChain.get()];
@@ -216,7 +223,7 @@ static RetainPtr<NSArray<NSArray<WKIdentityDocumentPresentmentRequestAuthenticat
 
 - (id<WKDigitalCredentialsPickerDelegate>)delegate
 {
-    return _delegate.get().get();
+    return _delegate.getAutoreleased();
 }
 
 - (void)setDelegate:(id<WKDigitalCredentialsPickerDelegate>)delegate
@@ -226,28 +233,31 @@ static RetainPtr<NSArray<NSArray<WKIdentityDocumentPresentmentRequestAuthenticat
 
 - (CocoaWindow *)presentationAnchor
 {
-    return [_webView window];
+    if (RetainPtr webView = _webView.get())
+        return [webView window];
+    return nil;
 }
 
 - (void)fetchRawRequestsWithCompletionHandler:(void (^)(NSArray<WKIdentityDocumentPresentmentRawRequest *> *))completionHandler
 {
     LOG(DigitalCredentials, "Fetching raw requests from web content process");
-    _page->fetchRawDigitalCredentialRequests([completionHandler = makeBlockPtr(completionHandler)](auto&& unvalidatedRequests) {
+    RefPtr page = _page.get();
+    if (!page) {
+        LOG(DigitalCredentials, "Cannot fetch raw requests: page is null");
+        completionHandler(@[]);
+        return;
+    }
+    page->fetchRawDigitalCredentialRequests([completionHandler = makeBlockPtr(completionHandler)](auto &&unvalidatedRequests) {
         RetainPtr<NSMutableArray<WKIdentityDocumentPresentmentRawRequest *>> rawRequests = adoptNS([[NSMutableArray alloc] init]);
 
-        for (auto&& unvalidatedRequest : unvalidatedRequests) {
-            if (!std::holds_alternative<WebCore::MobileDocumentRequest>(unvalidatedRequest)) {
-                LOG(DigitalCredentials, "Incoming request is not a supported type, skipping for return to raw request");
-                continue;
-            }
-
-            const auto &mobileDocumentRequest = std::get<WebCore::MobileDocumentRequest>(unvalidatedRequest);
+        for (auto &&unvalidatedRequest : unvalidatedRequests) {
+            const auto &mobileDocumentRequest = unvalidatedRequest;
             RetainPtr deviceRequest = mobileDocumentRequest.deviceRequest.createNSString();
             RetainPtr encryptionInfo = mobileDocumentRequest.encryptionInfo.createNSString();
 
             RetainPtr<NSDictionary<NSString *, id>> jsonRequest = @{
-                @"deviceRequest": deviceRequest.get(),
-                @"encryptionInfo": encryptionInfo.get()
+                @"deviceRequest" : deviceRequest.get(),
+                @"encryptionInfo" : encryptionInfo.get()
             };
 
             NSError *error = nil;
@@ -269,7 +279,7 @@ static RetainPtr<NSArray<NSArray<WKIdentityDocumentPresentmentRequestAuthenticat
 - (void)presentWithRequestData:(const WebCore::DigitalCredentialsRequestData &)requestData completionHandler:(CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData> &&)> &&)completionHandler
 {
     LOG(DigitalCredentials, "WKDigitalCredentialsPicker: Digital Credentials - Presenting with request data: %s.", requestData.topOrigin.toString().utf8().data());
-    _completionHandler = WTFMove(completionHandler);
+    _completionHandler = WTF::move(completionHandler);
 
     ASSERT(!_presentmentController);
 
@@ -294,20 +304,14 @@ static RetainPtr<NSArray<NSArray<WKIdentityDocumentPresentmentRequestAuthenticat
 
 - (void)performRequest:(const WebCore::DigitalCredentialsRequestData &)requestData
 {
-    RetainPtr<NSMutableArray<WKIdentityDocumentPresentmentMobileDocumentRequest *>> mobileDocumentRequests = adoptNS([[NSMutableArray alloc] init]);
+    RetainPtr mobileDocumentRequests = adoptNS([[NSMutableArray alloc] init]);
 
-    for (auto&& request : requestData.requests) {
-        if (!std::holds_alternative<WebCore::ValidatedMobileDocumentRequest>(request)) {
-            LOG(DigitalCredentials, "Incoming request is not a supported type.");
-            continue;
-        }
+    for (auto&& validatedRequest : requestData.requests) {
 
-        auto validatedRequest = std::get<WebCore::ValidatedMobileDocumentRequest>(request);
+        RetainPtr presentmentRequests = mapPresentmentRequests(validatedRequest.presentmentRequests);
+        RetainPtr authenticationCertificates = mapRequestAuthentications(validatedRequest.requestAuthentications);
 
-        RetainPtr<NSArray<WKIdentityDocumentPresentmentMobileDocumentPresentmentRequest *>> presentmentRequests = mapPresentmentRequests(validatedRequest.presentmentRequests);
-        RetainPtr<NSArray<NSArray<WKIdentityDocumentPresentmentRequestAuthenticationCertificate *> *>> authenticationCertificates = mapRequestAuthentications(validatedRequest.requestAuthentications);
-
-        RetainPtr mobileDocumentRequest = [WebKit::allocWKIdentityDocumentPresentmentMobileDocumentRequestInstance() initWithPresentmentRequests:presentmentRequests.get() authenticationCertificates:authenticationCertificates.get()];
+        RetainPtr mobileDocumentRequest = adoptNS([WebKit::allocWKIdentityDocumentPresentmentMobileDocumentRequestInstance() initWithPresentmentRequests:presentmentRequests.get() authenticationCertificates:authenticationCertificates.get()]);
         [mobileDocumentRequests addObject:mobileDocumentRequest.get()];
     }
 
@@ -369,10 +373,7 @@ static RetainPtr<NSArray<NSArray<WKIdentityDocumentPresentmentRequestAuthenticat
             Ref object = JSON::Object::create();
             object->setString("response"_s, responseData);
             auto responseObject = WebCore::DigitalCredentialsResponseData(IdentityCredentialProtocol::OrgIsoMdoc, object->toJSONString());
-            [self completeWith:WTFMove(responseObject)];
-        } else if ([protocol isEqualToString:@"openid4vp"]) {
-            WebCore::ExceptionData exceptionData = { ExceptionCode::NotSupportedError, "OpenID4VP protocol is not supported."_s };
-            [self completeWith:makeUnexpected(exceptionData)];
+            [self completeWith:WTF::move(responseObject)];
         } else {
             LOG(DigitalCredentials, "Unknown protocol response from document provider. Can't convert it %s.", [protocol UTF8String]);
             WebCore::ExceptionData exceptionData = { ExceptionCode::TypeError, "Unknown protocol response from document."_s };
@@ -401,23 +402,23 @@ static RetainPtr<NSArray<NSArray<WKIdentityDocumentPresentmentRequestAuthenticat
         exceptionData = { ExceptionCode::AbortError, "Request was cancelled."_s };
         break;
     default:
-        LOG(DigitalCredentials, "The error code was not in the case statement? %d.", error.code);
+        LOG(DigitalCredentials, "The error code was not in the case statement? %zd.", error.code);
         exceptionData = { ExceptionCode::UnknownError, "Some other error."_s };
         RetainPtr debugDescription = error.userInfo[NSDebugDescriptionErrorKey] ?: error.userInfo[NSLocalizedDescriptionKey];
         LOG(DigitalCredentials, "Internal error: %@", debugDescription ? debugDescription.get() : @"Unknown error with no description.");
         break;
     }
 
-    if (_page) {
+    if (RefPtr page = _page.get()) {
         String consoleMessage = exceptionData.message;
         RetainPtr debugDescription = dynamic_objc_cast<NSString>(error.userInfo[NSDebugDescriptionErrorKey]);
         if ([debugDescription length])
             consoleMessage = makeString(consoleMessage, " ("_s, String(debugDescription.get()), ")"_s);
 
-        auto targetFrameID = _page->focusedFrame() ? _page->focusedFrame()->frameID() : _page->mainFrame()->frameID();
+        auto targetFrameID = page->focusedFrame() ? page->focusedFrame()->frameID() : page->mainFrame()->frameID();
         auto logLevel = exceptionData.code == ExceptionCode::AbortError ? MessageLevel::Warning : MessageLevel::Error;
 
-        _page->addConsoleMessage(targetFrameID, MessageSource::JS, logLevel, makeString("Digital Credential request failed: "_s, consoleMessage));
+        page->addConsoleMessage(targetFrameID, MessageSource::JS, logLevel, makeString("Digital Credential request failed: "_s, consoleMessage));
     }
 
     [self completeWith:makeUnexpected(exceptionData)];
@@ -440,7 +441,7 @@ static RetainPtr<NSArray<NSArray<WKIdentityDocumentPresentmentRequestAuthenticat
         return;
     }
 
-    _completionHandler(WTFMove(result));
+    _completionHandler(WTF::move(result));
 
     [self dismiss];
 }

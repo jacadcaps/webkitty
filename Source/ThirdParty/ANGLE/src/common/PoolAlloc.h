@@ -10,6 +10,10 @@
 #ifndef COMMON_POOLALLOC_H_
 #define COMMON_POOLALLOC_H_
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #if !defined(NDEBUG)
 #    define ANGLE_POOL_ALLOC_GUARD_BLOCKS  // define to enable guard block checking
 #endif
@@ -33,17 +37,14 @@
 
 #include <stdint.h>
 
+#include <memory>
+#include <utility>
+#include <vector>
+
 #include "common/angleutils.h"
 #include "common/log_utils.h"
 #include "common/mathutil.h"
-
-#if !defined(ANGLE_DISABLE_POOL_ALLOC)
-#    include "common/span.h"
-#else
-#    include <memory>
-#    include <vector>
-#endif
-
+#include "common/span.h"
 #ifdef ANGLE_PLATFORM_APPLE
 #    if __has_include(<WebKitAdditions/ANGLEAllocProfile.h>)
 #        include <WebKitAdditions/ANGLEAllocProfile.h>
@@ -51,17 +52,19 @@
 #endif
 
 #if !defined(ANGLE_ALLOC_PROFILE)
-#define ANGLE_ALLOC_PROFILE(kind, ...)
+#    define ANGLE_ALLOC_PROFILE(kind, ...)
+#    define ANGLE_ALLOC_PROFILE_ALIGNMENT(x) (x)
 #endif
 
 namespace angle
 {
 
-// Allocator that allocates aligned memory and releases it when the instance is destroyed.
+// Allocator that allocates memory aligned to kAlignment and releases it when the instance is
+// destroyed.
 class PoolAllocator : angle::NonCopyable
 {
   public:
-    PoolAllocator(size_t alignment = sizeof(void *));
+    PoolAllocator();
     ~PoolAllocator();
 
     // Returns aligned pointer to 'numBytes' of memory or nullptr on allocation failure.
@@ -76,68 +79,77 @@ class PoolAllocator : angle::NonCopyable
     void unlock();
 
   private:
-    size_t mAlignment;  // all returned allocations will be aligned at
-                        // this granularity, which will be a power of 2
-#if !defined(ANGLE_DISABLE_POOL_ALLOC)
-    bool allocateNewPage(size_t numBytes);
-    size_t adjustAllocationExtent(size_t alignedSize) const;
-    void addGuard(Span<uint8_t> alignedData, size_t size);
-    Span<uint8_t> bump(size_t alignedSize);
+    static constexpr size_t kAlignment = ANGLE_ALLOC_PROFILE_ALIGNMENT(sizeof(void *));
+    Span<uint8_t> allocateSingleObject(size_t size);
+    class Segment;
+    std::vector<Segment> mSingleObjectSegments;  // Large objects.
 
-    Span<uint8_t> mMemory;
-    class PageHeader;
-    PageHeader *mUnusedPages = nullptr;
-    PageHeader *mPages       = nullptr;
-#    if defined(ANGLE_POOL_ALLOC_GUARD_BLOCKS)
-    std::vector<Span<uint8_t>> mGuards;
-#    endif
-#else  // !defined(ANGLE_DISABLE_POOL_ALLOC)
-    std::vector<std::unique_ptr<uint8_t[]>> mAllocations;
+#if !defined(ANGLE_DISABLE_POOL_ALLOC)
+    static constexpr size_t kSegmentSize = 32768;
+    bool allocateNewPoolSegment();
+
+    Span<uint8_t> mCurrentPool;  // The unused part of memory in last entry of mPoolSegments.
+    std::vector<Segment> mPoolSegments;    // List of currently in use memory allocations.
+    std::vector<Segment> mUnusedSegments;  // List of unused allocations after reset().
 #endif
 
+#if defined(ANGLE_POOL_ALLOC_GUARD_BLOCKS)
+    void addGuard(Span<uint8_t> guardData);
+
+    std::vector<Span<uint8_t>> mGuards;  // Guards, memory which is asserted to stay prestine.
+#endif
     bool mLocked = false;
 };
-
-#if !defined(ANGLE_DISABLE_POOL_ALLOC)
-
-#    if !defined(ANGLE_POOL_ALLOC_GUARD_BLOCKS)
-
-inline size_t PoolAllocator::adjustAllocationExtent(size_t alignedSize) const
-{
-    return alignedSize;
-}
-
-inline void PoolAllocator::addGuard(Span<uint8_t> alignedData, size_t size) {}
-
-#    endif
-
-inline Span<uint8_t> PoolAllocator::bump(size_t alignedSize)
-{
-    Span<uint8_t> result = mMemory.first(alignedSize);
-    ANGLE_ALLOC_PROFILE(LOCAL_BUMP_ALLOCATION, result);
-    mMemory              = mMemory.subspan(alignedSize);
-    return result;
-}
 
 inline void *PoolAllocator::allocate(size_t size)
 {
     ASSERT(!mLocked);
-    size_t alignedSize = rx::roundUpPow2(size, mAlignment);
-    size_t extent      = adjustAllocationExtent(alignedSize);
-    if (extent > mMemory.size())
+    Span<uint8_t> data;
+
+    size_t extent = size;
+#if !defined(ANGLE_DISABLE_POOL_ALLOC)
+    // Allocate with kAlignment granularity to keep the next allocation aligned.
+    extent = rx::roundUpPow2(extent, kAlignment);
+#endif
+#if defined(ANGLE_POOL_ALLOC_GUARD_BLOCKS)
+    // Add space for guard block before. Add space for guard block after if there is no alignment
+    // padding, else use the padding as the guard block after.
+    extent += kAlignment + (extent == size ? kAlignment : 0);
+#endif
+#if !defined(ANGLE_DISABLE_POOL_ALLOC)
+    if (extent <= mCurrentPool.size())
     {
-        if (ANGLE_UNLIKELY(!allocateNewPage(extent)))
+        data         = mCurrentPool.first(extent);
+        mCurrentPool = mCurrentPool.subspan(extent);
+        ANGLE_ALLOC_PROFILE(LOCAL_BUMP_ALLOCATION, data, false);
+    }
+    else if (extent < kSegmentSize)
+    {
+        if (ANGLE_UNLIKELY(!allocateNewPoolSegment()))
+        {
+            return nullptr;
+        }
+        data         = mCurrentPool.first(extent);
+        mCurrentPool = mCurrentPool.subspan(extent);
+        ANGLE_ALLOC_PROFILE(LOCAL_BUMP_ALLOCATION, data, false);
+    }
+    else
+#endif
+    {
+        data = allocateSingleObject(extent);
+        if (data.empty())
         {
             return nullptr;
         }
     }
-    addGuard({}, 0);
-    Span<uint8_t> result = bump(alignedSize);
-    addGuard(result, size);
-    return result.data();
-}
 
-#endif  // !defined(ANGLE_DISABLE_POOL_ALLOC)
+#if defined(ANGLE_POOL_ALLOC_GUARD_BLOCKS)
+    addGuard(data.first(kAlignment));
+    data = data.subspan(kAlignment);
+    addGuard(data.subspan(size));
+#endif
+    return data.first(size).data();
+}
 
 }  // namespace angle
 

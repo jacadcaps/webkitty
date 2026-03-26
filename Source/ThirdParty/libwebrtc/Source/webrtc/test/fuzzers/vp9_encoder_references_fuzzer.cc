@@ -16,7 +16,6 @@
 #include <vector>
 
 #include "absl/algorithm/container.h"
-#include "absl/base/macros.h"
 #include "absl/container/inlined_vector.h"
 #include "absl/strings/string_view.h"
 #include "api/array_view.h"
@@ -195,7 +194,7 @@ class FieldTrials : public FieldTrialsView {
     static constexpr absl::string_view kBinaryFieldTrials[] = {
         "WebRTC-Vp9IssueKeyFrameOnLayerDeactivation",
     };
-    for (size_t i = 0; i < ABSL_ARRAYSIZE(kBinaryFieldTrials); ++i) {
+    for (size_t i = 0; i < std::size(kBinaryFieldTrials); ++i) {
       if (key == kBinaryFieldTrials[i]) {
         return (flags_ & (1u << i)) ? "Enabled" : "Disabled";
       }
@@ -205,17 +204,13 @@ class FieldTrials : public FieldTrialsView {
     if (key == "WebRTC-CongestionWindow" ||
         key == "WebRTC-UseBaseHeavyVP8TL3RateAllocation" ||
         key == "WebRTC-VideoRateControl" ||
+        key == "WebRTC-Video-CalculatePsnr" ||
         key == "WebRTC-GetEncoderInfoOverride" ||
         key == "WebRTC-VP9-GetEncoderInfoOverride" ||
         key == "WebRTC-VP9-PerformanceFlags" ||
         key == "WebRTC-VP9QualityScaler" ||
         key == "WebRTC-VP9-SvcForSimulcast" ||
         key == "WebRTC-StableTargetRate") {
-      return "";
-    }
-
-    // TODO: bugs.webrtc.org/15827 - Fuzz frame drop config.
-    if (key == "WebRTC-LibvpxVp9Encoder-SvcFrameDropConfig") {
       return "";
     }
 
@@ -313,7 +308,7 @@ struct LibvpxState {
   LibvpxState() {
     pkt.kind = VPX_CODEC_CX_FRAME_PKT;
     pkt.data.frame.buf = pkt_buffer;
-    pkt.data.frame.sz = ABSL_ARRAYSIZE(pkt_buffer);
+    pkt.data.frame.sz = std::size(pkt_buffer);
     layer_id.spatial_layer_id = -1;
   }
 
@@ -602,7 +597,7 @@ void FuzzOneInput(const uint8_t* data, size_t size) {
           }
           bool drop = false;
           // Never drop keyframe.
-          if (frame_types[0] != VideoFrameType::kVideoFrameKey) {
+          if ((state.pkt.data.frame.flags & VPX_FRAME_IS_KEY) == 0) {
             switch (state.frame_drop.framedrop_mode) {
               case FULL_SUPERFRAME_DROP:
                 drop = encode_spatial_layers == 0;

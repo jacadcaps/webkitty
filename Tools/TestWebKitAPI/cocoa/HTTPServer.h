@@ -92,15 +92,15 @@ struct HTTPResponse {
     };
 
     HTTPResponse(Vector<uint8_t>&& body)
-        : body(WTFMove(body)) { }
+        : body(WTF::move(body)) { }
     HTTPResponse(const String& body)
         : body(bodyFromString(body)) { }
     HTTPResponse(HashMap<String, String>&& headerFields, const String& body)
-        : headerFields(WTFMove(headerFields))
+        : headerFields(WTF::move(headerFields))
         , body(bodyFromString(body)) { }
     HTTPResponse(unsigned statusCode, HashMap<String, String>&& headerFields = { }, const String& body = { })
         : statusCode(statusCode)
-        , headerFields(WTFMove(headerFields))
+        , headerFields(WTF::move(headerFields))
         , body(bodyFromString(body)) { }
     HTTPResponse(Behavior behavior)
         : behavior(behavior) { }
@@ -116,7 +116,7 @@ struct HTTPResponse {
     void setShouldRespondWith304ToConditionalRequests(HashMap<String, String>&& headerFields = { })
     {
         shouldRespondWith304ToConditionalRequests = true;
-        headerFieldsFor304 = WTFMove(headerFields);
+        headerFieldsFor304 = WTF::move(headerFields);
     }
 
     enum class IncludeContentLength : bool { No, Yes };
@@ -155,7 +155,7 @@ public:
         : m_type(type)
         , m_flags(flags)
         , m_streamID(streamID)
-        , m_payload(WTFMove(payload)) { }
+        , m_payload(WTF::move(payload)) { }
 
     Type type() const { return m_type; }
     uint8_t flags() const { return m_flags; }

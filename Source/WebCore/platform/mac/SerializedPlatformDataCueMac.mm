@@ -54,12 +54,12 @@ static JSValue *jsValueWithValueInContext(id, JSContext *);
 
 Ref<SerializedPlatformDataCue> SerializedPlatformDataCue::create(SerializedPlatformDataCueValue&& value)
 {
-    return adoptRef(*new SerializedPlatformDataCueMac(WTFMove(value)));
+    return adoptRef(*new SerializedPlatformDataCueMac(WTF::move(value)));
 }
 
 SerializedPlatformDataCueMac::SerializedPlatformDataCueMac(SerializedPlatformDataCueValue&& value)
     : SerializedPlatformDataCue()
-    , m_value(WTFMove(value))
+    , m_value(WTF::move(value))
 {
 }
 
@@ -77,7 +77,7 @@ JSC::JSValue SerializedPlatformDataCueMac::deserialize(JSC::JSGlobalObject* lexi
 
     JSGlobalContextRef jsGlobalContextRef = toGlobalRef(lexicalGlobalObject);
     JSContext *jsContext = [JSContext contextWithJSGlobalContextRef:jsGlobalContextRef];
-    JSValue *serializedValue = jsValueWithValueInContext(dictionary.get(), jsContext);
+    RetainPtr serializedValue = jsValueWithValueInContext(dictionary.get(), jsContext);
 
     return toJS(lexicalGlobalObject, [serializedValue JSValueRef]);
 #else
@@ -88,17 +88,7 @@ JSC::JSValue SerializedPlatformDataCueMac::deserialize(JSC::JSGlobalObject* lexi
 
 bool SerializedPlatformDataCueMac::isEqual(const SerializedPlatformDataCue& other) const
 {
-    return m_value == toSerializedPlatformDataCueMac(&other)->m_value;
-}
-
-SerializedPlatformDataCueMac* toSerializedPlatformDataCueMac(SerializedPlatformDataCue* rep)
-{
-    return const_cast<SerializedPlatformDataCueMac*>(toSerializedPlatformDataCueMac(const_cast<const SerializedPlatformDataCue*>(rep)));
-}
-
-const SerializedPlatformDataCueMac* toSerializedPlatformDataCueMac(const SerializedPlatformDataCue* rep)
-{
-    return static_cast<const SerializedPlatformDataCueMac*>(rep);
+    return m_value == downcast<SerializedPlatformDataCueMac>(other).m_value;
 }
 
 const HashSet<RetainPtr<Class>>& SerializedPlatformDataCueMac::allowedClassesForNativeValues()
@@ -119,7 +109,7 @@ static JSValue *jsValueWithValueInContext(id value, JSContext *context)
         return [JSValue valueWithObject:value inContext:context];
 
     if ([value isKindOfClass:[NSLocale class]])
-        return [JSValue valueWithObject:[value localeIdentifier] inContext:context];
+        return [JSValue valueWithObject:retainPtr([value localeIdentifier]).get() inContext:context];
 
     if ([value isKindOfClass:[NSDictionary class]])
         return jsValueWithDictionaryInContext(value, context);
@@ -130,7 +120,7 @@ static JSValue *jsValueWithValueInContext(id value, JSContext *context)
     if ([value isKindOfClass:[NSData class]])
         return jsValueWithDataInContext(value, context);
 
-    if ([value isKindOfClass:PAL::getAVMetadataItemClass()])
+    if ([value isKindOfClass:PAL::getAVMetadataItemClassSingleton()])
         return jsValueWithAVMetadataItemInContext(value, context);
 
     return nil;
@@ -156,7 +146,7 @@ static JSValue *jsValueWithArrayInContext(NSArray *array, JSContext *context)
 
     NSUInteger count = [array count];
     for (NSUInteger i = 0; i < count; ++i) {
-        JSValue *value = jsValueWithValueInContext([array objectAtIndex:i], context);
+        RetainPtr value = jsValueWithValueInContext(retainPtr([array objectAtIndex:i]).get(), context);
         if (!value)
             continue;
 
@@ -180,7 +170,7 @@ static JSValue *jsValueWithDictionaryInContext(NSDictionary *dictionary, JSConte
         if (![key isKindOfClass:[NSString class]])
             continue;
 
-        JSValue *value = jsValueWithValueInContext([dictionary objectForKey:key], context);
+        RetainPtr value = jsValueWithValueInContext(retainPtr([dictionary objectForKey:key]).get(), context);
         if (!value)
             continue;
 

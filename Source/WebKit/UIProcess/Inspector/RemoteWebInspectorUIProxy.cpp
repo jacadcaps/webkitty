@@ -64,7 +64,7 @@ RefPtr<WebPageProxy> RemoteWebInspectorUIProxy::protectedInspectorPage()
 }
 
 #if ENABLE(INSPECTOR_EXTENSIONS)
-RefPtr<WebInspectorUIExtensionControllerProxy> RemoteWebInspectorUIProxy::protectedExtensionController()
+RefPtr<WebInspectorUIExtensionControllerProxy> RemoteWebInspectorUIProxy::protectedExtensionController() const
 {
     return m_extensionController;
 }
@@ -87,7 +87,7 @@ void RemoteWebInspectorUIProxy::setDiagnosticLoggingAvailable(bool available)
 
 void RemoteWebInspectorUIProxy::initialize(Ref<API::DebuggableInfo>&& debuggableInfo, const String& backendCommandsURL)
 {
-    m_debuggableInfo = WTFMove(debuggableInfo);
+    m_debuggableInfo = WTF::move(debuggableInfo);
     m_backendCommandsURL = backendCommandsURL;
 
     createFrontendPageAndWindow();
@@ -168,17 +168,17 @@ void RemoteWebInspectorUIProxy::bringToFront()
 
 void RemoteWebInspectorUIProxy::save(Vector<InspectorFrontendClient::SaveData>&& saveDatas, bool forceSaveAs)
 {
-    platformSave(WTFMove(saveDatas), forceSaveAs);
+    platformSave(WTF::move(saveDatas), forceSaveAs);
 }
 
 void RemoteWebInspectorUIProxy::load(const String& path, CompletionHandler<void(const String&)>&& completionHandler)
 {
-    platformLoad(path, WTFMove(completionHandler));
+    platformLoad(path, WTF::move(completionHandler));
 }
 
 void RemoteWebInspectorUIProxy::pickColorFromScreen(CompletionHandler<void(const std::optional<WebCore::Color>&)>&& completionHandler)
 {
-    platformPickColorFromScreen(WTFMove(completionHandler));
+    platformPickColorFromScreen(WTF::move(completionHandler));
 }
 
 void RemoteWebInspectorUIProxy::setSheetRect(const FloatRect& rect)
@@ -220,6 +220,15 @@ void RemoteWebInspectorUIProxy::setInspectorPageDeveloperExtrasEnabled(bool enab
     inspectorPage->protectedPreferences()->setDeveloperExtrasEnabled(enabled);
 }
 
+void RemoteWebInspectorUIProxy::setPageAndTextZoomFactors(double pageZoomFactor, double textZoomFactor)
+{
+    RefPtr inspectorPage = m_inspectorPage.get();
+    if (!inspectorPage)
+        return;
+
+    inspectorPage->setPageAndTextZoomFactors(pageZoomFactor, textZoomFactor);
+}
+
 void RemoteWebInspectorUIProxy::sendMessageToBackend(const String& message)
 {
     if (CheckedPtr client = m_client.get())
@@ -234,7 +243,7 @@ void RemoteWebInspectorUIProxy::createFrontendPageAndWindow()
     m_inspectorPage = platformCreateFrontendPageAndWindow();
     RefPtr inspectorPage = m_inspectorPage.get();
 
-    trackInspectorPage(inspectorPage.get(), nullptr);
+    trackInspectorPage(*inspectorPage, nullptr);
 
     inspectorPage->protectedLegacyMainFrameProcess()->addMessageReceiver(Messages::RemoteWebInspectorUIProxy::messageReceiverName(), inspectorPage->webPageIDInMainFrameProcess(), *this);
 
@@ -251,7 +260,7 @@ void RemoteWebInspectorUIProxy::closeFrontendPageAndWindow()
 
     inspectorPage->protectedLegacyMainFrameProcess()->removeMessageReceiver(Messages::RemoteWebInspectorUIProxy::messageReceiverName(), inspectorPage->webPageIDInMainFrameProcess());
 
-    untrackInspectorPage(inspectorPage.get());
+    untrackInspectorPage(*inspectorPage);
 
 #if ENABLE(INSPECTOR_EXTENSIONS)
     // This extension controller may be kept alive by the IPC dispatcher beyond the point

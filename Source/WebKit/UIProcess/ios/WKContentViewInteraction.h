@@ -102,9 +102,9 @@ class SelectionRect;
 struct ContactInfo;
 struct ContactsRequestData;
 struct DigitalCredentialsRequestData;
+struct MediaPlayerClientIdentifierType;
 struct PromisedAttachmentInfo;
 struct ShareDataWithParsedURL;
-struct TextIndicatorData;
 struct TextRecognitionResult;
 enum class DOMPasteAccessCategory : uint8_t;
 enum class DOMPasteAccessResponse : uint8_t;
@@ -119,6 +119,8 @@ struct DragItem;
 #endif
 
 using NodeIdentifier = ObjectIdentifier<NodeIdentifierType>;
+using HTMLMediaElementIdentifier = ObjectIdentifier<MediaPlayerClientIdentifierType>;
+
 }
 
 namespace WebKit {
@@ -276,6 +278,13 @@ struct WKSelectionDrawingInfo {
     Vector<WebCore::SelectionGeometry> selectionGeometries;
     WebCore::IntRect selectionClipRect;
     std::optional<WebCore::PlatformLayerIdentifier> enclosingLayerID;
+
+    enum class ComparisonResult : uint8_t {
+        VisuallyDistinct,
+        EquivalentExceptForEnclosingLayer,
+        EquivalentIncludingEnclosingLayer,
+    };
+    ComparisonResult compare(const WKSelectionDrawingInfo&) const;
 };
 
 WTF::TextStream& operator<<(WTF::TextStream&, const WKSelectionDrawingInfo&);
@@ -371,6 +380,10 @@ struct ImageAnalysisContextMenuActionData {
     RetainPtr<UISwipeGestureRecognizer> _touchActionUpSwipeGestureRecognizer;
     RetainPtr<UISwipeGestureRecognizer> _touchActionDownSwipeGestureRecognizer;
 
+#if ENABLE(GAMEPAD)
+    RetainPtr<UITapGestureRecognizer> _gamepadInteractionGestureRecognizer;
+#endif
+
 #if HAVE(LOOKUP_GESTURE_RECOGNIZER)
     RetainPtr<_UILookupGestureRecognizer> _lookupGestureRecognizer;
 #endif
@@ -448,6 +461,7 @@ struct ImageAnalysisContextMenuActionData {
     RetainPtr<WebTextIndicatorLayer> _textIndicatorLayer;
 
 #if USE(UICONTEXTMENU)
+    BOOL _isPreparingToDisplayContextMenu;
     BOOL _isDisplayingContextMenuWithAnimation;
     RetainPtr<UITargetedPreview> _contextMenuInteractionTargetedPreview;
 #endif
@@ -505,7 +519,7 @@ struct ImageAnalysisContextMenuActionData {
     WebKit::WebAutocorrectionContext _lastAutocorrectionContext;
     WebKit::WKAutoCorrectionData _autocorrectionData;
     WebKit::InteractionInformationAtPosition _positionInformation;
-    std::optional<WebCore::TextIndicatorData> _positionInformationLinkIndicator;
+    RefPtr<WebCore::TextIndicator> _positionInformationLinkIndicator;
     WebKit::FocusedElementInformation _focusedElementInformation;
     std::optional<WebKit::FocusedElementInformationIdentifier> _pendingFocusedElementIdentifier;
     RetainPtr<NSObject<WKFormPeripheral>> _inputPeripheral;
@@ -563,6 +577,8 @@ struct ImageAnalysisContextMenuActionData {
 
     BOOL _keyboardDidRequestDismissal;
     BOOL _isKeyboardScrollingAnimationRunning;
+    BOOL _keyboardDismissedInCurrentPresentationUpdate;
+    BOOL _editingEndedByUser;
 
     BOOL _candidateViewNeedsUpdate;
     BOOL _seenHardwareKeyDownInNonEditableElement;
@@ -593,6 +609,7 @@ struct ImageAnalysisContextMenuActionData {
 
     BOOL _waitingForEditorStateAfterScrollingSelectionContainer;
     std::optional<WebCore::IntPoint> _lastSelectionChildScrollViewContentOffset;
+    std::optional<CGPoint> _lastSelectionContainerViewOrigin;
 
     BOOL _hasSetUpInteractions;
     std::optional<BOOL> _cachedHasCustomTintColor;
@@ -758,8 +775,10 @@ struct ImageAnalysisContextMenuActionData {
 
 - (void)_startSuppressingSelectionAssistantForReason:(WebKit::SuppressSelectionAssistantReason)reason;
 - (void)_stopSuppressingSelectionAssistantForReason:(WebKit::SuppressSelectionAssistantReason)reason;
+@property (nonatomic, readonly, getter=_isSuppressingSelectionAssistant) BOOL _suppressingSelectionAssistant;
 
 - (BOOL)_hasFocusedElement;
+- (BOOL)_isSameAsFocusedElement:(const WebCore::ElementContext&)context;
 - (void)_zoomToRevealFocusedElement;
 
 - (void)_keyboardWillShow;
@@ -938,6 +957,8 @@ FOR_EACH_PRIVATE_WKCONTENTVIEW_ACTION(DECLARE_WKCONTENTVIEW_ACTION_FOR_WEB_VIEW)
 @property (nonatomic, readonly) BOOL _shouldAvoidSecurityHeuristicScoreUpdates;
 @property (nonatomic, readonly) BOOL _canStartNavigationSwipeAtLastInteractionLocation;
 
+- (BOOL)allowsTouchPanningAtPoint:(CGPoint)point;
+
 - (void)_didChangeLinkPreviewAvailability;
 - (void)setContinuousSpellCheckingEnabled:(BOOL)enabled;
 - (void)setGrammarCheckingEnabled:(BOOL)enabled;
@@ -963,8 +984,12 @@ FOR_EACH_PRIVATE_WKCONTENTVIEW_ACTION(DECLARE_WKCONTENTVIEW_ACTION_FOR_WEB_VIEW)
 #endif
 
 #if ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS) && USE(UICONTEXTMENU)
-- (void)_showMediaControlsContextMenu:(WebCore::FloatRect&&)targetFrame items:(Vector<WebCore::MediaControlsContextMenuItem>&&)items completionHandler:(CompletionHandler<void(WebCore::MediaControlsContextMenuItem::ID)>&&)completionHandler;
+- (void)_showMediaControlsContextMenu:(WebCore::FloatRect&&)targetFrame items:(Vector<WebCore::MediaControlsContextMenuItem>&&)items frameInfo:(const WebKit::FrameInfoData&)frameInfo identifier:(WebCore::HTMLMediaElementIdentifier)identifier completionHandler:(CompletionHandler<void(WebCore::MediaControlsContextMenuItem::ID)>&&)completionHandler;
 #endif // ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS) && USE(UICONTEXTMENU)
+
+#if ENABLE(VIDEO) && USE(UICONTEXTMENU)
+- (void)showCaptionDisplaySettingsMenu:(WebCore::HTMLMediaElementIdentifier)identifier withOptions:(const WebCore::ResolvedCaptionDisplaySettingsOptions&)options completionHandler:(CompletionHandler<void(Expected<void, WebCore::ExceptionData>)>&&)completionHandler;
+#endif
 
 - (BOOL)_formControlRefreshEnabled;
 
@@ -1077,6 +1102,13 @@ FOR_EACH_PRIVATE_WKCONTENTVIEW_ACTION(DECLARE_WKCONTENTVIEW_ACTION_FOR_WEB_VIEW)
 #endif
 - (void)_registerPreview;
 - (void)_unregisterPreview;
+@end
+#endif
+
+#if ENABLE(POINTER_LOCK)
+@interface WKContentView (PointerLock)
+- (void)_beginPointerLockMouseTracking;
+- (void)_endPointerLockMouseTracking;
 @end
 #endif
 

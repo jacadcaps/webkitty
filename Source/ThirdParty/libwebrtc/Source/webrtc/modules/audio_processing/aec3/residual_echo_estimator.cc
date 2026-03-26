@@ -10,15 +10,20 @@
 
 #include "modules/audio_processing/aec3/residual_echo_estimator.h"
 
-#include <stddef.h>
-
 #include <algorithm>
+#include <array>
+#include <cstddef>
 #include <vector>
 
 #include "api/array_view.h"
+#include "api/audio/echo_canceller3_config.h"
 #include "api/environment/environment.h"
 #include "api/field_trials_view.h"
+#include "modules/audio_processing/aec3/aec3_common.h"
+#include "modules/audio_processing/aec3/aec_state.h"
+#include "modules/audio_processing/aec3/render_buffer.h"
 #include "modules/audio_processing/aec3/reverb_model.h"
+#include "modules/audio_processing/aec3/spectrum_buffer.h"
 #include "rtc_base/checks.h"
 
 namespace webrtc {
@@ -157,9 +162,11 @@ void EchoGeneratingPower(size_t num_render_channels,
 
 }  // namespace
 
-ResidualEchoEstimator::ResidualEchoEstimator(const Environment& env,
-                                             const EchoCanceller3Config& config,
-                                             size_t num_render_channels)
+ResidualEchoEstimator::ResidualEchoEstimator(
+    const Environment& env,
+    const EchoCanceller3Config& config,
+    size_t num_render_channels,
+    NeuralResidualEchoEstimator* neural_residual_echo_estimator)
     : config_(config),
       num_render_channels_(num_render_channels),
       early_reflections_transparent_mode_gain_(GetTransparentModeGain()),
@@ -172,7 +179,8 @@ ResidualEchoEstimator::ResidualEchoEstimator(const Environment& env,
                                             config_.ep_strength)),
       erle_onset_compensation_in_dominant_nearend_(
           UseErleOnsetCompensationInDominantNearend(env.field_trials(),
-                                                    config_.ep_strength)) {
+                                                    config_.ep_strength)),
+      neural_residual_echo_estimator_(neural_residual_echo_estimator) {
   Reset();
 }
 
@@ -181,8 +189,11 @@ ResidualEchoEstimator::~ResidualEchoEstimator() = default;
 void ResidualEchoEstimator::Estimate(
     const AecState& aec_state,
     const RenderBuffer& render_buffer,
+    ArrayView<const std::array<float, kFftLengthBy2>> capture,
+    ArrayView<const std::array<float, kFftLengthBy2>> linear_aec_output,
     ArrayView<const std::array<float, kFftLengthBy2Plus1>> S2_linear,
     ArrayView<const std::array<float, kFftLengthBy2Plus1>> Y2,
+    ArrayView<const std::array<float, kFftLengthBy2Plus1>> E2,
     bool dominant_nearend,
     ArrayView<std::array<float, kFftLengthBy2Plus1>> R2,
     ArrayView<std::array<float, kFftLengthBy2Plus1>> R2_unbounded) {
@@ -194,26 +205,54 @@ void ResidualEchoEstimator::Estimate(
   // Estimate the power of the stationary noise in the render signal.
   UpdateRenderNoisePower(render_buffer);
 
+  // The neural residual echo estimation always runs, even if the estimated
+  // spectra |R2| and |R2_unbounded| are overwritten later. This ensures the
+  // estimator sees continuous signals at a constant time rate.
+  if (neural_residual_echo_estimator_ != nullptr) {
+    constexpr int kNeuralDelayHeadroomMs = 12;
+    constexpr int kNeuralDelayHeadroomBlocks =
+        kNeuralDelayHeadroomMs / kBlockSizeMs;
+    constexpr int kJitterMarginBlocks = 3;
+    std::optional<DelayEstimate> external_delay_blocks =
+        aec_state.ExternalDelayBlocks();
+    int headroom_blocks = 0;
+    int headroom_render_buffer = render_buffer.Headroom();
+    if (external_delay_blocks &&
+        external_delay_blocks->delay >
+            kNeuralDelayHeadroomBlocks + kJitterMarginBlocks &&
+        headroom_render_buffer > 0) {
+      headroom_blocks =
+          std::min(headroom_render_buffer - 1, kNeuralDelayHeadroomBlocks);
+    }
+    ArrayView<const float> render =
+        render_buffer.GetBlock(headroom_blocks).View(/*band=*/0, /*ch=*/0);
+    neural_residual_echo_estimator_->Estimate(render, capture,
+                                              linear_aec_output, S2_linear, Y2,
+                                              E2, R2, R2_unbounded);
+  }
+
   // Estimate the residual echo power.
   if (aec_state.UsableLinearEstimate()) {
-    // When there is saturated echo, assume the same spectral content as is
-    // present in the microphone signal.
-    if (aec_state.SaturatedEcho()) {
-      for (size_t ch = 0; ch < num_capture_channels; ++ch) {
-        std::copy(Y2[ch].begin(), Y2[ch].end(), R2[ch].begin());
-        std::copy(Y2[ch].begin(), Y2[ch].end(), R2_unbounded[ch].begin());
+    if (neural_residual_echo_estimator_ == nullptr) {
+      // When there is saturated echo, assume the same spectral content as is
+      // present in the microphone signal.
+      if (aec_state.SaturatedEcho()) {
+        for (size_t ch = 0; ch < num_capture_channels; ++ch) {
+          std::copy(Y2[ch].begin(), Y2[ch].end(), R2[ch].begin());
+          std::copy(Y2[ch].begin(), Y2[ch].end(), R2_unbounded[ch].begin());
+        }
+      } else {
+        const bool onset_compensated =
+            erle_onset_compensation_in_dominant_nearend_ || !dominant_nearend;
+        LinearEstimate(S2_linear, aec_state.Erle(onset_compensated), R2);
+        LinearEstimate(S2_linear, aec_state.ErleUnbounded(), R2_unbounded);
       }
-    } else {
-      const bool onset_compensated =
-          erle_onset_compensation_in_dominant_nearend_ || !dominant_nearend;
-      LinearEstimate(S2_linear, aec_state.Erle(onset_compensated), R2);
-      LinearEstimate(S2_linear, aec_state.ErleUnbounded(), R2_unbounded);
-    }
 
-    UpdateReverb(ReverbType::kLinear, aec_state, render_buffer,
-                 dominant_nearend);
-    AddReverb(R2);
-    AddReverb(R2_unbounded);
+      UpdateReverb(ReverbType::kLinear, aec_state, render_buffer,
+                   dominant_nearend);
+      AddReverb(R2);
+      AddReverb(R2_unbounded);
+    }
   } else {
     const float echo_path_gain =
         GetEchoPathGain(aec_state, /*gain_for_early_reflections=*/true);

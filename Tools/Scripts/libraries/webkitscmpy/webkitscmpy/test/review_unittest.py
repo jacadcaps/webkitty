@@ -100,8 +100,8 @@ class TestReview(testing.PathTestCase):
 
     def test_editor_repo(self):
         with OutputCapture(level=logging.INFO) as captured, mocks.local.Git(self.path, editor=lambda path: print(path)):
-            self.assertEqual(['/bin/example', '-n', '-w'], program.Review.editor(local.Git(self.path)))
-            self.assertEqual(run(['/bin/example', '-n', '-w', 'PATH']).returncode, 0)
+            self.assertEqual(['/bin/Example Program', '-n', '-w'], program.Review.editor(local.Git(self.path)))
+            self.assertEqual(run(['/bin/Example Program', '-n', '-w', 'PATH']).returncode, 0)
 
         self.assertEqual(captured.stdout.getvalue(), 'PATH\n')
 

@@ -138,7 +138,7 @@ void InjectedBundlePageFormClient::willSendSubmitEvent(WebPage* page, HTMLFormEl
     API::Dictionary::MapType map;
     for (size_t i = 0; i < values.size(); ++i)
         map.set(values[i].first, API::String::create(values[i].second));
-    auto textFieldsMap = API::Dictionary::create(WTFMove(map));
+    auto textFieldsMap = API::Dictionary::create(WTF::move(map));
 
     m_client.willSendSubmitEvent(toAPI(page), toAPI(nodeHandle.get()), toAPI(frame), toAPI(sourceFrame), toAPI(textFieldsMap.ptr()), m_client.base.clientInfo);
 }
@@ -153,27 +153,27 @@ void InjectedBundlePageFormClient::willSubmitForm(WebPage* page, HTMLFormElement
     API::Dictionary::MapType map;
     for (size_t i = 0; i < values.size(); ++i)
         map.set(values[i].first, API::String::create(values[i].second));
-    auto textFieldsMap = API::Dictionary::create(WTFMove(map));
+    auto textFieldsMap = API::Dictionary::create(WTF::move(map));
 
     WKTypeRef userDataToPass = 0;
     m_client.willSubmitForm(toAPI(page), toAPI(nodeHandle.get()), toAPI(frame), toAPI(sourceFrame), toAPI(textFieldsMap.ptr()), &userDataToPass, m_client.base.clientInfo);
     userData = adoptRef(toImpl(userDataToPass));
 }
 
-void InjectedBundlePageFormClient::didAssociateFormControls(WebPage* page, const Vector<RefPtr<WebCore::Element>>& elements, WebFrame* frame)
+void InjectedBundlePageFormClient::didAssociateFormControls(WebPage* page, const Vector<Ref<WebCore::Element>>& elements, WebFrame* frame)
 {
     if (!m_client.didAssociateFormControls && !m_client.didAssociateFormControlsForFrame)
         return;
 
     auto elementHandles = elements.map([](auto& element) -> RefPtr<API::Object> {
-        return InjectedBundleNodeHandle::getOrCreate(element.get());
+        return InjectedBundleNodeHandle::getOrCreate(element.ptr());
     });
     if (!m_client.didAssociateFormControlsForFrame) {
-        m_client.didAssociateFormControls(toAPI(page), toAPI(API::Array::create(WTFMove(elementHandles)).ptr()), m_client.base.clientInfo);
+        m_client.didAssociateFormControls(toAPI(page), toAPI(API::Array::create(WTF::move(elementHandles)).ptr()), m_client.base.clientInfo);
         return;
     }
 
-    m_client.didAssociateFormControlsForFrame(toAPI(page), toAPI(API::Array::create(WTFMove(elementHandles)).ptr()), toAPI(frame), m_client.base.clientInfo);
+    m_client.didAssociateFormControlsForFrame(toAPI(page), toAPI(API::Array::create(WTF::move(elementHandles)).ptr()), toAPI(frame), m_client.base.clientInfo);
 }
 
 bool InjectedBundlePageFormClient::shouldNotifyOnFormChanges(WebPage* page)

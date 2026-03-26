@@ -23,8 +23,7 @@
 
 #include "ActiveDOMObject.h"
 #include "ContextDestructionObserverInlines.h"
-#include "Document.h"
-#include "DocumentInlines.h"
+#include "DocumentQuirks.h"
 #include "ExtendedDOMClientIsoSubspaces.h"
 #include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMAbstractOperations.h"
@@ -34,7 +33,6 @@
 #include "JSDOMExceptionHandling.h"
 #include "JSDOMGlobalObjectInlines.h"
 #include "JSDOMWrapperCache.h"
-#include "Quirks.h"
 #include "ScriptExecutionContext.h"
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/FunctionPrototype.h>
@@ -124,7 +122,7 @@ void JSTestNamedSetterThrowingExceptionPrototype::finishCreation(VM& vm)
 const ClassInfo JSTestNamedSetterThrowingException::s_info = { "TestNamedSetterThrowingException"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestNamedSetterThrowingException) };
 
 JSTestNamedSetterThrowingException::JSTestNamedSetterThrowingException(Structure* structure, JSDOMGlobalObject& globalObject, Ref<TestNamedSetterThrowingException>&& impl)
-    : JSDOMWrapper<TestNamedSetterThrowingException>(structure, globalObject, WTFMove(impl))
+    : JSDOMWrapper<TestNamedSetterThrowingException>(structure, globalObject, WTF::move(impl))
 {
 }
 
@@ -149,7 +147,7 @@ JSValue JSTestNamedSetterThrowingException::getConstructor(VM& vm, const JSGloba
 
 void JSTestNamedSetterThrowingException::destroy(JSC::JSCell* cell)
 {
-    JSTestNamedSetterThrowingException* thisObject = static_cast<JSTestNamedSetterThrowingException*>(cell);
+    SUPPRESS_MEMORY_UNSAFE_CAST JSTestNamedSetterThrowingException* thisObject = static_cast<JSTestNamedSetterThrowingException*>(cell);
     thisObject->JSTestNamedSetterThrowingException::~JSTestNamedSetterThrowingException();
 }
 
@@ -164,7 +162,7 @@ bool JSTestNamedSetterThrowingException::legacyPlatformObjectGetOwnProperty(JSOb
             return thisObject.wrapped().namedItem(propertyNameToAtomString(propertyName));
         });
         if (auto namedProperty = accessVisibleNamedProperty<LegacyOverrideBuiltIns::No>(*lexicalGlobalObject, *thisObject, propertyName, getterFunctor)) {
-            auto value = toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, WTFMove(namedProperty.value()));
+            auto value = toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, WTF::move(namedProperty.value()));
             RETURN_IF_EXCEPTION(throwScope, false);
             slot.setValue(thisObject, 0, value);
             return true;
@@ -191,7 +189,7 @@ bool JSTestNamedSetterThrowingException::getOwnPropertySlotByIndex(JSObject* obj
         return thisObject.wrapped().namedItem(propertyNameToAtomString(propertyName));
     });
     if (auto namedProperty = accessVisibleNamedProperty<LegacyOverrideBuiltIns::No>(*lexicalGlobalObject, *thisObject, propertyName, getterFunctor)) {
-        auto value = toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, WTFMove(namedProperty.value()));
+        auto value = toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, WTF::move(namedProperty.value()));
         RETURN_IF_EXCEPTION(throwScope, false);
         slot.setValue(thisObject, 0, value);
         return true;
@@ -199,7 +197,7 @@ bool JSTestNamedSetterThrowingException::getOwnPropertySlotByIndex(JSObject* obj
     return JSObject::getOwnPropertySlotByIndex(object, lexicalGlobalObject, index, slot);
 }
 
-void JSTestNamedSetterThrowingException::getOwnPropertyNames(JSObject* object, JSGlobalObject* lexicalGlobalObject, PropertyNameArray& propertyNames, DontEnumPropertiesMode mode)
+void JSTestNamedSetterThrowingException::getOwnPropertyNames(JSObject* object, JSGlobalObject* lexicalGlobalObject, PropertyNameArrayBuilder& propertyNames, DontEnumPropertiesMode mode)
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto* thisObject = jsCast<JSTestNamedSetterThrowingException*>(object);
@@ -243,7 +241,7 @@ bool JSTestNamedSetterThrowingException::put(JSCell* cell, JSGlobalObject* lexic
         ownDescriptor.setPropertySlot(lexicalGlobalObject, propertyName, slot);
         RETURN_IF_EXCEPTION(throwScope, false);
     }
-    RELEASE_AND_RETURN(throwScope, ordinarySetWithOwnDescriptor(lexicalGlobalObject, thisObject, propertyName, value, putPropertySlot.thisValue(), WTFMove(ownDescriptor), putPropertySlot.isStrictMode()));
+    RELEASE_AND_RETURN(throwScope, ordinarySetWithOwnDescriptor(lexicalGlobalObject, thisObject, propertyName, value, putPropertySlot.thisValue(), WTF::move(ownDescriptor), putPropertySlot.isStrictMode()));
 }
 
 bool JSTestNamedSetterThrowingException::putByIndex(JSCell* cell, JSGlobalObject* lexicalGlobalObject, unsigned index, JSValue value, bool shouldThrow)
@@ -381,7 +379,7 @@ bool JSTestNamedSetterThrowingExceptionOwner::isReachableFromOpaqueRoots(JSC::Ha
 
 void JSTestNamedSetterThrowingExceptionOwner::finalize(JSC::Handle<JSC::Unknown> handle, void* context)
 {
-    auto* jsTestNamedSetterThrowingException = static_cast<JSTestNamedSetterThrowingException*>(handle.slot()->asCell());
+    SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestNamedSetterThrowingException = static_cast<JSTestNamedSetterThrowingException*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
     uncacheWrapper(world, jsTestNamedSetterThrowingException->protectedWrapped().ptr(), jsTestNamedSetterThrowingException);
 }
@@ -395,7 +393,7 @@ extern "C" { extern void (*const __identifier("??_7TestNamedSetterThrowingExcept
 extern "C" { extern void* _ZTVN7WebCore32TestNamedSetterThrowingExceptionE[]; }
 #endif
 template<std::same_as<TestNamedSetterThrowingException> T>
-static inline void verifyVTable(TestNamedSetterThrowingException* ptr) 
+static inline void verifyVTable(TestNamedSetterThrowingException* ptr)
 {
     if constexpr (std::is_polymorphic_v<T>) {
         const void* actualVTablePointer = getVTablePointer<T>(ptr);
@@ -415,12 +413,13 @@ static inline void verifyVTable(TestNamedSetterThrowingException* ptr)
 #endif
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestNamedSetterThrowingException>&& impl)
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<TestNamedSetterThrowingException>&& impl)
 {
+    UNUSED_PARAM(lexicalGlobalObject);
 #if ENABLE(BINDING_INTEGRITY)
     verifyVTable<TestNamedSetterThrowingException>(impl.ptr());
 #endif
-    return createWrapper<TestNamedSetterThrowingException>(globalObject, WTFMove(impl));
+    return createWrapper<TestNamedSetterThrowingException>(globalObject, WTF::move(impl));
 }
 
 JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestNamedSetterThrowingException& impl)

@@ -27,9 +27,11 @@ enum class WebKit::AllowsCellularAccess : bool;
     Markable<WTF::UUID> dataStoreIdentifier;
     String boundInterfaceIdentifier;
     WebKit::AllowsCellularAccess allowsCellularAccess;
+#if PLATFORM(COCOA) || USE(SOUP)
+    String sourceApplicationBundleIdentifier;
+#endif
 #if PLATFORM(COCOA)
     RetainPtr<CFDictionaryRef> proxyConfiguration;
-    String sourceApplicationBundleIdentifier;
     String sourceApplicationSecondaryIdentifier;
     bool shouldLogCookieInformation;
     URL httpProxy;
@@ -115,7 +117,7 @@ enum class WebKit::AllowsCellularAccess : bool;
     bool isLegacyTLSAllowed;
 #if HAVE(WEBCONTENTRESTRICTIONS_PATH_SPI)
     String webContentRestrictionsConfigurationFile;
-    WebKit::SandboxExtension::Handle webContentRestrictionsConfigurationExtensionHandle;
+    WebKit::SandboxExtensionHandle webContentRestrictionsConfigurationExtensionHandle;
 #endif
 };
 

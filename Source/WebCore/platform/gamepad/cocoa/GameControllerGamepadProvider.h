@@ -27,7 +27,8 @@
 
 #if ENABLE(GAMEPAD)
 
-#include "GamepadProvider.h"
+#include <WebCore/GamepadProvider.h>
+#include <wtf/CanMakeWeakPtr.h>
 #include <wtf/HashMap.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/RunLoop.h>
@@ -40,7 +41,7 @@ namespace WebCore {
 class GameControllerGamepad;
 class GamepadProviderClient;
 
-class GameControllerGamepadProvider : public GamepadProvider {
+class GameControllerGamepadProvider : public GamepadProvider, public CanMakeWeakPtr<GameControllerGamepadProvider> {
     WTF_MAKE_NONCOPYABLE(GameControllerGamepadProvider);
     friend class NeverDestroyed<GameControllerGamepadProvider>;
 public:

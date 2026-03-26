@@ -127,7 +127,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     [super updateLayer];
 
     RetainPtr backgroundColor = self.overrideBackgroundColor ?: [NSColor quaternaryLabelColor];
-    self.layer.backgroundColor = backgroundColor.get().CGColor;
+    self.layer.backgroundColor = RetainPtr { backgroundColor.get().CGColor }.get();
 }
 
 - (void)requestSnapshot
@@ -318,7 +318,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (!self.layer.sublayers.count)
         return nil;
 
-    return [self.layer.sublayers objectAtIndex:0];
+    return [retainPtr(self.layer.sublayers) objectAtIndex:0];
 }
 
 @end

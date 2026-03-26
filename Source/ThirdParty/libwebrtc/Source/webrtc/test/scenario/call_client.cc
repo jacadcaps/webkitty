@@ -47,6 +47,7 @@
 #include "rtc_base/event.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/strings/string_builder.h"
+#include "test/create_test_environment.h"
 #include "test/logging/log_writer.h"
 #include "test/scenario/column_printer.h"
 #include "test/scenario/network_node.h"
@@ -55,7 +56,7 @@
 namespace webrtc {
 namespace test {
 namespace {
-static constexpr size_t kNumSsrcs = 6;
+constexpr size_t kNumSsrcs = 6;
 const uint32_t kSendRtxSsrcs[kNumSsrcs] = {0xBADCAFD, 0xBADCAFE, 0xBADCAFF,
                                            0xBADCB00, 0xBADCB01, 0xBADCB02};
 const uint32_t kVideoSendSsrcs[kNumSsrcs] = {0xC0FFED, 0xC0FFEE, 0xC0FFEF,
@@ -234,8 +235,9 @@ CallClient::CallClient(
     std::unique_ptr<LogWriterFactoryInterface> log_writer_factory,
     CallClientConfig config)
     : time_controller_(time_controller),
-      env_(CreateEnvironment(time_controller_->CreateTaskQueueFactory(),
-                             time_controller_->GetClock())),
+      env_(
+          CreateTestEnvironment({.field_trials = std::move(config.field_trials),
+                                 .time = time_controller_})),
       log_writer_factory_(std::move(log_writer_factory)),
       network_controller_factory_(log_writer_factory_.get(), config.transport),
       task_queue_(env_.task_queue_factory().CreateTaskQueue(
@@ -286,11 +288,6 @@ Call::Stats CallClient::GetStats() {
 
 DataRate CallClient::target_rate() const {
   return network_controller_factory_.GetUpdate().target_rate->target_rate;
-}
-
-DataRate CallClient::stable_target_rate() const {
-  return network_controller_factory_.GetUpdate()
-      .target_rate->stable_target_rate;
 }
 
 DataRate CallClient::padding_rate() const {

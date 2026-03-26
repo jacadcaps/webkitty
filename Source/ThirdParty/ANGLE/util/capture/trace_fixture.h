@@ -17,6 +17,7 @@
 #include <stdint.h>
 
 #include "angle_gl.h"
+#include "common/frame_capture_binary_data.h"
 #include "trace_interface.h"
 #include "traces_export.h"
 
@@ -71,13 +72,17 @@ ANGLE_REPLAY_EXPORT void SetupEntryPoints(angle::TraceCallbacks *traceCallbacks,
 
 // Maps from <captured Program ID, captured location> to run-time location.
 extern GLint **gUniformLocations;
+extern GLuint gCurrentContext;
 extern GLuint gCurrentProgram;
+extern GLuint *gCurrentProgramPerContext;
 
 void UpdateUniformLocation(GLuint program, const char *name, GLint location, GLint count);
 void DeleteUniformLocations(GLuint program);
 void UpdateUniformBlockIndex(GLuint program, const char *name, GLuint index);
 void UniformBlockBinding(GLuint program, GLuint uniformblockIndex, GLuint binding);
 void UpdateCurrentProgram(GLuint program);
+void UpdateCurrentContext(GLuint context);
+void UpdateCurrentProgramPerContext(GLuint program);
 
 // Global state
 
@@ -109,6 +114,30 @@ extern GLsync *gSyncMap2;
 extern EGLSync *gEGLSyncMap;
 extern EGLDisplay gEGLDisplay;
 extern angle::ReplayResourceMode gReplayResourceMode;
+
+void InitializeReplay5(const char *binaryDataFileName,
+                       size_t maxClientArraySize,
+                       size_t readBufferSize,
+                       size_t resourceIDBufferSize,
+                       GLuint contextId,
+                       uint32_t maxBuffer,
+                       uint32_t maxContext,
+                       uint32_t maxFenceNV,
+                       uint32_t maxFramebuffer,
+                       uint32_t maxImage,
+                       uint32_t maxMemoryObject,
+                       uint32_t maxProgramPipeline,
+                       uint32_t maxQuery,
+                       uint32_t maxRenderbuffer,
+                       uint32_t maxSampler,
+                       uint32_t maxSemaphore,
+                       uint32_t maxShaderProgram,
+                       uint32_t maxSurface,
+                       uint32_t maxSync,
+                       uint32_t maxTexture,
+                       uint32_t maxTransformFeedback,
+                       uint32_t maxVertexArray,
+                       uint32_t maxEGLSyncID);
 
 void InitializeReplay4(const char *binaryDataFileName,
                        size_t maxClientArraySize,
@@ -194,6 +223,9 @@ void InitializeReplay(const char *binaryDataFileName,
                       uint32_t maxTexture,
                       uint32_t maxTransformFeedback,
                       uint32_t maxVertexArray);
+
+const uint8_t *GetBinaryData(const size_t offset);
+void InitializeBinaryDataLoader();
 
 void UpdateClientArrayPointer(int arrayIndex, const void *data, uint64_t size);
 void UpdateClientBufferData(GLuint bufferID, const void *source, GLsizei size);

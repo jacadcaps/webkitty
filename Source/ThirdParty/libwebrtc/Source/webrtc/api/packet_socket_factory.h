@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "api/async_dns_resolver.h"
+#include "api/environment/environment.h"
 #include "rtc_base/async_packet_socket.h"
 #include "rtc_base/socket_address.h"
 #include "rtc_base/ssl_certificate.h"
@@ -52,39 +53,36 @@ class RTC_EXPORT PacketSocketFactory {
   };
 
   PacketSocketFactory() = default;
+
+  PacketSocketFactory(const PacketSocketFactory&) = delete;
+  PacketSocketFactory& operator=(const PacketSocketFactory&) = delete;
+
   virtual ~PacketSocketFactory() = default;
 
-  virtual AsyncPacketSocket* CreateUdpSocket(const SocketAddress& address,
-                                             uint16_t min_port,
-                                             uint16_t max_port) = 0;
-  virtual AsyncListenSocket* CreateServerTcpSocket(
+  virtual std::unique_ptr<AsyncPacketSocket> CreateUdpSocket(
+      const Environment& env,
+      const SocketAddress& address,
+      uint16_t min_port,
+      uint16_t max_port) = 0;
+
+  virtual std::unique_ptr<AsyncListenSocket> CreateServerTcpSocket(
+      const Environment& env,
       const SocketAddress& local_address,
       uint16_t min_port,
       uint16_t max_port,
       int opts) = 0;
 
-  virtual AsyncPacketSocket* CreateClientTcpSocket(
+  virtual std::unique_ptr<AsyncPacketSocket> CreateClientTcpSocket(
+      const Environment& env,
       const SocketAddress& local_address,
       const SocketAddress& remote_address,
       const PacketSocketTcpOptions& tcp_options) = 0;
 
   virtual std::unique_ptr<AsyncDnsResolverInterface>
   CreateAsyncDnsResolver() = 0;
-
- private:
-  PacketSocketFactory(const PacketSocketFactory&) = delete;
-  PacketSocketFactory& operator=(const PacketSocketFactory&) = delete;
 };
 
 }  //  namespace webrtc
 
-// Re-export symbols from the webrtc namespace for backwards compatibility.
-// TODO(bugs.webrtc.org/4222596): Remove once all references are updated.
-#ifdef WEBRTC_ALLOW_DEPRECATED_NAMESPACES
-namespace rtc {
-using ::webrtc::PacketSocketFactory;
-using ::webrtc::PacketSocketTcpOptions;
-}  // namespace rtc
-#endif  // WEBRTC_ALLOW_DEPRECATED_NAMESPACES
 
 #endif  // API_PACKET_SOCKET_FACTORY_H_

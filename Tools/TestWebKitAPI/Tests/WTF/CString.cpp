@@ -26,22 +26,26 @@
 #include "config.h"
 
 #include <wtf/text/CString.h>
+#include <wtf/text/StringCommon.h>
 
 TEST(WTF, CStringNullStringConstructor)
 {
     CString string;
     constexpr size_t zeroLength = 0;
     ASSERT_TRUE(string.isNull());
+    EXPECT_TRUE(string.isEmpty());
     ASSERT_EQ(string.data(), static_cast<const char*>(0));
     ASSERT_EQ(string.length(), zeroLength);
 
     CString stringFromCharPointer(static_cast<const char*>(0));
     ASSERT_TRUE(stringFromCharPointer.isNull());
+    EXPECT_TRUE(stringFromCharPointer.isEmpty());
     ASSERT_EQ(stringFromCharPointer.data(), static_cast<const char*>(0));
     ASSERT_EQ(stringFromCharPointer.length(), zeroLength);
 
-    CString stringFromCharAndLength({ static_cast<const char*>(0), zeroLength });
+    CString stringFromCharAndLength(std::span { static_cast<const char*>(0), zeroLength });
     ASSERT_TRUE(stringFromCharAndLength.isNull());
+    EXPECT_TRUE(stringFromCharAndLength.isEmpty());
     ASSERT_EQ(stringFromCharAndLength.data(), static_cast<const char*>(0));
     ASSERT_EQ(stringFromCharAndLength.length(), zeroLength);
 }
@@ -49,13 +53,21 @@ TEST(WTF, CStringNullStringConstructor)
 TEST(WTF, CStringEmptyEmptyConstructor)
 {
     const char* emptyString = "";
+
+    CString stringFromEmptySpanWithNonNullPointer(unsafeMakeSpan(emptyString, 0));
+    EXPECT_FALSE(stringFromEmptySpanWithNonNullPointer.isNull());
+    EXPECT_TRUE(stringFromEmptySpanWithNonNullPointer.isEmpty());
+    EXPECT_EQ(stringFromEmptySpanWithNonNullPointer.length(), 0UZ);
+
     CString string(emptyString);
     ASSERT_FALSE(string.isNull());
+    EXPECT_TRUE(string.isEmpty());
     ASSERT_EQ(string.length(), static_cast<size_t>(0));
     ASSERT_EQ(string.data()[0], 0);
 
     CString stringWithLength(""_span);
     ASSERT_FALSE(stringWithLength.isNull());
+    EXPECT_TRUE(stringWithLength.isEmpty());
     ASSERT_EQ(stringWithLength.length(), static_cast<size_t>(0));
     ASSERT_EQ(stringWithLength.data()[0], 0);
 }
@@ -69,8 +81,25 @@ TEST(WTF, CStringEmptyRegularConstructor)
     ASSERT_EQ(string.length(), strlen(referenceString));
     ASSERT_STREQ(referenceString, string.data());
 
-    CString stringWithLength({ referenceString, 6 });
+    CString stringWithLength(std::span { referenceString, 6 });
     ASSERT_FALSE(stringWithLength.isNull());
+    ASSERT_EQ(stringWithLength.length(), strlen(referenceString));
+    ASSERT_STREQ(referenceString, stringWithLength.data());
+}
+
+TEST(WTF, CStringOneByte)
+{
+    const char* referenceString = "W";
+
+    CString string(referenceString);
+    ASSERT_FALSE(string.isNull());
+    ASSERT_FALSE(string.isEmpty());
+    ASSERT_EQ(string.length(), strlen(referenceString));
+    ASSERT_STREQ(referenceString, string.data());
+
+    CString stringWithLength(std::span { referenceString, 1 });
+    ASSERT_FALSE(stringWithLength.isNull());
+    ASSERT_FALSE(stringWithLength.isEmpty());
     ASSERT_EQ(stringWithLength.length(), strlen(referenceString));
     ASSERT_STREQ(referenceString, stringWithLength.data());
 }
@@ -93,7 +122,7 @@ TEST(WTF, CStringUninitializedConstructor)
 TEST(WTF, CStringZeroTerminated)
 {
     const char* referenceString = "WebKit";
-    CString stringWithLength({ referenceString, 3 });
+    CString stringWithLength(std::span { referenceString, 3 });
     ASSERT_EQ(stringWithLength.data()[3], 0);
 }
 
@@ -194,4 +223,68 @@ TEST(WTF, CStringComparison)
     d = "b";
     ASSERT_FALSE(c == d);
     ASSERT_TRUE(c != d);
+}
+
+TEST(WTF, CStringStdStringInterop)
+{
+    // Null CString round-trip is lossy: null CStrings convert to empty std::strings that convert to empty CStrings.
+    {
+        CString a;
+        EXPECT_TRUE(a.isNull());
+        std::string stda;
+        EXPECT_EQ(a.toStdString(), stda);
+        CString b = stda;
+        EXPECT_NE(a, b);
+        EXPECT_EQ(b.length(), 0u);
+        EXPECT_FALSE(b.isNull());
+    }
+
+    // Non-null string round-trip is exact.
+    constexpr ASCIILiteral inputs[] = {
+        ""_s,
+        "some thing"_s,
+        "some\0thing"_s
+    };
+    for (auto& input : inputs) {
+        SCOPED_TRACE(::testing::Message() << "input: " << (input.characters() ? input.characters() : "nullptr"));
+        // As const char*.
+        {
+            CString a { input.characters() };
+            std::string stda { input.characters() };
+            EXPECT_EQ(a.toStdString(), stda);
+            CString b = stda;
+            EXPECT_EQ(a, b);
+        }
+        // As ASCIILiteral / span.
+        {
+            CString a { input };
+            auto inputSpan = input.span();
+            std::string stda { inputSpan.begin(), inputSpan.end() };
+            EXPECT_EQ(a.toStdString(), stda);
+            CString b = stda;
+            EXPECT_EQ(a, b);
+        }
+    }
+
+    // Explict length strings, i.e. strings with nul chars inside, are exact.
+    {
+        auto inputSpan = unsafeMakeSpan("some\0thing", 10);
+        CString a { inputSpan };
+        EXPECT_EQ(a.length(), 10u);
+        std::string stda { inputSpan.begin(), inputSpan.end() };
+        EXPECT_EQ(stda.length(), 10u);
+        EXPECT_EQ(a.toStdString(), stda);
+    }
+}
+
+TEST(WTF, CStringViewASCIICaseConversions)
+{
+    EXPECT_EQ(WTF::convertToASCIILowercase(u8"Test"_span), CString("test"));
+    EXPECT_EQ(WTF::convertToASCIIUppercase(u8"Test"_span), CString("TEST"));
+    EXPECT_EQ(WTF::convertToASCIILowercase(u8"Water🍉Melon"_span), CString("water🍉melon"));
+    EXPECT_EQ(WTF::convertToASCIIUppercase(u8"Water🍉Melon"_span), CString("WATER🍉MELON"));
+    EXPECT_EQ(WTF::convertToASCIILowercase(std::span<const char8_t>()), CString(""_s));
+    EXPECT_EQ(WTF::convertToASCIIUppercase(std::span<const char8_t>()), CString(""_s));
+    EXPECT_EQ(WTF::convertToASCIILowercase(u8""_span), CString(""_s));
+    EXPECT_EQ(WTF::convertToASCIIUppercase(u8""_span), CString(""_s));
 }

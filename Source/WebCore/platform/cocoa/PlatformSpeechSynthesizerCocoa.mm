@@ -38,6 +38,7 @@
 
 #import <pal/spi/cocoa/AXSpeechManagerSPI.h>
 #import <wtf/BlockObjCExceptions.h>
+#import <wtf/MainThread.h>
 #import <wtf/RetainPtr.h>
 
 #import <pal/cocoa/AVFoundationSoftLink.h>
@@ -92,7 +93,7 @@ static float getAVSpeechUtteranceMaximumSpeechRate()
     m_synthesizerObject = synthesizer;
 
 #if HAVE(AVSPEECHSYNTHESIS_VOICES_CHANGE_NOTIFICATION)
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(availableVoicesDidChange) name:AVSpeechSynthesisAvailableVoicesDidChangeNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(availableVoicesDidChange) name:RetainPtr { AVSpeechSynthesisAvailableVoicesDidChangeNotification }.get() object:nil];
 #endif
 
     return self;
@@ -137,7 +138,7 @@ static float getAVSpeechUtteranceMaximumSpeechRate()
     RetainPtr<NSString> voiceLanguage;
     if (!utteranceVoice || utteranceVoice->voiceURI().isEmpty()) {
         if (utterance->lang().isEmpty())
-            voiceLanguage = [PAL::getAVSpeechSynthesisVoiceClass() currentLanguageCode];
+            voiceLanguage = [PAL::getAVSpeechSynthesisVoiceClassSingleton() currentLanguageCode];
         else
             voiceLanguage = utterance->lang().createNSString();
     } else
@@ -145,19 +146,19 @@ static float getAVSpeechUtteranceMaximumSpeechRate()
 
     AVSpeechSynthesisVoice *avVoice = nil;
     if (utteranceVoice)
-        avVoice = [PAL::getAVSpeechSynthesisVoiceClass() voiceWithIdentifier:utteranceVoice->voiceURI().createNSString().get()];
+        avVoice = [PAL::getAVSpeechSynthesisVoiceClassSingleton() voiceWithIdentifier:utteranceVoice->voiceURI().createNSString().get()];
 
     if (!avVoice)
-        avVoice = [PAL::getAVSpeechSynthesisVoiceClass() voiceWithLanguage:voiceLanguage.get()];
+        avVoice = [PAL::getAVSpeechSynthesisVoiceClassSingleton() voiceWithLanguage:voiceLanguage.get()];
 
-    AVSpeechUtterance *avUtterance = [PAL::getAVSpeechUtteranceClass() speechUtteranceWithString:utterance->text().createNSString().get()];
+    RetainPtr<AVSpeechUtterance> avUtterance = [PAL::getAVSpeechUtteranceClassSingleton() speechUtteranceWithString:utterance->text().createNSString().get()];
 
     [avUtterance setRate:[self mapSpeechRateToPlatformRate:utterance->rate()]];
     [avUtterance setVolume:utterance->volume()];
     [avUtterance setPitchMultiplier:utterance->pitch()];
     [avUtterance setVoice:avVoice];
-    utterance->setWrapper(avUtterance);
-    m_utterance = WTFMove(utterance);
+    utterance->setWrapper(avUtterance.get());
+    m_utterance = WTF::move(utterance);
 
     // macOS won't send a did start speaking callback for empty strings.
 #if !HAVE(UNIFIED_SPEECHSYNTHESIS_FIX_FOR_81465164)
@@ -165,7 +166,7 @@ static float getAVSpeechUtteranceMaximumSpeechRate()
         m_synthesizerObject->client().didStartSpeaking(Ref { *m_utterance });
 #endif
 
-    [m_synthesizer speakUtterance:avUtterance];
+    [m_synthesizer speakUtterance:avUtterance.get()];
     END_BLOCK_OBJC_EXCEPTIONS
 }
 
@@ -287,19 +288,44 @@ PlatformSpeechSynthesizer::~PlatformSpeechSynthesizer()
 {
 }
 
+void PlatformSpeechSynthesizer::appendVoices(NSArray *voices)
+{
+    for (AVSpeechSynthesisVoice *voice in voices) {
+        if (voice.isSystemVoice)
+            m_voiceList.append(PlatformSpeechSynthesisVoice::create(voice.identifier, voice.name, voice.language, /* localService */ true, /* isDefault */ true));
+    }
+}
+
 void PlatformSpeechSynthesizer::initializeVoiceList()
 {
     if (!PAL::isAVFoundationFrameworkAvailable())
         return;
 
     BEGIN_BLOCK_OBJC_EXCEPTIONS
-    // SpeechSynthesis replaces on-device compact with higher quality compact voices. These
-    // are not available to WebKit so we're losing these default voices for WebSpeech.
-    // Only show built-in voices when requesting through WebKit to reduce fingerprinting surface area.
-    for (AVSpeechSynthesisVoice *voice in [PAL::getAVSpeechSynthesisVoiceClass() speechVoicesIncludingSuperCompact]) {
-        if (voice.isSystemVoice)
-            m_voiceList.append(PlatformSpeechSynthesisVoice::create(voice.identifier, voice.name, voice.language, true, true));
+
+    Class avSpeechSynthesisVoiceClass = PAL::getAVSpeechSynthesisVoiceClassSingleton();
+
+    // Support older OS versions that don't have the asynchronous version yet.
+    // Remove this once 26.3 is the minimum OS version supported by Safari.
+    if (![avSpeechSynthesisVoiceClass respondsToSelector:@selector(speechVoicesIncludingSuperCompactWithCompletionHandler:)]) {
+        appendVoices([avSpeechSynthesisVoiceClass speechVoicesIncludingSuperCompact]);
+        return;
     }
+
+    WeakPtr weakThis { *this };
+    [avSpeechSynthesisVoiceClass speechVoicesIncludingSuperCompactWithCompletionHandler:^(NSArray<AVSpeechSynthesisVoice *> *voices) {
+        callOnMainThread([weakThis, voices = RetainPtr { voices }]() {
+            BEGIN_BLOCK_OBJC_EXCEPTIONS
+            RefPtr protectedThis = weakThis.get();
+            if (!protectedThis)
+                return;
+
+            protectedThis->appendVoices(voices.get());
+            protectedThis->m_speechSynthesizerClient.voicesDidChange();
+            END_BLOCK_OBJC_EXCEPTIONS
+        });
+    }];
+
     END_BLOCK_OBJC_EXCEPTIONS
 }
 

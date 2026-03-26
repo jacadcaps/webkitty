@@ -293,7 +293,7 @@ static uint32_t read_frame_header_obu(AV1Decoder *pbi,
 }
 
 // On success, returns the tile group header size. On failure, calls
-// aom_internal_error() and returns -1.
+// aom_internal_error() and does not return.
 static int32_t read_tile_group_header(AV1Decoder *pbi,
                                       struct aom_read_bit_buffer *rb,
                                       int *start_tile, int *end_tile,
@@ -310,7 +310,6 @@ static int32_t read_tile_group_header(AV1Decoder *pbi,
       aom_internal_error(
           &pbi->error, AOM_CODEC_UNSUP_BITSTREAM,
           "For OBU_FRAME type obu tile_start_and_end_present_flag must be 0");
-      return -1;
     }
   }
   if (tiles->large_scale || num_tiles == 1 ||
@@ -326,20 +325,17 @@ static int32_t read_tile_group_header(AV1Decoder *pbi,
     aom_internal_error(&pbi->error, AOM_CODEC_CORRUPT_FRAME,
                        "tg_start (%d) must be equal to %d", *start_tile,
                        pbi->next_start_tile);
-    return -1;
   }
   if (*start_tile > *end_tile) {
     aom_internal_error(
         &pbi->error, AOM_CODEC_CORRUPT_FRAME,
         "tg_end (%d) must be greater than or equal to tg_start (%d)", *end_tile,
         *start_tile);
-    return -1;
   }
   if (*end_tile >= num_tiles) {
     aom_internal_error(&pbi->error, AOM_CODEC_CORRUPT_FRAME,
                        "tg_end (%d) must be less than NumTiles (%d)", *end_tile,
                        num_tiles);
-    return -1;
   }
   pbi->next_start_tile = (*end_tile == num_tiles - 1) ? 0 : *end_tile + 1;
 
@@ -613,9 +609,9 @@ static void alloc_read_metadata(AV1Decoder *const pbi,
     aom_internal_error(&pbi->error, AOM_CODEC_MEM_ERROR,
                        "Error allocating metadata");
   }
-  aom_metadata_t **metadata_array =
-      (aom_metadata_t **)realloc(pbi->metadata->metadata_array,
-                                 (pbi->metadata->sz + 1) * sizeof(metadata));
+  aom_metadata_t **metadata_array = (aom_metadata_t **)realloc(
+      pbi->metadata->metadata_array,
+      (pbi->metadata->sz + 1) * sizeof(*metadata_array));
   if (!metadata_array) {
     aom_img_metadata_free(metadata);
     aom_internal_error(&pbi->error, AOM_CODEC_MEM_ERROR,
@@ -628,7 +624,7 @@ static void alloc_read_metadata(AV1Decoder *const pbi,
 
 // On failure, calls aom_internal_error() and does not return.
 static void read_metadata_itut_t35(AV1Decoder *const pbi, const uint8_t *data,
-                                   size_t sz) {
+                                   size_t sz, bool has_obu_extension_header) {
   if (sz == 0) {
     aom_internal_error(&pbi->error, AOM_CODEC_CORRUPT_FRAME,
                        "itu_t_t35_country_code is missing");
@@ -657,7 +653,9 @@ static void read_metadata_itut_t35(AV1Decoder *const pbi, const uint8_t *data,
                        data[end_index]);
   }
   alloc_read_metadata(pbi, OBU_METADATA_TYPE_ITUT_T35, data, end_index,
-                      AOM_MIF_ANY_FRAME);
+                      has_obu_extension_header
+                          ? AOM_MIF_ANY_FRAME_LAYER_SPECIFIC
+                          : AOM_MIF_ANY_FRAME);
 }
 
 // On success, returns the number of bytes read from 'data'. On failure, calls
@@ -784,7 +782,8 @@ static uint8_t get_last_nonzero_byte(const uint8_t *data, size_t sz) {
 // On success, returns the number of bytes read from 'data'. On failure, sets
 // pbi->common.error.error_code and returns 0, or calls aom_internal_error()
 // and does not return.
-static size_t read_metadata(AV1Decoder *pbi, const uint8_t *data, size_t sz) {
+static size_t read_metadata(AV1Decoder *pbi, const uint8_t *data, size_t sz,
+                            bool has_obu_extension_header) {
   size_t type_length;
   uint64_t type_value;
   if (aom_uleb_decode(data, sz, &type_value, &type_length) < 0) {
@@ -803,7 +802,8 @@ static size_t read_metadata(AV1Decoder *pbi, const uint8_t *data, size_t sz) {
   }
   if (metadata_type == OBU_METADATA_TYPE_ITUT_T35) {
     // read_metadata_itut_t35() checks trailing bits.
-    read_metadata_itut_t35(pbi, data + type_length, sz - type_length);
+    read_metadata_itut_t35(pbi, data + type_length, sz - type_length,
+                           has_obu_extension_header);
     return sz;
   } else if (metadata_type == OBU_METADATA_TYPE_HDR_CLL) {
     size_t bytes_read =
@@ -865,6 +865,9 @@ static size_t read_padding(AV1_COMMON *const cm, const uint8_t *data,
 int aom_decode_frame_from_obus(struct AV1Decoder *pbi, const uint8_t *data,
                                const uint8_t *data_end,
                                const uint8_t **p_data_end) {
+#if CONFIG_COLLECT_COMPONENT_TIMING
+  start_timing(pbi, aom_decode_frame_from_obus_time);
+#endif
   AV1_COMMON *const cm = &pbi->common;
   int frame_decoding_finished = 0;
   int is_first_tg_obu_received = 1;
@@ -880,6 +883,9 @@ int aom_decode_frame_from_obus(struct AV1Decoder *pbi, const uint8_t *data,
   const uint8_t *frame_header = data;
   uint32_t frame_header_size = 0;
   ObuHeader obu_header;
+
+  assert(pbi->error.setjmp);
+
   memset(&obu_header, 0, sizeof(obu_header));
   pbi->seen_frame_header = 0;
   pbi->next_start_tile = 0;
@@ -1057,10 +1063,12 @@ int aom_decode_frame_from_obus(struct AV1Decoder *pbi, const uint8_t *data,
         }
         pbi->num_tile_groups++;
         break;
-      case OBU_METADATA:
-        decoded_payload_size = read_metadata(pbi, data, payload_size);
+      case OBU_METADATA: {
+        decoded_payload_size =
+            read_metadata(pbi, data, payload_size, obu_header.has_extension);
         if (pbi->error.error_code != AOM_CODEC_OK) return -1;
         break;
+      }
       case OBU_TILE_LIST:
         if (CONFIG_NORMAL_TILE_MODE) {
           pbi->error.error_code = AOM_CODEC_UNSUP_BITSTREAM;
@@ -1115,5 +1123,29 @@ int aom_decode_frame_from_obus(struct AV1Decoder *pbi, const uint8_t *data,
   }
 
   if (pbi->error.error_code != AOM_CODEC_OK) return -1;
+
+#if CONFIG_COLLECT_COMPONENT_TIMING
+  end_timing(pbi, aom_decode_frame_from_obus_time);
+
+  // Print out timing information.
+  int i;
+  fprintf(stderr,
+          "\n Frame number: %d, Frame type: %s, Show Frame: %d, Show existing "
+          "frame: %d\n",
+          cm->current_frame.frame_number,
+          get_frame_type_enum(cm->current_frame.frame_type), cm->show_frame,
+          cm->show_existing_frame);
+  // Exclude show_existing_frame since it doesn't take much time.
+  if (!cm->show_existing_frame) {
+    for (i = 0; i < kTimingComponents; i++) {
+      pbi->component_time[i] += pbi->frame_component_time[i];
+      fprintf(stderr, " %s:  %" PRId64 " us (total: %" PRId64 " us)\n",
+              get_component_name(i), pbi->frame_component_time[i],
+              pbi->component_time[i]);
+      pbi->frame_component_time[i] = 0;
+    }
+  }
+#endif
+
   return frame_decoding_finished;
 }

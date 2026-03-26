@@ -34,8 +34,7 @@ from typing import Optional
 from types import ModuleType
 
 import webkitapipy
-from webkitapipy.sdkdb import Diagnostic, MissingName, UnnecessaryAllowedName, UnusedAllowedName
-from webkitapipy.sdkdb import SDKDB, SYMBOL, OBJC_CLS, OBJC_SEL
+from webkitapipy.sdkdb import SDKDB
 from webkitapipy.macho import APIReport
 from webkitapipy.reporter import configure_reporter
 
@@ -79,7 +78,7 @@ ALLOWED_SYMBOL_GLOBS = (
 # Pattern strings on the right-hand side select individual libraries from the
 # TBD.
 SDK_ALLOWLIST = {
-    'usr/lib/libobjc.tbd': (),
+    'usr/lib/libobjc*.tbd': (),
     'usr/lib/swift/lib*.tbd': (),
     'usr/lib/libc++*.tbd': (),
     'usr/lib/libSystem.B.tbd': ('/usr/lib/system/libsystem_*',
@@ -107,7 +106,8 @@ def get_parser() -> argparse.ArgumentParser:
                         help='files to analyze')
     parser.add_argument('-a', '--arch-name', required=True,
                         help='which architecture to analyze binary with')
-    parser.add_argument('--allowlists', '--allowlist', nargs='*', type=Path,
+    parser.add_argument('--allowlist', action='append', type=Path,
+                        dest='allowlists',
                         help='config files listing additional allowed SPI')
     parser.add_argument('-D', action='append', dest='defines',
                         help='use this compiler flag for purposes of '
@@ -238,6 +238,10 @@ def main(argv: Optional[list[str]] = None):
                 increment_changes()
         for file_pattern, library_patterns in SDK_ALLOWLIST.items():
             for tbd_path in args.sdk_dir.glob(file_pattern):
+                if tbd_path.is_symlink():
+                    # Ignore symlinks (for example, libswift*.dylib libraries
+                    # that have been merged into other frameworks).
+                    continue
                 if db.add_tbd(use_input(tbd_path),
                               only_including=library_patterns):
                     increment_changes()
@@ -256,10 +260,11 @@ def main(argv: Optional[list[str]] = None):
             sdkdb_path = (search_path / FRAMEWORK_SDKDB_DIR /
                           f'{binary.name}.partial.sdkdb')
             if sdkdb_path.exists():
-                db.add_partial_sdkdb(use_input(sdkdb_path), spi=True,
+                # Work around rdar://153937150: Instead of adding a dependency
+                # on the sdkdb path, emit a dependency on the framework's .tbd
+                # if it exists.
+                db.add_partial_sdkdb(sdkdb_path, spi=True,
                                      abi=True)
-                # Work around rdar://153937150 by emitting a dependency on the
-                # framework's .tbd if it exists.
                 tbd_path = binary.with_suffix('.tbd')
                 if tbd_path.exists():
                     use_input(tbd_path)
@@ -274,8 +279,8 @@ def main(argv: Optional[list[str]] = None):
                     add_corresponding_sdkdb(binary_path)
                     break
             else:
-                sys.exit(f'Could not find "{name}.framework/{name}" in '
-                         'search paths')
+                sys.exit(f'error: Could not find "{name}.framework/{name}" '
+                         'in search paths')
 
     for name in args.libraries or ():
         with db:
@@ -285,7 +290,8 @@ def main(argv: Optional[list[str]] = None):
                     db.add_binary(use_input(path), arch=args.arch_name)
                     break
             else:
-                sys.exit(f'Could not find "lib{name}.dylib" in search paths')
+                sys.exit(f'error: Could not find "lib{name}.dylib" in search '
+                         'paths')
 
     for path in args.allowlists or ():
         with db:
@@ -300,8 +306,8 @@ def main(argv: Optional[list[str]] = None):
 
     for binary_path in args.input_files:
         add_corresponding_sdkdb(binary_path)
-        report = APIReport.from_binary(binary_path, arch=args.arch_name)
-        db.add_for_auditing(report)
+        db.add_binary(use_input(binary_path), arch=args.arch_name,
+                      for_auditing=True)
     for diagnostic in db.audit():
         reporter.emit_diagnostic(diagnostic)
 
@@ -314,5 +320,5 @@ def main(argv: Optional[list[str]] = None):
                                     for path in inputs))
             fd.write('\n')
 
-    if args.errors and reporter.issues:
+    if args.errors and reporter.has_errors():
         sys.exit(1)

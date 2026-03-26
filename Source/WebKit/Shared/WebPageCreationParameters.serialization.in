@@ -106,6 +106,7 @@ enum class WebCore::UserInterfaceLayoutDirection : bool;
 
     bool useDarkAppearance;
     bool useElevatedUserInterfaceLevel;
+    bool allowPostingLegacySynchronousMessages;
 
 #if PLATFORM(MAC)
     std::optional<WebCore::DestinationColorSpace> colorSpace;
@@ -237,6 +238,10 @@ enum class WebCore::UserInterfaceLayoutDirection : bool;
 
     bool hasResizableWindows;
 
+#if PLATFORM(MAC)
+    double overflowHeightForTopScrollEdgeEffect;
+#endif
+
     WebCore::ContentSecurityPolicyModeForExtension contentSecurityPolicyModeForExtension;
 
     std::optional<WebKit::RemotePageParameters> remotePageParameters;
@@ -245,7 +250,11 @@ enum class WebCore::UserInterfaceLayoutDirection : bool;
     String openedMainFrameName;
     std::optional<WebCore::FrameIdentifier> mainFrameOpenerIdentifier;
     WebCore::SandboxFlags initialSandboxFlags;
+    WebCore::ReferrerPolicy initialReferrerPolicy;
     std::optional<WebCore::WindowFeatures> windowFeatures;
+    bool statusBarIsVisible;
+    bool menuBarIsVisible;
+    bool toolbarsAreVisible;
 
 #if ENABLE(ADVANCED_PRIVACY_PROTECTIONS)
     Vector<WebCore::LinkDecorationFilteringData> linkDecorationFilteringData;
@@ -257,7 +266,7 @@ enum class WebCore::UserInterfaceLayoutDirection : bool;
 #endif
 
 #if PLATFORM(GTK) || PLATFORM(WPE)
-#if USE(GBM)
+#if USE(GBM) || OS(ANDROID)
     Vector<WebKit::RendererBufferFormat> preferredBufferFormats;
 #endif
 #endif
@@ -275,6 +284,12 @@ enum class WebCore::UserInterfaceLayoutDirection : bool;
 #endif
 
     bool shouldSendConsoleLogsToUIProcessForTesting;
+
+#if ENABLE(IMAGE_ANALYSIS)
+    std::optional<WebCore::ImageTranslationLanguageIdentifiers> imageTranslationLanguageIdentifiers;
+#endif
+
+    std::optional<WebKit::TextManipulationParameters> textManipulationParameters;
 }
 
 [Nested] struct WebKit::RemotePageParameters {

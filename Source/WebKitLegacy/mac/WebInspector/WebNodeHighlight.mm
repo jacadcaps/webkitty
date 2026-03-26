@@ -30,7 +30,7 @@
 #import "WebNodeHighlightView.h"
 #import "WebNSViewExtras.h"
 
-#import <WebCore/InspectorController.h>
+#import <WebCore/PageInspectorController.h>
 #import <wtf/Assertions.h>
 
 #if PLATFORM(IOS_FAMILY)
@@ -81,7 +81,7 @@ using namespace WebCore;
 
 @implementation WebNodeHighlight
 
-- (id)initWithTargetView:(NSView *)targetView inspectorController:(NakedPtr<InspectorController>)inspectorController
+- (id)initWithTargetView:(NSView *)targetView inspectorController:(NakedPtr<PageInspectorController>)inspectorController
 {
     self = [super init];
     if (!self)
@@ -146,9 +146,9 @@ using namespace WebCore;
     // the entire superview hierarchy to handle scrolling, bars coming and going, etc. 
     // (without making concrete assumptions about the view hierarchy).
     NSNotificationCenter *notificationCenter = [NSNotificationCenter defaultCenter];
-    for (NSView *v = _targetView; v; v = [v superview]) {
-        [notificationCenter addObserver:self selector:@selector(_repositionHighlightWindow) name:NSViewFrameDidChangeNotification object:v];
-        [notificationCenter addObserver:self selector:@selector(_repositionHighlightWindow) name:NSViewBoundsDidChangeNotification object:v];
+    for (RetainPtr view = _targetView; view; view = [view.get() superview]) {
+        [notificationCenter addObserver:self selector:@selector(_repositionHighlightWindow) name:NSViewFrameDidChangeNotification object:view.get()];
+        [notificationCenter addObserver:self selector:@selector(_repositionHighlightWindow) name:NSViewBoundsDidChangeNotification object:view.get()];
     }
 #else
     ASSERT(_highlightLayer);
@@ -252,7 +252,7 @@ using namespace WebCore;
     return _targetView;
 }
 
-- (NakedPtr<InspectorController>)inspectorController
+- (NakedPtr<PageInspectorController>)inspectorController
 {
     return _inspectorController;
 }

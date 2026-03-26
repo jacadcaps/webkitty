@@ -52,6 +52,7 @@
 #import <wtf/StdLibExtras.h>
 #import <wtf/UUID.h>
 #import <wtf/Vector.h>
+#import <wtf/darwin/DispatchExtras.h>
 #import <wtf/text/MakeString.h>
 
 TEST(NetworkProcess, Entitlements)
@@ -525,7 +526,7 @@ TEST(_WKDataTask, Basic)
                 continue;
             }
             if (path == "/second_request"_s) {
-                secondRequest = WTFMove(request);
+                secondRequest = WTF::move(request);
                 co_await connection.awaitableSend(HTTPResponse(secondResponse).serialize());
                 continue;
             }
@@ -655,7 +656,7 @@ TEST(_WKDataTask, Challenge)
 void sendLoop(TestWebKitAPI::Connection connection, bool& sentWithError)
 {
     Vector<uint8_t> bytes(1000, 0);
-    connection.sendAndReportError(WTFMove(bytes), [&, connection] (bool sawError) {
+    connection.sendAndReportError(WTF::move(bytes), [&, connection] (bool sawError) {
         if (sawError)
             sentWithError = true;
         else
@@ -682,7 +683,7 @@ TEST(_WKDataTask, Cancel)
         task.delegate = delegate.get();
         delegate.get().didReceiveResponse = ^(_WKDataTask *task, NSURLResponse *response, void (^decisionHandler)(_WKDataTaskResponsePolicy)) {
             decisionHandler(_WKDataTaskResponsePolicyAllow);
-            dispatch_async(dispatch_get_main_queue(), ^{
+            dispatch_async(mainDispatchQueueSingleton(), ^{
                 EXPECT_NOT_NULL(task.delegate);
                 [task cancel];
                 EXPECT_NULL(task.delegate);

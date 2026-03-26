@@ -114,11 +114,11 @@ bool AVAssetMIMETypeCache::canDecodeExtendedType(const ContentType& typeParamete
     ASSERT(isAvailable());
 
     if (PAL::canLoad_AVFoundation_AVURLAssetExtendedMIMETypePlayabilityTreatPlaylistMIMETypesAsISOBMFFMediaDataContainersKey()) {
-        if ([PAL::getAVURLAssetClass() isPlayableExtendedMIMEType:type.raw().createNSString().get() options:@{ AVURLAssetExtendedMIMETypePlayabilityTreatPlaylistMIMETypesAsISOBMFFMediaDataContainersKey: @YES }])
+        if ([PAL::getAVURLAssetClassSingleton() isPlayableExtendedMIMEType:type.raw().createNSString().get() options:@{ AVURLAssetExtendedMIMETypePlayabilityTreatPlaylistMIMETypesAsISOBMFFMediaDataContainersKey: @YES }])
             return true;
     } else
 
-    if ([PAL::getAVURLAssetClass() isPlayableExtendedMIMEType:type.raw().createNSString().get()])
+    if ([PAL::getAVURLAssetClassSingleton() isPlayableExtendedMIMEType:type.raw().createNSString().get()])
         return true;
 
 #endif // ENABLE(VIDEO) && USE(AVFOUNDATION)
@@ -139,14 +139,13 @@ bool AVAssetMIMETypeCache::isUnsupportedContainerType(const String& type)
         return true;
 
     // Reject types we know AVFoundation does not support that sites commonly ask about.
-    static constexpr ComparableASCIILiteral unsupportedTypesArray[] = { "video/h264"_s, "video/x-flv"_s };
-    static constexpr SortedArraySet unsupportedTypesSet { unsupportedTypesArray };
+    static constexpr SortedArraySet unsupportedTypesSet { std::to_array<ComparableASCIILiteral>({ "video/h264"_s, "video/x-flv"_s }) };
     return unsupportedTypesSet.contains(lowerCaseType);
 }
 
 bool AVAssetMIMETypeCache::isStaticContainerType(StringView type)
 {
-    static constexpr ComparableLettersLiteral staticContainerTypesArray[] = {
+    static constexpr SortedArraySet staticContainerTypesSet { std::to_array<ComparableLettersLiteral>({
         "application/vnd.apple.mpegurl"_s,
         "application/x-mpegurl"_s,
         "audio/3gpp"_s,
@@ -178,8 +177,7 @@ bool AVAssetMIMETypeCache::isStaticContainerType(StringView type)
         "video/x-m4v"_s,
         "video/x-mpeg"_s,
         "video/x-mpg"_s,
-    };
-    static constexpr SortedArraySet staticContainerTypesSet { staticContainerTypesArray };
+    }) };
     return staticContainerTypesSet.contains(type);
 }
 
@@ -196,7 +194,7 @@ void AVAssetMIMETypeCache::initializeCache(HashSet<String>& cache)
     if (!isAvailable())
         return;
 
-    for (NSString *type in [PAL::getAVURLAssetClass() audiovisualMIMETypes])
+    for (NSString *type in [PAL::getAVURLAssetClassSingleton() audiovisualMIMETypes])
         cache.add(type);
 
     if (m_cacheTypeCallback)

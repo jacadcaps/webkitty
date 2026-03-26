@@ -16,7 +16,6 @@ fn switch_fallthrough_groups_bi(value: i32) -> bool {
         var _skTemp0: bool = false;
         if value == -1 {
           ok = false;
-          // fallthrough
         }
         return false;
       }
@@ -24,11 +23,9 @@ fn switch_fallthrough_groups_bi(value: i32) -> bool {
         var _skTemp1: bool = false;
         if value == 1 {
           ok = true;
-          _skTemp1 = true;  // fallthrough
-        }
+          _skTemp1 = true;  }
         if _skTemp1 || value == 2 {
           ;
-          // fallthrough
         }
         break;
       }
@@ -36,19 +33,15 @@ fn switch_fallthrough_groups_bi(value: i32) -> bool {
         var _skTemp2: bool = false;
         if value == 4 {
           ok = false;
-          _skTemp2 = true;  // fallthrough
-        }
+          _skTemp2 = true;  }
         if _skTemp2 || value == 5 {
           ;
-          _skTemp2 = true;  // fallthrough
-        }
+          _skTemp2 = true;  }
         if _skTemp2 || value == 6 {
           ;
-          _skTemp2 = true;  // fallthrough
-        }
+          _skTemp2 = true;  }
         if _skTemp2 || value == 7 {
           ;
-          // fallthrough
         }
         break;
       }
@@ -60,8 +53,7 @@ fn _skslMain(coords: vec2<f32>) -> vec4<f32> {
   {
     let x: i32 = i32(_globalUniforms.colorGreen.y);
     var _skTemp3: vec4<f32>;
-    let _skTemp4 = switch_fallthrough_groups_bi(x);
-    if _skTemp4 {
+    if switch_fallthrough_groups_bi(x) {
       _skTemp3 = _globalUniforms.colorGreen;
     } else {
       _skTemp3 = _globalUniforms.colorRed;

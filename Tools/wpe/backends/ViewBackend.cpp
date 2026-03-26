@@ -99,4 +99,14 @@ void ViewBackend::notifyAccessibilityKeyEventListeners(struct wpe_input_keyboard
 }
 #endif
 
+void ViewBackend::setFullscreen(bool fullscreen)
+{
+    m_fullscreen = fullscreen;
+}
+
+void ViewBackend::setMaximized(bool maximized)
+{
+    m_maximized = maximized;
+}
+
 } // namespace WPEToolingBackends

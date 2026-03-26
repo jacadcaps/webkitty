@@ -7,9 +7,8 @@
 #ifndef skgpu_graphite_TextureInfoPriv_DEFINED
 #define skgpu_graphite_TextureInfoPriv_DEFINED
 
-#include "include/core/SkStream.h"
-#include "include/core/SkString.h"
 #include "include/gpu/graphite/TextureInfo.h"
+#include "src/gpu/graphite/ResourceTypes.h"
 #include "src/gpu/graphite/TextureFormat.h"
 
 #include <cstdint>

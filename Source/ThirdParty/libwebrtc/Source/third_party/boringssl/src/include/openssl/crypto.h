@@ -15,7 +15,7 @@
 #ifndef OPENSSL_HEADER_CRYPTO_H
 #define OPENSSL_HEADER_CRYPTO_H
 
-#include <openssl/base.h>   // IWYU pragma: export
+#include <openssl/base.h>  // IWYU pragma: export
 #include <openssl/sha.h>
 
 // Upstream OpenSSL defines |OPENSSL_malloc|, etc., in crypto.h rather than
@@ -100,7 +100,7 @@ OPENSSL_EXPORT int FIPS_mode(void);
 
 // fips_counter_t denotes specific APIs/algorithms. A counter is maintained for
 // each in FIPS mode so that tests can be written to assert that the expected,
-// FIPS functions are being called by a certain peice of code.
+// FIPS functions are being called by a certain piece of code.
 enum fips_counter_t {
   fips_counter_evp_aes_128_gcm = 0,
   fips_counter_evp_aes_256_gcm = 1,
@@ -162,6 +162,9 @@ OPENSSL_EXPORT void ENGINE_load_builtin_engines(void);
 // ENGINE_register_all_complete returns one.
 OPENSSL_EXPORT int ENGINE_register_all_complete(void);
 
+// ENGINE_cleanup does nothing.
+OPENSSL_EXPORT void ENGINE_cleanup(void);
+
 // OPENSSL_load_builtin_modules does nothing.
 OPENSSL_EXPORT void OPENSSL_load_builtin_modules(void);
 
@@ -205,8 +208,7 @@ OPENSSL_EXPORT const uint8_t *FIPS_module_hash(void);
 
 // FIPS_version returns the version of the FIPS module, or zero if the build
 // isn't exactly at a verified version. The version, expressed in base 10, will
-// be a date in the form yyyymmddXX where XX is often "00", but can be
-// incremented if multiple versions are defined on a single day.
+// be a date in the form yyyymmdd.
 //
 // (This format exceeds a |uint32_t| in the year 4294.)
 OPENSSL_EXPORT uint32_t FIPS_version(void);

@@ -28,7 +28,6 @@
 #if (ENABLE(SERVICE_CONTROLS) || ENABLE(TELEPHONE_NUMBER_DETECTION)) && PLATFORM(MAC)
 
 #include "DataDetectorHighlight.h"
-#include "GraphicsLayer.h"
 #include "GraphicsLayerClient.h"
 #include "PageOverlay.h"
 #include "Timer.h"
@@ -38,7 +37,8 @@
 #include <wtf/WeakHashSet.h>
 
 namespace WebCore {
-    
+
+class GraphicsLayer;
 class LayoutRect;
 class Page;
 
@@ -46,14 +46,15 @@ enum class RenderingUpdateStep : uint32_t;
 
 struct GapRects;
 
-class ServicesOverlayController : private DataDetectorHighlightClient, private PageOverlayClient {
+class ServicesOverlayController : public DataDetectorHighlightClient, private PageOverlayClient {
     WTF_MAKE_TZONE_ALLOCATED(ServicesOverlayController);
 public:
     explicit ServicesOverlayController(Page&);
     ~ServicesOverlayController();
 
-    void ref() const;
-    void deref() const;
+    // DataDetectorHighlightClient.
+    void ref() const final;
+    void deref() const final;
 
     void selectedTelephoneNumberRangesChanged();
     void selectionRectsDidChange(const Vector<LayoutRect>&, const Vector<GapRects>&, bool isTextOnly);

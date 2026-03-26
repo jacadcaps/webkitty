@@ -21,16 +21,19 @@
 #include "src/gpu/graphite/RendererProvider.h"
 #include "src/gpu/graphite/ShaderInfo.h"
 #include "src/gpu/graphite/TextureInfoPriv.h"
+#include "src/gpu/graphite/ThreadSafeResourceProvider.h"
 #include "src/gpu/graphite/UniformManager.h"
 #include "src/gpu/graphite/dawn/DawnCaps.h"
 #include "src/gpu/graphite/dawn/DawnErrorChecker.h"
 #include "src/gpu/graphite/dawn/DawnGraphiteUtils.h"
 #include "src/gpu/graphite/dawn/DawnResourceProvider.h"
+#include "src/gpu/graphite/dawn/DawnSampler.h"
 #include "src/gpu/graphite/dawn/DawnSharedContext.h"
 #include "src/sksl/SkSLProgramSettings.h"
 #include "src/sksl/SkSLUtil.h"
 #include "src/sksl/ir/SkSLProgram.h"
 
+#include <atomic>
 #include <vector>
 
 namespace skgpu::graphite {
@@ -250,7 +253,7 @@ struct AsyncPipelineCreationBase {
     AsyncPipelineCreationBase(const UniqueKey& key) : fKey(key) {}
 
     wgpu::RenderPipeline fRenderPipeline;
-    bool fFinished = false;
+    std::atomic<bool> fFinished = false;
     UniqueKey fKey; // for logging the wait to resolve a Pipeline future in dawnRenderPipeline
 #if SK_HISTOGRAMS_ENABLED
     // We need these three for the Graphite.PipelineCreationTimes.* histograms (cf.
@@ -322,7 +325,6 @@ struct DawnGraphicsPipeline::AsyncPipelineCreation : public AsyncPipelineCreatio
 // static
 sk_sp<DawnGraphicsPipeline> DawnGraphicsPipeline::Make(
         const DawnSharedContext* sharedContext,
-        DawnResourceProvider* resourceProvider,
         const RuntimeEffectDictionary* runtimeDict,
         const UniqueKey& pipelineKey,
         const GraphicsPipelineDesc& pipelineDesc,
@@ -341,9 +343,8 @@ sk_sp<DawnGraphicsPipeline> DawnGraphicsPipeline::Make(
     ShaderErrorHandler* errorHandler = caps.shaderErrorHandler();
 
     const RenderStep* step = sharedContext->rendererProvider()->lookup(pipelineDesc.renderStepID());
-    const bool useStorageBuffers = caps.storageBufferSupport();
 
-    std::string vsCode, fsCode;
+    SkSL::NativeShader vsCode, fsCode;
     wgpu::ShaderModule fsModule, vsModule;
 
     // Some steps just render depth buffer but not color buffer, so the fragment
@@ -360,12 +361,9 @@ sk_sp<DawnGraphicsPipeline> DawnGraphicsPipeline::Make(
             ShaderInfo::Make(&caps,
                              sharedContext->shaderCodeDictionary(),
                              runtimeDict,
+                             renderPassDesc,
                              step,
                              paintID,
-                             useStorageBuffers,
-                             renderPassDesc.fColorAttachment.fFormat,
-                             renderPassDesc.fWriteSwizzle,
-                             renderPassDesc.fDstReadStrategy,
                              samplerDescArrPtr);
 
     const std::string& fsSkSL = shaderInfo->fragmentSkSL();
@@ -404,11 +402,9 @@ sk_sp<DawnGraphicsPipeline> DawnGraphicsPipeline::Make(
         return {};
     }
 
-    std::string pipelineLabel =
-            GetPipelineLabel(sharedContext->shaderCodeDictionary(), renderPassDesc, step, paintID);
     wgpu::RenderPipelineDescriptor descriptor;
     // Always set the label for pipelines, dawn may need it for tracing.
-    descriptor.label = pipelineLabel.c_str();
+    descriptor.label = shaderInfo->pipelineLabel().c_str();
 
     // Fragment state
     skgpu::BlendEquation equation = blendInfo.fEquation;
@@ -489,8 +485,7 @@ sk_sp<DawnGraphicsPipeline> DawnGraphicsPipeline::Make(
     // layout and passed in to the pipline constructor for lifetime management.
     skia_private::TArray<sk_sp<DawnSampler>> immutableSamplers;
     {
-        SkASSERT(resourceProvider);
-        groupLayouts[0] = resourceProvider->getOrCreateUniformBuffersBindGroupLayout();
+        groupLayouts[0] = sharedContext->getUniformBuffersBindGroupLayout();
         if (!groupLayouts[0]) {
             return {};
         }
@@ -500,8 +495,7 @@ sk_sp<DawnGraphicsPipeline> DawnGraphicsPipeline::Make(
             // Check if we can optimize for the common case of a single texture + 1 dynamic sampler
             if (numTexturesAndSamplers == 2 &&
                 !(samplerDescArrPtr && samplerDescArrPtr->at(0).isImmutable())) {
-                groupLayouts[1] =
-                        resourceProvider->getOrCreateSingleTextureSamplerBindGroupLayout();
+                groupLayouts[1] = sharedContext->getSingleTextureSamplerBindGroupLayout();
             } else {
                 std::vector<wgpu::BindGroupLayoutEntry> entries(numTexturesAndSamplers);
 #if !defined(__EMSCRIPTEN__)
@@ -516,6 +510,7 @@ sk_sp<DawnGraphicsPipeline> DawnGraphicsPipeline::Make(
                 // within the BindGroupLayout. Assert that we have analyzed the appropriate number
                 // of samplers by equating samplerDescArr size to sampler quantity.
                 SkASSERT(samplerDescArrPtr && samplerDescArr.size() == numTexturesAndSamplers / 2);
+                immutableSamplers.reset(samplerDescArr.size());
 #endif
 
                 for (int i = 0; i < numTexturesAndSamplers;) {
@@ -528,6 +523,8 @@ sk_sp<DawnGraphicsPipeline> DawnGraphicsPipeline::Make(
                     // pipeline layout.
                     const SamplerDesc& samplerDesc = samplerDescArr.at(i/2);
                     if (samplerDesc.isImmutable()) {
+                        DawnThreadSafeResourceProvider* resourceProvider =
+                                sharedContext->threadSafeResourceProvider();
                         sk_sp<Sampler> immutableSampler =
                                 resourceProvider->findOrCreateCompatibleSampler(samplerDesc);
                         if (!immutableSampler) {
@@ -544,7 +541,7 @@ sk_sp<DawnGraphicsPipeline> DawnGraphicsPipeline::Make(
                         // Static samplers sample from the subsequent texture in the BindGroupLayout
                         immutableSamplerBinding.sampledTextureBinding = i + 1;
 
-                        immutableSamplers.push_back(std::move(dawnImmutableSampler));
+                        immutableSamplers[i/2] = std::move(dawnImmutableSampler);
                         entries[i].nextInChain = &immutableSamplerBinding;
                     } else {
 #endif
@@ -582,6 +579,13 @@ sk_sp<DawnGraphicsPipeline> DawnGraphicsPipeline::Make(
         layoutDesc.bindGroupLayoutCount =
             hasFragmentSamplers ? groupLayouts.size() : groupLayouts.size() - 1;
         layoutDesc.bindGroupLayouts = groupLayouts.data();
+#if !defined(__EMSCRIPTEN__)
+        if (sharedContext->caps()
+                    ->resourceBindingRequirements()
+                    .fUsePushConstantsForIntrinsicConstants) {
+            layoutDesc.immediateSize = kIntrinsicUniformSize;
+        }
+#endif
         auto layout = device.CreatePipelineLayout(&layoutDesc);
         if (!layout) {
             return {};
@@ -666,7 +670,7 @@ sk_sp<DawnGraphicsPipeline> DawnGraphicsPipeline::Make(
     }
 
     // Multisampled state
-    descriptor.multisample.count = renderPassDesc.fSampleCount;
+    descriptor.multisample.count = (uint8_t) renderPassDesc.fSampleCount;
     descriptor.multisample.mask = 0xFFFFFFFF;
     descriptor.multisample.alphaToCoverageEnabled = false;
 
@@ -734,13 +738,14 @@ sk_sp<DawnGraphicsPipeline> DawnGraphicsPipeline::Make(
     PipelineInfo pipelineInfo{ *shaderInfo, pipelineCreationFlags,
                                pipelineKey.hash(), compilationID };
 #if defined(GPU_TEST_UTILS)
-    pipelineInfo.fNativeVertexShader = std::move(vsCode);
-    pipelineInfo.fNativeFragmentShader = std::move(fsCode);
+    pipelineInfo.fNativeVertexShader = std::move(vsCode.fText);
+    pipelineInfo.fNativeFragmentShader = std::move(fsCode.fText);
 #endif
 
     return sk_sp<DawnGraphicsPipeline>(
             new DawnGraphicsPipeline(sharedContext,
                                      pipelineInfo,
+                                     shaderInfo->pipelineLabel(),
                                      std::move(asyncCreation),
                                      std::move(groupLayouts),
                                      step->primitiveType(),
@@ -751,12 +756,13 @@ sk_sp<DawnGraphicsPipeline> DawnGraphicsPipeline::Make(
 DawnGraphicsPipeline::DawnGraphicsPipeline(
         const skgpu::graphite::SharedContext* sharedContext,
         const PipelineInfo& pipelineInfo,
+        std::string_view pipelineLabel,
         std::unique_ptr<AsyncPipelineCreation> asyncCreationInfo,
         BindGroupLayouts groupLayouts,
         PrimitiveType primitiveType,
         uint32_t refValue,
         skia_private::TArray<sk_sp<DawnSampler>> immutableSamplers)
-    : GraphicsPipeline(sharedContext, pipelineInfo)
+    : GraphicsPipeline(sharedContext, pipelineInfo, pipelineLabel)
     , fAsyncPipelineCreation(std::move(asyncCreationInfo))
     , fGroupLayouts(std::move(groupLayouts))
     , fPrimitiveType(primitiveType)
@@ -802,10 +808,7 @@ const wgpu::RenderPipeline& DawnGraphicsPipeline::dawnRenderPipeline() const {
 
     wgpu::FutureWaitInfo waitInfo{};
     waitInfo.future = fAsyncPipelineCreation->fFuture;
-    const auto& instance = static_cast<const DawnSharedContext*>(sharedContext())
-                                   ->device()
-                                   .GetAdapter()
-                                   .GetInstance();
+    const auto& instance = static_cast<const DawnSharedContext*>(sharedContext())->instance();
 
     [[maybe_unused]] auto status =
             instance.WaitAny(1, &waitInfo, /*timeoutNS=*/std::numeric_limits<uint64_t>::max());

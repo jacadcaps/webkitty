@@ -25,6 +25,12 @@
 
 #pragma once
 
+// FIXME: Remove the `__has_feature(modules)` condition when possible.
+#if !__has_feature(modules)
+
+#include <wtf/Compiler.h>
+#include <wtf/Platform.h>
+
 DECLARE_SYSTEM_HEADER
 
 #import <CoreVideo/CoreVideo.h>
@@ -54,6 +60,10 @@ DECLARE_SYSTEM_HEADER
 #if PLATFORM(IOS_FAMILY)
 #import <QuartzCore/CADisplay.h>
 #import <QuartzCore/CADisplayLinkPrivate.h>
+#endif
+
+#if PLATFORM(VISION)
+#import <QuartzCore/CARemoteEffectPrivate.h>
 #endif
 
 #if ENABLE(ARKIT_INLINE_PREVIEW)
@@ -233,6 +243,11 @@ typedef enum {
 @interface CARemoteEffect: NSObject <NSCopying, NSSecureCoding>
 @end
 
+#if PLATFORM(VISION)
+@interface CARemoteExternalEffect: CARemoteEffect
+@end
+#endif
+
 @interface CARemoteEffectGroup : CARemoteEffect
 + (instancetype)groupWithEffects:(NSArray<CARemoteEffect *> *)effects;
 @property (copy) NSString *groupName;
@@ -276,13 +291,6 @@ typedef uint32_t CAHighFrameRateReason;
 
 WTF_EXTERN_C_BEGIN
 
-// FIXME: Declare these functions even when USE(APPLE_INTERNAL_SDK) is true once we can fix <rdar://problem/26584828> in a better way.
-#if !USE(APPLE_INTERNAL_SDK)
-void CARenderServerCaptureLayerWithTransform(mach_port_t, uint32_t clientId, uint64_t layerId, uint32_t slotId, int32_t ox, int32_t oy, const CATransform3D*);
-void CARenderServerRenderLayerWithTransform(mach_port_t server_port, uint32_t client_id, uint64_t layer_id, IOSurfaceRef, int32_t ox, int32_t oy, const CATransform3D*);
-void CARenderServerRenderDisplayLayerWithTransformAndTimeOffset(mach_port_t, CFStringRef display_name, uint32_t client_id, uint64_t layer_id, IOSurfaceRef, int32_t ox, int32_t oy, const CATransform3D*, CFTimeInterval);
-#endif // USE(APPLE_INTERNAL_SDK)
-
 typedef struct _CAMachPort *CAMachPortRef;
 CAMachPortRef CAMachPortCreate(mach_port_t);
 mach_port_t CAMachPortGetPort(CAMachPortRef);
@@ -307,7 +315,15 @@ void CARenderUpdateAddRect(CARenderUpdate*, const CGRect*);
 void CARenderUpdateFinish(CARenderUpdate*);
 bool CASupportsFeature(uint64_t);
 
+#if HAVE(CORE_ANIMATION_RENDER_SERVER)
+#ifdef __OBJC__
+bool CARenderServerSnapshot(mach_port_t, NSDictionary *);
+#endif
+#endif
+
 WTF_EXTERN_C_END
+
+#endif // !__has_feature(modules)
 
 extern NSString * const kCAFilterColorInvert;
 extern NSString * const kCAFilterColorMatrix;
@@ -348,3 +364,26 @@ extern NSString * const kCAContextPortNumber;
 extern NSString * const kCAContextSecure;
 extern NSString * const kCAContentsFormatRGBA10XR;
 #endif
+
+extern NSString * const kCAContentsFormatRGBA16Float;
+
+#if HAVE(CORE_ANIMATION_RENDER_SERVER)
+extern NSString * const kCASnapshotMode;
+extern NSString * const kCASnapshotModeLayer;
+extern NSString * const kCASnapshotDisplayName;
+#define kCARenderServerDefaultDisplay @"defaultDisplay"
+extern NSString * const kCASnapshotContextId;
+extern NSString * const kCASnapshotLayerId;
+extern NSString * const kCASnapshotDestination;
+extern NSString * const kCASnapshotOriginX;
+extern NSString * const kCASnapshotOriginY;
+extern NSString * const kCASnapshotTransform;
+extern NSString * const kCASnapshotTimeOffset;
+#endif
+
+#if PLATFORM(VISION) && !__has_feature(modules)
+// FIXME:rdar://160881286 - clean-up once in SDK.
+@interface CARemoteExternalEffect (Radar_160881286)
++ (instancetype)rcp_requiresTwoHandedInteractionProcessorEffect;
+@end
+#endif // PLATFORM(VISION) && !__has_feature(modules)

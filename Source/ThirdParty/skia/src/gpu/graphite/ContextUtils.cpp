@@ -41,43 +41,12 @@
 
 namespace skgpu::graphite {
 
-UniquePaintParamsID ExtractPaintData(Recorder* recorder,
-                                     PipelineDataGatherer* gatherer,
-                                     PaintParamsKeyBuilder* builder,
-                                     const Layout layout,
-                                     const SkM44& local2Dev,
-                                     const PaintParams& p,
-                                     const Geometry& geometry,
-                                     const SkColorInfo& targetColorInfo) {
-    SkDEBUGCODE(builder->checkReset());
-
-    gatherer->resetWithNewLayout(layout);
-
-    KeyContext keyContext(recorder,
-                          local2Dev,
-                          targetColorInfo,
-                          geometry.isShape() || geometry.isEdgeAAQuad()
-                                  ? KeyGenFlags::kDefault
-                                  : KeyGenFlags::kDisableSamplingOptimization,
-                          p.color());
-    p.toKey(keyContext, builder, gatherer);
-
-    return recorder->priv().shaderCodeDictionary()->findOrCreate(builder);
-}
-
 bool CanUseHardwareBlending(const Caps* caps,
                             TextureFormat targetFormat,
-                            std::optional<SkBlendMode> blendMode,
+                            SkBlendMode bm,
                             Coverage coverage) {
-    // If the blend mode is absent, this is assumed to be for a runtime blender, for which we always
-    // do a dst read.
-    if (!blendMode.has_value()) {
-        return false;
-    }
-
     // Check for special cases that would prevent the usage of direct hardware blending and
     // require us to fall back to using shader-based blending.
-    const SkBlendMode bm = blendMode.value();
     const bool hasCoverage = coverage != Coverage::kNone;
     const bool dstIsFast = caps->getDstReadStrategy() != DstReadStrategy::kTextureCopy;
     if (// Using LCD coverage (which must be applied after the blend equation) with any blend mode
@@ -172,16 +141,18 @@ std::string EmitSamplerLayout(const ResourceBindingRequirements& bindingReqs, in
     return result;
 }
 
-std::string GetPipelineLabel(const ShaderCodeDictionary* dict,
+std::string GetPipelineLabel(const Caps* caps,
+                             const ShaderCodeDictionary* dict,
                              const RenderPassDesc& renderPassDesc,
                              const RenderStep* renderStep,
                              UniquePaintParamsID paintID) {
+    // KEEP IN SYNC with ShaderInfo::pipelineLabel()
     std::string label = renderPassDesc.toPipelineLabel().c_str(); // includes the write swizzle
     label += " + ";
     label += renderStep->name();
     label += " + ";
     // the shader portion will be "(empty)" for depth-only draws
-    label += dict->idToString(paintID).c_str();
+    label += dict->idToString(caps, paintID).c_str();
     return label;
 }
 

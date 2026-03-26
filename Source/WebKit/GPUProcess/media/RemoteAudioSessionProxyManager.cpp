@@ -28,6 +28,7 @@
 
 #if ENABLE(GPU_PROCESS) && USE(AUDIO_SESSION)
 
+#include "GPUConnectionToWebProcess.h"
 #include "GPUProcess.h"
 #include "GPUProcessConnectionMessages.h"
 #include "RemoteAudioSessionProxy.h"
@@ -36,6 +37,10 @@
 #include <WebCore/PlatformMediaSessionManager.h>
 #include <wtf/HashCountedSet.h>
 #include <wtf/TZoneMallocInlines.h>
+
+#if PLATFORM(IOS_FAMILY)
+#include <WebCore/MediaSessionHelperIOS.h>
+#endif
 
 namespace WebKit {
 
@@ -51,13 +56,13 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteAudioSessionProxyManager);
 RemoteAudioSessionProxyManager::RemoteAudioSessionProxyManager(GPUProcess& gpuProcess)
     : m_gpuProcess(gpuProcess)
 {
-    AudioSession::singleton().addInterruptionObserver(*this);
+    AudioSession::addInterruptionObserver(*this);
     AudioSession::singleton().addConfigurationChangeObserver(*this);
 }
 
 RemoteAudioSessionProxyManager::~RemoteAudioSessionProxyManager()
 {
-    AudioSession::singleton().removeInterruptionObserver(*this);
+    AudioSession::removeInterruptionObserver(*this);
     AudioSession::singleton().removeConfigurationChangeObserver(*this);
 }
 
@@ -168,6 +173,38 @@ bool RemoteAudioSessionProxyManager::hasActiveNotInterruptedProxy()
     return false;
 }
 
+#if PLATFORM(IOS_FAMILY)
+static void providePresentingApplicationPID(RemoteAudioSessionProxy& proxy)
+{
+    RefPtr webProcessConnection = proxy.gpuConnectionToWebProcess();
+    if (!webProcessConnection)
+        return;
+
+#if ENABLE(EXTENSION_CAPABILITIES)
+    if (webProcessConnection->sharedPreferencesForWebProcessValue().mediaCapabilityGrantsEnabled)
+        return;
+#endif
+
+    ProcessID pid = GPUProcess::singleton().parentProcessConnection()->remoteProcessID();
+
+#if !PLATFORM(APPLETV)
+    // Presenting application audit tokens are per-page, but AudioSessions are per-web-process,
+    // and it's not straightforward to know in the GPU process which page is responsible for activating
+    // the shared AVAudioSession. In reality, all pages in a given web process share a presenting
+    // application, so it's sufficient to use the first page's audit token.
+    auto& auditTokens = webProcessConnection->presentingApplicationAuditTokens();
+    if (!auditTokens.isEmpty())
+        pid = webProcessConnection->presentingApplicationPID(*auditTokens.keys().begin());
+#ifndef NDEBUG
+    for (auto& pageIdentifier : auditTokens.keys())
+        ASSERT(pid == webProcessConnection->presentingApplicationPID(pageIdentifier));
+#endif
+#endif
+
+    MediaSessionHelper::sharedHelper().providePresentingApplicationPID(pid);
+}
+#endif
+
 bool RemoteAudioSessionProxyManager::tryToSetActiveForProcess(RemoteAudioSessionProxy& proxy, bool active)
 {
     ASSERT(m_proxies.contains(proxy));
@@ -184,6 +221,10 @@ bool RemoteAudioSessionProxyManager::tryToSetActiveForProcess(RemoteAudioSession
         // was sucessful.
         return AudioSession::singleton().tryToSetActive(false);
     }
+
+#if PLATFORM(IOS_FAMILY)
+    providePresentingApplicationPID(proxy);
+#endif
 
     if (!hasActiveNotInterruptedProxy()) {
         // This proxy and only this proxy wants to become active. Activate
@@ -244,25 +285,25 @@ void RemoteAudioSessionProxyManager::updatePresentingProcesses()
         presentingProcesses.append(*token);
 
     if (!presentingProcesses.isEmpty())
-        AudioSession::singleton().setPresentingProcesses(WTFMove(presentingProcesses));
+        AudioSession::singleton().setPresentingProcesses(WTF::move(presentingProcesses));
 }
 
 void RemoteAudioSessionProxyManager::beginInterruptionRemote()
 {
     Ref session = this->session();
     // Temporarily remove as an observer to avoid a spurious IPC back to the web process.
-    session->removeInterruptionObserver(*this);
+    AudioSession::removeInterruptionObserver(*this);
     session->beginInterruption();
-    session->addInterruptionObserver(*this);
+    AudioSession::addInterruptionObserver(*this);
 }
 
 void RemoteAudioSessionProxyManager::endInterruptionRemote(AudioSession::MayResume mayResume)
 {
     Ref session = this->session();
     // Temporarily remove as an observer to avoid a spurious IPC back to the web process.
-    session->removeInterruptionObserver(*this);
+    AudioSession::removeInterruptionObserver(*this);
     session->endInterruption(mayResume);
-    session->addInterruptionObserver(*this);
+    AudioSession::addInterruptionObserver(*this);
 }
 
 void RemoteAudioSessionProxyManager::beginAudioSessionInterruption()

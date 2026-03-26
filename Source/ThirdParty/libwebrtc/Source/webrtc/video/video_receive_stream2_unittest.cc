@@ -11,9 +11,7 @@
 #include "video/video_receive_stream2.h"
 
 #include <algorithm>
-#include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <deque>
 #include <limits>
 #include <memory>
@@ -215,9 +213,9 @@ class VideoReceiveStream2Test : public ::testing::TestWithParam<bool> {
         .WillByDefault(Invoke(&fake_decoder_, &test::FakeDecoder::Release));
     ON_CALL(mock_transport_, SendRtcp)
         .WillByDefault(
-            Invoke([this](ArrayView<const uint8_t> packet, ::testing::Unused) {
+            [this](ArrayView<const uint8_t> packet, ::testing::Unused) {
               return rtcp_packet_parser_.Parse(packet);
-            }));
+            });
   }
 
   ~VideoReceiveStream2Test() override {
@@ -294,8 +292,7 @@ class VideoReceiveStream2Test : public ::testing::TestWithParam<bool> {
 TEST_P(VideoReceiveStream2Test, CreateFrameFromH264FmtpSpropAndIdr) {
   constexpr uint8_t idr_nalu[] = {0x05, 0xFF, 0xFF, 0xFF};
   RtpPacketToSend rtppacket(nullptr);
-  uint8_t* payload = rtppacket.AllocatePayload(sizeof(idr_nalu));
-  memcpy(payload, idr_nalu, sizeof(idr_nalu));
+  rtppacket.SetPayload(idr_nalu);
   rtppacket.SetMarker(true);
   rtppacket.SetSsrc(kRemoteSsrc);
   rtppacket.SetPayloadType(kH264PayloadType);
@@ -328,7 +325,7 @@ TEST_P(VideoReceiveStream2Test, PlayoutDelay) {
   EXPECT_EQ(kPlayoutDelay.max(), timings.max_playout_delay);
 
   // Check that the biggest minimum delay is chosen.
-  video_receive_stream_->SetMinimumPlayoutDelay(400);
+  video_receive_stream_->SetMinimumPlayoutDelay(TimeDelta::Millis(400));
   timings = timing_->GetTimings();
   EXPECT_EQ(400, timings.min_playout_delay.ms());
 
@@ -345,7 +342,7 @@ TEST_P(VideoReceiveStream2Test, PlayoutDelay) {
   timings = timing_->GetTimings();
   EXPECT_EQ(400, timings.min_playout_delay.ms());
 
-  video_receive_stream_->SetMinimumPlayoutDelay(0);
+  video_receive_stream_->SetMinimumPlayoutDelay(TimeDelta::Zero());
   timings = timing_->GetTimings();
   EXPECT_EQ(123, timings.min_playout_delay.ms());
 }
@@ -361,7 +358,7 @@ TEST_P(VideoReceiveStream2Test, MinPlayoutDelayIsLimitedByMaxPlayoutDelay) {
   EXPECT_EQ(timing_->GetTimings().min_playout_delay, kPlayoutDelay.min());
 
   // Check that the biggest minimum delay is limited by the max playout delay.
-  video_receive_stream_->SetMinimumPlayoutDelay(400);
+  video_receive_stream_->SetMinimumPlayoutDelay(TimeDelta::Millis(400));
   EXPECT_EQ(timing_->GetTimings().min_playout_delay, kPlayoutDelay.max());
 }
 
@@ -460,8 +457,7 @@ TEST_P(VideoReceiveStream2Test, MaxCompositionDelaySetFromMaxPlayoutDelay) {
 TEST_P(VideoReceiveStream2Test, LazyDecoderCreation) {
   constexpr uint8_t idr_nalu[] = {0x05, 0xFF, 0xFF, 0xFF};
   RtpPacketToSend rtppacket(nullptr);
-  uint8_t* payload = rtppacket.AllocatePayload(sizeof(idr_nalu));
-  memcpy(payload, idr_nalu, sizeof(idr_nalu));
+  rtppacket.SetPayload(idr_nalu);
   rtppacket.SetMarker(true);
   rtppacket.SetSsrc(kRemoteSsrc);
   rtppacket.SetPayloadType(kH264PayloadType);
@@ -494,8 +490,7 @@ TEST_P(VideoReceiveStream2Test, LazyDecoderCreation) {
 TEST_P(VideoReceiveStream2Test, LazyDecoderCreationCodecSwitch) {
   constexpr uint8_t idr_nalu[] = {0x05, 0xFF, 0xFF, 0xFF};
   RtpPacketToSend rtppacket(nullptr);
-  uint8_t* payload = rtppacket.AllocatePayload(sizeof(idr_nalu));
-  memcpy(payload, idr_nalu, sizeof(idr_nalu));
+  rtppacket.SetPayload(idr_nalu);
   rtppacket.SetMarker(true);
   rtppacket.SetSsrc(kRemoteSsrc);
   rtppacket.SetPayloadType(kH264PayloadType);
@@ -528,8 +523,7 @@ TEST_P(VideoReceiveStream2Test, LazyDecoderCreationCodecSwitch) {
   // Switch to AV1.
   const uint8_t av1_key_obu[] = {0x18, 0x48, 0x01, 0xAA};  // \  OBU
   RtpPacketToSend av1_rtppacket(nullptr);
-  uint8_t* av1_payload = av1_rtppacket.AllocatePayload(sizeof(av1_key_obu));
-  memcpy(av1_payload, av1_key_obu, sizeof(av1_key_obu));
+  av1_rtppacket.SetPayload(av1_key_obu);
   av1_rtppacket.SetMarker(true);
   av1_rtppacket.SetSsrc(kRemoteSsrc);
   av1_rtppacket.SetPayloadType(kAv1PayloadType);
@@ -917,18 +911,31 @@ TEST_P(VideoReceiveStream2Test, FramesScheduledInOrder) {
   EXPECT_CALL(mock_decoder_,
               Decode(test::RtpTimestamp(RtpTimestampForFrame(2)), _))
       .Times(1);
+
+  // `key_frame` arrives at the start time...
   key_frame->SetReceivedTime(env_.clock().CurrentTime().ms());
   video_receive_stream_->OnCompleteFrame(std::move(key_frame));
+  // ...and it is decoded and rendered right away.
   EXPECT_THAT(fake_renderer_.WaitForFrame(TimeDelta::Zero()), RenderedFrame());
 
-  delta_frame2->SetReceivedTime(env_.clock().CurrentTime().ms());
+  // `delta_frame2` arrives on time, which is two inter-frame durations later...
+  time_controller_.AdvanceTime(2 * k30FpsDelay);
+  int64_t delta_frame2_received_time_ms = env_.clock().CurrentTime().ms();
+  delta_frame2->SetReceivedTime(delta_frame2_received_time_ms);
   video_receive_stream_->OnCompleteFrame(std::move(delta_frame2));
-  EXPECT_THAT(fake_renderer_.WaitForFrame(k30FpsDelay), DidNotReceiveFrame());
-  // `delta_frame1` arrives late.
+  // ...but it doesn't render, since it is not yet decodable.
+  EXPECT_THAT(fake_renderer_.WaitForFrame(TimeDelta::Zero()),
+              DidNotReceiveFrame());
+
+  // `delta_frame1` arrives back-to-back with `delta_frame2`...
   delta_frame1->SetReceivedTime(env_.clock().CurrentTime().ms());
+  EXPECT_EQ(delta_frame1->ReceivedTime(), delta_frame2_received_time_ms);
   video_receive_stream_->OnCompleteFrame(std::move(delta_frame1));
+  // ...so it is decoded and rendered right away (since it is late).
+  EXPECT_THAT(fake_renderer_.WaitForFrame(TimeDelta::Zero()), RenderedFrame());
+  // And then a bit later, `delta_frame2` is decoded and rendered.
   EXPECT_THAT(fake_renderer_.WaitForFrame(k30FpsDelay), RenderedFrame());
-  EXPECT_THAT(fake_renderer_.WaitForFrame(k30FpsDelay * 2), RenderedFrame());
+
   video_receive_stream_->Stop();
 }
 
@@ -1005,11 +1012,12 @@ TEST_P(VideoReceiveStream2Test, FramesFastForwardOnSystemHalt) {
                             .Build();
   InSequence seq;
   EXPECT_CALL(mock_decoder_, Decode(test::RtpTimestamp(kFirstRtpTimestamp), _))
-      .WillOnce(testing::DoAll(Invoke([&] {
-                                 // System halt will be simulated in the decode.
-                                 time_controller_.AdvanceTime(k30FpsDelay * 2);
-                               }),
-                               DefaultDecodeAction()));
+      .WillOnce(testing::DoAll(
+          [&] {
+            // System halt will be simulated in the decode.
+            time_controller_.AdvanceTime(k30FpsDelay * 2);
+          },
+          DefaultDecodeAction()));
   EXPECT_CALL(mock_decoder_,
               Decode(test::RtpTimestamp(RtpTimestampForFrame(2)), _));
   video_receive_stream_->OnCompleteFrame(std::move(key_frame));

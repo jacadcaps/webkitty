@@ -432,6 +432,11 @@ EGLAPI void *EGLAPIENTRY eglCopyMetalSharedEventANGLE(EGLDisplay dpy, EGLSync sy
 #endif
 #endif /* EGL_ANGLE_metal_shared_event_sync */
 
+#ifndef EGL_ANGLE_metal_commands_scheduled_sync
+#define EGL_ANGLE_metal_commands_scheduled_sync 1
+#define EGL_SYNC_METAL_COMMANDS_SCHEDULED_ANGLE 0x34E0
+#endif /* EGL_ANGLE_metal_commands_scheduled_sync */
+
 #ifndef EGL_ANGLE_global_fence_sync
 #define EGL_ANGLE_global_fence_sync 1
 #define EGL_SYNC_GLOBAL_FENCE_ANGLE 0x34DE
@@ -462,6 +467,11 @@ EGLAPI void EGLAPIENTRY eglSetValidationEnabledANGLE(EGLBoolean validationState)
 #define EGL_TEXTURE_TYPE_ANGLE 0x345C
 #define EGL_TEXTURE_INTERNAL_FORMAT_ANGLE 0x345D
 #endif /* ANGLE_webgpu_texture_client_buffer */
+
+#ifndef EGL_ANGLE_create_context_passthrough_shaders
+#define EGL_ANGLE_create_context_passthrough_shaders 1
+#define EGL_CONTEXT_PASSTHROUGH_SHADERS_ANGLE 0x3463
+#endif /* EGL_ANGLE_create_context_passthrough_shaders */
 
 // clang-format on
 

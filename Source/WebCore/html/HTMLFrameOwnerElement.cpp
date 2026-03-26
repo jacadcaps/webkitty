@@ -23,9 +23,11 @@
 #include "HTMLFrameOwnerElement.h"
 
 #include "ContainerNodeInlines.h"
+#include "FrameInlines.h"
 #include "FrameLoader.h"
 #include "LocalDOMWindow.h"
 #include "LocalFrame.h"
+#include "NodeInlines.h"
 #include "RemoteFrame.h"
 #include "RemoteFrameClient.h"
 #include "RenderWidget.h"
@@ -39,7 +41,7 @@
 
 namespace WebCore {
 
-WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(HTMLFrameOwnerElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLFrameOwnerElement);
 
 HTMLFrameOwnerElement::HTMLFrameOwnerElement(const QualifiedName& tagName, Document& document, OptionSet<TypeFlag> constructionType)
     : HTMLElement(tagName, document, constructionType)
@@ -144,6 +146,8 @@ void HTMLFrameOwnerElement::scheduleInvalidateStyleAndLayerComposition()
 
 bool HTMLFrameOwnerElement::isProhibitedSelfReference(const URL& completeURL) const
 {
+    if (completeURL.isAboutBlank() || completeURL.isAboutSrcDoc())
+        return false;
     // We allow one level of self-reference because some websites depend on that, but we don't allow more than one.
     bool foundOneSelfReference = false;
     for (RefPtr<Frame> frame = document().frame(); frame; frame = frame->tree().parent()) {

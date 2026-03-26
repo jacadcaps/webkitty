@@ -88,12 +88,12 @@ private:
     Ref<Cache> protectedCache() const;
 
     const WeakRef<Cache> m_cache;
-    ThreadSafeWeakPtr<Storage> m_storage; // Not expected to be null.
+    ThreadSafeWeakRef<Storage> m_storage;
 
     class PendingFrameLoad;
     HashMap<GlobalFrameID, RefPtr<PendingFrameLoad>> m_pendingFrameLoads;
 
-    HashMap<Key, std::unique_ptr<SpeculativeLoad>> m_pendingPreloads;
+    HashMap<Key, RefPtr<SpeculativeLoad>> m_pendingPreloads;
     HashMap<Key, std::unique_ptr<Vector<RetrieveCompletionHandler>>> m_pendingRetrieveRequests;
 
     HashMap<Key, std::unique_ptr<PreloadedEntry>> m_preloadedEntries;

@@ -32,6 +32,8 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
+import time
 import zipfile
 
 webkitTopAbsPath = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -112,9 +114,25 @@ def determineWebKitBuildDirectories(platform, fullPlatform, configuration, cross
     
     return _topLevelBuildDirectory
 
+def handleRemoveError(func, path, excinfo):
+    # Sometimes there's DLLs remaining in WebKitBuild that hit a permission error on unlinking
+    # We'll move them into a temp directory, which we'll attempt to remove but ignore errors
+    # On container restart, the stale locks should clear and the clean up should work
+    print("Failed to delete:", path)
+    timestamp = int(time.time())
+    new_path = os.path.join(tempfile.gettempdir(), 'WebKitTrash', f"{os.path.basename(path)}.locked.{timestamp}")
+    os.makedirs(os.path.dirname(new_path), exist_ok=True)
+    shutil.move(path, new_path)
+    print("Moved to:", new_path)
 
-def removeDirectoryIfExists(thinDirectory):
-    if os.path.isdir(thinDirectory):
+def removeDirectoryIfExists(thinDirectory, platform):
+    if not os.path.isdir(thinDirectory):
+        return
+
+    if platform in ('win'):
+        shutil.rmtree(thinDirectory, onexc=handleRemoveError)
+        shutil.rmtree(os.path.join(tempfile.gettempdir(), 'WebKitTrash'), ignore_errors=True)
+    else:
         shutil.rmtree(thinDirectory)
 
 
@@ -241,7 +259,7 @@ def archiveBuiltProduct(configuration, platform, fullPlatform, minify=False):
 
     if platform in ['ios', 'tvos', 'visionos', 'watchos']:
         combinedDirectory = os.path.join(_topLevelBuildDirectory, 'combined-mac-and-{}'.format(platform))
-        removeDirectoryIfExists(combinedDirectory)
+        removeDirectoryIfExists(combinedDirectory, platform)
         os.makedirs(combinedDirectory)
         if subprocess.call(['/bin/cp', '-pR', _configurationBuildDirectory, combinedDirectory]):
             return 1
@@ -261,7 +279,7 @@ def archiveBuiltProduct(configuration, platform, fullPlatform, minify=False):
         thinDirectory = os.path.join(_configurationBuildDirectory, 'thin')
         thinBinDirectory = os.path.join(thinDirectory, 'bin')
 
-        removeDirectoryIfExists(thinDirectory)
+        removeDirectoryIfExists(thinDirectory, platform)
         copyBuildFiles(binDirectory, thinBinDirectory, ['*.ilk'])
 
         if createZip(thinDirectory, configuration):
@@ -311,6 +329,9 @@ def archiveBuiltProduct(configuration, platform, fullPlatform, minify=False):
                         realRelativePath = realAbsolutePath[len(_configurationBuildDirectory)+1:]
                         contents.append(realRelativePath)
 
+        if platform == 'wpe':
+            contents.append('share')
+
         if platform == 'gtk':
             contents.extend([os.path.join('install', directory) for directory in ['include', os.path.join('lib64', 'pkgconfig')]])
 
@@ -343,7 +364,7 @@ def extractBuiltProduct(configuration, platform):
 
     archiveFile = os.path.join(_topLevelBuildDirectory, configuration + '.zip')
 
-    removeDirectoryIfExists(_configurationBuildDirectory)
+    removeDirectoryIfExists(_configurationBuildDirectory, platform)
     os.makedirs(_configurationBuildDirectory)
 
     if platform in ('mac', 'ios', 'visionos', 'tvos', 'watchos'):

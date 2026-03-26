@@ -31,9 +31,11 @@
 #include "ContainerNodeInlines.h"
 #include "EventHandler.h"
 #include "EventNames.h"
+#include "FrameDestructionObserverInlines.h"
 #include "HTMLNames.h"
 #include "LocalFrame.h"
 #include "MouseEvent.h"
+#include "NodeDocument.h"
 #include "NodeInlines.h"
 #include "Page.h"
 #include "RenderBox.h"
@@ -46,7 +48,7 @@
 
 namespace WebCore {
 
-WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(SpinButtonElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SpinButtonElement);
 
 using namespace HTMLNames;
 

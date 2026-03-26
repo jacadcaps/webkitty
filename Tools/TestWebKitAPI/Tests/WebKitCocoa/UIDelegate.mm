@@ -28,9 +28,12 @@
 #import "ClassMethodSwizzler.h"
 #import "DeprecatedGlobalValues.h"
 #import "HTTPServer.h"
+#import "IOSMouseEventTestHarness.h"
 #import "InstanceMethodSwizzler.h"
 #import "PlatformUtilities.h"
+#import "TestCocoa.h"
 #import "TestNavigationDelegate.h"
+#import "TestUIDelegate.h"
 #import "TestURLSchemeHandler.h"
 #import "TestWKWebView.h"
 #import "Utilities.h"
@@ -43,8 +46,28 @@
 #import <WebKit/WKProcessPoolPrivate.h>
 #import <WebKit/WKRetainPtr.h>
 #import <WebKit/WKUIDelegatePrivate.h>
+#import <WebKit/WKWebViewConfiguration.h>
 #import <WebKit/WKWebViewPrivateForTesting.h>
+#import <WebKit/WKWebViewPrivateForTestingMac.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
+#import <wtf/darwin/DispatchExtras.h>
+
+#if ENABLE(POINTER_LOCK)
+#import <GameController/GameController.h>
+
+@interface GCMouse ()
+- (instancetype)initWithName:(NSString *)name additionalButtons:(uint32_t)additionalButtons;
+@end
+
+@interface GCPhysicalInputProfile (SPI)
+@property (readonly) dispatch_queue_t handlerQueue;
+@end
+#endif
+
+#import <WebKit/WKWebsiteDataStorePrivate.h>
+#import <WebKit/_WKFeature.h>
 #import <WebKit/_WKHitTestResult.h>
+#import <WebKit/_WKWebsiteDataStoreConfiguration.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/Vector.h>
@@ -132,7 +155,7 @@ TEST(WebKit, WindowOpenWithoutUIDelegate)
 }
 
 - (void)setValidationHandler:(Function<void(WKFrameInfo*)>&&)validationHandler {
-    _validationHandler = WTFMove(validationHandler);
+    _validationHandler = WTF::move(validationHandler);
 }
 
 - (void)_webView:(WKWebView *)webView requestGeolocationPermissionForFrame:(WKFrameInfo *)frame decisionHandler:(void (^)(BOOL allowed))decisionHandler
@@ -233,7 +256,7 @@ TEST(WebKit, GeolocationPermission)
     Function<void(WKSecurityOrigin*, WKFrameInfo*)> _validationHandler;
 }
 - (void)setValidationHandler:(Function<void(WKSecurityOrigin*, WKFrameInfo*)>&&)validationHandler {
-    _validationHandler = WTFMove(validationHandler);
+    _validationHandler = WTF::move(validationHandler);
 }
 
 - (void)_webView:(WKWebView *)webView requestGeolocationPermissionForOrigin:(WKSecurityOrigin*)origin initiatedByFrame:(WKFrameInfo *)frame decisionHandler:(void (^)(WKPermissionDecision decision))decisionHandler {
@@ -321,6 +344,115 @@ TEST(WebKit, GeolocationPermissionInIFrame)
     [webView loadRequest:server1.request()];
     TestWebKitAPI::Util::run(&didReceiveMessage);
     EXPECT_TRUE(done);
+}
+
+TEST(WebKit, GeolocationPermissionInIFrameExampleWebArchive)
+{
+    TestWebKitAPI::HTTPServer server({
+        { "/"_s, { mainFrameText } }
+    }, TestWebKitAPI::HTTPServer::Protocol::HttpsProxy);
+
+    auto pool = adoptNS([[WKProcessPool alloc] init]);
+
+    WKGeolocationProviderV1 providerCallback;
+    zeroBytes(providerCallback);
+    providerCallback.base.version = 1;
+    providerCallback.startUpdating = [] (WKGeolocationManagerRef manager, const void*) {
+        WKGeolocationManagerProviderDidChangePosition(manager, adoptWK(WKGeolocationPositionCreate(0, 50.644358, 3.345453, 2.53)).get());
+    };
+    WKGeolocationManagerSetProvider(WKContextGetGeolocationManager((WKContextRef)pool.get()), &providerCallback.base);
+
+    auto storeConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] initNonPersistentConfiguration]);
+    [storeConfiguration setProxyConfiguration:@{
+        (NSString *)kCFStreamPropertyHTTPSProxyHost: @"127.0.0.1",
+        (NSString *)kCFStreamPropertyHTTPSProxyPort: @(server.port())
+    }];
+    auto dataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:storeConfiguration.get()]);
+
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    configuration.get().processPool = pool.get();
+    [configuration setWebsiteDataStore:dataStore.get()];
+
+    auto messageHandler = adoptNS([[GeolocationPermissionMessageHandler alloc] init]);
+    [[configuration userContentController] addScriptMessageHandler:messageHandler.get() name:@"testHandler"];
+
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration.get()]);
+
+    auto permissionDelegate = adoptNS([[GeolocationDelegateNew alloc] init]);
+    [webView setUIDelegate:permissionDelegate.get()];
+
+    auto navigationDelegate = adoptNS([TestNavigationDelegate new]);
+    [navigationDelegate allowAnyTLSCertificate];
+
+    webView.get().navigationDelegate = navigationDelegate.get();
+
+    [permissionDelegate setValidationHandler:[&webView](WKSecurityOrigin *origin, WKFrameInfo *frame) {
+        if ([origin.protocol isEqualToString:@"https"]) {
+            EXPECT_WK_STREQ(origin.protocol, @"https");
+            EXPECT_WK_STREQ(origin.host, @"example.com");
+        } else {
+            EXPECT_WK_STREQ(origin.protocol, @"file");
+            EXPECT_WK_STREQ(origin.host, @"");
+        }
+        EXPECT_EQ(origin.port, 0);
+
+        EXPECT_WK_STREQ(frame.securityOrigin.protocol, @"https");
+        EXPECT_WK_STREQ(frame.securityOrigin.host, @"example.com");
+        EXPECT_EQ(frame.securityOrigin.port, 0);
+        EXPECT_TRUE(frame.isMainFrame);
+        EXPECT_TRUE(frame.webView == webView);
+    }];
+
+    NSString *getCurrentPosition = @"navigator.geolocation.getCurrentPosition(() => { webkit.messageHandlers.testHandler.postMessage(\"ok\") }, () => { webkit.messageHandlers.testHandler.postMessage(\"ko\") });";
+
+    done = false;
+    didReceiveMessage = false;
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://example.com/"]]];
+    [navigationDelegate waitForDidFinishNavigation];
+    [webView evaluateJavaScript:getCurrentPosition completionHandler:nil];
+    TestWebKitAPI::Util::run(&didReceiveMessage);
+    TestWebKitAPI::Util::run(&done);
+
+#if ENABLE(WEB_ARCHIVE)
+    RetainPtr<NSURL> testURL = [NSBundle.test_resourcesBundle URLForResource:@"example" withExtension:@"webarchive"];
+    [webView loadRequest:[NSURLRequest requestWithURL:testURL.get()]];
+    [navigationDelegate waitForDidFinishNavigation];
+    __block bool doneEvaluatingJavaScript { false };
+    [webView callAsyncJavaScript:@"return (await navigator.permissions.query({ name: \"geolocation\" })).state" arguments:nil inFrame:nil inContentWorld:WKContentWorld.pageWorld completionHandler:^(id result, NSError *error) {
+        EXPECT_NULL(error);
+        EXPECT_TRUE([result isKindOfClass:[NSString class]]);
+        EXPECT_WK_STREQ(@"prompt", result);
+        doneEvaluatingJavaScript = true;
+    }];
+    TestWebKitAPI::Util::run(&doneEvaluatingJavaScript);
+
+    done = false;
+    didReceiveMessage = false;
+    [webView evaluateJavaScript:getCurrentPosition completionHandler:nil];
+    TestWebKitAPI::Util::run(&didReceiveMessage);
+    TestWebKitAPI::Util::run(&done);
+
+    // Reset web process state.
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://example.com/"]]];
+    [navigationDelegate waitForDidFinishNavigation];
+    [webView loadRequest:[NSURLRequest requestWithURL:testURL.get()]];
+    [navigationDelegate waitForDidFinishNavigation];
+
+    done = false;
+    didReceiveMessage = false;
+    doneEvaluatingJavaScript = false;
+    [webView callAsyncJavaScript:@"return (await new Promise(function (resolve, reject) {"
+        "navigator.geolocation.getCurrentPosition((position) => { resolve(JSON.stringify(position.toJSON())) }, (error) => { reject(error.message) });"
+    "}));" arguments:nil inFrame:nil inContentWorld:WKContentWorld.pageWorld completionHandler:^(id result, NSError *error) {
+        EXPECT_NULL(error);
+        EXPECT_TRUE([result isKindOfClass:[NSString class]]);
+        EXPECT_WK_STREQ(@"{\"coords\":{\"latitude\":50.644358,\"longitude\":3.345453,\"altitude\":null,\"accuracy\":2.53,\"altitudeAccuracy\":null,\"heading\":null,\"speed\":null,\"floorLevel\":null},\"timestamp\":0}", result);
+        doneEvaluatingJavaScript = true;
+    }];
+    TestWebKitAPI::Util::run(&doneEvaluatingJavaScript);
+    EXPECT_FALSE(didReceiveMessage);
+    EXPECT_TRUE(done);
+#endif
 }
 
 static constexpr auto notAllowingMainFrameText = R"DOCDOCDOC(
@@ -683,88 +815,6 @@ TEST(WebKit, ShowWebView)
     ASSERT_EQ(webViewFromDelegateCallback, createdWebView);
 }
 
-@interface PointerLockDelegate : NSObject <WKUIDelegatePrivate>
-- (void)resetState;
-- (void)waitForPointerLockEngaged;
-- (void)waitForPointerLockLost;
-@end
-
-@implementation PointerLockDelegate {
-    bool _didEngagePointerLock;
-    bool _didLosePointerLock;
-}
-
-- (void)resetState
-{
-    _didEngagePointerLock = false;
-    _didLosePointerLock = false;
-}
-
-- (void)waitForPointerLockEngaged
-{
-    TestWebKitAPI::Util::run(&_didEngagePointerLock);
-}
-
-- (void)waitForPointerLockLost
-{
-    TestWebKitAPI::Util::run(&_didLosePointerLock);
-}
-
-- (void)_webViewDidRequestPointerLock:(WKWebView *)webView completionHandler:(void (^)(BOOL))completionHandler
-{
-    completionHandler(YES);
-    _didEngagePointerLock = true;
-}
-
-- (void)_webViewDidLosePointerLock:(WKWebView *)webView
-{
-    _didLosePointerLock = true;
-}
-
-@end
-
-TEST(WebKit, PointerLock)
-{
-    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600)]);
-    auto delegate = adoptNS([[PointerLockDelegate alloc] init]);
-    [webView setUIDelegate:delegate.get()];
-    [webView synchronouslyLoadHTMLString:
-        @"<canvas width='800' height='600'></canvas><script>"
-        @"var canvas = document.querySelector('canvas');"
-        @"canvas.onclick = ()=>{canvas.requestPointerLock()};"
-        @"</script>"
-    ];
-    [webView sendClicksAtPoint:NSMakePoint(200, 200) numberOfClicks:1];
-    [delegate waitForPointerLockEngaged];
-}
-
-TEST(WebKit, ClientDisplaysAlertSheetWhilePointerLockActive)
-{
-    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600)]);
-    auto delegate = adoptNS([[PointerLockDelegate alloc] init]);
-    [webView setUIDelegate:delegate.get()];
-    [webView synchronouslyLoadHTMLString:
-        @"<canvas width='800' height='600'></canvas><script>"
-        @"var canvas = document.querySelector('canvas');"
-        @"canvas.onclick = ()=>{canvas.requestPointerLock()};"
-        @"</script>"
-    ];
-    [webView sendClicksAtPoint:NSMakePoint(200, 200) numberOfClicks:1];
-    [delegate waitForPointerLockEngaged];
-    [delegate resetState];
-
-    // Check that pointer lock is lost upon sheet presentation.
-    auto alert = adoptNS([[NSAlert alloc] init]);
-    [alert beginSheetModalForWindow:[webView hostWindow] completionHandler:^(NSModalResponse) { }];
-    [delegate waitForPointerLockLost];
-    [[webView hostWindow] endSheet:[alert window]];
-    [delegate resetState];
-
-    // Check that pointer lock can be requested again successfully.
-    [webView sendClicksAtPoint:NSMakePoint(200, 200) numberOfClicks:1];
-    [delegate waitForPointerLockEngaged];
-}
-
 static bool receivedWindowFrame;
 
 @interface WindowFrameDelegate : NSObject <WKUIDelegatePrivate>
@@ -974,65 +1024,91 @@ TEST(WebKit, NotificationPermission)
     TestWebKitAPI::Util::run(&done);
 }
 
-bool firstToolbarDone;
-
-@interface ToolbarDelegate : NSObject <WKUIDelegatePrivate>
-@end
-
-@implementation ToolbarDelegate
-
-- (void)_webView:(WKWebView *)webView getToolbarsAreVisibleWithCompletionHandler:(void(^)(BOOL))completionHandler
-{
-    completionHandler(firstToolbarDone);
-}
-
-- (void)webView:(WKWebView *)webView runJavaScriptAlertPanelWithMessage:(NSString *)message initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(void))completionHandler
-{
-    if (firstToolbarDone) {
-        EXPECT_STREQ(message.UTF8String, "visible:true");
-        done = true;
-    } else {
-        EXPECT_STREQ(message.UTF8String, "visible:false");
-        firstToolbarDone = true;
-    }
-    completionHandler();
-}
-
-@end
-
 TEST(WebKit, ToolbarVisible)
 {
     auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:adoptNS([[WKWebViewConfiguration alloc] init]).get()]);
-    auto delegate = adoptNS([[ToolbarDelegate alloc] init]);
-    [webView setUIDelegate:delegate.get()];
-    [webView synchronouslyLoadHTMLString:@"<script>alert('visible:' + window.toolbar.visible);alert('visible:' + window.toolbar.visible)</script>"];
-    TestWebKitAPI::Util::run(&done);
+    [webView loadHTMLString:@"<script>alert('visible:' + window.toolbar.visible)</script>" baseURL:nil];
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "visible:true");
+    webView.get()._toolbarsAreVisible = NO;
+    [webView evaluateJavaScript:@"alert('visible:' + window.toolbar.visible)" completionHandler:nil];
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "visible:false");
 }
 
 @interface MouseMoveOverElementDelegate : NSObject <WKUIDelegatePrivate>
+@property (nonatomic, copy) void (^mouseDidMoveOverElement)(_WKHitTestResult *, NSEventModifierFlags, id<NSSecureCoding>);
+@property (nonatomic, copy) WKWebView* (^createWebViewWithConfiguration)(WKWebViewConfiguration *, WKNavigationAction *, WKWindowFeatures *);
 @end
 
 @implementation MouseMoveOverElementDelegate
 
 - (void)_webView:(WKWebView *)webview mouseDidMoveOverElement:(_WKHitTestResult *)hitTestResult withFlags:(NSEventModifierFlags)flags userInfo:(id <NSSecureCoding>)userInfo
 {
-    EXPECT_STREQ(hitTestResult.absoluteLinkURL.absoluteString.UTF8String, "http://example.com/path");
-    EXPECT_STREQ(hitTestResult.linkLabel.UTF8String, "link label");
-    EXPECT_STREQ(hitTestResult.linkTitle.UTF8String, "link title");
-    EXPECT_EQ(flags, NSEventModifierFlagShift);
-    EXPECT_STREQ(NSStringFromClass([(NSObject *)userInfo class]).UTF8String, "_WKFrameHandle");
-    done = true;
+    _mouseDidMoveOverElement(hitTestResult, flags, userInfo);
+}
+
+- (WKWebView *)webView:(WKWebView *)webView createWebViewWithConfiguration:(WKWebViewConfiguration *)configuration forNavigationAction:(WKNavigationAction *)navigationAction windowFeatures:(WKWindowFeatures *)windowFeatures
+{
+    return _createWebViewWithConfiguration(configuration, navigationAction, windowFeatures);
 }
 
 @end
 
 TEST(WebKit, MouseMoveOverElement)
 {
-    WKWebViewConfiguration *configuration = [WKWebViewConfiguration _test_configurationWithTestPlugInClassName:@"FrameHandleSerialization"];
-    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration]);
-    auto uiDelegate = adoptNS([[MouseMoveOverElementDelegate alloc] init]);
+    __block bool done { false };
+    RetainPtr configuration = adoptNS([WKWebViewConfiguration new]);
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration.get()]);
+    RetainPtr uiDelegate = adoptNS([MouseMoveOverElementDelegate new]);
+    uiDelegate.get().mouseDidMoveOverElement = ^(_WKHitTestResult *hitTestResult, NSEventModifierFlags flags, id<NSSecureCoding> userInfo) {
+        EXPECT_STREQ(hitTestResult.absoluteLinkURL.absoluteString.UTF8String, "http://example.com/path");
+        EXPECT_STREQ(hitTestResult.linkLabel.UTF8String, "link label");
+        EXPECT_STREQ(hitTestResult.linkTitle.UTF8String, "link title");
+        EXPECT_EQ(flags, NSEventModifierFlagShift);
+        EXPECT_NULL(userInfo);
+        EXPECT_TRUE(hitTestResult.linkTargetFrameIsSameAsLinkFrame);
+        EXPECT_TRUE(hitTestResult.linkHasTargetFrame);
+        done = true;
+    };
     [webView setUIDelegate:uiDelegate.get()];
     [webView synchronouslyLoadHTMLString:@"<a href='http://example.com/path' title='link title'>link label</a>"];
+    [webView mouseMoveToPoint:NSMakePoint(20, 600 - 20) withFlags:NSEventModifierFlagShift];
+    TestWebKitAPI::Util::run(&done);
+
+    done = false;
+    uiDelegate.get().mouseDidMoveOverElement = ^(_WKHitTestResult *hitTestResult, NSEventModifierFlags, id<NSSecureCoding>) {
+        EXPECT_FALSE(hitTestResult.linkTargetFrameIsSameAsLinkFrame);
+        EXPECT_TRUE(hitTestResult.linkHasTargetFrame);
+        EXPECT_FALSE(hitTestResult.linkTargetFrameIsInDifferentWebView);
+        done = true;
+    };
+    [webView synchronouslyLoadHTMLString:@"<a href='http://example.com/path' title='link title' target='testiframe'>link label</a><iframe name='testiframe' style='height:1px;width:1px'></iframe>"];
+    [webView mouseMoveToPoint:NSMakePoint(20, 600 - 20) withFlags:NSEventModifierFlagShift];
+    TestWebKitAPI::Util::run(&done);
+
+    done = false;
+    uiDelegate.get().mouseDidMoveOverElement = ^(_WKHitTestResult *hitTestResult, NSEventModifierFlags, id<NSSecureCoding>) {
+        EXPECT_FALSE(hitTestResult.linkTargetFrameIsSameAsLinkFrame);
+        EXPECT_FALSE(hitTestResult.linkHasTargetFrame);
+        done = true;
+    };
+    [webView mouseMoveToPoint:NSMakePoint(300, 300) withFlags:NSEventModifierFlagShift];
+    TestWebKitAPI::Util::run(&done);
+
+    done = false;
+    uiDelegate.get().mouseDidMoveOverElement = ^(_WKHitTestResult *hitTestResult, NSEventModifierFlags, id<NSSecureCoding>) {
+        EXPECT_FALSE(hitTestResult.linkTargetFrameIsSameAsLinkFrame);
+        EXPECT_TRUE(hitTestResult.linkHasTargetFrame);
+        EXPECT_TRUE(hitTestResult.linkTargetFrameIsInDifferentWebView);
+        done = true;
+    };
+    __block bool opened { false };
+    uiDelegate.get().createWebViewWithConfiguration = ^WKWebView *(WKWebViewConfiguration * configuration, WKNavigationAction *navigationAction, WKWindowFeatures *) {
+        static RetainPtr<WKWebView> openedView = adoptNS([[WKWebView alloc] initWithFrame:CGRectZero configuration:configuration]);
+        opened = true;
+        return openedView.get();
+    };
+    [webView synchronouslyLoadHTMLString:@"<a href='http://example.com/path' title='link title' target='testtarget'>link label</a><script>window.open('about:blank', 'testtarget')</script>"];
+    TestWebKitAPI::Util::run(&opened);
     [webView mouseMoveToPoint:NSMakePoint(20, 600 - 20) withFlags:NSEventModifierFlagShift];
     TestWebKitAPI::Util::run(&done);
 }
@@ -1105,12 +1181,23 @@ TEST(WebKit, MouseMoveOverElementWithClosedWebView)
         return linkLocation;
     }));
 
+    __block bool done { false };
     @autoreleasepool {
-        WKWebViewConfiguration *configuration = [WKWebViewConfiguration _test_configurationWithTestPlugInClassName:@"FrameHandleSerialization"];
-        auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 400, 300) configuration:configuration]);
+        RetainPtr configuration = adoptNS([WKWebViewConfiguration new]);
+        RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 400, 300) configuration:configuration.get()]);
         [webView removeFromSuperview];
         [webView addToTestWindow];
-        auto uiDelegate = adoptNS([[MouseMoveOverElementDelegate alloc] init]);
+        RetainPtr uiDelegate = adoptNS([MouseMoveOverElementDelegate new]);
+        uiDelegate.get().mouseDidMoveOverElement = ^(_WKHitTestResult *hitTestResult, NSEventModifierFlags flags, id<NSSecureCoding> userInfo) {
+            EXPECT_STREQ(hitTestResult.absoluteLinkURL.absoluteString.UTF8String, "http://example.com/path");
+            EXPECT_STREQ(hitTestResult.linkLabel.UTF8String, "link label");
+            EXPECT_STREQ(hitTestResult.linkTitle.UTF8String, "link title");
+            EXPECT_EQ(flags, NSEventModifierFlagShift);
+            EXPECT_NULL(userInfo);
+            EXPECT_TRUE(hitTestResult.linkTargetFrameIsSameAsLinkFrame);
+            EXPECT_TRUE(hitTestResult.linkHasTargetFrame);
+            done = true;
+        };
         [webView setUIDelegate:uiDelegate.get()];
         [webView synchronouslyLoadHTMLString:@"<a id='link' href='http://example.com/path' style='font-size: 300px;' title='link title'>link label</a>"];
 
@@ -1127,6 +1214,7 @@ TEST(WebKit, MouseMoveOverElementWithClosedWebView)
     }
 
     TestWebKitAPI::Util::runFor(10_ms);
+    TestWebKitAPI::Util::run(&done);
 }
 
 static bool readyForClick;
@@ -1154,16 +1242,22 @@ static bool readyForClick;
 
 TEST(WebKit, ClickAutoFillButton)
 {
-    WKWebViewConfiguration *configuration = [WKWebViewConfiguration _test_configurationWithTestPlugInClassName:@"ClickAutoFillButton"];
+    RetainPtr configuration = [WKWebViewConfiguration _test_configurationWithTestPlugInClassName:@"ClickAutoFillButton" configureJSCForTesting:YES];
 
-    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration]);
-    auto delegate = adoptNS([[AutoFillDelegate alloc] init]);
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration.get()]);
+    RetainPtr delegate = adoptNS([[AutoFillDelegate alloc] init]);
     [webView setUIDelegate:delegate.get()];
-    [webView evaluateJavaScript:@"" completionHandler: nil]; // Ensure the WebProcess and injected bundle are running.
+
+    [webView synchronouslyLoadHTMLString:@""];
+
     TestWebKitAPI::Util::run(&readyForClick);
-    NSPoint buttonLocation = NSMakePoint(130, 577);
-    [webView mouseDownAtPoint:buttonLocation simulatePressure:NO];
-    [webView mouseUpAtPoint:buttonLocation];
+
+    RetainPtr<NSDictionary> jsRect = [webView objectByEvaluatingJavaScript:@"internals.shadowRoot(document.querySelector('input')).querySelector('[useragentpart=\\'-webkit-contacts-auto-fill-button\\']').getBoundingClientRect().toJSON()"];
+    NSRect rect = NSMakeRect([jsRect.get()[@"left"] floatValue], [jsRect.get()[@"top"] floatValue], [jsRect.get()[@"width"] floatValue], [jsRect.get()[@"height"] floatValue]);
+
+    NSPoint buttonLocation = NSMakePoint(rect.origin.x + rect.size.width / 2, [webView frame].size.height - (rect.origin.y + rect.size.height / 2));
+    [webView sendClickAtPoint:buttonLocation];
+
     TestWebKitAPI::Util::run(&done);
 }
 
@@ -1189,36 +1283,6 @@ static bool readytoResign;
 }
 
 @end
-
-static void testDidResignInputElementStrongPasswordAppearanceAfterEvaluatingJavaScript(NSString *script)
-{
-    done = false;
-    readytoResign = false;
-    WKWebViewConfiguration *configuration = [WKWebViewConfiguration _test_configurationWithTestPlugInClassName:@"DidResignInputElementStrongPasswordAppearance"];
-
-    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration]);
-    auto delegate = adoptNS([[DidResignInputElementStrongPasswordAppearanceDelegate alloc] init]);
-    [webView setUIDelegate:delegate.get()];
-    [webView evaluateJavaScript:@"" completionHandler:nil]; // Make sure WebProcess and injected bundle are running.
-    TestWebKitAPI::Util::run(&readytoResign);
-    [webView evaluateJavaScript:script completionHandler:nil];
-    TestWebKitAPI::Util::run(&done);
-}
-
-TEST(WebKit, DidResignInputElementStrongPasswordAppearanceWhenTypeDidChange)
-{
-    testDidResignInputElementStrongPasswordAppearanceAfterEvaluatingJavaScript(@"document.querySelector('input').type = 'text'");
-}
-
-TEST(WebKit, DidResignInputElementStrongPasswordAppearanceWhenValueDidChange)
-{
-    testDidResignInputElementStrongPasswordAppearanceAfterEvaluatingJavaScript(@"document.querySelector('input').value = ''");
-}
-
-TEST(WebKit, DidResignInputElementStrongPasswordAppearanceWhenFormIsReset)
-{
-    testDidResignInputElementStrongPasswordAppearanceAfterEvaluatingJavaScript(@"document.forms[0].reset()");
-}
 
 @interface AutoFillAvailableDelegate : NSObject <WKUIDelegatePrivate>
 @end
@@ -1426,6 +1490,8 @@ TEST(WebKit, TabDoesNotTakeFocusFromEditableWebView)
     ASSERT_FALSE(delegate->_done);
 }
 
+#if ENABLE(PDF_HUD)
+
 @interface SaveDataToFileDelegate : NSObject <WKUIDelegatePrivate, WKNavigationDelegate>
 @end
 
@@ -1443,16 +1509,20 @@ TEST(WebKit, TabDoesNotTakeFocusFromEditableWebView)
 
 - (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation
 {
-    NSPoint location = NSMakePoint(490, 70); // Location of button to download the pdf.
-    [(TestWKWebView *)webView mouseDownAtPoint:location simulatePressure:NO];
-    [(TestWKWebView *)webView mouseUpAtPoint:location];
+    [[webView _pdfHUDs].anyObject performSelector:NSSelectorFromString(@"_performActionForControl:") withObject:@"arrow.down.circle"];
 }
 
 @end
 
 TEST(WebKit, SaveDataToFile)
 {
-    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600)]);
+    RetainPtr configuration = [WKWebViewConfiguration _test_configurationWithTestPlugInClassName:@"WebProcessPlugInWithInternals" configureJSCForTesting:YES];
+    for (_WKFeature *feature in [WKPreferences _features]) {
+        if ([feature.key isEqualToString:@"PDFPluginHUDEnabled"])
+            [[configuration preferences] _setEnabled:YES forFeature:feature];
+    }
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration.get()]);
+    [webView _setWindowOcclusionDetectionEnabled:NO];
     RetainPtr delegate = adoptNS([[SaveDataToFileDelegate alloc] init]);
     [webView setUIDelegate:delegate.get()];
     [webView setNavigationDelegate:delegate.get()];
@@ -1460,6 +1530,8 @@ TEST(WebKit, SaveDataToFile)
     [webView loadRequest:[NSURLRequest requestWithURL:pdfURL]];
     TestWebKitAPI::Util::run(&done);
 }
+
+#endif // ENABLE(PDF_HUD)
 
 #define RELIABLE_DID_NOT_HANDLE_WHEEL_EVENT 0
 // FIXME: make wheel event handling more reliable.
@@ -1473,7 +1545,7 @@ static void synthesizeWheelEvents(NSView *view, int x, int y)
     [view scrollWheel:event];
     
     // Wheel events get coalesced sometimes. Make more events until one is not handled.
-    dispatch_async(dispatch_get_main_queue(), ^ {
+    dispatch_async(mainDispatchQueueSingleton(), ^{
         synthesizeWheelEvents(view, x, y);
     });
 }
@@ -1508,3 +1580,283 @@ TEST(WebKit, DidNotHandleWheelEvent)
 #endif // RELIABLE_DID_NOT_HANDLE_WHEEL_EVENT
 
 #endif // PLATFORM(MAC)
+
+#if ENABLE(POINTER_LOCK)
+
+@interface PointerLockDelegate : NSObject <WKUIDelegatePrivate, WKScriptMessageHandler>
+@property (nonatomic, readonly) bool didEngagePointerLock;
+@property (nonatomic, readonly) NSArray<NSValue *> *mouseMoveEvents;
+- (void)resetState;
+- (void)waitForPointerLockEngaged;
+- (void)waitForPointerLockLost;
+- (void)waitForMouseMoveEvents;
+@end
+
+@implementation PointerLockDelegate {
+    bool _didLosePointerLock;
+    RetainPtr<NSMutableArray<NSValue *>> _mouseMoveEvents;
+}
+
+- (instancetype)init
+{
+    if (self = [super init])
+        _mouseMoveEvents = adoptNS([[NSMutableArray alloc] init]);
+    return self;
+}
+
+- (NSArray<NSValue *> *)mouseMoveEvents
+{
+    return _mouseMoveEvents.get();
+}
+
+- (void)resetState
+{
+    _didEngagePointerLock = false;
+    _didLosePointerLock = false;
+    [_mouseMoveEvents removeAllObjects];
+}
+
+- (void)waitForPointerLockEngaged
+{
+    TestWebKitAPI::Util::run(&_didEngagePointerLock);
+}
+
+- (void)waitForPointerLockLost
+{
+    TestWebKitAPI::Util::run(&_didLosePointerLock);
+}
+
+- (void)waitForMouseMoveEvents
+{
+    TestWebKitAPI::Util::waitFor([&] {
+        return [_mouseMoveEvents count];
+    });
+}
+
+- (void)_webViewDidRequestPointerLock:(WKWebView *)webView completionHandler:(void (^)(BOOL))completionHandler
+{
+    completionHandler(YES);
+    _didEngagePointerLock = true;
+}
+
+- (void)_webViewDidLosePointerLock:(WKWebView *)webView
+{
+    _didLosePointerLock = true;
+}
+
+- (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message
+{
+#if PLATFORM(IOS_FAMILY)
+    if ([message.name isEqualToString:@"testHandler"]) {
+        NSDictionary *moveData = message.body;
+        CGPoint delta = CGPointMake([moveData[@"deltaX"] floatValue], [moveData[@"deltaY"] floatValue]);
+        [_mouseMoveEvents addObject:[NSValue valueWithCGPoint:delta]];
+    }
+#endif
+}
+
+@end
+
+#if HAVE(MOUSE_DEVICE_OBSERVATION)
+
+@interface WKMouseDeviceObserver
++ (WKMouseDeviceObserver *)sharedInstance;
+- (void)start;
+- (void)stop;
+- (void)_setHasMouseDeviceForTesting:(BOOL)hasMouseDevice;
+@end
+
+#endif
+
+class PointerLockTests : public testing::Test {
+public:
+    void SetUp() final
+    {
+#if PLATFORM(IOS_FAMILY)
+        TestWebKitAPI::Util::instantiateUIApplicationIfNeeded();
+#endif
+        setHasMouseDeviceForTesting(true);
+
+#if HAVE(MOUSE_DEVICE_OBSERVATION)
+        m_fakeMouse = adoptNS([[GCMouse.class alloc] initWithName:@"TestMouse" additionalButtons:0]);
+        m_currentMouseSwizzler = makeUnique<ClassMethodSwizzler>(GCMouse.class, @selector(current),
+            imp_implementationWithBlock(^GCMouse *() {
+                return m_fakeMouse.get();
+            })
+        );
+        m_miceSwizzler = makeUnique<ClassMethodSwizzler>(GCMouse.class, @selector(mice),
+            imp_implementationWithBlock(^NSArray<GCMouse *> *() {
+                return @[ m_fakeMouse.get() ];
+            })
+        );
+#endif
+
+        m_webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configurationForWebViewTestingPointerLock().get()]);
+        m_delegate = adoptNS([[PointerLockDelegate alloc] init]);
+        [m_webView setUIDelegate:m_delegate.get()];
+        [[m_webView configuration].userContentController addScriptMessageHandler:m_delegate.get() name:@"testHandler"];
+        [m_webView synchronouslyLoadHTMLString:
+            @"<canvas width='800' height='600'></canvas><script>"
+            @"var canvas = document.querySelector('canvas');"
+            @"var mouseMoveEvents = [];"
+            @"canvas.onclick = () => canvas.requestPointerLock();"
+            @"document.addEventListener('pointermove', (e) => {"
+            @"    if (document.pointerLockElement) {"
+            @"        mouseMoveEvents.push({deltaX: e.movementX, deltaY: e.movementY, timeStamp: e.timeStamp});"
+            @"        window.webkit.messageHandlers.testHandler.postMessage({deltaX: e.movementX, deltaY: e.movementY});"
+            @"    }"
+            @"});"
+            @"</script>"
+        ];
+
+        [m_webView focus];
+    }
+
+    static void SetUpTestSuite()
+    {
+#if HAVE(MOUSE_DEVICE_OBSERVATION)
+        [sharedMouseDeviceObserver() start];
+#endif
+    }
+
+    static void TearDownTestSuite()
+    {
+#if HAVE(MOUSE_DEVICE_OBSERVATION)
+        [sharedMouseDeviceObserver() stop];
+#endif
+    }
+
+    void setHasMouseDeviceForTesting(bool hasMouseDeviceForTesting)
+    {
+#if HAVE(MOUSE_DEVICE_OBSERVATION)
+        [sharedMouseDeviceObserver() _setHasMouseDeviceForTesting:hasMouseDeviceForTesting];
+#endif
+        UNUSED_PARAM(hasMouseDeviceForTesting);
+    }
+
+    void click(int x, int y)
+    {
+#if PLATFORM(IOS_FAMILY)
+        TestWebKitAPI::MouseEventTestHarness testHarness { m_webView.get() };
+        testHarness.mouseMove(x, y);
+        testHarness.mouseDown();
+        testHarness.mouseUp();
+#else
+        [m_webView sendClickAtPoint:NSMakePoint(x, y)];
+#endif
+    }
+
+    RetainPtr<TestWKWebView> webView() const { return m_webView.get(); }
+    RetainPtr<PointerLockDelegate> pointerLockDelegate() const { return m_delegate.get(); }
+    RetainPtr<GCMouse> fakeMouse() const { return m_fakeMouse.get(); }
+
+private:
+#if HAVE(MOUSE_DEVICE_OBSERVATION)
+    static WKMouseDeviceObserver *sharedMouseDeviceObserver()
+    {
+        return [NSClassFromString(@"WKMouseDeviceObserver") sharedInstance];
+    }
+#endif
+
+    static RetainPtr<WKWebViewConfiguration> configurationForWebViewTestingPointerLock()
+    {
+        RetainPtr configuration = [WKWebViewConfiguration _test_configurationWithTestPlugInClassName:@"WebProcessPlugInWithInternals" configureJSCForTesting:YES];
+
+        for (_WKFeature *feature in [WKPreferences _features]) {
+            if ([feature.key isEqualToString:@"PointerLockEnabled"])
+                [[configuration preferences] _setEnabled:YES forFeature:feature];
+        }
+
+        return configuration;
+    }
+
+    RetainPtr<TestWKWebView> m_webView;
+    RetainPtr<PointerLockDelegate> m_delegate;
+    RetainPtr<GCMouse> m_fakeMouse;
+    std::unique_ptr<ClassMethodSwizzler> m_currentMouseSwizzler;
+    std::unique_ptr<ClassMethodSwizzler> m_miceSwizzler;
+};
+
+TEST_F(PointerLockTests, Simple)
+{
+    click(200, 200);
+    [pointerLockDelegate() waitForPointerLockEngaged];
+}
+
+// FIXME: <https://webkit.org/296955> Add test coverage for equivalent flows on iOS.
+#if PLATFORM(MAC)
+TEST_F(PointerLockTests, ClientDisplaysAlertSheetWhilePointerLockActive)
+{
+    click(200, 200);
+
+    RetainPtr delegate = pointerLockDelegate();
+    [delegate waitForPointerLockEngaged];
+    [delegate resetState];
+
+    // Check that pointer lock is lost upon sheet presentation.
+    RetainPtr alert = adoptNS([[NSAlert alloc] init]);
+    [alert beginSheetModalForWindow:[webView() hostWindow] completionHandler:^(NSModalResponse) { }];
+    [delegate waitForPointerLockLost];
+    [[webView() hostWindow] endSheet:[alert window]];
+    [delegate resetState];
+
+    // Check that pointer lock can be requested again successfully.
+    click(200, 200);
+    [delegate waitForPointerLockEngaged];
+}
+#endif
+
+#if HAVE(MOUSE_DEVICE_OBSERVATION)
+
+TEST_F(PointerLockTests, DeniedWithoutMouseDevice)
+{
+    setHasMouseDeviceForTesting(false);
+
+    click(200, 200);
+
+    __block bool done = false;
+
+    [webView() _doAfterProcessingAllPendingMouseEvents:^{
+        EXPECT_FALSE([pointerLockDelegate() didEngagePointerLock]);
+        done = true;
+    }];
+
+    TestWebKitAPI::Util::run(&done);
+}
+
+TEST_F(PointerLockTests, MouseDeviceMove)
+{
+    click(200, 200);
+    [pointerLockDelegate() waitForPointerLockEngaged];
+
+    float deltaX = 10.0f;
+    float deltaY = 5.0f;
+    RetainPtr mouseInput = [fakeMouse() mouseInput];
+    if (GCMouseMoved handler = [mouseInput mouseMovedHandler]) {
+        RetainPtr profile = dynamic_objc_cast<GCPhysicalInputProfile>(mouseInput);
+        dispatch_async([profile handlerQueue], ^{
+            // Positive cursor movement is a move up, not down.
+            handler(mouseInput.get(), deltaX, -deltaY);
+        });
+    }
+
+    [pointerLockDelegate() waitForMouseMoveEvents];
+    CGPoint capturedDelta = [[pointerLockDelegate() mouseMoveEvents].firstObject CGPointValue];
+    EXPECT_EQ(deltaX, capturedDelta.x);
+    EXPECT_EQ(deltaY, capturedDelta.y);
+}
+
+TEST_F(PointerLockTests, MouseDeviceDisconnect)
+{
+    click(200, 200);
+
+    RetainPtr delegate = pointerLockDelegate();
+    [delegate waitForPointerLockEngaged];
+
+    [[NSNotificationCenter defaultCenter] postNotificationName:GCMouseDidStopBeingCurrentNotification object:fakeMouse().get() userInfo:nil];
+    [delegate waitForPointerLockLost];
+}
+
+#endif
+
+#endif

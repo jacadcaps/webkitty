@@ -35,7 +35,7 @@
 #include "DOMJITCallDOMGetterSnippet.h"
 #include "DOMJITSignature.h"
 #include "InlineCallFrame.h"
-#include "JSImmutableButterfly.h"
+#include "JSCellButterfly.h"
 
 namespace JSC { namespace DFG {
 
@@ -157,7 +157,7 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
         case InByValMegamorphic:
         case PutByValDirect:
         case PutByVal:
-        case PutByValAlias:
+        case PutByValDirectResolved:
         case PutByValMegamorphic:
         case GetByVal:
         case GetByValMegamorphic:
@@ -782,6 +782,7 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
     case ConstructForwardVarargs:
     case CallDirectEval:
     case CallWasm:
+    case TailCallInlinedCallerWasm:
     case CallCustomAccessorGetter:
     case CallCustomAccessorSetter:
     case ToPrimitive:
@@ -1230,7 +1231,7 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
 
     case PutByValDirect:
     case PutByVal:
-    case PutByValAlias:
+    case PutByValDirectResolved:
     case PutByValMegamorphic: {
         ArrayMode mode = node->arrayMode();
         Node* base = graph.varArgChild(node, 0).node();
@@ -1923,12 +1924,25 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
         write(HeapObjectCount);
         return;
 
-    case NewArrayWithConstantSize:
-    case PhantomNewArrayWithConstantSize:
-    case MaterializeNewArrayWithConstantSize:
+    case NewButterflyWithSize:
+    case PhantomNewArrayWithButterfly:
+    case PhantomNewButterflyWithSize: {
         read(HeapObjectCount);
         write(HeapObjectCount);
-        def(HeapLocation(ArrayLengthLoc, Butterfly_publicLength, node), LazyNode(graph.freeze(jsNumber(node->newArraySize()))));
+        // FIXME: In this phase we say the Array is where the length of the array is def'd but this differs from ObjectAllocationSinking.
+        return;
+    }
+
+    case MaterializeNewArrayWithButterfly:
+        read(HeapObjectCount);
+        write(HeapObjectCount);
+        def(HeapLocation(ArrayLengthLoc, Butterfly_publicLength, node), LazyNode(graph.varArgChild(node, 0).node()));
+        return;
+
+    case NewArrayWithButterfly:
+        read(HeapObjectCount);
+        write(HeapObjectCount);
+        def(HeapLocation(ArrayLengthLoc, Butterfly_publicLength, node), LazyNode(node->child1().node()));
         return;
 
     case NewTypedArray:
@@ -2034,7 +2048,7 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
         read(HeapObjectCount);
         write(HeapObjectCount);
 
-        auto* array = node->castOperand<JSImmutableButterfly*>();
+        auto* array = node->castOperand<JSCellButterfly*>();
         unsigned numElements = array->length();
         def(HeapLocation(ArrayLengthLoc, Butterfly_publicLength, node),
             LazyNode(graph.freeze(jsNumber(numElements))));
@@ -2323,7 +2337,9 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
 
     case MapIteratorNext: {
         Edge& mapIteratorEdge = node->child1();
+        AbstractHeapKind ownerHeap = (mapIteratorEdge.useKind() == MapIteratorObjectUse) ? JSMapFields : JSSetFields;
         AbstractHeapKind heap = (mapIteratorEdge.useKind() == MapIteratorObjectUse) ? JSMapIteratorFields : JSSetIteratorFields;
+        read(ownerHeap);
         read(heap);
         write(heap);
         def(HeapLocation(MapIteratorNextLoc, heap, mapIteratorEdge), LazyNode(node));
@@ -2344,7 +2360,14 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
         return;
     }
 
-    case MapStorage:
+    case MapStorage: {
+        Edge& mapEdge = node->child1();
+        AbstractHeapKind heap = (mapEdge.useKind() == MapObjectUse) ? JSMapFields : JSSetFields;
+        read(heap);
+        def(HeapLocation(MapStorageLoc, heap, mapEdge, std::bit_cast<void*>(static_cast<intptr_t>(1))), LazyNode(node));
+        return;
+    }
+
     case MapStorageOrSentinel: {
         Edge& mapEdge = node->child1();
         AbstractHeapKind heap = (mapEdge.useKind() == MapObjectUse) ? JSMapFields : JSSetFields;
@@ -2491,6 +2514,18 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
         write(TypedArrayProperties);
         return;
     }
+
+    case ResolvePromiseFirstResolving:
+    case RejectPromiseFirstResolving:
+    case FulfillPromiseFirstResolving:
+        clobberTop();
+        return;
+
+    case PromiseResolve:
+    case PromiseReject:
+    case PromiseThen:
+        clobberTop();
+        return;
 
     case LastNodeType:
         RELEASE_ASSERT_NOT_REACHED();

@@ -28,51 +28,62 @@
 
 #if PLATFORM(MAC)
 
+#import "AppKitSPI.h"
 #import <objc/runtime.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
 
 @interface NSBox (NSFontEffectsBox)
-// Invoked after a font effect (e.g. single strike-through) is chosen.
-- (void)_openEffectsButton:(id)sender;
+
+- (void)_addAttribute:(NSString *)attribute value:(id)value;
+- (void)_removeAttribute:(NSString *)attribute;
+- (void)_clearAttributes;
+
 @end
 
-static NSView *findSubviewOfClass(NSView *view, Class targetClass)
-{
-    if ([view isKindOfClass:targetClass])
-        return view;
+@implementation NSBox (NSFontEffectsBox)
 
-    for (NSView *subview in view.subviews) {
-        if (NSView *targetView = findSubviewOfClass(subview, targetClass))
-            return targetView;
+- (void)_addAttribute:(NSString *)attribute value:(id)value
+{
+    void* result = nullptr;
+    object_getInstanceVariable(self, "_attributesToAdd", &result);
+    if (result) {
+        [static_cast<NSMutableDictionary *>(result) setObject:value forKey:attribute];
+        return;
     }
-    return nil;
+
+    RetainPtr dictionary = adoptNS([NSMutableDictionary new]);
+    [dictionary setObject:value forKey:attribute];
+    object_setInstanceVariableWithStrongDefault(self, "_attributesToAdd", dictionary.get());
 }
 
-static NSMenuItem *findMenuItemWithTitle(NSPopUpButton *button, NSString *title)
+- (void)_removeAttribute:(NSString *)attribute
 {
-    for (NSMenuItem *item in button.itemArray) {
-        if ([item.title.lowercaseString isEqualToString:title.lowercaseString])
-            return item;
+    void* result = nullptr;
+    object_getInstanceVariable(self, "_attributesToRemove", &result);
+    if (result) {
+        [static_cast<NSMutableArray *>(result) addObject:attribute];
+        return;
     }
-    return nil;
+
+    RetainPtr array = [NSMutableArray arrayWithObject:attribute];
+    object_setInstanceVariableWithStrongDefault(self, "_attributesToRemove", array.get());
 }
+
+- (void)_clearAttributes
+{
+    object_setInstanceVariableWithStrongDefault(self, "_attributesToAdd", nil);
+    object_setInstanceVariableWithStrongDefault(self, "_attributesToRemove", nil);
+}
+
+@end
 
 @implementation NSFontPanel (TestWebKitAPI)
 
-- (NSBox *)fontEffectsBox
+- (NSFontEffectsBox *)fontEffectsBox
 {
     void* result = nullptr;
     object_getInstanceVariable(self, "_fontEffectsBox", &result);
-    return static_cast<NSBox *>(result);
-}
-
-- (NSPopUpButton *)underlineToolbarButton
-{
-    return (NSPopUpButton *)[self _toolbarItemWithIdentifier:@"NSFontPanelUnderlineToolbarItem"].view;
-}
-
-- (NSPopUpButton *)strikeThroughToolbarButton
-{
-    return (NSPopUpButton *)[self _toolbarItemWithIdentifier:@"NSFontPanelStrikethroughToolbarItem"].view;
+    return static_cast<NSFontEffectsBox *>(result);
 }
 
 - (NSColorWell *)foregroundColorToolbarColorWell
@@ -80,20 +91,29 @@ static NSMenuItem *findMenuItemWithTitle(NSPopUpButton *button, NSString *title)
     return (NSColorWell *)[self _toolbarItemWithIdentifier:@"NSFontPanelTextColorToolbarItem"].view;
 }
 
-- (void)chooseUnderlineMenuItemWithTitle:(NSString *)itemTitle
+- (void)setUnderlineStyle:(NSUnderlineStyle)style
 {
-    NSPopUpButton *button = [self underlineToolbarButton];
-    [button selectItem:findMenuItemWithTitle(button, itemTitle)];
-    [self.fontEffectsBox _openEffectsButton:button];
-    [self _didChangeAttributes];
+    [[self fontEffectsBox] _addAttribute:NSUnderlineStyleAttributeName value:@(style)];
 }
 
-- (void)chooseStrikeThroughMenuItemWithTitle:(NSString *)itemTitle
+- (void)setStrikethroughStyle:(NSUnderlineStyle)style
 {
-    NSPopUpButton *button = [self strikeThroughToolbarButton];
-    [button selectItem:findMenuItemWithTitle(button, itemTitle)];
-    [self.fontEffectsBox _openEffectsButton:button];
+    [[self fontEffectsBox] _addAttribute:NSStrikethroughStyleAttributeName value:@(style)];
+}
+
+- (void)setTextShadow:(NSShadow *)shadow
+{
+    RetainPtr fontEffectsBox = [self fontEffectsBox];
+    if (shadow)
+        [fontEffectsBox _addAttribute:NSShadowAttributeName value:shadow];
+    else
+        [fontEffectsBox _removeAttribute:NSShadowAttributeName];
+}
+
+- (void)commitAttributeChanges
+{
     [self _didChangeAttributes];
+    [self.fontEffectsBox _clearAttributes];
 }
 
 - (void)_didChangeAttributes
@@ -103,70 +123,16 @@ static NSMenuItem *findMenuItemWithTitle(NSPopUpButton *button, NSString *title)
         [fontManager.target changeAttributes:self.fontEffectsBox];
 }
 
-- (NSSlider *)shadowBlurSlider
+- (id)_selectionAttributeValue:(NSString *)attribute
 {
-    return (NSSlider *)findSubviewOfClass([self _toolbarItemWithIdentifier:@"NSFontPanelShadowBlurToolbarItem"].view, NSSlider.class);
+    void* result = nullptr;
+    object_getInstanceVariable(self, "_selection", &result);
+    return [static_cast<NSDictionary *>(result) objectForKey:attribute];
 }
 
-- (NSSlider *)shadowOpacitySlider
+- (NSShadow *)lastTextShadow
 {
-    return (NSSlider *)findSubviewOfClass([self _toolbarItemWithIdentifier:@"NSFontPanelShadowOpacityToolbarItem"].view, NSSlider.class);
-}
-
-- (NSSlider *)shadowLengthSlider
-{
-    return (NSSlider *)findSubviewOfClass([self _toolbarItemWithIdentifier:@"NSFontPanelShadowOffsetToolbarItem"].view, NSSlider.class);
-}
-
-- (NSButton *)shadowToggleButton
-{
-    return (NSButton *)[self _toolbarItemWithIdentifier:@"NSFontPanelShadowToggleToolbarItem"].view;
-}
-
-- (BOOL)hasShadow
-{
-    return self.shadowToggleButton.state == NSControlStateValueOn;
-}
-
-- (void)toggleShadow
-{
-    NSButton *shadowToggleButton = self.shadowToggleButton;
-    shadowToggleButton.state = shadowToggleButton.state == NSControlStateValueOff ? NSControlStateValueOn : NSControlStateValueOff;
-    [self _didChangeAttributes];
-}
-
-- (double)shadowLength
-{
-    return self.shadowLengthSlider.doubleValue;
-}
-
-- (void)setShadowLength:(double)shadowLength
-{
-    self.shadowLengthSlider.doubleValue = shadowLength;
-}
-
-- (double)shadowOpacity
-{
-    return self.shadowOpacitySlider.doubleValue;
-}
-
-- (void)setShadowOpacity:(double)shadowOpacity
-{
-    self.shadowOpacitySlider.doubleValue = shadowOpacity;
-    if (self.shadowToggleButton.state == NSControlStateValueOn)
-        [self _didChangeAttributes];
-}
-
-- (double)shadowBlur
-{
-    return self.shadowBlurSlider.doubleValue;
-}
-
-- (void)setShadowBlur:(double)shadowBlur
-{
-    self.shadowBlurSlider.doubleValue = shadowBlur;
-    if (self.shadowToggleButton.state == NSControlStateValueOn)
-        [self _didChangeAttributes];
+    return dynamic_objc_cast<NSShadow>([self _selectionAttributeValue:NSShadowAttributeName]);
 }
 
 - (NSToolbarItem *)_toolbarItemWithIdentifier:(NSString *)itemIdentifier
@@ -180,14 +146,14 @@ static NSMenuItem *findMenuItemWithTitle(NSPopUpButton *button, NSString *title)
 
 - (BOOL)hasUnderline
 {
-    NSMenuItem *singleUnderlineMenuItem = [self.underlineToolbarButton itemAtIndex:2];
-    return singleUnderlineMenuItem.state == NSControlStateValueOn;
+    RetainPtr underlineStyle = dynamic_objc_cast<NSNumber>([self _selectionAttributeValue:NSUnderlineStyleAttributeName]);
+    return underlineStyle && ![underlineStyle isEqual:@(NSUnderlineStyleNone)];
 }
 
 - (BOOL)hasStrikeThrough
 {
-    NSMenuItem *singleStrikeThroughMenuItem = [self.strikeThroughToolbarButton itemAtIndex:2];
-    return singleStrikeThroughMenuItem.state == NSControlStateValueOn;
+    RetainPtr underlineStyle = dynamic_objc_cast<NSNumber>([self _selectionAttributeValue:NSStrikethroughStyleAttributeName]);
+    return underlineStyle && ![underlineStyle isEqual:@(NSUnderlineStyleNone)];
 }
 
 - (NSColor *)foregroundColor

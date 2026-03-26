@@ -14,17 +14,17 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_replace.h"
+#include "absl/strings/string_view.h"
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
 #include "api/audio_codecs/builtin_audio_encoder_factory.h"
 #include "api/create_peerconnection_factory.h"
-#include "api/field_trials.h"
-#include "api/field_trials_view.h"
 #include "api/jsep.h"
 #include "api/media_types.h"
 #include "api/peer_connection_interface.h"
@@ -48,11 +48,13 @@
 #include "media/base/media_constants.h"
 #include "media/base/stream_params.h"
 #include "pc/peer_connection_wrapper.h"
+#include "pc/session_description.h"
 #include "pc/test/fake_audio_capture_module.h"
 #include "pc/test/integration_test_helpers.h"
 #include "pc/test/mock_peer_connection_observers.h"
 #include "rtc_base/thread.h"
 #include "system_wrappers/include/metrics.h"
+#include "test/create_test_field_trials.h"
 #include "test/gmock.h"
 #include "test/gtest.h"
 
@@ -67,8 +69,10 @@ namespace webrtc {
 using ::testing::ElementsAre;
 using ::testing::Eq;
 using ::testing::IsTrue;
+using ::testing::NotNull;
 using ::testing::Pair;
 using ::testing::SizeIs;
+
 using RTCConfiguration = PeerConnectionInterface::RTCConfiguration;
 
 namespace {
@@ -111,18 +115,18 @@ class SdpOfferAnswerTest : public ::testing::Test {
   }
 
   std::unique_ptr<PeerConnectionWrapper> CreatePeerConnection(
-      std::unique_ptr<FieldTrialsView> field_trials = nullptr) {
+      absl::string_view field_trials = "") {
     RTCConfiguration config;
     config.sdp_semantics = SdpSemantics::kUnifiedPlan;
-    return CreatePeerConnection(config, std::move(field_trials));
+    return CreatePeerConnection(config, field_trials);
   }
 
   std::unique_ptr<PeerConnectionWrapper> CreatePeerConnection(
       const RTCConfiguration& config,
-      std::unique_ptr<FieldTrialsView> field_trials) {
+      absl::string_view field_trials) {
     auto observer = std::make_unique<MockPeerConnectionObserver>();
     PeerConnectionDependencies pc_deps(observer.get());
-    pc_deps.trials = std::move(field_trials);
+    pc_deps.trials = CreateTestFieldTrialsPtr(field_trials);
     auto result =
         pc_factory_->CreatePeerConnectionOrError(config, std::move(pc_deps));
     EXPECT_TRUE(result.ok());
@@ -511,7 +515,6 @@ TEST_F(SdpOfferAnswerTest, RollbackPreservesAddTrackMid) {
 }
 
 #ifdef WEBRTC_HAVE_SCTP
-
 TEST_F(SdpOfferAnswerTest, RejectedDataChannelsDoNotGetReoffered) {
   auto pc = CreatePeerConnection();
   EXPECT_TRUE(pc->pc()->CreateDataChannelOrError("dc", nullptr).ok());
@@ -536,11 +539,12 @@ TEST_F(SdpOfferAnswerTest, RejectedDataChannelsDoNotGetReoffered) {
       "a=max-message-size:262144\r\n"
       "a=mid:" +
       mid + "\r\n";
-  auto answer = CreateSessionDescription(SdpType::kAnswer, sdp);
+  std::unique_ptr<SessionDescriptionInterface> answer =
+      CreateSessionDescription(SdpType::kAnswer, sdp);
   ASSERT_TRUE(pc->SetRemoteDescription(std::move(answer)));
   // The subsequent offer should not recycle the m-line since the existing data
   // channel is closed.
-  auto offer = pc->CreateOffer();
+  std::unique_ptr<SessionDescriptionInterface> offer = pc->CreateOffer();
   const auto& offer_contents = offer->description()->contents();
   ASSERT_EQ(offer_contents.size(), 1u);
   EXPECT_EQ(offer_contents[0].mid(), mid);
@@ -571,7 +575,8 @@ TEST_F(SdpOfferAnswerTest, RejectedDataChannelsDoGetReofferedWhenActive) {
       "a=max-message-size:262144\r\n"
       "a=mid:" +
       mid + "\r\n";
-  auto answer = CreateSessionDescription(SdpType::kAnswer, sdp);
+  std::unique_ptr<SessionDescriptionInterface> answer =
+      CreateSessionDescription(SdpType::kAnswer, sdp);
   ASSERT_TRUE(pc->SetRemoteDescription(std::move(answer)));
 
   // The subsequent offer should recycle the m-line when there is a new data
@@ -580,13 +585,63 @@ TEST_F(SdpOfferAnswerTest, RejectedDataChannelsDoGetReofferedWhenActive) {
   EXPECT_TRUE(pc->pc()->ShouldFireNegotiationNeededEvent(
       pc->observer()->latest_negotiation_needed_event()));
 
-  auto offer = pc->CreateOffer();
+  std::unique_ptr<SessionDescriptionInterface> offer = pc->CreateOffer();
   const auto& offer_contents = offer->description()->contents();
   ASSERT_EQ(offer_contents.size(), 1u);
   EXPECT_EQ(offer_contents[0].mid(), mid);
   EXPECT_EQ(offer_contents[0].rejected, false);
 }
 
+TEST_F(SdpOfferAnswerTest, AlwaysNegotiateDataChannels) {
+  RTCConfiguration config;
+  config.always_negotiate_data_channels = true;
+  auto caller = CreatePeerConnection(config, /*field_trials=*/"");
+
+  // No data channels are created.
+  auto video_transceiver = caller->AddTransceiver(MediaType::VIDEO);
+  auto offer = caller->CreateOffer();
+  ASSERT_THAT(offer, NotNull());
+
+  auto& contents = offer->description()->contents();
+  ASSERT_THAT(contents, SizeIs(2));
+  // SCTP is negotiated first.
+  EXPECT_EQ(MediaProtocolType::kSctp, contents[0].type);
+  EXPECT_EQ(MediaProtocolType::kRtp, contents[1].type);
+}
+
+TEST_F(SdpOfferAnswerTest, AlwaysNegotiateDataChannelsNegotiationNeeded) {
+  RTCConfiguration config;
+  config.always_negotiate_data_channels = true;
+  auto caller = CreatePeerConnection(config, /*field_trials=*/"");
+  auto callee = CreatePeerConnection();
+
+  // ONN should not fire.
+  EXPECT_FALSE(caller->observer()->has_negotiation_needed_event());
+
+  // No data channels are created.
+  auto video_transceiver = caller->AddTransceiver(MediaType::VIDEO);
+  EXPECT_TRUE(caller->pc()->ShouldFireNegotiationNeededEvent(
+      caller->observer()->latest_negotiation_needed_event()));
+  auto offer = caller->CreateOfferAndSetAsLocal();
+  ASSERT_THAT(offer, NotNull());
+
+  auto& contents = offer->description()->contents();
+  ASSERT_THAT(contents, SizeIs(2));
+  // SCTP is negotiated first.
+  EXPECT_EQ(MediaProtocolType::kSctp, contents[0].type);
+  EXPECT_EQ(MediaProtocolType::kRtp, contents[1].type);
+
+  // Negotiate to clear ONN.
+  ASSERT_TRUE(callee->SetRemoteDescription(std::move(offer)));
+  auto answer = callee->CreateAnswerAndSetAsLocal();
+  ASSERT_THAT(answer, NotNull());
+  ASSERT_TRUE(caller->SetRemoteDescription(std::move(answer)));
+
+  // Create a datachannel.
+  EXPECT_TRUE(caller->pc()->CreateDataChannelOrError("first_dc", nullptr).ok());
+  EXPECT_FALSE(caller->pc()->ShouldFireNegotiationNeededEvent(
+      caller->observer()->latest_negotiation_needed_event()));
+}
 #endif  // WEBRTC_HAVE_SCTP
 
 TEST_F(SdpOfferAnswerTest, SimulcastAnswerWithNoRidsIsRejected) {
@@ -632,7 +687,8 @@ TEST_F(SdpOfferAnswerTest, SimulcastAnswerWithNoRidsIsRejected) {
   std::string extensions =
       "a=extmap:9 urn:ietf:params:rtp-hdrext:sdes:mid\r\n"
       "a=extmap:10 urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id\r\n";
-  auto answer = CreateSessionDescription(SdpType::kAnswer, sdp);
+  std::unique_ptr<SessionDescriptionInterface> answer =
+      CreateSessionDescription(SdpType::kAnswer, sdp);
   EXPECT_FALSE(pc->SetRemoteDescription(std::move(answer)));
 
   auto answer_with_extensions =
@@ -648,8 +704,7 @@ TEST_F(SdpOfferAnswerTest, SimulcastAnswerWithNoRidsIsRejected) {
 }
 
 TEST_F(SdpOfferAnswerTest, SimulcastOfferWithMixedCodec) {
-  auto pc = CreatePeerConnection(
-      FieldTrials::CreateNoGlobal("WebRTC-MixedCodecSimulcast/Enabled/"));
+  auto pc = CreatePeerConnection("WebRTC-MixedCodecSimulcast/Enabled/");
 
   std::optional<RtpCodecCapability> vp8_codec_capability =
       FindFirstSendCodecWithName(MediaType::VIDEO, kVp8CodecName);
@@ -669,7 +724,7 @@ TEST_F(SdpOfferAnswerTest, SimulcastOfferWithMixedCodec) {
   init.send_encodings.push_back(rid2);
 
   auto transceiver = pc->AddTransceiver(MediaType::VIDEO, init);
-  auto offer = pc->CreateOffer();
+  std::unique_ptr<SessionDescriptionInterface> offer = pc->CreateOffer();
   auto& offer_contents = offer->description()->contents();
   auto send_codecs = offer_contents[0].media_description()->codecs();
   // Verify that the serialized SDP includes pt=.
@@ -702,8 +757,7 @@ TEST_F(SdpOfferAnswerTest, SimulcastOfferWithMixedCodec) {
 }
 
 TEST_F(SdpOfferAnswerTest, SimulcastAnswerWithPayloadType) {
-  auto pc = CreatePeerConnection(
-      FieldTrials::CreateNoGlobal("WebRTC-MixedCodecSimulcast/Enabled/"));
+  auto pc = CreatePeerConnection("WebRTC-MixedCodecSimulcast/Enabled/");
 
   // A SDP offer with recv simulcast with payload type
   std::string sdp =
@@ -732,7 +786,8 @@ TEST_F(SdpOfferAnswerTest, SimulcastAnswerWithPayloadType) {
       "a=rid:2 recv pt=97\r\n"
       "a=simulcast:recv 1;2\r\n";
 
-  auto offer = CreateSessionDescription(SdpType::kOffer, sdp);
+  std::unique_ptr<SessionDescriptionInterface> offer =
+      CreateSessionDescription(SdpType::kOffer, sdp);
   EXPECT_TRUE(pc->SetRemoteDescription(std::move(offer)));
 
   auto transceiver = pc->pc()->GetTransceivers()[0];
@@ -741,7 +796,7 @@ TEST_F(SdpOfferAnswerTest, SimulcastAnswerWithPayloadType) {
           .ok());
 
   // Check the generated SDP.
-  auto answer = pc->CreateAnswer();
+  std::unique_ptr<SessionDescriptionInterface> answer = pc->CreateAnswer();
   answer->ToString(&sdp);
   EXPECT_THAT(sdp, testing::HasSubstr("a=rid:1 send pt=96\r\n"));
   EXPECT_THAT(sdp, testing::HasSubstr("a=rid:2 send pt=97\r\n"));
@@ -775,7 +830,8 @@ TEST_F(SdpOfferAnswerTest, ExpectAllSsrcsSpecifiedInSsrcGroupFid) {
       "a=fmtp:97 apt=96\r\n"
       "a=ssrc-group:FID 1 2\r\n"
       "a=ssrc:1 cname:test\r\n";
-  auto offer = CreateSessionDescription(SdpType::kOffer, sdp);
+  std::unique_ptr<SessionDescriptionInterface> offer =
+      CreateSessionDescription(SdpType::kOffer, sdp);
   RTCError error;
   pc->SetRemoteDescription(std::move(offer), &error);
   EXPECT_FALSE(error.ok());
@@ -808,7 +864,8 @@ TEST_F(SdpOfferAnswerTest, ExpectAllSsrcsSpecifiedInSsrcGroupFecFr) {
       "a=fmtp:98 repair-window=10000000\r\n"
       "a=ssrc-group:FEC-FR 1 2\r\n"
       "a=ssrc:1 cname:test\r\n";
-  auto offer = CreateSessionDescription(SdpType::kOffer, sdp);
+  std::unique_ptr<SessionDescriptionInterface> offer =
+      CreateSessionDescription(SdpType::kOffer, sdp);
   RTCError error;
   pc->SetRemoteDescription(std::move(offer), &error);
   EXPECT_FALSE(error.ok());
@@ -843,7 +900,8 @@ TEST_F(SdpOfferAnswerTest, ExpectTwoSsrcsInSsrcGroupFid) {
       "a=ssrc:1 cname:test\r\n"
       "a=ssrc:2 cname:test\r\n"
       "a=ssrc:3 cname:test\r\n";
-  auto offer = CreateSessionDescription(SdpType::kOffer, sdp);
+  std::unique_ptr<SessionDescriptionInterface> offer =
+      CreateSessionDescription(SdpType::kOffer, sdp);
   RTCError error;
   pc->SetRemoteDescription(std::move(offer), &error);
   EXPECT_FALSE(error.ok());
@@ -878,7 +936,8 @@ TEST_F(SdpOfferAnswerTest, ExpectTwoSsrcsInSsrcGroupFecFr) {
       "a=ssrc:1 cname:test\r\n"
       "a=ssrc:2 cname:test\r\n"
       "a=ssrc:3 cname:test\r\n";
-  auto offer = CreateSessionDescription(SdpType::kOffer, sdp);
+  std::unique_ptr<SessionDescriptionInterface> offer =
+      CreateSessionDescription(SdpType::kOffer, sdp);
   RTCError error;
   pc->SetRemoteDescription(std::move(offer), &error);
   EXPECT_FALSE(error.ok());
@@ -914,7 +973,8 @@ TEST_F(SdpOfferAnswerTest, ExpectAtMostFourSsrcsInSsrcGroupSIM) {
       "a=ssrc:2 cname:test\r\n"
       "a=ssrc:3 cname:test\r\n"
       "a=ssrc:4 cname:test\r\n";
-  auto offer = CreateSessionDescription(SdpType::kOffer, sdp);
+  std::unique_ptr<SessionDescriptionInterface> offer =
+      CreateSessionDescription(SdpType::kOffer, sdp);
   RTCError error;
   pc->SetRemoteDescription(std::move(offer), &error);
   EXPECT_FALSE(error.ok());
@@ -925,7 +985,7 @@ TEST_F(SdpOfferAnswerTest, DuplicateSsrcsDisallowedInLocalDescription) {
   auto pc = CreatePeerConnection();
   pc->AddAudioTrack("audio_track", {});
   pc->AddVideoTrack("video_track", {});
-  auto offer = pc->CreateOffer();
+  std::unique_ptr<SessionDescriptionInterface> offer = pc->CreateOffer();
   auto& offer_contents = offer->description()->contents();
   ASSERT_EQ(offer_contents.size(), 2u);
   uint32_t second_ssrc = offer_contents[1].media_description()->first_ssrc();
@@ -944,7 +1004,7 @@ TEST_F(SdpOfferAnswerTest,
 
   pc->AddAudioTrack("audio_track", {});
   pc->AddVideoTrack("video_track", {});
-  auto offer = pc->CreateOffer();
+  std::unique_ptr<SessionDescriptionInterface> offer = pc->CreateOffer();
   auto& offer_contents = offer->description()->contents();
   ASSERT_EQ(offer_contents.size(), 2u);
   uint32_t audio_ssrc = offer_contents[0].media_description()->first_ssrc();
@@ -985,7 +1045,7 @@ TEST_F(SdpOfferAnswerTest,
 
   pc->AddAudioTrack("audio_track", {});
   pc->AddVideoTrack("video_track", {});
-  auto offer = pc->CreateOffer();
+  std::unique_ptr<SessionDescriptionInterface> offer = pc->CreateOffer();
   auto& offer_contents = offer->description()->contents();
   ASSERT_EQ(offer_contents.size(), 2u);
   uint32_t audio_ssrc = offer_contents[0].media_description()->first_ssrc();
@@ -1025,7 +1085,7 @@ TEST_F(SdpOfferAnswerTest, AllowOnlyOneSsrcGroupPerSemanticAndPrimarySsrc) {
 
   pc->AddAudioTrack("audio_track", {});
   pc->AddVideoTrack("video_track", {});
-  auto offer = pc->CreateOffer();
+  std::unique_ptr<SessionDescriptionInterface> offer = pc->CreateOffer();
   auto& offer_contents = offer->description()->contents();
   ASSERT_EQ(offer_contents.size(), 2u);
   uint32_t audio_ssrc = offer_contents[0].media_description()->first_ssrc();
@@ -1085,7 +1145,8 @@ TEST_F(SdpOfferAnswerTest, OfferWithRtxAndNoMsidIsNotRejected) {
       "a=ssrc-group:FID 1 2\r\n"
       "a=ssrc:1 cname:test\r\n"
       "a=ssrc:2 cname:test\r\n";
-  auto offer = CreateSessionDescription(SdpType::kOffer, sdp);
+  std::unique_ptr<SessionDescriptionInterface> offer =
+      CreateSessionDescription(SdpType::kOffer, sdp);
   EXPECT_TRUE(pc->SetRemoteDescription(std::move(offer)));
 }
 
@@ -1127,7 +1188,7 @@ TEST_F(SdpOfferAnswerTest, SdpMungingWithInvalidPayloadTypeIsRejected) {
   auto pc = CreatePeerConnection();
   pc->AddAudioTrack("audio_track", {});
 
-  auto offer = pc->CreateOffer();
+  std::unique_ptr<SessionDescriptionInterface> offer = pc->CreateOffer();
   ASSERT_EQ(offer->description()->contents().size(), 1u);
   auto* audio = offer->description()->contents()[0].media_description();
   ASSERT_GT(audio->codecs().size(), 0u);
@@ -1166,11 +1227,12 @@ TEST_F(SdpOfferAnswerTest, MsidSignalingInSubsequentOfferAnswer) {
       "a=rtcp-mux\r\n"
       "a=rtpmap:111 opus/48000/2\r\n";
 
-  auto offer = CreateSessionDescription(SdpType::kOffer, sdp);
+  std::unique_ptr<SessionDescriptionInterface> offer =
+      CreateSessionDescription(SdpType::kOffer, sdp);
   EXPECT_TRUE(pc->SetRemoteDescription(std::move(offer)));
 
   // Check the generated SDP.
-  auto answer = pc->CreateAnswer();
+  std::unique_ptr<SessionDescriptionInterface> answer = pc->CreateAnswer();
   answer->ToString(&sdp);
   EXPECT_NE(std::string::npos, sdp.find("a=msid:- audio_track\r\n"));
 
@@ -1216,14 +1278,15 @@ TEST_F(SdpOfferAnswerTest, MsidSignalingUnknownRespondsWithMsidAndKeepsSsrc) {
       "a=mid:0\r\n"
       "a=rtpmap:111 opus/48000/2\r\n";
 
-  auto offer = CreateSessionDescription(SdpType::kOffer, sdp);
+  std::unique_ptr<SessionDescriptionInterface> offer =
+      CreateSessionDescription(SdpType::kOffer, sdp);
   EXPECT_TRUE(pc->SetRemoteDescription(std::move(offer)));
   auto first_transceiver = pc->pc()->GetTransceivers()[0];
   EXPECT_TRUE(first_transceiver
                   ->SetDirectionWithError(RtpTransceiverDirection::kSendOnly)
                   .ok());
   // Check the generated *serialized* SDP.
-  auto answer = pc->CreateAnswer();
+  std::unique_ptr<SessionDescriptionInterface> answer = pc->CreateAnswer();
   const auto& answer_contents = answer->description()->contents();
   ASSERT_EQ(answer_contents.size(), 1u);
   auto answer_streams = answer_contents[0].media_description()->streams();
@@ -1327,7 +1390,7 @@ TEST_P(SdpOfferAnswerWithPayloadTypeTest,
   EXPECT_TRUE(
       pc->SetRemoteDescription(CreateSessionDescription(SdpType::kOffer, sdp)));
   // The answer should accept the PT for VP9.
-  auto answer = pc->CreateAnswer();
+  std::unique_ptr<SessionDescriptionInterface> answer = pc->CreateAnswer();
   {
     const auto* mid_0 = answer->description()->GetContentDescriptionByName("0");
     ASSERT_TRUE(mid_0);
@@ -1342,7 +1405,7 @@ TEST_P(SdpOfferAnswerWithPayloadTypeTest,
 
   EXPECT_TRUE(pc->SetLocalDescription(std::move(answer)));
   // The follow-up offer should continue to use the same PT for VP9.
-  auto offer = pc->CreateOffer();
+  std::unique_ptr<SessionDescriptionInterface> offer = pc->CreateOffer();
   {
     const auto* mid_0 = offer->description()->GetContentDescriptionByName("0");
     ASSERT_TRUE(mid_0);
@@ -1416,13 +1479,13 @@ TEST_P(SdpOfferAnswerShuffleMediaTypes,
       CreateSessionDescription(SdpType::kAnswer, rejected_answer_sdp);
   EXPECT_TRUE(pc1->SetRemoteDescription(std::move(rejected_answer)));
 
-  auto offer =
+  std::unique_ptr<SessionDescriptionInterface> offer =
       pc2->CreateOfferAndSetAsLocal();  // This will generate a mid=0 too
   ASSERT_EQ(offer->description()->contents().size(), 1u);
   auto mid2 = offer->description()->contents()[0].mid();
   EXPECT_EQ(mid1, mid2);  // Check that the mids collided.
   EXPECT_TRUE(pc1->SetRemoteDescription(std::move(offer)));
-  auto answer = pc1->CreateAnswer();
+  std::unique_ptr<SessionDescriptionInterface> answer = pc1->CreateAnswer();
   EXPECT_FALSE(pc1->SetLocalDescription(std::move(answer)));
 }
 
@@ -1457,7 +1520,7 @@ TEST_P(SdpOfferAnswerShuffleMediaTypes,
       CreateSessionDescription(SdpType::kAnswer, rejected_answer_sdp);
   EXPECT_TRUE(pc1->SetRemoteDescription(std::move(rejected_answer)));
 
-  auto offer =
+  std::unique_ptr<SessionDescriptionInterface> offer =
       pc2->CreateOfferAndSetAsLocal();  // This will generate a mid=0 too
   ASSERT_EQ(offer->description()->contents().size(), 1u);
   auto mid2 = offer->description()->contents()[0].mid();
@@ -1502,7 +1565,7 @@ TEST_F(SdpOfferAnswerTest, OfferWithNoCompatibleCodecsIsRejectedInAnswer) {
   pc->SetRemoteDescription(std::move(desc), &error);
   EXPECT_TRUE(error.ok());
 
-  auto answer = pc->CreateAnswer();
+  std::unique_ptr<SessionDescriptionInterface> answer = pc->CreateAnswer();
   auto answer_contents = answer->description()->contents();
   ASSERT_EQ(answer_contents.size(), 2u);
   EXPECT_EQ(answer_contents[0].rejected, true);
@@ -1532,7 +1595,7 @@ TEST_F(SdpOfferAnswerTest, OfferWithRejectedMlineWithoutFingerprintIsAccepted) {
   pc->SetRemoteDescription(std::move(desc), &error);
   EXPECT_TRUE(error.ok());
 
-  auto answer = pc->CreateAnswer();
+  std::unique_ptr<SessionDescriptionInterface> answer = pc->CreateAnswer();
   EXPECT_TRUE(pc->SetLocalDescription(std::move(answer)));
 }
 
@@ -1569,7 +1632,8 @@ TEST_F(SdpOfferAnswerTest, MidBackfillAnswer) {
       pc->pc()->remote_description()->description()->contents();
   ASSERT_EQ(offer_contents.size(), 1u);
   EXPECT_EQ(offer_contents[0].mid(), "0");
-  auto answer = pc->CreateAnswerAndSetAsLocal();
+  std::unique_ptr<SessionDescriptionInterface> answer =
+      pc->CreateAnswerAndSetAsLocal();
   auto answer_contents = answer->description()->contents();
   ASSERT_EQ(answer_contents.size(), 1u);
   EXPECT_EQ(answer_contents[0].mid(), offer_contents[0].mid());
@@ -1637,15 +1701,17 @@ TEST_F(SdpOfferAnswerTest, ReducedSizeNotNegotiated) {
   auto audio_transceiver = caller->AddTransceiver(MediaType::AUDIO);
   auto video_transceiver = caller->AddTransceiver(MediaType::VIDEO);
 
-  auto offer = caller->CreateOfferAndSetAsLocal();
-  ASSERT_NE(offer, nullptr);
+  std::unique_ptr<SessionDescriptionInterface> offer =
+      caller->CreateOfferAndSetAsLocal();
+  ASSERT_THAT(offer, NotNull());
   std::string sdp;
   offer->ToString(&sdp);
   // Remove rtcp-rsize attribute.
   auto modified_offer = CreateSessionDescription(
       SdpType::kOffer, absl::StrReplaceAll(sdp, {{"a=rtcp-rsize\r\n", ""}}));
   EXPECT_TRUE(callee->SetRemoteDescription(std::move(modified_offer)));
-  auto answer = callee->CreateAnswerAndSetAsLocal();
+  std::unique_ptr<SessionDescriptionInterface> answer =
+      callee->CreateAnswerAndSetAsLocal();
   EXPECT_TRUE(caller->SetRemoteDescription(std::move(answer)));
 
   auto receivers = callee->pc()->GetReceivers();
@@ -1672,12 +1738,9 @@ TEST_F(SdpOfferAnswerTest, PayloadTypeMatchingWithSubsequentOfferAnswer) {
   auto video_transceiver = caller->AddTransceiver(MediaType::VIDEO);
   std::vector<RtpCodecCapability> codec_caps =
       pc_factory_->GetRtpReceiverCapabilities(MediaType::VIDEO).codecs;
-  codec_caps.erase(std::remove_if(codec_caps.begin(), codec_caps.end(),
-                                  [](const RtpCodecCapability& codec) {
-                                    return !absl::EqualsIgnoreCase(codec.name,
-                                                                   "VP8");
-                                  }),
-                   codec_caps.end());
+  std::erase_if(codec_caps, [](const RtpCodecCapability& codec) {
+    return !absl::EqualsIgnoreCase(codec.name, "VP8");
+  });
   EXPECT_TRUE(video_transceiver->SetCodecPreferences(codec_caps).ok());
 
   auto offer1 = caller->CreateOfferAndSetAsLocal();
@@ -1701,13 +1764,10 @@ TEST_F(SdpOfferAnswerTest, PayloadTypeMatchingWithSubsequentOfferAnswer) {
 
   // 3. sCP to reenable that codec. Payload type is not matched at this point.
   codec_caps = pc_factory_->GetRtpReceiverCapabilities(MediaType::VIDEO).codecs;
-  codec_caps.erase(
-      std::remove_if(codec_caps.begin(), codec_caps.end(),
-                     [](const RtpCodecCapability& codec) {
-                       return !(absl::EqualsIgnoreCase(codec.name, "VP8") ||
-                                absl::EqualsIgnoreCase(codec.name, "AV1"));
-                     }),
-      codec_caps.end());
+  std::erase_if(codec_caps, [](const RtpCodecCapability& codec) {
+    return !(absl::EqualsIgnoreCase(codec.name, "VP8") ||
+             absl::EqualsIgnoreCase(codec.name, "AV1"));
+  });
   EXPECT_TRUE(video_transceiver->SetCodecPreferences(codec_caps).ok());
   auto offer2 = caller->CreateOffer();
   auto& contents2 = offer2->description()->contents();
@@ -1734,5 +1794,255 @@ TEST_F(SdpOfferAnswerTest, PayloadTypeMatchingWithSubsequentOfferAnswer) {
   EXPECT_EQ(codecs[1].name, av1.name);
   EXPECT_EQ(codecs[1].id, av1.id);
 }
+
+#ifdef WEBRTC_HAVE_SCTP
+TEST_F(SdpOfferAnswerTest, SctpInitDisabled) {
+  auto pc1 = CreatePeerConnection("WebRTC-Sctp-Snap/Disabled/");
+  auto pc2 = CreatePeerConnection("WebRTC-Sctp-Snap/Disabled/");
+  EXPECT_TRUE(pc1->pc()->CreateDataChannelOrError("dc", nullptr).ok());
+  auto offer = pc1->CreateOfferAndSetAsLocal();
+  ASSERT_NE(offer, nullptr);
+
+  {
+    auto& contents = offer->description()->contents();
+    ASSERT_EQ(contents.size(), 1u);
+    auto* media_description = contents[0].media_description();
+    ASSERT_TRUE(media_description);
+    auto* sctp_description = media_description->as_sctp();
+    ASSERT_TRUE(sctp_description);
+    EXPECT_FALSE(sctp_description->sctp_init());
+  }
+
+  RTCError error;
+  EXPECT_TRUE(pc2->SetRemoteDescription(std::move(offer)));
+  auto answer = pc2->CreateAnswerAndSetAsLocal();
+  ASSERT_NE(answer, nullptr);
+
+  {
+    auto& contents = answer->description()->contents();
+    ASSERT_EQ(contents.size(), 1u);
+    auto* media_description = contents[0].media_description();
+    ASSERT_TRUE(media_description);
+    auto* sctp_description = media_description->as_sctp();
+    ASSERT_TRUE(sctp_description);
+    EXPECT_FALSE(sctp_description->sctp_init());
+  }
+
+  EXPECT_TRUE(pc1->SetRemoteDescription(std::move(answer)));
+}
+
+TEST_F(SdpOfferAnswerTest, SctpInitWithTrial) {
+  auto pc1 = CreatePeerConnection("WebRTC-Sctp-Snap/Enabled/");
+  auto pc2 = CreatePeerConnection("WebRTC-Sctp-Snap/Enabled/");
+  EXPECT_TRUE(pc1->pc()->CreateDataChannelOrError("dc", nullptr).ok());
+  auto offer = pc1->CreateOfferAndSetAsLocal();
+  ASSERT_NE(offer, nullptr);
+
+  {
+    auto& contents = offer->description()->contents();
+    ASSERT_EQ(contents.size(), 1u);
+    auto* media_description = contents[0].media_description();
+    ASSERT_TRUE(media_description);
+    auto* sctp_description = media_description->as_sctp();
+    ASSERT_TRUE(sctp_description);
+    EXPECT_TRUE(sctp_description->sctp_init());
+  }
+
+  RTCError error;
+  EXPECT_TRUE(pc2->SetRemoteDescription(std::move(offer)));
+  auto answer = pc2->CreateAnswerAndSetAsLocal();
+  ASSERT_NE(answer, nullptr);
+
+  {
+    auto& contents = answer->description()->contents();
+    ASSERT_EQ(contents.size(), 1u);
+    auto* media_description = contents[0].media_description();
+    ASSERT_TRUE(media_description);
+    auto* sctp_description = media_description->as_sctp();
+    ASSERT_TRUE(sctp_description);
+    EXPECT_TRUE(sctp_description->sctp_init());
+  }
+
+  EXPECT_TRUE(pc1->SetRemoteDescription(std::move(answer)));
+}
+
+TEST_F(SdpOfferAnswerTest, AnswerNoSctpInitInOffer) {
+  auto pc = CreatePeerConnection("WebRTC-Sctp-Snap/Enabled/");
+
+  std::string sdp =
+      "v=0\r\n"
+      "o=- 4131505339648218884 3 IN IP4 **-----**\r\n"
+      "s=-\r\n"
+      "t=0 0\r\n"
+      "a=ice-ufrag:zGWFZ+fVXDeN6UoI/136\r\n"
+      "a=ice-pwd:9AUNgUqRNI5LSIrC1qFD2iTR\r\n"
+      "a=fingerprint:sha-256 "
+      "AD:52:52:E0:B1:37:34:21:0E:15:8E:B7:56:56:7B:B4:39:0E:6D:1C:F5:84:A7:EE:"
+      "B5:27:3E:30:B1:7D:69:42\r\n"
+      "a=setup:passive\r\n"
+      "m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n"
+      "c=IN IP4 0.0.0.0\r\n"
+      "a=sctp-port:5000\r\n"
+      "a=max-message-size:262144\r\n"
+      // a=sctp-init:cookiemonster\r\n"  // no sctp-init present.
+      "a=mid:0\r\n";
+  auto desc = CreateSessionDescription(SdpType::kOffer, sdp);
+  ASSERT_NE(desc, nullptr);
+
+  EXPECT_TRUE(pc->SetRemoteDescription(std::move(desc)));
+  auto answer = pc->CreateAnswerAndSetAsLocal();
+  ASSERT_NE(answer, nullptr);
+  EXPECT_TRUE(answer->ToString(&sdp));
+
+  auto& contents = answer->description()->contents();
+  ASSERT_EQ(contents.size(), 1u);
+  auto* media_description = contents[0].media_description();
+  ASSERT_TRUE(media_description);
+  auto* sctp_description = media_description->as_sctp();
+  ASSERT_TRUE(sctp_description);
+  EXPECT_FALSE(sctp_description->sctp_init());
+}
+
+TEST_F(SdpOfferAnswerTest, AnswerNonBase64SctpInit) {
+  std::string sdp =
+      "v=0\r\n"
+      "o=- 4131505339648218884 3 IN IP4 **-----**\r\n"
+      "s=-\r\n"
+      "t=0 0\r\n"
+      "a=ice-ufrag:zGWFZ+fVXDeN6UoI/136\r\n"
+      "a=ice-pwd:9AUNgUqRNI5LSIrC1qFD2iTR\r\n"
+      "a=fingerprint:sha-256 "
+      "AD:52:52:E0:B1:37:34:21:0E:15:8E:B7:56:56:7B:B4:39:0E:6D:1C:F5:84:A7:EE:"
+      "B5:27:3E:30:B1:7D:69:42\r\n"
+      "a=setup:passive\r\n"
+      "m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n"
+      "c=IN IP4 0.0.0.0\r\n"
+      "a=sctp-port:5000\r\n"
+      "a=max-message-size:262144\r\n"
+      "a=sctp-init:not valid base64\r\n"
+      "a=mid:0\r\n";
+  auto desc = CreateSessionDescription(SdpType::kOffer, sdp);
+  EXPECT_EQ(desc, nullptr);
+}
+#endif  // WEBRTC_HAVE_SCTP
+
+class SdpOfferAnswerDirectionTest
+    : public SdpOfferAnswerTest,
+      public testing::WithParamInterface<
+          std::tuple<RtpTransceiverDirection, RtpTransceiverDirection, bool>> {
+ public:
+  SdpOfferAnswerDirectionTest() : SdpOfferAnswerTest() {}
+};
+
+TEST_P(SdpOfferAnswerDirectionTest, IncompatibleDirection) {
+  auto caller = CreatePeerConnection();
+  auto callee = CreatePeerConnection();
+
+  auto transceiver = caller->AddTransceiver(MediaType::VIDEO);
+  EXPECT_TRUE(transceiver->SetDirectionWithError(std::get<0>(GetParam())).ok());
+
+  auto offer = caller->CreateOfferAndSetAsLocal();
+  EXPECT_TRUE(callee->SetRemoteDescription(std::move(offer)));
+
+  ASSERT_THAT(callee->pc()->GetTransceivers(), SizeIs(1));
+  auto callee_transceiver = callee->pc()->GetTransceivers()[0];
+  EXPECT_TRUE(callee_transceiver
+                  ->SetDirectionWithError(RtpTransceiverDirection::kInactive)
+                  .ok());
+  auto answer = callee->CreateAnswerAndSetAsLocal();
+  // Modify the answer.
+  ASSERT_THAT(answer->description()->contents(), SizeIs(1));
+  ContentInfo& content = answer->description()->contents()[0];
+  EXPECT_EQ(content.media_description()->direction(),
+            RtpTransceiverDirection::kInactive);
+  content.media_description()->set_direction(std::get<1>(GetParam()));
+
+  EXPECT_EQ(caller->SetRemoteDescription(std::move(answer)),
+            std::get<2>(GetParam()));
+}
+
+TEST_P(SdpOfferAnswerDirectionTest, IncompatibleDirectionRejected) {
+  auto caller = CreatePeerConnection();
+  auto callee = CreatePeerConnection();
+
+  auto transceiver = caller->AddTransceiver(MediaType::VIDEO);
+  EXPECT_TRUE(transceiver->SetDirectionWithError(std::get<0>(GetParam())).ok());
+
+  auto offer = caller->CreateOfferAndSetAsLocal();
+  EXPECT_TRUE(callee->SetRemoteDescription(std::move(offer)));
+
+  ASSERT_THAT(callee->pc()->GetTransceivers(), SizeIs(1));
+  auto callee_transceiver = callee->pc()->GetTransceivers()[0];
+  EXPECT_TRUE(callee_transceiver
+                  ->SetDirectionWithError(RtpTransceiverDirection::kInactive)
+                  .ok());
+  auto answer = callee->CreateAnswerAndSetAsLocal();
+  // Modify the answer and reject it. This can happen e.g. with
+  // a rejected m-line that lacks a direction which defaults to "sendrecv".
+  ASSERT_THAT(answer->description()->contents(), SizeIs(1));
+  ContentInfo& content = answer->description()->contents()[0];
+  EXPECT_EQ(content.media_description()->direction(),
+            RtpTransceiverDirection::kInactive);
+  content.media_description()->set_direction(std::get<1>(GetParam()));
+  content.rejected = true;
+
+  EXPECT_TRUE(caller->SetRemoteDescription(std::move(answer)));
+}
+
+INSTANTIATE_TEST_SUITE_P(SdpOfferAnswerDirectionTest,
+                         SdpOfferAnswerDirectionTest,
+                         ::testing::Values(
+                             // sendrecv.
+                             std::make_tuple(RtpTransceiverDirection::kSendRecv,
+                                             RtpTransceiverDirection::kSendRecv,
+                                             true),
+                             std::make_tuple(RtpTransceiverDirection::kSendRecv,
+                                             RtpTransceiverDirection::kSendOnly,
+                                             true),
+                             std::make_tuple(RtpTransceiverDirection::kSendRecv,
+                                             RtpTransceiverDirection::kRecvOnly,
+                                             true),
+                             std::make_tuple(RtpTransceiverDirection::kSendRecv,
+                                             RtpTransceiverDirection::kInactive,
+                                             true),
+                             // sendonly.
+                             std::make_tuple(RtpTransceiverDirection::kSendOnly,
+                                             RtpTransceiverDirection::kSendRecv,
+                                             false),
+                             std::make_tuple(RtpTransceiverDirection::kSendOnly,
+                                             RtpTransceiverDirection::kSendOnly,
+                                             false),
+                             std::make_tuple(RtpTransceiverDirection::kSendOnly,
+                                             RtpTransceiverDirection::kRecvOnly,
+                                             true),
+                             std::make_tuple(RtpTransceiverDirection::kSendOnly,
+                                             RtpTransceiverDirection::kInactive,
+                                             true),
+                             // recvonly.
+                             std::make_tuple(RtpTransceiverDirection::kRecvOnly,
+                                             RtpTransceiverDirection::kSendRecv,
+                                             false),
+                             std::make_tuple(RtpTransceiverDirection::kRecvOnly,
+                                             RtpTransceiverDirection::kSendOnly,
+                                             true),
+                             std::make_tuple(RtpTransceiverDirection::kRecvOnly,
+                                             RtpTransceiverDirection::kRecvOnly,
+                                             false),
+                             std::make_tuple(RtpTransceiverDirection::kRecvOnly,
+                                             RtpTransceiverDirection::kInactive,
+                                             true),
+                             // inactive.
+                             std::make_tuple(RtpTransceiverDirection::kInactive,
+                                             RtpTransceiverDirection::kSendRecv,
+                                             false),
+                             std::make_tuple(RtpTransceiverDirection::kInactive,
+                                             RtpTransceiverDirection::kSendOnly,
+                                             false),
+                             std::make_tuple(RtpTransceiverDirection::kInactive,
+                                             RtpTransceiverDirection::kRecvOnly,
+                                             false),
+                             std::make_tuple(RtpTransceiverDirection::kInactive,
+                                             RtpTransceiverDirection::kInactive,
+                                             true)));
 
 }  // namespace webrtc

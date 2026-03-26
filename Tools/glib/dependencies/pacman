@@ -57,9 +57,6 @@ PACKAGES=(
     python2-psutil
     ttf-liberation
 
-    # These are dependencies necessary for building with the Flatpak SDK.
-    flatpak
-
     # These are dependencies necessary for building the jhbuild.
     # Note: Could not find libegl-mesa.
     expat

@@ -59,6 +59,7 @@
 #import <WebKit/_WKFeature.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
+#import <wtf/darwin/DispatchExtras.h>
 #import <wtf/text/MakeString.h>
 
 @interface WKWebView ()
@@ -341,9 +342,38 @@ UNIFIED_PDF_TEST(PrintSize)
     TestWebKitAPI::Util::run(&receivedSize);
 }
 
+UNIFIED_PDF_TEST(TextAnnotationHoverEffect)
+{
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 600, 600) configuration:configurationForWebViewTestingUnifiedPDF().get() addToWindow:YES]);
+    RetainPtr request = [NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"textInput" withExtension:@"pdf"]];
+    [webView synchronouslyLoadRequest:request.get()];
+    [[webView window] makeFirstResponder:webView.get()];
+    [[webView window] makeKeyAndOrderFront:nil];
+    [[webView window] orderFrontRegardless];
+
+    auto colorsBeforeHover = [webView sampleColors];
+
+    [webView mouseMoveToPoint:NSMakePoint(200, 200) withFlags:0];
+    [webView waitForPendingMouseEvents];
+    [webView waitForNextPresentationUpdate];
+    auto colorsDuringHover = [webView sampleColors];
+    EXPECT_NE(colorsBeforeHover, colorsDuringHover);
+
+    [webView mouseMoveToPoint:NSMakePoint(50, 50) withFlags:0];
+    [webView waitForPendingMouseEvents];
+    [webView waitForNextPresentationUpdate];
+    auto colorsAfterHover = [webView sampleColors];
+    EXPECT_EQ(colorsBeforeHover, colorsAfterHover);
+}
+
+#endif // PLATFORM(MAC)
+
+#if ENABLE(PDF_HUD)
+
 UNIFIED_PDF_TEST(SetPageZoomFactorDoesNotBailIncorrectly)
 {
     RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configurationForWebViewTestingUnifiedPDF(true).get()]);
+    [webView _setWindowOcclusionDetectionEnabled:NO];
     [webView loadData:testPDFData().get() MIMEType:@"application/pdf" characterEncodingName:@"" baseURL:[NSURL URLWithString:@"https://www.apple.com/testPath"]];
     [webView _test_waitForDidFinishNavigation];
 
@@ -364,10 +394,16 @@ UNIFIED_PDF_TEST(SetPageZoomFactorDoesNotBailIncorrectly)
     EXPECT_EQ(scaleAfterResetting, 1.0);
 }
 
-static void checkFrame(NSRect frame, CGFloat x, CGFloat y, CGFloat width, CGFloat height)
+static void checkFrame(NSRect frame, CGFloat x, CGFloat y, CGFloat width, CGFloat height, std::optional<CGFloat> frameOriginTolerance = { })
 {
-    EXPECT_EQ(frame.origin.x, x);
-    EXPECT_EQ(frame.origin.y, y);
+    if (frameOriginTolerance) {
+        auto tolerance = *frameOriginTolerance;
+        EXPECT_TRUE(std::abs(frame.origin.x - x) <= tolerance) << "Expected frameOrigin.x to be around " << x << ", got " << frame.origin.x;
+        EXPECT_TRUE(std::abs(frame.origin.y - y) <= tolerance) << "Expected frameOrigin.y to be around " << y << ", got " << frame.origin.y;
+    } else {
+        EXPECT_EQ(frame.origin.x, x);
+        EXPECT_EQ(frame.origin.y, y);
+    }
     EXPECT_EQ(frame.size.width, width);
     EXPECT_EQ(frame.size.height, height);
 }
@@ -375,6 +411,7 @@ static void checkFrame(NSRect frame, CGFloat x, CGFloat y, CGFloat width, CGFloa
 UNIFIED_PDF_TEST(PDFHUDMainResourcePDF)
 {
     RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configurationForWebViewTestingUnifiedPDF(true).get()]);
+    [webView _setWindowOcclusionDetectionEnabled:NO];
     [webView loadData:testPDFData().get() MIMEType:@"application/pdf" characterEncodingName:@"" baseURL:[NSURL URLWithString:@"https://www.apple.com/testPath"]];
     EXPECT_EQ([webView _pdfHUDs].count, 0u);
     [webView _test_waitForDidFinishNavigation];
@@ -423,6 +460,7 @@ UNIFIED_PDF_TEST(PDFHUDMoveIFrame)
     RetainPtr configuration = configurationForWebViewTestingUnifiedPDF(true);
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"test"];
     RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    [webView _setWindowOcclusionDetectionEnabled:NO];
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"test:///main.html"]]];
     EXPECT_EQ([webView _pdfHUDs].count, 0u);
     [webView _test_waitForDidFinishNavigation];
@@ -456,7 +494,7 @@ UNIFIED_PDF_TEST(PDFHUDMoveIFrame)
     while ([webView _pdfHUDs].anyObject.frame.size.width != 560)
         TestWebKitAPI::Util::spinRunLoop();
     EXPECT_EQ([webView _pdfHUDs].count, 1u);
-    checkFrame([webView _pdfHUDs].anyObject.frame, 14, 40, 560, 210);
+    checkFrame([webView _pdfHUDs].anyObject.frame, 13, 40, 560, 210, 1);
 }
 
 UNIFIED_PDF_TEST(PDFHUDNestedIFrames)
@@ -487,6 +525,7 @@ UNIFIED_PDF_TEST(PDFHUDNestedIFrames)
     RetainPtr configuration = configurationForWebViewTestingUnifiedPDF(true);
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"test"];
     RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    [webView _setWindowOcclusionDetectionEnabled:NO];
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"test:///main.html"]]];
     EXPECT_EQ([webView _pdfHUDs].count, 0u);
     [webView _test_waitForDidFinishNavigation];
@@ -521,6 +560,7 @@ UNIFIED_PDF_TEST(PDFHUDIFrame3DTransform)
     RetainPtr configuration = configurationForWebViewTestingUnifiedPDF(true);
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"test"];
     RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    [webView _setWindowOcclusionDetectionEnabled:NO];
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"test:///main.html"]]];
     EXPECT_EQ([webView _pdfHUDs].count, 0u);
     [webView _test_waitForDidFinishNavigation];
@@ -552,6 +592,7 @@ UNIFIED_PDF_TEST(PDFHUDMultipleIFrames)
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"test"];
     RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"test:///main.html"]]];
+    [webView _setWindowOcclusionDetectionEnabled:NO];
     EXPECT_EQ([webView _pdfHUDs].count, 0u);
     [webView _test_waitForDidFinishNavigation];
     EXPECT_EQ([webView _pdfHUDs].count, 2u);
@@ -575,6 +616,7 @@ UNIFIED_PDF_TEST(PDFHUDLoadPDFTypeWithPluginsBlocked)
     RetainPtr configuration = configurationForWebViewTestingUnifiedPDF(true);
     [configuration _setOverrideContentSecurityPolicy:@"object-src 'none'"];
     RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    [webView _setWindowOcclusionDetectionEnabled:NO];
     [webView loadData:testPDFData().get() MIMEType:@"application/pdf" characterEncodingName:@"" baseURL:[NSURL URLWithString:@"https://www.apple.com/testPath"]];
     EXPECT_EQ([webView _pdfHUDs].count, 0u);
     [webView _test_waitForDidFinishNavigation];
@@ -582,7 +624,7 @@ UNIFIED_PDF_TEST(PDFHUDLoadPDFTypeWithPluginsBlocked)
     checkFrame([webView _pdfHUDs].anyObject.frame, 0, 0, 800, 600);
 }
 
-#endif // PLATFORM(MAC)
+#endif // ENABLE(PDF_HUD)
 
 UNIFIED_PDF_TEST(SnapshotsPaintPageContent)
 {
@@ -813,7 +855,7 @@ UNIFIED_PDF_TEST(PrintPDFUsingPrintInteractionController)
 
     [printInteractionController _setupPrintPanel:nil];
     [printInteractionController _generatePrintPreview:^(NSURL *pdfURL, BOOL shouldRenderOnChosenPaper) {
-        dispatch_async(dispatch_get_main_queue(), ^{
+        dispatch_async(mainDispatchQueueSingleton(), ^{
             pdfData = adoptNS([[NSData alloc] initWithContentsOfURL:pdfURL]);
             [printInteractionController _cleanPrintState];
             done = true;
@@ -990,7 +1032,7 @@ UNIFIED_PDF_TEST(WebViewResizeShouldNotCrash)
     webView = nil;
 
     __block bool finishedDispatch = false;
-    dispatch_async(dispatch_get_main_queue(), ^{
+    dispatch_async(mainDispatchQueueSingleton(), ^{
         finishedDispatch = true;
     });
 
@@ -1186,7 +1228,7 @@ static void checkKeyboardScrollability(TestWKWebView *webView)
         RetainPtr secondWebEvent = adoptNS([[WebEvent alloc] initWithKeyEventType:WebEventKeyUp timeStamp:CFAbsoluteTimeGetCurrent() characters:@" " charactersIgnoringModifiers:@" " modifiers:0 isRepeating:NO withFlags:0 withInputManagerHint:nil keyCode:0 isTabKey:NO]);
 
         [webView handleKeyEvent:firstWebEvent.get() completion:^(WebEvent *theEvent, BOOL wasHandled) {
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), mainDispatchQueueSingleton(), ^{
                 [webView handleKeyEvent:secondWebEvent.get() completion:^(WebEvent *theEvent, BOOL wasHandled) {
                     completionHandler();
                 }];

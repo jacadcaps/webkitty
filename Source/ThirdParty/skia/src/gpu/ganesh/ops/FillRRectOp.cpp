@@ -344,7 +344,9 @@ GrDrawOp::ClipResult FillRRectOpImpl::clipToShape(skgpu::ganesh::SurfaceDrawCont
             if (shape.isRect()) {
                 clipRRect.setRect(clipToView.mapRect(shape.rect()));
             } else {
-                if (!shape.rrect().transform(clipToView, &clipRRect)) {
+                if (auto rr = shape.rrect().transform(clipToView)) {
+                    clipRRect = *rr;
+                } else {
                     // Transforming the rrect failed. This shouldn't generally happen except in
                     // cases of fp32 overflow.
                     return ClipResult::kFail;
@@ -643,7 +645,7 @@ void FillRRectOpImpl::onPrepareDraws(GrMeshDrawTarget* target) {
     size_t instanceStride = fProgramInfo->geomProc().instanceStride();
 
     if (VertexWriter instanceWriter = target->makeVertexWriter(instanceStride, fInstanceCount,
-                                                               &fInstanceBuffer, &fBaseInstance)) {
+                                                               &fInstanceBuffer, &fBaseInstance)) SK_LIKELY {
         SkDEBUGCODE(auto end = instanceWriter.mark(instanceStride * fInstanceCount));
         for (Instance* i = fHeadInstance; i; i = i->fNext) {
             auto [l, t, r, b] = i->fRRect.rect();

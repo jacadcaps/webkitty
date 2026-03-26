@@ -1,6 +1,10 @@
 include(CheckCXXSymbolExists)
 
 if (ENABLE_VIDEO OR ENABLE_WEB_AUDIO)
+    list(APPEND WebCore_LIBRARIES
+        GLib::GioUnix
+    )
+
     list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
         "${WEBCORE_DIR}/Modules/mediastream/gstreamer"
         "${WEBCORE_DIR}/platform/graphics/gstreamer"
@@ -130,6 +134,21 @@ if (ENABLE_VIDEO)
         endif ()
 
         list(APPEND WebCore_LIBRARIES OpenSSL::Crypto)
+
+        if (USE_LIBRICE)
+            list(APPEND WebCore_LIBRARIES Rice::Proto)
+            list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
+                Modules/mediastream/gstreamer/GStreamerIceAgent.h
+
+                platform/rice/GRefPtrRice.h
+                platform/rice/GUniquePtrRice.h
+                platform/rice/RiceUtilities.h
+            )
+            list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
+                "${WEBCORE_DIR}/Modules/mediastream/gstreamer"
+                "${WEBCORE_DIR}/platform/rice"
+              )
+        endif ()
     endif ()
 endif ()
 

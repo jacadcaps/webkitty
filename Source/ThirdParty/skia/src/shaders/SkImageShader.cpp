@@ -266,8 +266,8 @@ SkShaderBase::Context* SkImageShader::onMakeContext(const ContextRec& rec,
         return nullptr;
     }
 
-    SkMatrix inv;
-    if (!rec.fMatrixRec.totalInverse(&inv) || !legacy_shader_can_handle(inv)) {
+    auto inv = rec.fMatrixRec.totalInverse();
+    if (!inv || !legacy_shader_can_handle(*inv)) {
         return nullptr;
     }
 
@@ -388,7 +388,7 @@ SkRect SkModifyPaintAndDstForDrawImageRect(const SkImage* image,
     SkRect imgBounds = SkRect::Make(image->bounds());
 
     SkASSERT(src.isFinite() && dst.isFinite() && dst.isSorted());
-    SkMatrix localMatrix = SkMatrix::RectToRect(src, dst);
+    SkMatrix localMatrix = SkMatrix::RectToRectOrIdentity(src, dst);
     if (!imgBounds.contains(src)) {
         if (!src.intersect(imgBounds)) {
             return SkRect::MakeEmpty(); // Nothing to draw for this entry
@@ -521,9 +521,11 @@ bool SkImageShader::appendStages(const SkStageRec& rec, const SkShaders::MatrixR
     SkMatrix baseInv;
     // If the total matrix isn't valid then we will always access the base MIP level.
     if (mRec.totalMatrixIsValid()) {
-        if (!mRec.totalInverse(&baseInv)) {
+        auto inv = mRec.totalInverse();
+        if (!inv) {
             return false;
         }
+        baseInv = *inv;
         baseInv.normalizePerspective();
     }
 
@@ -606,6 +608,7 @@ bool SkImageShader::appendStages(const SkStageRec& rec, const SkShaders::MatrixR
             case kRGB_565_SkColorType:      p->append(SkRasterPipelineOp::gather_565,   ctx); break;
             case kARGB_4444_SkColorType:    p->append(SkRasterPipelineOp::gather_4444,  ctx); break;
             case kR8G8_unorm_SkColorType:   p->append(SkRasterPipelineOp::gather_rg88,  ctx); break;
+            case kR16_unorm_SkColorType:    p->append(SkRasterPipelineOp::gather_r16,   ctx); break;
             case kR16G16_unorm_SkColorType: p->append(SkRasterPipelineOp::gather_rg1616,ctx); break;
             case kR16G16_float_SkColorType: p->append(SkRasterPipelineOp::gather_rgf16, ctx); break;
             case kRGBA_8888_SkColorType:    p->append(SkRasterPipelineOp::gather_8888,  ctx); break;
@@ -715,8 +718,28 @@ bool SkImageShader::appendStages(const SkStageRec& rec, const SkShaders::MatrixR
         && !sampling.useCubic && sampling.filter == SkFilterMode::kLinear
         && sampling.mipmap != SkMipmapMode::kLinear
         && fTileModeX == SkTileMode::kClamp && fTileModeY == SkTileMode::kClamp) {
+        // Check bounding box of points we will sample to see if we can use lowp
+        // and not over/under flow.
+        bool shouldUseHighPBilerp = false;
+        if (!rec.fDstBounds.isEmpty()) {
+            std::array<SkPoint, 4> quad = rec.fDstBounds.toQuad();
+            baseInv.mapPoints(quad);
+            SkRect deviceImageSpace;
+            deviceImageSpace.setBounds(quad);
+            for (float val : SkSpan<const float>(deviceImageSpace.asScalars(), 4)) {
+                if (val > INT16_MAX || val < INT16_MIN || !std::isfinite(val)) {
+                    shouldUseHighPBilerp = true;
+                    break;
+                }
+            }
+        }
 
-        p->append(SkRasterPipelineOp::bilerp_clamp_8888, upper.gather);
+        if (shouldUseHighPBilerp) {
+            p->append(SkRasterPipelineOp::bilerp_clamp_8888_force_highp, upper.gather);
+        } else {
+            p->append(SkRasterPipelineOp::bilerp_clamp_8888, upper.gather);
+        }
+
         if (ct == kBGRA_8888_SkColorType) {
             p->append(SkRasterPipelineOp::swap_rb);
         }

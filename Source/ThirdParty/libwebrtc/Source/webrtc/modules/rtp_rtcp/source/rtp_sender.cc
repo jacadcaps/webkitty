@@ -38,7 +38,6 @@
 #include "modules/rtp_rtcp/source/rtp_packet_history.h"
 #include "modules/rtp_rtcp/source/rtp_packet_to_send.h"
 #include "modules/rtp_rtcp/source/rtp_rtcp_interface.h"
-#include "rtc_base/arraysize.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/numerics/safe_minmax.h"
@@ -92,8 +91,8 @@ constexpr RtpExtensionSize kVideoExtensionSizes[] = {
     CreateMaxExtensionSize<RepairedRtpStreamId>(),
     CreateMaxExtensionSize<RtpMid>(),
     CreateMaxExtensionSize<CorruptionDetectionExtension>(),
-    {RtpGenericFrameDescriptorExtension00::kId,
-     RtpGenericFrameDescriptorExtension00::kMaxSizeBytes},
+    {.type = RtpGenericFrameDescriptorExtension00::kId,
+     .value_size = RtpGenericFrameDescriptorExtension00::kMaxSizeBytes},
 };
 
 // Size info for header extensions that might be used in audio packets.
@@ -200,16 +199,15 @@ RTPSender::~RTPSender() {
 }
 
 ArrayView<const RtpExtensionSize> RTPSender::FecExtensionSizes() {
-  return MakeArrayView(kFecOrPaddingExtensionSizes,
-                       arraysize(kFecOrPaddingExtensionSizes));
+  return kFecOrPaddingExtensionSizes;
 }
 
 ArrayView<const RtpExtensionSize> RTPSender::VideoExtensionSizes() {
-  return MakeArrayView(kVideoExtensionSizes, arraysize(kVideoExtensionSizes));
+  return kVideoExtensionSizes;
 }
 
 ArrayView<const RtpExtensionSize> RTPSender::AudioExtensionSizes() {
-  return MakeArrayView(kAudioExtensionSizes, arraysize(kAudioExtensionSizes));
+  return kAudioExtensionSizes;
 }
 
 void RTPSender::SetExtmapAllowMixed(bool extmap_allow_mixed) {

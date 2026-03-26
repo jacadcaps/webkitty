@@ -40,6 +40,7 @@
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/darwin/DispatchExtras.h>
 
 #import <pal/cf/CoreMediaSoftLink.h>
 
@@ -211,7 +212,7 @@ Vector<CoreAudioCaptureDevice>& CoreAudioCaptureDeviceManager::coreAudioCaptureD
             kAudioObjectPropertyScopeGlobal,
             kAudioObjectPropertyElementMain
         };
-        auto err = AudioObjectAddPropertyListenerBlock(kAudioObjectSystemObject, &address, dispatch_get_main_queue(), listener);
+        auto err = AudioObjectAddPropertyListenerBlock(kAudioObjectSystemObject, &address, mainDispatchQueueSingleton(), listener);
         if (err)
             LOG_ERROR("CoreAudioCaptureDeviceManager::devices(%p) AudioObjectAddPropertyListener for kAudioHardwarePropertyDevices returned error %d (%.4s)", this, (int)err, (char*)&err);
 
@@ -220,7 +221,7 @@ Vector<CoreAudioCaptureDevice>& CoreAudioCaptureDeviceManager::coreAudioCaptureD
             kAudioObjectPropertyScopeGlobal,
             kAudioObjectPropertyElementMain
         };
-        err = AudioObjectAddPropertyListenerBlock(kAudioObjectSystemObject, &address, dispatch_get_main_queue(), listener);
+        err = AudioObjectAddPropertyListenerBlock(kAudioObjectSystemObject, &address, mainDispatchQueueSingleton(), listener);
         if (err)
             LOG_ERROR("CoreAudioCaptureDeviceManager::devices(%p) AudioObjectAddPropertyListener for kAudioHardwarePropertyDefaultInputDevice returned error %d (%.4s)", this, (int)err, (char*)&err);
 
@@ -229,7 +230,7 @@ Vector<CoreAudioCaptureDevice>& CoreAudioCaptureDeviceManager::coreAudioCaptureD
             kAudioObjectPropertyScopeGlobal,
             kAudioObjectPropertyElementMain
         };
-        err = AudioObjectAddPropertyListenerBlock(kAudioObjectSystemObject, &address, dispatch_get_main_queue(), listener);
+        err = AudioObjectAddPropertyListenerBlock(kAudioObjectSystemObject, &address, mainDispatchQueueSingleton(), listener);
         if (err)
             LOG_ERROR("CoreAudioCaptureDeviceManager::devices(%p) AudioObjectAddPropertyListener for kAudioHardwarePropertyDefaultOutputDevice returned error %d (%.4s)", this, (int)err, (char*)&err);
     }
@@ -286,7 +287,7 @@ static inline Vector<CoreAudioCaptureDevice> computeAudioDeviceList(bool filterT
 
         auto microphoneDevice = CoreAudioCaptureDevice::create(deviceID, CaptureDevice::DeviceType::Microphone, { });
         if (microphoneDevice && isValidMicrophoneDevice(microphoneDevice.value(), filterTapEnabledDevices))
-            audioDevices.append(WTFMove(microphoneDevice.value()));
+            audioDevices.append(WTF::move(microphoneDevice.value()));
     }
 
     // Speakers
@@ -318,7 +319,7 @@ static inline Vector<CoreAudioCaptureDevice> computeAudioDeviceList(bool filterT
                 }
             }
             if (isValidSpeakerDevice(*device))
-                audioDevices.append(WTFMove(*device));
+                audioDevices.append(WTF::move(*device));
         }
     }
     return audioDevices;
@@ -344,7 +345,7 @@ void CoreAudioCaptureDeviceManager::refreshAudioCaptureDevices(NotifyIfDevicesHa
     std::ranges::sort(audioDevices, [] (auto& first, auto& second) -> bool {
         return first.isDefault() && !second.isDefault();
     });
-    m_coreAudioCaptureDevices = WTFMove(audioDevices);
+    m_coreAudioCaptureDevices = WTF::move(audioDevices);
 
     m_captureDevices.clear();
     m_speakerDevices.clear();

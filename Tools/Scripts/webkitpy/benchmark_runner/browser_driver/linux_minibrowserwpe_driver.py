@@ -56,7 +56,7 @@ class WPEMiniBrowserDriver(WPEMiniBrowserBaseDriver):
     browser_name = 'minibrowser-wpe'
 
     def _extra_wpe_minibrowser_args(self):
-        return ['--maximized']
+        return ['--fullscreen']
 
 
 class WPEMiniBrowserSkiaCPUDriver(WPEMiniBrowserDriver):
@@ -67,15 +67,8 @@ class WPEMiniBrowserSkiaCPUDriver(WPEMiniBrowserDriver):
         self._test_environ['WEBKIT_SKIA_ENABLE_CPU_RENDERING'] = '1'
 
 
-class WPEMiniBrowserOldAPIDriver(WPEMiniBrowserBaseDriver):
-    browser_name = 'minibrowser-wpe-oldapi'
+class WPEMiniBrowserLegacyAPIDriver(WPEMiniBrowserBaseDriver):
+    browser_name = 'minibrowser-wpe-legacy'
 
     def _extra_wpe_minibrowser_args(self):
-        return ['--use-legacy-api']
-
-
-class WPEMiniBrowserSkiaCPUDriverFullScreen(WPEMiniBrowserSkiaCPUDriver):
-    browser_name = 'minibrowser-wpe-skiacpu-fullscreen'
-
-    def _extra_wpe_minibrowser_args(self):
-        return ['--fullscreen']
+        return ['--use-legacy-api', '--fullscreen']

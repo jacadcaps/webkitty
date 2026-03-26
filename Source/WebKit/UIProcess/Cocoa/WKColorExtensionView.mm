@@ -29,6 +29,8 @@
 #import <QuartzCore/CoreAnimation.h>
 #import <wtf/RetainPtr.h>
 
+#if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
+
 @interface WKColorExtensionView () <CAAnimationDelegate>
 @end
 
@@ -123,3 +125,5 @@
 }
 
 @end
+
+#endif // ENABLE(CONTENT_INSET_BACKGROUND_FILL)

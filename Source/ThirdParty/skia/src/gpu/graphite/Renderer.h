@@ -8,6 +8,7 @@
 #ifndef skgpu_graphite_Renderer_DEFINED
 #define skgpu_graphite_Renderer_DEFINED
 
+#include "include/core/SkPathTypes.h"
 #include "include/core/SkSpan.h"
 #include "include/core/SkString.h"
 #include "include/core/SkTypes.h"
@@ -26,8 +27,6 @@
 #include <string_view>
 #include <vector>
 
-enum class SkPathFillType;
-
 namespace skgpu { enum class MaskFormat; }
 
 namespace skgpu::graphite {
@@ -39,6 +38,7 @@ class Rect;
 class ResourceProvider;
 class TextureDataBlock;
 class Transform;
+class UniformOffsetCalculator;
 
 struct ResourceBindingRequirements;
 
@@ -123,7 +123,7 @@ public:
     // The DrawWriter is configured with the vertex and instance strides of the RenderStep, and its
     // primitive type. The recorded draws will be executed with a graphics pipeline compatible with
     // this RenderStep.
-    virtual void writeVertices(DrawWriter*, const DrawParams&, skvx::uint2 ssboIndices) const = 0;
+    virtual void writeVertices(DrawWriter*, const DrawParams&, uint32_t ssboIndex) const = 0;
 
     // Write out the uniform values (aligned for the layout), textures, and samplers. The uniform
     // values will be de-duplicated across all draws using the RenderStep before uploading to the
@@ -197,15 +197,15 @@ public:
     size_t        appendDataStride() const { return fAppendDataStride; }
 
     size_t numUniforms()         const { return fUniforms.size();    }
+    int    uniformAlignment()    const { return fUniformAlignment;   }
     size_t numStaticAttributes() const { return fStaticAttrs.size(); }
     size_t numAppendAttributes() const { return fAppendAttrs.size(); }
 
-    // Name of an attribute containing both render step and shading SSBO indices, if used.
-    static const char* ssboIndicesAttribute() { return "ssboIndices"; }
+    // Name of an attribute containing both the render step and shading SSBO index, if used.
+    static const char* ssboIndexAttribute() { return "ssboIndex"; }
 
-    // Name of a varying to pass SSBO indices to fragment shader. Both render step and shading
-    // indices are passed, because render step uniforms are sometimes used for coverage.
-    static const char* ssboIndicesVarying() { return "ssboIndicesVar"; }
+    // Name of a varying to pass the SSBO index to fragment shader
+    static const char* ssboIndexVarying() { return "ssboIndexVar"; }
 
     // The uniforms of a RenderStep are bound to the kRenderStep slot, the rest of the pipeline
     // may still use uniforms bound to other slots.
@@ -271,7 +271,8 @@ SK_DECL_BITMASK_OPS_FRIENDS(Flags)
     // While RenderStep does not define the full program that's run for a draw, it defines the
     // entire vertex layout of the pipeline. This is not allowed to change, so can be provided to
     // the RenderStep constructor by subclasses.
-    RenderStep(RenderStepID renderStepID,
+    RenderStep(Layout layout,
+               RenderStepID renderStepID,
                SkEnumBitMask<Flags> flags,
                std::initializer_list<Uniform> uniforms,
                PrimitiveType primitiveType,
@@ -306,6 +307,7 @@ private:
     std::vector<Attribute> fAppendAttrs;
     std::vector<Varying>   fVaryings;
 
+    int    fUniformAlignment; // derived from the renderstep uniforms
     size_t fStaticDataStride; // derived from vertex attribute set
     size_t fAppendDataStride; // derived from instance attribute set
 };
@@ -380,10 +382,10 @@ private:
         // At least one step needs to actually shade.
         SkASSERT(fStepFlags & RenderStep::Flags::kPerformsShading);
         // A render step using non-AA inner fills with a second draw should not also be part of a
-        // multi-step renderer (to keep reasoning simple) and must use the GREATER depth test.
+        // multi-step renderer (to keep reasoning simple) and must use the LESS depth test.
         SkASSERT(!this->useNonAAInnerFill() ||
                  (fStepCount == 1 && fSteps[0]->depthStencilSettings().fDepthTestEnabled &&
-                  fSteps[0]->depthStencilSettings().fDepthCompareOp == CompareOp::kGreater));
+                  fSteps[0]->depthStencilSettings().fDepthCompareOp == CompareOp::kLess));
     }
 
     // For RendererProvider to manage initialization; it will never expose a Renderer that is only

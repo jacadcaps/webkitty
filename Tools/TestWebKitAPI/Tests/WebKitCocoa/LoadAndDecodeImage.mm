@@ -48,21 +48,20 @@ static bool done;
 
 TEST(WebKit, LoadAndDecodeImage)
 {
-    auto contentsToVector = [] (NSURL *url) {
-        NSData *data = [NSData dataWithContentsOfURL:url];
-        Vector<uint8_t> result;
-        for (NSUInteger i = 0; i < data.length; i++)
-            result.append(static_cast<const uint8_t*>(data.bytes)[i]);
-        return result;
+    auto resourceToVector = [] (NSString *resource, NSString *extension) {
+        @autoreleasepool {
+            NSURL *url = [NSBundle.test_resourcesBundle URLForResource:resource withExtension:extension];
+            return makeVector([NSData dataWithContentsOfURL:url]);
+        }
     };
     auto pngData = [&] {
-        return contentsToVector([NSBundle.test_resourcesBundle URLForResource:@"icon" withExtension:@"png"]);
+        return resourceToVector(@"icon", @"png");
     };
     auto untaggedPNGData = [&] {
-        return contentsToVector([NSBundle.test_resourcesBundle URLForResource:@"400x400-green" withExtension:@"png"]);
+        return resourceToVector(@"400x400-green", @"png");
     };
     auto gifData = [&] {
-        return contentsToVector([NSBundle.test_resourcesBundle URLForResource:@"apple" withExtension:@"gif"]);
+        return resourceToVector(@"apple", @"gif");
     };
 
     HTTPServer server {
@@ -232,6 +231,20 @@ TEST(WebKit, GetInformationFromImageData)
     Util::run(&done);
 }
 
+TEST(WebKit, GetInformationFromImageDataAfterClosingWebView)
+{
+    RetainPtr webView = adoptNS([WKWebView new]);
+    [webView _close];
+
+    done = false;
+    RetainPtr pngData = [NSData dataWithContentsOfURL:[NSBundle.test_resourcesBundle URLForResource:@"icon" withExtension:@"png"]];
+    [webView _getInformationFromImageData:pngData.get() completionHandler:^(NSString *typeIdentifier, NSArray<NSValue *> *availableSizes, NSError *error) {
+        EXPECT_NOT_NULL(error);
+        done = true;
+    }];
+    Util::run(&done);
+}
+
 TEST(WebKit, CreateIconDataFromImageData)
 {
     RetainPtr webView = adoptNS([WKWebView new]);
@@ -279,7 +292,7 @@ RetainPtr<NSData> tiffRepresentation(CocoaImage *image)
     if (!cgImage)
         return nullptr;
 
-    RefPtr nativeImage = WebCore::NativeImage::create(WTFMove(cgImage));
+    RefPtr nativeImage = WebCore::NativeImage::create(WTF::move(cgImage));
     if (!nativeImage)
         return nullptr;
 

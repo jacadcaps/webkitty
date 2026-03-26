@@ -28,8 +28,11 @@
 #import "DeprecatedGlobalValues.h"
 #import "PlatformUtilities.h"
 #import "Test.h"
+#import "TestWKWebView.h"
 #import <WebKit/WKFoundation.h>
 #import <WebKit/WKPreferencesPrivate.h>
+#import <WebKit/WKWebViewConfigurationPrivate.h>
+#import <wtf/ObjCRuntimeExtras.h>
 
 @interface WKPreferencesMessageHandler : NSObject <WKScriptMessageHandler>
 @end
@@ -147,4 +150,169 @@ TEST(WKPreferencesPrivate, DisableRichJavaScriptFeatures)
     }];
     result = (NSString *)[getNextMessage() body];
     EXPECT_WK_STREQ(@"Notifications Disabled", result.get());
+
+    [webView evaluateJavaScript:@"log('serviceWorker' in navigator && 'BackgroundFetch' in window ? 'Background Fetch Enabled' : 'Background Fetch Disabled');" completionHandler:^(id, NSError *error) {
+        EXPECT_NULL(error);
+    }];
+    result = (NSString *)[getNextMessage() body];
+    EXPECT_WK_STREQ(@"Background Fetch Disabled", result.get());
+
+    [webView evaluateJavaScript:@"log(window.BroadcastChannel ? 'BroadcastChannel Enabled' : 'BroadcastChannel Disabled');" completionHandler:^(id, NSError *error) {
+        EXPECT_NULL(error);
+    }];
+    result = (NSString *)[getNextMessage() body];
+    EXPECT_WK_STREQ(@"BroadcastChannel Disabled", result.get());
+
+    [webView evaluateJavaScript:@"log(window.caches ? 'Cache API Enabled' : 'Cache API Disabled');" completionHandler:^(id, NSError *error) {
+        EXPECT_NULL(error);
+    }];
+    result = (NSString *)[getNextMessage() body];
+    EXPECT_WK_STREQ(@"Cache API Disabled", result.get());
+
+    [webView evaluateJavaScript:@"log(navigator.contacts ? 'Contact Picker Enabled' : 'Contact Picker Disabled');" completionHandler:^(id, NSError *error) {
+        EXPECT_NULL(error);
+    }];
+    result = (NSString *)[getNextMessage() body];
+    EXPECT_WK_STREQ(@"Contact Picker Disabled", result.get());
+
+    [webView evaluateJavaScript:@"log(navigator.cookieConsent ? 'Cookie Consent Enabled' : 'Cookie Consent Disabled');" completionHandler:^(id, NSError *error) {
+        EXPECT_NULL(error);
+    }];
+    result = (NSString *)[getNextMessage() body];
+    EXPECT_WK_STREQ(@"Cookie Consent Disabled", result.get());
+
+    [webView evaluateJavaScript:@"log(window.cookieStore ? 'Cookie Store Enabled' : 'Cookie Store Disabled');" completionHandler:^(id, NSError *error) {
+        EXPECT_NULL(error);
+    }];
+    result = (NSString *)[getNextMessage() body];
+    EXPECT_WK_STREQ(@"Cookie Store Disabled", result.get());
+
+    [webView evaluateJavaScript:@"log('serviceWorker' in navigator && window.cookieStore ? 'Cookie Store Manager Enabled' : 'Cookie Store Manager Disabled');" completionHandler:^(id, NSError *error) {
+        EXPECT_NULL(error);
+    }];
+    result = (NSString *)[getNextMessage() body];
+    EXPECT_WK_STREQ(@"Cookie Store Manager Disabled", result.get());
+
+    [webView evaluateJavaScript:@"log(window.DeviceOrientationEvent && DeviceOrientationEvent.requestPermission ? 'Device Orientation Permission Enabled' : 'Device Orientation Permission Disabled');" completionHandler:^(id, NSError *error) {
+        EXPECT_NULL(error);
+    }];
+    result = (NSString *)[getNextMessage() body];
+    EXPECT_WK_STREQ(@"Device Orientation Permission Disabled", result.get());
+
+    [webView evaluateJavaScript:@"log(window.indexedDB ? 'IndexedDB Enabled' : 'IndexedDB Disabled');" completionHandler:^(id, NSError *error) {
+        EXPECT_NULL(error);
+    }];
+    result = (NSString *)[getNextMessage() body];
+    EXPECT_WK_STREQ(@"IndexedDB Disabled", result.get());
+
+    [webView evaluateJavaScript:@"log(window.ManagedMediaSource ? 'Managed Media Source Enabled' : 'Managed Media Source Disabled');" completionHandler:^(id, NSError *error) {
+        EXPECT_NULL(error);
+    }];
+    result = (NSString *)[getNextMessage() body];
+    EXPECT_WK_STREQ(@"Managed Media Source Disabled", result.get());
+
+    [webView evaluateJavaScript:@"log(window.MediaRecorder ? 'Media Recorder Enabled' : 'Media Recorder Disabled');" completionHandler:^(id, NSError *error) {
+        EXPECT_NULL(error);
+    }];
+    result = (NSString *)[getNextMessage() body];
+    EXPECT_WK_STREQ(@"Media Recorder Disabled", result.get());
+
+    [webView evaluateJavaScript:@"log(navigator.mediaSession && navigator.mediaSession.coordinator ? 'Media Session Coordinator Enabled' : 'Media Session Coordinator Disabled');" completionHandler:^(id, NSError *error) {
+        EXPECT_NULL(error);
+    }];
+    result = (NSString *)[getNextMessage() body];
+    EXPECT_WK_STREQ(@"Media Session Coordinator Disabled", result.get());
+
+    [webView evaluateJavaScript:@"log('serviceWorker' in navigator && window.Notification ? 'Notification Event Enabled' : 'Notification Event Disabled');" completionHandler:^(id, NSError *error) {
+        EXPECT_NULL(error);
+    }];
+    result = (NSString *)[getNextMessage() body];
+    EXPECT_WK_STREQ(@"Notification Event Disabled", result.get());
+
+    [webView evaluateJavaScript:@"log(navigator.permissions ? 'Permissions API Enabled' : 'Permissions API Disabled');" completionHandler:^(id, NSError *error) {
+        EXPECT_NULL(error);
+    }];
+    result = (NSString *)[getNextMessage() body];
+    EXPECT_WK_STREQ(@"Permissions API Disabled", result.get());
+
+    [webView evaluateJavaScript:@"log('serviceWorker' in navigator && window.PushManager ? 'Push API Enabled' : 'Push API Disabled');" completionHandler:^(id, NSError *error) {
+        EXPECT_NULL(error);
+    }];
+    result = (NSString *)[getNextMessage() body];
+    EXPECT_WK_STREQ(@"Push API Disabled", result.get());
+
+    [webView evaluateJavaScript:@"log('serviceWorker' in navigator ? 'Service Worker Navigation Preload Enabled' : 'Service Worker Navigation Preload Disabled');" completionHandler:^(id, NSError *error) {
+        EXPECT_NULL(error);
+    }];
+    result = (NSString *)[getNextMessage() body];
+    EXPECT_WK_STREQ(@"Service Worker Navigation Preload Disabled", result.get());
+
+    [webView evaluateJavaScript:@"log('serviceWorker' in navigator ? 'Service Workers Enabled' : 'Service Workers Disabled');" completionHandler:^(id, NSError *error) {
+        EXPECT_NULL(error);
+    }];
+    result = (NSString *)[getNextMessage() body];
+    EXPECT_WK_STREQ(@"Service Workers Disabled", result.get());
+
+    [webView evaluateJavaScript:@"log(window.SharedWorker ? 'Shared Worker Enabled' : 'Shared Worker Disabled');" completionHandler:^(id, NSError *error) {
+        EXPECT_NULL(error);
+    }];
+    result = (NSString *)[getNextMessage() body];
+    EXPECT_WK_STREQ(@"Shared Worker Disabled", result.get());
+
+    [webView evaluateJavaScript:@"log(navigator.credentials && navigator.credentials.create ? 'Web Authentication Enabled' : 'Web Authentication Disabled');" completionHandler:^(id, NSError *error) {
+        EXPECT_NULL(error);
+    }];
+    result = (NSString *)[getNextMessage() body];
+    EXPECT_WK_STREQ(@"Web Authentication Disabled", result.get());
+
+    [webView evaluateJavaScript:@"log(window.WebSocket ? 'WebSocket Enabled' : 'WebSocket Disabled');" completionHandler:^(id, NSError *error) {
+        EXPECT_NULL(error);
+    }];
+    result = (NSString *)[getNextMessage() body];
+    EXPECT_WK_STREQ(@"WebSocket Disabled", result.get());
+
+    [webView evaluateJavaScript:@"log(window.WebTransport ? 'WebTransport Enabled' : 'WebTransport Disabled');" completionHandler:^(id, NSError *error) {
+        EXPECT_NULL(error);
+    }];
+    result = (NSString *)[getNextMessage() body];
+    EXPECT_WK_STREQ(@"WebTransport Disabled", result.get());
+
+    [webView evaluateJavaScript:@"log(navigator.xr ? 'WebXR Enabled' : 'WebXR Disabled');" completionHandler:^(id, NSError *error) {
+        EXPECT_NULL(error);
+    }];
+    result = (NSString *)[getNextMessage() body];
+    EXPECT_WK_STREQ(@"WebXR Disabled", result.get());
+}
+
+static IMP originalObjectForKeyIMP = nil;
+
+static id swizzledObjectForKeyToReturnString(id self, SEL _cmd, NSString *key)
+{
+    // Intercept the specific preference key and return wrong type.
+    // The key format is: identifier + ".WebKit2" + keyName.
+    if ([key isEqualToString:@"TestGroupIdentifier.WebKit2InspectorAttachedHeight"])
+        return @"10";
+    return wtfCallIMP<id>(originalObjectForKeyIMP, self, _cmd, key);
+}
+
+TEST(WKPreferences, UInt32TypeMismatchDoesNotCrash)
+{
+    // Swizzle [NSUserDefaults objectForKey:] to inject the type mismatch.
+    Method method = class_getInstanceMethod([NSUserDefaults class], @selector(objectForKey:));
+    originalObjectForKeyIMP = method_setImplementation(method, (IMP)swizzledObjectForKeyToReturnString);
+
+    // Create a configuration with a group identifier.
+    // This triggers creation of a WebPageGroup with the identifier, which creates
+    // WebPreferences with that identifier. platformInitializeStore() then iterates
+    // through FOR_EACH_PERSISTENT_WEBKIT_PREFERENCE and calls
+    // platformGetUInt32UserValueForKey() for UInt32 preferences.
+    RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    [configuration _setGroupIdentifier:@"TestGroupIdentifier"];
+
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+
+    EXPECT_NOT_NULL(webView);
+
+    // Restore original implementation.
+    method_setImplementation(method, originalObjectForKeyIMP);
 }

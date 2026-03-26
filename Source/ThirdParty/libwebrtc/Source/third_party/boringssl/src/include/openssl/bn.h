@@ -17,7 +17,6 @@
 #define OPENSSL_HEADER_BN_H
 
 #include <openssl/base.h>   // IWYU pragma: export
-#include <openssl/thread.h>
 
 #include <inttypes.h>  // for PRIu64 and friends
 #include <stdio.h>  // for FILE*
@@ -506,6 +505,9 @@ OPENSSL_EXPORT int BN_mod_lshift1_quick(BIGNUM *r, const BIGNUM *a,
 // If |a| is a square and |p| > 2, there are two possible square roots. This
 // function may return either and may even select one non-deterministically.
 //
+// If |in| is non-NULL, the function, instead of allocating the result, stores
+// the result in |in| and returns |in| on success or NULL on failure.
+//
 // This function only works if |p| is a prime. If |p| is composite, it may fail
 // or return an arbitrary value. Callers should not pass attacker-controlled
 // values of |p|.
@@ -916,16 +918,6 @@ struct bignum_st {
   int neg;
   // flags is a bitmask of |BN_FLG_*| values
   int flags;
-};
-
-struct bn_mont_ctx_st {
-  // RR is R^2, reduced modulo |N|. It is used to convert to Montgomery form. It
-  // is guaranteed to have the same width as |N|.
-  BIGNUM RR;
-  // N is the modulus. It is always stored in minimal form, so |N.width|
-  // determines R.
-  BIGNUM N;
-  BN_ULONG n0[2];  // least significant words of (R*Ri-1)/N
 };
 
 OPENSSL_EXPORT unsigned BN_num_bits_word(BN_ULONG l);

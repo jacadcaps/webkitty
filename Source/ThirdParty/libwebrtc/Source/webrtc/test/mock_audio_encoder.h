@@ -11,10 +11,17 @@
 #ifndef TEST_MOCK_AUDIO_ENCODER_H_
 #define TEST_MOCK_AUDIO_ENCODER_H_
 
-#include <string>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <utility>
 
+#include "absl/strings/string_view.h"
 #include "api/array_view.h"
 #include "api/audio_codecs/audio_encoder.h"
+#include "api/units/data_rate.h"
+#include "api/units/time_delta.h"
+#include "rtc_base/buffer.h"
 #include "test/gmock.h"
 
 namespace webrtc {
@@ -59,7 +66,7 @@ class MockAudioEncoder : public AudioEncoder {
 
   MOCK_METHOD(bool,
               EnableAudioNetworkAdaptor,
-              (const std::string& config_string, RtcEventLog*),
+              (absl::string_view config_string),
               (override));
 
   // Note, we explicitly chose not to create a mock for the Encode method.

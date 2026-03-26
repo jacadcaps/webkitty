@@ -59,7 +59,7 @@ void WebAutomationSession::inspectBrowsingContext(const Inspector::Protocol::Aut
     if (auto pendingCallback = m_pendingInspectorCallbacksPerPage.take(page->identifier()))
         pendingCallback(makeUnexpected(STRING_FOR_PREDEFINED_ERROR_NAME(Timeout)));
 
-    m_pendingInspectorCallbacksPerPage.set(page->identifier(), WTFMove(callback));
+    m_pendingInspectorCallbacksPerPage.set(page->identifier(), WTF::move(callback));
 
     // Don't bring the inspector to front since this may be done automatically.
     // We just want it loaded so it can pause if a breakpoint is hit during a command.
@@ -85,10 +85,13 @@ void WebAutomationSession::sendSynthesizedEventsToPage(WebPageProxy& page, NSArr
     // +[NSEvent pressedMouseButtons] does not account for the NSEvent objects created through eventSender JS in tests.
     // As such, that method always returns 0. To fix this, we swizzle out +[NSEvent pressedMouseButtons], keep track of
     // the mouse button currently being pressed down, and supply the appropriate return value as specified in documentation.
-    auto methodToSwizzle = class_getClassMethod(objc_getMetaClass(NSStringFromClass([NSEvent class]).UTF8String), @selector(pressedMouseButtons));
-    auto originalImplementation = method_setImplementation(methodToSwizzle, imp_implementationWithBlock([&mouseButtonsCurrentlyDown = m_mouseButtonsCurrentlyDown] {
+
+    auto methodToSwizzle = class_getClassMethod(RetainPtr { objc_getMetaClass(NSStringFromClass([NSEvent class]).UTF8String) }.get(), @selector(pressedMouseButtons));
+    // FIXME: This looks like a safer cpp false positive. It wants me to retain the Objective C block passed to imp_implementationWithBlock(),
+    // which gets implicitly constructed from a C++ lambda on this line.
+    SUPPRESS_UNRETAINED_ARG auto originalImplementation = method_setImplementation(methodToSwizzle, imp_implementationWithBlock([&mouseButtonsCurrentlyDown = m_mouseButtonsCurrentlyDown] {
         NSUInteger mouseButtons = 0;
-        static constexpr std::array<MouseButton, 3> potentialMouseButtons { MouseButton::Left, MouseButton::Right, MouseButton::Middle };
+        static constexpr std::array<MouseButton, 5> potentialMouseButtons { MouseButton::Left, MouseButton::Right, MouseButton::Middle, MouseButton::Back, MouseButton::Forward };
         for (std::size_t idx = 0; idx < potentialMouseButtons.size(); ++idx) {
             if (mouseButtonsCurrentlyDown.getOptional(potentialMouseButtons[idx]).value_or(false))
                 mouseButtons += (1 << idx);
@@ -206,9 +209,11 @@ void WebAutomationSession::platformSimulateMouseInteraction(WebPageProxy& page, 
         dragEventType = NSEventTypeLeftMouseDragged;
         upEventType = NSEventTypeLeftMouseUp;
         break;
+    case WebMouseEventButton::Back:
+    case WebMouseEventButton::Forward:
     case WebMouseEventButton::Middle:
         downEventType = NSEventTypeOtherMouseDown;
-        dragEventType = NSEventTypeLeftMouseDragged;
+        dragEventType = NSEventTypeOtherMouseDragged;
         upEventType = NSEventTypeOtherMouseUp;
         break;
     case WebMouseEventButton::Right:
@@ -227,27 +232,24 @@ void WebAutomationSession::platformSimulateMouseInteraction(WebPageProxy& page, 
         ASSERT(dragEventType);
         RetainPtr event = [NSEvent mouseEventWithType:dragEventType location:locationInWindow modifierFlags:modifiers timestamp:timestamp windowNumber:windowNumber context:nil eventNumber:eventNumber clickCount:0 pressure:0.0f];
         RetainPtr<CGEventRef> cgEvent = event.get().CGEvent;
-        CGEventSetIntegerValueField(cgEvent.get(), kCGMouseEventDeltaX, locationInWindow.x() - m_lastClickPosition.x());
-        CGEventSetIntegerValueField(cgEvent.get(), kCGMouseEventDeltaY, -1 * (locationInWindow.y() - m_lastClickPosition.y()));
+        if (!m_lastPosition)
+            updateLastPosition(locationInWindow);
+        CGEventSetIntegerValueField(cgEvent.get(), kCGMouseEventDeltaX, locationInWindow.x() - m_lastPosition->x());
+        CGEventSetIntegerValueField(cgEvent.get(), kCGMouseEventDeltaY, -1 * (locationInWindow.y() - m_lastPosition->y()));
         event = [NSEvent eventWithCGEvent:cgEvent.get()];
         [eventsToBeSent addObject:event.get()];
         break;
     }
     case MouseInteraction::Down:
         ASSERT(downEventType);
+        updateClickCount(button, locationInWindow);
         m_mouseButtonsCurrentlyDown.set(button, true);
-
-        // Hard-code the click count to one, since clients don't expect successive simulated
-        // down/up events to be potentially counted as a double click event.
-        [eventsToBeSent addObject:[NSEvent mouseEventWithType:downEventType location:locationInWindow modifierFlags:modifiers timestamp:timestamp windowNumber:windowNumber context:nil eventNumber:eventNumber clickCount:1 pressure:WebCore::ForceAtClick]];
+        [eventsToBeSent addObject:[NSEvent mouseEventWithType:downEventType location:locationInWindow modifierFlags:modifiers timestamp:timestamp windowNumber:windowNumber context:nil eventNumber:eventNumber clickCount:m_clickCount pressure:WebCore::ForceAtClick]];
         break;
     case MouseInteraction::Up:
         ASSERT(upEventType);
         m_mouseButtonsCurrentlyDown.set(button, false);
-
-        // Hard-code the click count to one, since clients don't expect successive simulated
-        // down/up events to be potentially counted as a double click event.
-        [eventsToBeSent addObject:[NSEvent mouseEventWithType:upEventType location:locationInWindow modifierFlags:modifiers timestamp:timestamp windowNumber:windowNumber context:nil eventNumber:eventNumber clickCount:1 pressure:0.0f]];
+        [eventsToBeSent addObject:[NSEvent mouseEventWithType:upEventType location:locationInWindow modifierFlags:modifiers timestamp:timestamp windowNumber:windowNumber context:nil eventNumber:eventNumber clickCount:m_clickCount pressure:0.0f]];
         break;
     case MouseInteraction::SingleClick:
         ASSERT(upEventType);
@@ -268,7 +270,7 @@ void WebAutomationSession::platformSimulateMouseInteraction(WebPageProxy& page, 
         [eventsToBeSent addObject:[NSEvent mouseEventWithType:downEventType location:locationInWindow modifierFlags:modifiers timestamp:timestamp windowNumber:windowNumber context:nil eventNumber:eventNumber clickCount:2 pressure:WebCore::ForceAtClick]];
         [eventsToBeSent addObject:[NSEvent mouseEventWithType:upEventType location:locationInWindow modifierFlags:modifiers timestamp:timestamp windowNumber:windowNumber context:nil eventNumber:eventNumber clickCount:2 pressure:0.0f]];
     }
-    updateClickCount(button, locationInWindow);
+    updateLastPosition(locationInWindow);
 
     sendSynthesizedEventsToPage(page, eventsToBeSent.get());
 }
@@ -858,9 +860,9 @@ void WebAutomationSession::platformSimulateWheelInteraction(WebPageProxy& page, 
     locationOnScreen = CGPointMake(locationOnScreen.x, NSScreen.screens.firstObject.frame.size.height - locationOnScreen.y);
     CGEventSetLocation(cgScrollEvent.get(), locationOnScreen);
 
-    NSEvent *scrollEvent = [[NSEvent eventWithCGEvent:cgScrollEvent.get()] _eventRelativeToWindow:window.get()];
+    RetainPtr<NSEvent> scrollEvent = [[NSEvent eventWithCGEvent:cgScrollEvent.get()] _eventRelativeToWindow:window.get()];
 
-    sendSynthesizedEventsToPage(page, @[scrollEvent]);
+    sendSynthesizedEventsToPage(page, @[scrollEvent.get()]);
 }
 
 #endif // ENABLE(WEBDRIVER_WHEEL_INTERACTIONS)

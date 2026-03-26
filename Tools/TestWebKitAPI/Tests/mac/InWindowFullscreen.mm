@@ -178,4 +178,36 @@ TEST(InWindowFullscreen, EnterChangesIsActiveWithoutUserGesture)
     EXPECT_TRUE([webView _isInWindowActive]);
 }
 
+TEST(InWindowFullscreen, IFrameDocument)
+{
+    auto webView = createInWindowFullscreenWebView();
+    [webView synchronouslyLoadHTMLString:@"<iframe src=\"video-with-audio.html\"></iframe>"];
+
+    bool isPlaying = false;
+    [webView performAfterReceivingMessage:@"playing" action:[&] { isPlaying = true; }];
+    [webView objectByEvaluatingJavaScriptWithUserGesture:@"go()" inFrame:[webView firstChildFrame]];
+    TestWebKitAPI::Util::run(&isPlaying);
+
+    TestWebKitAPI::Util::waitFor([&] {
+        [webView _updateMediaPlaybackControlsManager];
+        return [webView _canToggleInWindow];
+    });
+    EXPECT_TRUE([webView _canToggleInWindow]);
+
+    [webView _enterInWindow];
+    TestWebKitAPI::Util::waitFor([&] {
+        return [webView _isInWindowActive];
+    });
+    EXPECT_TRUE([webView _isInWindowActive]);
+
+    [webView _exitInWindow];
+    TestWebKitAPI::Util::waitFor([&] {
+        return ![webView _isInWindowActive];
+    });
+    EXPECT_FALSE([webView _isInWindowActive]);
+
+    [webView _close];
+}
+
+
 } // namespace TestWebKitAPI

@@ -25,6 +25,8 @@
 
 #pragma once
 
+#include <wtf/Compiler.h>
+
 DECLARE_SYSTEM_HEADER
 
 #import <wtf/Platform.h>
@@ -63,6 +65,11 @@ enum {
 + (QLPreviewMenuItem *)standardQuickLookMenuItem;
 + (NSMenuItem *)standardShareMenuItemForItems:(NSArray *)items;
 + (NSMenuItem *)standardWritingToolsMenuItem;
+
+#if ENABLE(CONTEXT_MENU_IMAGES_ON_MAC)
+@property (strong, setter=_setActionImage:) NSImage *_actionImage;
+@property (setter=_setHasActionImage:) BOOL _hasActionImage;
+#endif
 @end
 
 #endif
@@ -71,17 +78,7 @@ enum {
 - (BOOL)_containsItemMatchingEvent:(NSEvent *)event includingDisabledItems:(BOOL)includingDisabledItems;
 @end
 
-#if ENABLE(CONTEXT_MENU_IMAGES_ON_MAC)
-@interface NSMenuItem (Staging_138651669)
-
-+ (NSString *)_systemImageNameForAction:(SEL)action;
-@property (strong, setter=_setActionImage:) NSImage *_actionImage;
-@property (setter=_setHasActionImage:) BOOL _hasActionImage;
-
-@end
-#endif
-
-typedef NSUInteger NSPopUpMenuFlags;
+#define NSPopUpMenuFlags NSUInteger
 
 WTF_EXTERN_C_BEGIN
 

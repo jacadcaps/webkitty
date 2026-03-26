@@ -30,7 +30,7 @@
 #import "GPUProcess.h"
 #import "LaunchServicesDatabaseManager.h"
 #import "LaunchServicesDatabaseXPCConstants.h"
-#import "RemoteMediaPlayerManagerProxy.h"
+#import "VideoReceiverEndpointManager.h"
 #import "VideoReceiverEndpointMessage.h"
 #import "XPCEndpoint.h"
 #import <wtf/RunLoop.h>
@@ -42,7 +42,7 @@ namespace WebKit {
 #if HAVE(LSDATABASECONTEXT)
 static void handleLaunchServiceDatabaseMessage(xpc_object_t message)
 {
-    RetainPtr xpcEndPoint = xpc_dictionary_get_value(message, LaunchServicesDatabaseXPCConstants::xpcLaunchServicesDatabaseXPCEndpointNameKey);
+    XPCObjectPtr<xpc_object_t> xpcEndPoint = xpc_dictionary_get_value(message, LaunchServicesDatabaseXPCConstants::xpcLaunchServicesDatabaseXPCEndpointNameKey);
     if (!xpcEndPoint || xpc_get_type(xpcEndPoint.get()) != XPC_TYPE_ENDPOINT)
         return;
 
@@ -61,7 +61,7 @@ static void handleVideoReceiverEndpointMessage(xpc_object_t message)
         return;
 
     if (RefPtr webProcessConnection = GPUProcess::singleton().webProcessConnection(*endpointMessage.processIdentifier()))
-        webProcessConnection->remoteMediaPlayerManagerProxy().handleVideoReceiverEndpointMessage(endpointMessage);
+        webProcessConnection->videoReceiverEndpointManager().handleVideoReceiverEndpointMessage(endpointMessage);
 }
 
 static void handleVideoReceiverSwapEndpointsMessage(xpc_object_t message)
@@ -74,7 +74,7 @@ static void handleVideoReceiverSwapEndpointsMessage(xpc_object_t message)
         return;
 
     if (RefPtr webProcessConnection = GPUProcess::singleton().webProcessConnection(*endpointMessage.processIdentifier()))
-        webProcessConnection->remoteMediaPlayerManagerProxy().handleVideoReceiverSwapEndpointsMessage(endpointMessage);
+        webProcessConnection->videoReceiverEndpointManager().handleVideoReceiverSwapEndpointsMessage(endpointMessage);
 }
 #endif
 

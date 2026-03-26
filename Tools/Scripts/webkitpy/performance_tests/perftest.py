@@ -266,6 +266,14 @@ class PerfTest(object):
         re.compile(r'com\.apple\.WebKit\.WebContent\.Development\[\d+:\d+\]\s+CoreText note:.+')
     ]
 
+    _errors_to_ignore_in_glib = [
+        re.compile(r"^libEGL"),
+        re.compile(r"^vulkan:"),
+        re.compile(r"^Note:"),
+        re.compile(r"^MESA"),
+        re.compile(r"^[0-9:.]+\s.+0x[0-9A-Fa-f]+\s.+msdkcontext")
+    ]
+
     def _filter_output(self, output):
         if output.text:
             output.text = self.filter_ignored_lines(self._lines_to_ignore, output.text)
@@ -274,6 +282,8 @@ class PerfTest(object):
                 output.error = self.filter_ignored_lines(self._errors_to_ignore_in_sierra, output.error)
             if self._port.name().startswith('mac-sequoia'):
                 output.error = self.filter_ignored_lines(self._errors_to_ignore_in_sequoia, output.error)
+            if self._port.name().startswith('gtk') or self._port.name().startswith('wpe'):
+                output.error = self.filter_ignored_lines(self._errors_to_ignore_in_glib, output.error)
 
 
 class SingleProcessPerfTest(PerfTest):

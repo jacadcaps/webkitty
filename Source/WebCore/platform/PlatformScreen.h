@@ -25,8 +25,9 @@
 
 #pragma once
 
-#include "ContentsFormat.h"
+#include <WebCore/ContentsFormat.h>
 #include <wtf/Forward.h>
+#include <wtf/Platform.h>
 
 #if PLATFORM(MAC)
 OBJC_CLASS NSScreen;
@@ -105,7 +106,7 @@ struct ScreenData;
     
 WEBCORE_EXPORT ScreenProperties collectScreenProperties();
 WEBCORE_EXPORT void setScreenProperties(const ScreenProperties&);
-const ScreenProperties& getScreenProperties();
+WEBCORE_EXPORT const ScreenProperties& getScreenProperties();
 WEBCORE_EXPORT const ScreenData* screenData(PlatformDisplayID screendisplayID);
 WEBCORE_EXPORT PlatformDisplayID primaryScreenDisplayID();
 
@@ -123,7 +124,9 @@ WEBCORE_EXPORT bool suppressEDRForDisplay(PlatformDisplayID);
 WEBCORE_EXPORT PlatformDisplayID displayID(NSScreen *);
 
 WEBCORE_EXPORT NSScreen *screen(NSWindow *);
+WEBCORE_EXPORT RetainPtr<NSScreen> protectedScreen(NSWindow *);
 NSScreen *screen(PlatformDisplayID);
+RetainPtr<NSScreen> protectedScreen(PlatformDisplayID);
 
 WEBCORE_EXPORT FloatRect screenRectForDisplay(PlatformDisplayID);
 WEBCORE_EXPORT FloatRect screenRectForPrimaryScreen();

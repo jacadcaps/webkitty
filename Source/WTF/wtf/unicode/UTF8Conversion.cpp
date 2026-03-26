@@ -29,6 +29,7 @@
 
 #include <unicode/uchar.h>
 #include <wtf/ASCIICType.h>
+#include <wtf/SIMDUTF.h>
 #include <wtf/text/StringHasherInlines.h>
 #include <wtf/text/icu/UnicodeExtras.h>
 #include <wtf/unicode/CharacterNames.h>
@@ -42,7 +43,7 @@ enum class Replacement : bool { None, ReplaceInvalidSequences };
 template<Replacement = Replacement::None, typename CharacterType> static char32_t next(std::span<const CharacterType>, size_t& offset);
 template<Replacement = Replacement::None, typename CharacterType> static bool append(std::span<CharacterType>, size_t& offset, char32_t character);
 
-template<> char32_t next<Replacement::None, LChar>(std::span<const LChar> characters, size_t& offset)
+template<> char32_t next<Replacement::None, Latin1Character>(std::span<const Latin1Character> characters, size_t& offset)
 {
     return characters[offset++];
 }
@@ -128,6 +129,26 @@ template<Replacement replacement = Replacement::None, typename SourceCharacterTy
 
 ConversionResult<char8_t> convert(std::span<const char16_t> source, std::span<char8_t> buffer)
 {
+#if CPU(BIG_ENDIAN)
+    size_t requiredLength = simdutf::utf8_length_from_utf16be(source.data(), source.size());
+#else
+    size_t requiredLength = simdutf::utf8_length_from_utf16le(source.data(), source.size());
+#endif
+
+    if (buffer.size() < requiredLength)
+        return convertInternal(source, buffer);
+
+#if CPU(BIG_ENDIAN)
+    auto result = simdutf::convert_utf16be_to_utf8_with_errors(source.data(), source.size(), reinterpret_cast<char*>(buffer.data()));
+#else
+    auto result = simdutf::convert_utf16le_to_utf8_with_errors(source.data(), source.size(), reinterpret_cast<char*>(buffer.data()));
+#endif
+
+    if (result.error == simdutf::error_code::SUCCESS) {
+        bool isAllASCII = result.count == source.size();
+        return { ConversionResultCode::Success, buffer.first(result.count), isAllASCII };
+    }
+
     return convertInternal(source, buffer);
 }
 
@@ -136,7 +157,7 @@ ConversionResult<char16_t> convert(std::span<const char8_t> source, std::span<ch
     return convertInternal(source, buffer);
 }
 
-ConversionResult<char8_t> convert(std::span<const LChar> source, std::span<char8_t> buffer)
+ConversionResult<char8_t> convert(std::span<const Latin1Character> source, std::span<char8_t> buffer)
 {
     return convertInternal(source, buffer);
 }
@@ -204,7 +225,7 @@ bool equal(std::span<const char16_t> a, std::span<const char8_t> b)
     return equalInternal(a, b);
 }
 
-bool equal(std::span<const LChar> a, std::span<const char8_t> b)
+bool equal(std::span<const Latin1Character> a, std::span<const char8_t> b)
 {
     return equalInternal(a, b);
 }

@@ -18,12 +18,14 @@
 #include "libANGLE/ContextMutex.h"
 #include "libANGLE/Debug.h"
 #include "libANGLE/GLES1State.h"
+#include "libANGLE/HandleAllocator.h"
 #include "libANGLE/Overlay.h"
 #include "libANGLE/Program.h"
 #include "libANGLE/ProgramExecutable.h"
 #include "libANGLE/ProgramPipeline.h"
 #include "libANGLE/RefCountObject.h"
 #include "libANGLE/Renderbuffer.h"
+#include "libANGLE/ResourceMap.h"
 #include "libANGLE/Sampler.h"
 #include "libANGLE/Texture.h"
 #include "libANGLE/TransformFeedback.h"
@@ -170,7 +172,9 @@ enum ExtendedDirtyBitType
     EXTENDED_DIRTY_BIT_POLYGON_OFFSET_POINT_ENABLED,  // NV_polygon_mode
     EXTENDED_DIRTY_BIT_POLYGON_OFFSET_LINE_ENABLED,   // NV_polygon_mode
     EXTENDED_DIRTY_BIT_SHADER_DERIVATIVE_HINT,        // shader derivative hint
-    EXTENDED_DIRTY_BIT_SHADING_RATE,                  // QCOM_shading_rate
+    EXTENDED_DIRTY_BIT_FETCH_PER_SAMPLE_ENABLED,      // FETCH_PER_SAMPLE_ARM
+    EXTENDED_DIRTY_BIT_SHADING_RATE_QCOM,             // QCOM_shading_rate
+    EXTENDED_DIRTY_BIT_SHADING_RATE_EXT,              // EXT_fragment_shading_rate
     EXTENDED_DIRTY_BIT_LOGIC_OP_ENABLED,              // ANGLE_logic_op
     EXTENDED_DIRTY_BIT_LOGIC_OP,                      // ANGLE_logic_op
     EXTENDED_DIRTY_BIT_BLEND_ADVANCED_COHERENT,       // KHR_blend_operation_advanced_coherent
@@ -204,6 +208,8 @@ enum DirtyObjectType
 using DirtyObjects = angle::BitSet<DIRTY_OBJECT_MAX>;
 
 }  // namespace state
+
+using VertexArrayMap = ResourceMap<VertexArray, VertexArrayID>;
 
 // This class represents the portion of the GL context's state that is purely private to the
 // context. Manipulating this state does not affect the other contexts in any way, nor do operations
@@ -274,6 +280,9 @@ class PrivateState : angle::NonCopyable
     // Primitive restart
     bool isPrimitiveRestartEnabled() const { return mPrimitiveRestart; }
     void setPrimitiveRestart(bool enabled);
+
+    // FETCH_PER_SAMPLE_ARM
+    void setFetchPerSample(bool enabled);
 
     // Face culling state manipulation
     bool isCullFaceEnabled() const { return mRasterizer.cullFace; }
@@ -421,12 +430,15 @@ class PrivateState : angle::NonCopyable
     const Rectangle &getViewport() const { return mViewport; }
 
     // QCOM_shading_rate helpers
-    void setShadingRate(GLenum rate);
-    ShadingRate getShadingRate() const { return mShadingRate; }
+    void setShadingRateQCOM(ShadingRate rate);
+    ShadingRate getShadingRateQCOM() const { return mShadingRateQCOM; }
 
     // GL_EXT_fragment_shading_rate helpers
-    void setShadingRateCombinerOps(GLenum combinerOp0, GLenum combinerOp1);
-    CombinerOp *getShadingRateCombinerOps() { return mCombinerOps; }
+    void setShadingRateEXT(ShadingRate rate);
+    ShadingRate getShadingRateEXT() const { return mShadingRateEXT; }
+    void setShadingRateCombinerOps(CombinerOp combinerOp0, CombinerOp combinerOp1);
+    const std::array<CombinerOp, 2> &getShadingRateCombinerOps() const { return mCombinerOps; }
+    bool getFetchPerSample() const { return mFetchPerSample; }
 
     // Pixel pack state manipulation
     void setPackAlignment(GLint alignment);
@@ -570,6 +582,13 @@ class PrivateState : angle::NonCopyable
     void setVertexAttribu(GLuint index, const GLuint values[4]);
     void setVertexAttribi(GLuint index, const GLint values[4]);
 
+    void setEnableVertexAttribArray(unsigned int attribNum, bool enabled);
+    void setVertexArrayPrivate(VertexArrayPrivate *vertexArrayPrivate)
+    {
+        mVertexArrayPrivate = vertexArrayPrivate;
+    }
+    VertexArrayPrivate *getVertexArrayPrivate() const { return mVertexArrayPrivate; }
+
     // QCOM_tiled_rendering
     void setTiledRendering(bool tiledRendering) { mTiledRendering = tiledRendering; }
     bool isTiledRendering() const { return mTiledRendering; }
@@ -618,6 +637,47 @@ class PrivateState : angle::NonCopyable
 
     void setPerfMonitorActive(bool active) { mIsPerfMonitorActive = active; }
     bool isPerfMonitorActive() const { return mIsPerfMonitorActive; }
+
+    VertexArrayID allocateVertexID()
+    {
+        VertexArrayID vertexArray = {mVertexArrayHandleAllocator.allocate()};
+        mVertexArrayMap.assign(vertexArray, nullptr);
+        return vertexArray;
+    }
+    bool isVertexArrayGenerated(VertexArrayID vertexArray) const
+    {
+        ASSERT(mVertexArrayMap.contains({0}));
+        return mVertexArrayMap.contains(vertexArray);
+    }
+    VertexArray *getVertexArray(VertexArrayID handle) const
+    {
+        return mVertexArrayMap.query(handle);
+    }
+    void setVertexArray(VertexArrayID handle, VertexArray *vertexArray)
+    {
+        ASSERT(getVertexArray(handle) == nullptr);
+        ASSERT(vertexArray != nullptr);
+        return mVertexArrayMap.assign(handle, vertexArray);
+    }
+    void eraseVertexArray(VertexArrayID handle, VertexArray **vertexArrayObjectOut)
+    {
+        if (mVertexArrayMap.erase(handle, vertexArrayObjectOut))
+        {
+            mVertexArrayHandleAllocator.release(handle.value);
+        }
+    }
+    const VertexArrayMap &getVertexArrayMap() const { return mVertexArrayMap; }
+
+    void setVertexAttribBinding(GLuint attribIndex, GLuint bindingIndex);
+    void setVertexBindingDivisor(GLuint bindingIndex, GLuint divisor);
+    void setVertexAttribDivisor(GLuint index, GLuint divisor);
+    VertexArrayID getVertexArrayId() const;
+    void setVertexAttribFormat(GLuint attribIndex,
+                               GLint size,
+                               VertexAttribType type,
+                               bool normalized,
+                               bool pureInteger,
+                               GLuint relativeOffset);
 
   private:
     bool hasConstantColor(GLenum sourceRGB, GLenum destRGB) const;
@@ -749,10 +809,11 @@ class PrivateState : angle::NonCopyable
 
     // QCOM_shading_rate
     bool mShadingRatePreserveAspectRatio;
-    ShadingRate mShadingRate;
+    ShadingRate mShadingRateQCOM;
 
     // GL_EXT_fragment_shading_rate
-    CombinerOp mCombinerOps[2];
+    ShadingRate mShadingRateEXT;
+    std::array<CombinerOp, 2> mCombinerOps;
 
     // GL_ARM_shader_framebuffer_fetch
     bool mFetchPerSample;
@@ -768,6 +829,8 @@ class PrivateState : angle::NonCopyable
     const bool mRobustResourceInit;
     const bool mProgramBinaryCacheEnabled;
 
+    VertexArrayPrivate *mVertexArrayPrivate;
+
     Debug mDebug;
 
     // ANGLE_blob_cache
@@ -777,6 +840,9 @@ class PrivateState : angle::NonCopyable
     state::ExtendedDirtyBits mExtendedDirtyBits;
     state::DirtyObjects mDirtyObjects;
     mutable AttributesMask mDirtyCurrentValues;
+
+    VertexArrayMap mVertexArrayMap;
+    HandleAllocator mVertexArrayHandleAllocator;
 };
 
 // This class represents all of the GL context's state.
@@ -798,7 +864,8 @@ class State : angle::NonCopyable
           EGLenum contextPriority,
           bool hasRobustAccess,
           bool hasProtectedContent,
-          bool isExternal);
+          bool isExternal,
+          bool passthroughShaders);
     ~State();
 
     void initialize(Context *context);
@@ -823,6 +890,8 @@ class State : angle::NonCopyable
     const Limitations &getLimitations() const { return mPrivateState.getLimitations(); }
 
     bool isExternal() const { return mPrivateState.isExternal(); }
+
+    bool usesPassthroughShaders() const { return mPassthroughShaders; }
 
     Caps *getMutableCaps() { return mPrivateState.getMutableCaps(); }
     TextureCapsMap *getMutableTextureCaps() { return mPrivateState.getMutableTextureCaps(); }
@@ -893,7 +962,6 @@ class State : angle::NonCopyable
     void setVertexArrayBinding(const Context *context, VertexArray *vertexArray);
     bool removeVertexArrayBinding(const Context *context, VertexArrayID vertexArray);
     VertexArrayID getVertexArrayId() const;
-
     VertexArray *getVertexArray() const
     {
         ASSERT(mVertexArray != nullptr);
@@ -1035,9 +1103,6 @@ class State : angle::NonCopyable
     // Detach a buffer from all bindings
     angle::Result detachBuffer(Context *context, const Buffer *buffer);
 
-    // Vertex attrib manipulation
-    void setEnableVertexAttribArray(unsigned int attribNum, bool enabled);
-
     ANGLE_INLINE void setVertexAttribPointer(const Context *context,
                                              unsigned int attribNum,
                                              Buffer *boundBuffer,
@@ -1075,7 +1140,6 @@ class State : angle::NonCopyable
         }
     }
 
-    void setVertexAttribDivisor(const Context *context, GLuint index, GLuint divisor);
     const void *getVertexAttribPointer(unsigned int attribNum) const;
 
     void bindVertexBuffer(const Context *context,
@@ -1083,20 +1147,6 @@ class State : angle::NonCopyable
                           Buffer *boundBuffer,
                           GLintptr offset,
                           GLsizei stride);
-    void setVertexAttribFormat(GLuint attribIndex,
-                               GLint size,
-                               VertexAttribType type,
-                               bool normalized,
-                               bool pureInteger,
-                               GLuint relativeOffset);
-
-    void setVertexAttribBinding(const Context *context, GLuint attribIndex, GLuint bindingIndex)
-    {
-        mVertexArray->setVertexAttribBinding(context, attribIndex, bindingIndex);
-        mDirtyObjects.set(state::DIRTY_OBJECT_VERTEX_ARRAY);
-    }
-
-    void setVertexBindingDivisor(const Context *context, GLuint bindingIndex, GLuint divisor);
 
     // State query functions
     void getBooleanv(GLenum pname, GLboolean *params) const;
@@ -1385,8 +1435,13 @@ class State : angle::NonCopyable
     bool isRobustResourceInitEnabled() const { return mPrivateState.isRobustResourceInitEnabled(); }
     bool isProgramBinaryCacheEnabled() const { return mPrivateState.isProgramBinaryCacheEnabled(); }
     const Rectangle &getViewport() const { return mPrivateState.getViewport(); }
-    ShadingRate getShadingRate() const { return mPrivateState.getShadingRate(); }
-    CombinerOp *getShadingRateCombinerOps() { return mPrivateState.getShadingRateCombinerOps(); }
+    ShadingRate getShadingRateQCOM() const { return mPrivateState.getShadingRateQCOM(); }
+    ShadingRate getShadingRateEXT() const { return mPrivateState.getShadingRateEXT(); }
+    bool getFetchPerSample() const { return mPrivateState.getFetchPerSample(); }
+    const std::array<CombinerOp, 2> &getShadingRateCombinerOps() const
+    {
+        return mPrivateState.getShadingRateCombinerOps();
+    }
     GLint getPackAlignment() const { return mPrivateState.getPackAlignment(); }
     bool getPackReverseRowOrder() const { return mPrivateState.getPackReverseRowOrder(); }
     GLint getPackRowLength() const { return mPrivateState.getPackRowLength(); }
@@ -1549,22 +1604,26 @@ class State : angle::NonCopyable
         handlers[state::DIRTY_OBJECT_SAMPLERS]                = &State::syncSamplers;
         handlers[state::DIRTY_OBJECT_PROGRAM_PIPELINE_OBJECT] = &State::syncProgramPipelineObject;
 
-        // If a handler is missing, reset everything for ease of static_assert
-        for (auto handler : handlers)
-        {
-            if (handler == nullptr)
-            {
-                return DirtyObjectHandlerArray();
-            }
-        }
-
         return handlers;
     }
 
     angle::Result dirtyObjectHandler(size_t dirtyObject, const Context *context, Command command)
     {
         static constexpr DirtyObjectHandlerArray handlers = MakeDirtyObjectHandlers();
-        static_assert(handlers[0] != nullptr, "MakeDirtyObjectHandlers missing a handler");
+
+        // Fail with static_assert if any handler is missing.
+        constexpr auto existEmptyHandler = []() constexpr {
+            for (auto handler : handlers)
+            {
+                if (handler == nullptr)
+                {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        static_assert(!existEmptyHandler(), "MakeDirtyObjectHandlers missing a handler");
 
         return (this->*handlers[dirtyObject])(context, command);
     }
@@ -1590,6 +1649,7 @@ class State : angle::NonCopyable
     bool mHasRobustAccess;
     bool mHasProtectedContent;
     bool mIsDebugContext;
+    bool mPassthroughShaders;
 
     egl::ShareGroup *mShareGroup;
     mutable egl::ContextMutex mContextMutex;

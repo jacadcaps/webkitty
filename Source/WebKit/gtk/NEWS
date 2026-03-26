@@ -1,76 +1,145 @@
 ================
-WebKitGTK 2.50.4
+WebKitGTK 2.52.0
 ================
 
-What's new in WebKitGTK 2.50.4?
+What's new in WebKitGTK 2.52.0?
 
+  - Make scrolling with touch input smoother for small movements.
+  - Fix estimated load progress of downloads when Content-Length value is wrong.
+  - Ensure that "scrollend" events are correctly emitted after scroll animations.
+  - Fix several crashes and rendering issues.
+  - Translation updates: Japanese, Kazakh, Swedish.
+
+=================
+WebKitGTK 2.51.93
+=================
+
+What's new in WebKitGTK 2.51.93?
+
+  - Make text look like in other browsers by blending in linear color space.
+  - Avoid composition for non visible layers with running animations.
+  - Fix several crashes and rendering issues.
+
+=================
+WebKitGTK 2.51.92
+=================
+
+What's new in WebKitGTK 2.51.92?
+
+  - Fix PDF rendering broken by the accelerated 2D canvas performance improvements.
+  - Fix flickering while scrolling in some edge cases.
+  - Support for rotation and mirroring in internal WebCodecs encoder.
+  - System fallback font selection no longer takes style into account.
+  - Fix several crashes and rendering issues.
+
+=================
+WebKitGTK 2.51.91
+=================
+
+What's new in WebKitGTK 2.51.91?
+
+  - Disable GPU process by default.
+  - Improve async scrolling when main thread is busy by avoiding locks and rendering the
+    scrollbars from the scrolling thread.
+  - Fix the build with old versions of libdrm.
+  - Fix the build on i386.
+  - Fix several crashes and rendering issues.
+
+=================
+WebKitGTK 2.51.90
+=================
+
+What's new in WebKitGTK 2.51.90?
+
+  - Improve performance of accelerated 2D canvas by recording operations
+    for batched replay.
+  - Add webkit_context_menu_get_position() and webkit_context_menu_item_get_title().
+  - Fix web process translatable strings to follow system locale.
+  - Fix DMA-BUF buffers leaked with GTK3 when the web view is destroyed.
+  - Fix several crashes and rendering issues.
+  - Translation updates: Slovenian.
+
+================
+WebKitGTK 2.51.4
+================
+
+What's new in WebKitGTK 2.51.4?
+
+  - Fix rendering of some PDFs due to issues in cross-thread transfer of
+    accelerated bitmaps.
+  - Fix a bug in compositor state causing that one frame could be sent to
+    the UI process before the previous one is done.
+  - Use timerfd when available to improve timer resolution.
   - Correctly handle the program name passed to the sleep disabler.
-  - Ensure GStreamer is initialized before using the Quirks.
+  - Fix the build with clang 21.
   - Fix several crashes and rendering issues.
 
 ================
-WebKitGTK 2.50.3
+WebKitGTK 2.51.3
 ================
 
-What's new in WebKitGTK 2.50.3?
+What's new in WebKitGTK 2.51.3?
 
-  - Fix seeking and looping of media elements that set the "loop" property.
+  - Improve composition scheduling to avoid blocking waiting for tile painting.
+  - Enable Pointer Events for touch input.
+  - Building with Enchant 1.x is no longer supported, Enchant 2.x is now always
+    used for spell checking.
+  - Moved WebRTC network access to the NetworkProcess, when using GstWebRTC.
+    This requires librice, and building with the CMake USE_LIBRICE option. When
+    enabled, it is still possible to choose the older libnice-based implementation
+    at runtime by setting WEBKIT_GST_DISABLE_WEBRTC_NETWORK_SANDBOX=1 in the
+    environment.
+  - Add support the XR_ANDROID_raycast OpenXR extension for WebXR Hit Testing.
+  - Add support to use super-tiled graphics buffers when running on Vivante GPUs.
+    Currently setting WEBKIT_SKIA_USE_VIVANTE_SUPER_TILED_TILE_TEXTURES=1 in the
+    environment is needed to opt-in into using those.
+  - Ensure that GStreamer is properly initialized before applying any multimedia
+    handling quirks.
+  - Fix PointerEvent behaviour for mouse events synthesized from touch inputs.
+  - Fix drag-and-drop when dropping folders from a file manager into a web view.
+  - Fix seeking and looping of media elements that set the "loop" property. 
   - Fix several crashes and rendering issues.
 
 ================
-WebKitGTK 2.50.2
+WebKitGTK 2.51.2
 ================
 
-What's new in WebKitGTK 2.50.2?
+What's new in WebKitGTK 2.51.2?
 
-  - Prevent unsafe URI schemes from participating in media playback.
-  - Make jsc_value_array_buffer_get_data() function introspectable.
-  - Fix logging in to Google accounts that have a WebAuthn second factor configured.
-  - Fix loading webkit://gpu when there are no threads configured for GPU rendering.
-  - Fix rendering gradiants that use the CSS hue interpolation method.
-  - Fix pasting image data from the clipboard.
-  - Fix font-family selection when the font name contains spaces.
-  - Fix the build with standard C libraries that lack execinfo.h,
-    like Musl or uClibc.
-  - Fix capturing canvas snapshots in the Web Inspector.
+  - Add WebKitImage utility class that will be used for favicons and snapshots.
+  - Videos with BT2100-PQ colorspace are now tone-mapped to SDR, ensuring colours
+    do not appear washed out.
+  - Use a run loop observer also to notify the main thread when composition is done.
+  - Remove the hybrid rendering mode now that we are computing a different tile size
+    for GPU and CPU rendering modes.
+  - Make jsc_value_array_buffer_get_data() introspectable.
+  - Restrict allowed URI protocols for media playback.
+  - Add rendering and buffer formats information to webkit://gpu.
+  - Enable dynamic MSAA for accelerated 2D canvas rendering.
   - Fix several crashes and rendering issues.
+  - Translation updates: Slovenian, Turkish.
 
 ================
-WebKitGTK 2.50.1
+WebKitGTK 2.51.1
 ================
 
-What's new in WebKitGTK 2.50.1?
+What's new in WebKitGTK 2.51.1?
 
-  - Improve text rendering performance.
-  - Fix audio playback broken on instagram.
+  - Use the GPU process for WebGL by default.
+  - Add initial API for web extensions.
+  - Add API to handle WebXR permission requests.
+  - Add new API to query the immersive session status.
+  - Improve text rendering performance
+  - Compute the layers tile size, using a different strategy depending on whether
+    GPU rendering is enabled.
+  - Add support for run loop observers that are now used to replace the layer flush
+    timer and properly implement the opportunistic task scheduler.
+  - Fix rendering fo gradients with hue interpolation method.
   - Fix rendering of layers with fractional transforms.
-  - Fix the build with ENABLE(VIDEO) disabled.
-  - Fix the build in s390x.
+  - Fix pasting image data (like image/png) from the clipboard.
+  - Remove support for building with libsoup2.
   - Fix several crashes and rendering issues.
-
-================
-WebKitGTK 2.50.0
-================
-
-What's new in WebKitGTK 2.50.0?
-
-  - Fix rendering with software rasterization enabled.
-  - Fix WebAudio issues after idling for a minute.
-  - Fix several crashes and rendering issues.
-
-=================
-WebKitGTK 2.49.90
-=================
-
-What's new in WebKitGTK 2.49.90?
-
-  - Add support for font collection / fragment identifiers.
-  - Fix web process deadlock on exit.
-  - Fix stuttering when playing WebP animations
-  - Fix CSS animations with cubic-bezier timing function.
-  - Do not start the MemoryPressureMonitor if it's disabled
-  - Translation updates: Polish, Slovenian.
-  - Fix several crashes and rendering issues.
+  - Translation updates: Bulgarian, Slovenian, Swedish.
 
 ================
 WebKitGTK 2.49.4

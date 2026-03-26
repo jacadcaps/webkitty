@@ -83,7 +83,7 @@
 
     _effectView = adoptNS([PAL::alloc_WTTextEffectViewInstance() initWithAsyncSource:self]);
     [_effectView setClipsToBounds:YES];
-    [_effectView setFrame:webView.view().bounds];
+    [_effectView setFrame:webView.protectedView().get().bounds];
 
     return self;
 }
@@ -99,7 +99,7 @@
     }
 
     RetainPtr<id<_WTTextEffect>> effect;
-    RetainPtr chunk = adoptNS([PAL::alloc_WTTextChunkInstance() initChunkWithIdentifier:uuid.UUIDString]);
+    RetainPtr chunk = adoptNS([PAL::alloc_WTTextChunkInstance() initChunkWithIdentifier:retainPtr(uuid.UUIDString).get()]);
 
     switch (data.style) {
     case WebCore::TextAnimationType::Initial:
@@ -167,12 +167,19 @@
 
     ASSERT(effect);
 
+    CheckedPtr webView = _webView.get();
+    RetainPtr view = webView->view();
+
     if (data.style == WebCore::TextAnimationType::Initial)
-        [_effectView setFrame:_webView->view().bounds];
+        [_effectView setFrame:[view bounds]];
 
     if (![_effectView superview])
-        [_webView->view() addSubview:_effectView.get()];
+        [view addSubview:_effectView.get()];
 
+    if (![_effectView superview]) {
+        CheckedRef viewImpl = *_webView;
+        [viewImpl->protectedView() addSubview:_effectView.get()];
+    }
     RetainPtr effectID = [_effectView addEffect:effect.get()];
     RetainPtr effectData = adoptNS([[WKTextAnimationTypeEffectData alloc] initWithEffectID:effectID.get() type:data.style]);
     [_chunkToEffect setObject:effectData.get() forKey:uuid];
@@ -182,7 +189,7 @@
 {
     RetainPtr effectData = [_chunkToEffect objectForKey:uuid];
     if (effectData) {
-        [_effectView removeEffect:[effectData effectID]];
+        [_effectView removeEffect:retainPtr([effectData effectID]).get()];
         [_chunkToEffect removeObjectForKey:uuid];
     }
 }
@@ -201,7 +208,7 @@
 {
     for (NSUUID *chunkID in [_chunkToEffect allKeys]) {
         RetainPtr effectData = [_chunkToEffect objectForKey:chunkID];
-        [_effectView removeEffect:[effectData effectID]];
+        [_effectView removeEffect:retainPtr([effectData effectID]).get()];
 
         if ([effectData type] != WebCore::TextAnimationType::Initial)
             [_chunkToEffect removeObjectForKey:chunkID];
@@ -221,7 +228,7 @@
 
 - (void)textPreviewsForChunk:(_WTTextChunk *)chunk completion:(void (^)(NSArray <_WTTextPreview *> *previews))completionHandler
 {
-    RetainPtr nsUUID = adoptNS([[NSUUID alloc] initWithUUIDString:chunk.identifier]);
+    RetainPtr nsUUID = adoptNS([[NSUUID alloc] initWithUUIDString:retainPtr(chunk.identifier).get()]);
     auto uuid = WTF::UUID::fromNSUUID(nsUUID.get());
     if (!uuid || !uuid->isValid()) {
         completionHandler(nil);
@@ -279,7 +286,7 @@
 
 - (void)updateIsTextVisible:(BOOL)isTextVisible forChunk:(_WTTextChunk *)chunk completion:(void (^)(void))completionHandler
 {
-    RetainPtr nsUUID = adoptNS([[NSUUID alloc] initWithUUIDString:chunk.identifier]);
+    RetainPtr nsUUID = adoptNS([[NSUUID alloc] initWithUUIDString:retainPtr(chunk.identifier).get()]);
     auto uuid = WTF::UUID::fromNSUUID(nsUUID.get());
     if (!uuid || !uuid->isValid()) {
         if (completionHandler)

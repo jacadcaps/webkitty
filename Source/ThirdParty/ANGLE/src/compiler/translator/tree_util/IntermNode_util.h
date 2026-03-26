@@ -9,6 +9,8 @@
 #ifndef COMPILER_TRANSLATOR_INTERMNODEUTIL_H_
 #define COMPILER_TRANSLATOR_INTERMNODEUTIL_H_
 
+#include <optional>
+
 #include "compiler/translator/IntermNode.h"
 #include "compiler/translator/Name.h"
 #include "compiler/translator/tree_util/FindFunction.h"
@@ -34,6 +36,7 @@ TIntermConstantUnion *CreateUVecNode(const unsigned int values[],
 TIntermConstantUnion *CreateIndexNode(int index);
 TIntermConstantUnion *CreateUIntNode(unsigned int value);
 TIntermConstantUnion *CreateBoolNode(bool value);
+TIntermConstantUnion *CreateYuvCscNode(TYuvCscStandardEXT value);
 
 // Create temporary variable of known type |type|.
 TVariable *CreateTempVariable(TSymbolTable *symbolTable, const TType *type);
@@ -65,15 +68,23 @@ std::pair<const TVariable *, const TVariable *> DeclareStructure(
     uint32_t arraySize,
     const ImmutableString &structTypeName,
     const ImmutableString *structInstanceName);
-const TVariable *DeclareInterfaceBlock(TIntermBlock *root,
-                                       TSymbolTable *symbolTable,
+TInterfaceBlock *DeclareInterfaceBlock(TSymbolTable *symbolTable,
                                        TFieldList *fieldList,
-                                       TQualifier qualifier,
                                        const TLayoutQualifier &layoutQualifier,
-                                       const TMemoryQualifier &memoryQualifier,
-                                       uint32_t arraySize,
-                                       const ImmutableString &blockTypeName,
-                                       const ImmutableString &blockVariableName);
+                                       const ImmutableString &blockTypeName);
+
+const TVariable *DeclareInterfaceBlockVariable(TIntermBlock *root,
+                                               TSymbolTable *symbolTable,
+                                               TQualifier qualifier,
+                                               const TInterfaceBlock *interfaceBlock,
+                                               const TLayoutQualifier &layoutQualifier,
+                                               const TMemoryQualifier &memoryQualifier,
+                                               uint32_t arraySize,
+                                               const ImmutableString &blockVariableName);
+
+// `expr` must be an lvalue. This will return the root variable, e.g. the root variable of
+// `a[0].b[0].xy` is `a`,
+const TVariable *FindRootVariable(TIntermNode *expr);
 
 // Creates a variable for a struct type.
 const TVariable &CreateStructTypeVariable(TSymbolTable &symbolTable, const TStructure &structure);
@@ -97,6 +108,12 @@ TIntermBinary &AccessField(TIntermTyped &object, const Name &field);
 // Accesses a field for the given node by its field index.
 // The node must be a struct instance.
 TIntermBinary &AccessFieldByIndex(TIntermTyped &object, int index);
+
+// Accesses `object` by index, returning a binary referencing the field of the named interface
+// block.
+// Note: nameless interface blocks' fields are represented by individual TVariables, and so this
+// helper cannot generate an access to them.
+TIntermBinary *AccessFieldOfNamedInterfaceBlock(const TVariable *object, int index);
 
 // If the input node is nullptr, return nullptr.
 // If the input node is a block node, return it.
@@ -151,6 +168,9 @@ TIntermSwizzle *CreateSwizzle(TIntermTyped *reference, ArgsT... args)
 // i.e. a block can only end in a branch if its last statement is a branch or is a block ending in
 // branch.
 bool EndsInBranch(TIntermBlock *block);
+
+// Cast a scalar to the basic type of type. No-ops if scalar is already the right type.
+TIntermNode *CastScalar(const TType &type, TIntermTyped *scalar);
 
 }  // namespace sh
 

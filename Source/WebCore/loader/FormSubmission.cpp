@@ -36,6 +36,7 @@
 #include "ContentSecurityPolicy.h"
 #include "DOMFormData.h"
 #include "DocumentInlines.h"
+#include "DocumentView.h"
 #include "ElementInlines.h"
 #include "Event.h"
 #include "FormData.h"
@@ -77,7 +78,7 @@ static void appendMailtoPostFormDataToURL(URL& url, const FormData& data, const 
 
     Vector<uint8_t> bodyData("body="_span);
     FormDataBuilder::encodeStringAsFormData(bodyData, body.utf8());
-    body = makeStringByReplacingAll(bodyData.span(), '+', "%20"_s);
+    body = makeStringByReplacingAll(byteCast<Latin1Character>(bodyData.span()), '+', "%20"_s);
 
     auto query = url.query();
     if (query.isEmpty())
@@ -148,8 +149,8 @@ inline FormSubmission::FormSubmission(Method method, const URL& action, const At
     , m_action(action)
     , m_target(target)
     , m_contentType(contentType)
-    , m_formState(WTFMove(state))
-    , m_formData(WTFMove(data))
+    , m_formState(WTF::move(state))
+    , m_formData(WTF::move(data))
     , m_boundary(boundary)
     , m_lockHistory(lockHistory)
     , m_event(event)
@@ -169,7 +170,7 @@ static PAL::TextEncoding encodingFromAcceptCharset(const String& acceptCharset, 
     return document.textEncoding();
 }
 
-Ref<FormSubmission> FormSubmission::create(HTMLFormElement& form, HTMLFormControlElement* overrideSubmitter, const Attributes& attributes, Event* event, LockHistory lockHistory, FormSubmissionTrigger trigger)
+RefPtr<FormSubmission> FormSubmission::create(HTMLFormElement& form, HTMLFormControlElement* overrideSubmitter, const Attributes& attributes, Event* event, LockHistory lockHistory, FormSubmissionTrigger trigger)
 {
     auto copiedAttributes = attributes;
 
@@ -214,8 +215,11 @@ Ref<FormSubmission> FormSubmission::create(HTMLFormElement& form, HTMLFormContro
     auto domFormData = DOMFormData::create(document.ptr(), dataEncoding.encodingForFormSubmissionOrURLParsing());
     StringPairVector formValues;
 
-    auto result = form.constructEntryList(submitter.copyRef(), WTFMove(domFormData), &formValues);
+    auto result = form.constructEntryList(submitter.copyRef(), WTF::move(domFormData), &formValues);
     RELEASE_ASSERT(result);
+    // Calling form.constructEntryList can run JavaScript and potentially detach the frame.
+    if (!document->frame())
+        return nullptr;
     domFormData = result.releaseNonNull();
 
     RefPtr<FormData> formData;
@@ -223,7 +227,7 @@ Ref<FormSubmission> FormSubmission::create(HTMLFormElement& form, HTMLFormContro
 
     if (isMultiPartForm) {
         formData = FormData::createMultiPart(domFormData);
-        boundary = String(formData->boundary());
+        boundary = String(byteCast<Latin1Character>(formData->boundary().span()));
     } else {
         formData = FormData::create(domFormData, attributes.method() == Method::Get ? FormData::EncodingType::FormURLEncoded : FormData::parseEncodingType(encodingType));
         if (copiedAttributes.method() == Method::Post && isMailtoForm) {
@@ -235,9 +239,9 @@ Ref<FormSubmission> FormSubmission::create(HTMLFormElement& form, HTMLFormContro
 
     formData->setIdentifier(generateFormDataIdentifier());
 
-    auto formState = FormState::create(form, WTFMove(formValues), document, trigger, submitter.get());
+    auto formState = FormState::create(form, WTF::move(formValues), document, trigger, submitter.get());
 
-    return adoptRef(*new FormSubmission(copiedAttributes.method(), actionURL, form.effectiveTarget(event, submitter.get()), encodingType, WTFMove(formState), formData.releaseNonNull(), boundary, lockHistory, event));
+    return adoptRef(*new FormSubmission(copiedAttributes.method(), actionURL, form.effectiveTarget(event, submitter.get()), encodingType, WTF::move(formState), formData.releaseNonNull(), boundary, lockHistory, event));
 }
 
 URL FormSubmission::requestURL() const

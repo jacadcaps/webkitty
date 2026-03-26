@@ -48,7 +48,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 RetainPtr<id> CoreIPCPKContact::toID() const
 {
-    RetainPtr<PKContact> contact = adoptNS([[PAL::getPKContactClass() alloc] init]);
+    RetainPtr<PKContact> contact = adoptNS([[PAL::getPKContactClassSingleton() alloc] init]);
 
     if (m_name)
         contact.get().name = (NSPersonNameComponents *)m_name->toID();
@@ -57,9 +57,9 @@ RetainPtr<id> CoreIPCPKContact::toID() const
     if (m_postalAddress)
         contact.get().postalAddress = (CNPostalAddress *)m_postalAddress->toID();
 
-    contact.get().emailAddress = nsStringNilIfNull(m_emailAddress);
+    contact.get().emailAddress = nsStringNilIfNull(m_emailAddress).get();
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    contact.get().supplementarySubLocality = nsStringNilIfNull(m_supplementarySublocality);
+    contact.get().supplementarySubLocality = nsStringNilIfNull(m_supplementarySublocality).get();
 ALLOW_DEPRECATED_DECLARATIONS_END
 
     return contact;

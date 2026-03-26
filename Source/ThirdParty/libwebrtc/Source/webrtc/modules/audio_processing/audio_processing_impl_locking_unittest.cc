@@ -9,19 +9,22 @@
  */
 
 #include <algorithm>
-#include <memory>
+#include <cstddef>
+#include <cstdint>
 #include <vector>
 
 #include "api/array_view.h"
+#include "api/audio/audio_processing.h"
 #include "api/audio/builtin_audio_processing_builder.h"
 #include "api/environment/environment_factory.h"
-#include "modules/audio_processing/audio_processing_impl.h"
-#include "modules/audio_processing/test/test_utils.h"
+#include "api/scoped_refptr.h"
+#include "api/units/time_delta.h"
 #include "rtc_base/event.h"
 #include "rtc_base/platform_thread.h"
 #include "rtc_base/random.h"
 #include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/thread.h"
+#include "rtc_base/thread_annotations.h"
 #include "test/gtest.h"
 
 namespace webrtc {
@@ -163,16 +166,16 @@ struct TestConfig {
       };
 
       const AllowedApiCallCombinations api_calls[] = {
-          {RenderApiImpl::ProcessReverseStreamImplInteger,
-           CaptureApiImpl::ProcessStreamImplInteger},
-          {RenderApiImpl::ProcessReverseStreamImplFloat,
-           CaptureApiImpl::ProcessStreamImplFloat},
-          {RenderApiImpl::AnalyzeReverseStreamImplFloat,
-           CaptureApiImpl::ProcessStreamImplFloat},
-          {RenderApiImpl::ProcessReverseStreamImplInteger,
-           CaptureApiImpl::ProcessStreamImplFloat},
-          {RenderApiImpl::ProcessReverseStreamImplFloat,
-           CaptureApiImpl::ProcessStreamImplInteger}};
+          {.render_api = RenderApiImpl::ProcessReverseStreamImplInteger,
+           .capture_api = CaptureApiImpl::ProcessStreamImplInteger},
+          {.render_api = RenderApiImpl::ProcessReverseStreamImplFloat,
+           .capture_api = CaptureApiImpl::ProcessStreamImplFloat},
+          {.render_api = RenderApiImpl::AnalyzeReverseStreamImplFloat,
+           .capture_api = CaptureApiImpl::ProcessStreamImplFloat},
+          {.render_api = RenderApiImpl::ProcessReverseStreamImplInteger,
+           .capture_api = CaptureApiImpl::ProcessStreamImplFloat},
+          {.render_api = RenderApiImpl::ProcessReverseStreamImplFloat,
+           .capture_api = CaptureApiImpl::ProcessStreamImplInteger}};
       std::vector<TestConfig> out;
       for (auto api_call : api_calls) {
         test_config.render_api_function = api_call.render_api;

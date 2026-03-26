@@ -10,9 +10,8 @@
 
 #include "api/audio/audio_frame.h"
 
-#include <string.h>
-
 #include <cstdint>
+#include <cstring>
 #include <optional>
 
 #include "api/array_view.h"
@@ -20,7 +19,6 @@
 #include "api/audio/channel_layout.h"
 #include "api/rtp_packet_infos.h"
 #include "rtc_base/checks.h"
-#include "rtc_base/time_utils.h"
 
 namespace webrtc {
 
@@ -60,7 +58,6 @@ void AudioFrame::ResetWithoutMuting() {
   channel_layout_ = CHANNEL_LAYOUT_NONE;
   speech_type_ = kUndefined;
   vad_activity_ = kVadUnknown;
-  profile_timestamp_ms_ = 0;
   packet_infos_ = RtpPacketInfos();
   absolute_capture_timestamp_ms_ = std::nullopt;
 }
@@ -128,18 +125,6 @@ void AudioFrame::CopyFrom(const AudioFrame& src) {
   }
 }
 
-void AudioFrame::UpdateProfileTimeStamp() {
-  profile_timestamp_ms_ = TimeMillis();
-}
-
-int64_t AudioFrame::ElapsedProfileTimeMs() const {
-  if (profile_timestamp_ms_ == 0) {
-    // Profiling has not been activated.
-    return -1;
-  }
-  return TimeSince(profile_timestamp_ms_);
-}
-
 const int16_t* AudioFrame::data() const {
   return muted_ ? zeroed_data().begin() : data_.data();
 }
@@ -148,7 +133,7 @@ InterleavedView<const int16_t> AudioFrame::data_view() const {
   // If you get a nullptr from `data_view()`, it's likely because the
   // samples_per_channel_ and/or num_channels_ members haven't been properly
   // set. Since `data_view()` returns an InterleavedView<> (which internally
-  // uses webrtc::ArrayView<>), we inherit the behavior in InterleavedView when
+  // uses ArrayView<>), we inherit the behavior in InterleavedView when
   // the view size is 0 that ArrayView<>::data() returns nullptr. So, even when
   // an AudioFrame is muted and we want to return `zeroed_data()`, if
   // samples_per_channel_ or  num_channels_ is 0, the view will point to

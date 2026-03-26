@@ -27,8 +27,10 @@
 import os
 
 
-EXPECTATIONS_PATH = '../../../../../Source/{project}/SaferCPPExpectations/{checker}Expectations'
-PROJECTS = ['JavaScriptCore', 'WebCore', 'WebDriver', 'WebGPU', 'WebInspectorUI', 'WebKit', 'WebKitLegacy', 'WTF']
+PROJECT_PATH = '../../../../../Source/{project}'
+EXPECTATIONS_PATH = PROJECT_PATH + '/SaferCPPExpectations/{checker}Expectations'
+DERIVED_SOURCES_DIR = '../../../../../WebKitBuild/{configuration}/DerivedSources/{project}'
+PROJECTS = ['JavaScriptCore', 'PAL', 'WebCore', 'WebDriver', 'WebGPU', 'WebInspectorUI', 'WebKit', 'WebKitLegacy', 'WTF']
 
 
 class Checker(object):
@@ -42,9 +44,19 @@ class Checker(object):
     def description(self):
         return self._description
 
+    def project_path(self, project_name):
+        return os.path.abspath(os.path.join(__file__, PROJECT_PATH.format(project=project_name)))
+
+    def derived_sources_path(self, project_name, build_configuration):
+        assert(build_configuration.startswith('Release') or build_configuration.startswith('Debug'))
+        relpath = DERIVED_SOURCES_DIR.format(project=project_name, configuration=build_configuration)
+        return os.path.abspath(os.path.join(__file__, relpath))
+
     def expectations_path(self, project_name):
-        path = os.path.join(__file__, EXPECTATIONS_PATH.format(project=project_name, checker=self.name()))
         assert(project_name in PROJECTS)
+        if project_name == 'PAL':
+            project_name = 'WebCore/PAL'
+        path = os.path.join(__file__, EXPECTATIONS_PATH.format(project=project_name, checker=self.name()))
         return os.path.abspath(path)
 
     @classmethod

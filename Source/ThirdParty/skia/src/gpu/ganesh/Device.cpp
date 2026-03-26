@@ -54,7 +54,7 @@
 #include "src/base/SkTLazy.h"
 #include "src/core/SkColorData.h"
 #include "src/core/SkDevice.h"
-#include "src/core/SkDrawBase.h"
+#include "src/core/SkDraw.h"
 #include "src/core/SkImageFilterTypes.h"  // IWYU pragma: keep
 #include "src/core/SkImageInfoPriv.h"
 #include "src/core/SkLatticeIter.h"
@@ -81,6 +81,7 @@
 #include "src/gpu/ganesh/GrProxyProvider.h"
 #include "src/gpu/ganesh/GrRecordingContextPriv.h"
 #include "src/gpu/ganesh/GrRenderTargetProxy.h"
+#include "src/gpu/ganesh/GrShaderCaps.h"
 #include "src/gpu/ganesh/GrStyle.h"
 #include "src/gpu/ganesh/GrSurfaceProxy.h"
 #include "src/gpu/ganesh/GrSurfaceProxyPriv.h"
@@ -113,7 +114,6 @@
 #include <utility>
 
 class GrBackendSemaphore;
-struct GrShaderCaps;
 struct SkDrawShadowRec;
 
 using namespace skia_private;
@@ -154,12 +154,10 @@ inline GrPrimitiveType point_mode_to_primitive_type(SkCanvas::PointMode mode) {
 std::unique_ptr<GrFragmentProcessor> make_inverse_rrect_fp(const SkMatrix& viewMatrix,
                                                            const SkRRect& rrect, GrAA aa,
                                                            const GrShaderCaps& shaderCaps) {
-    SkTCopyOnFirstWrite<SkRRect> devRRect(rrect);
-    if (viewMatrix.isIdentity() || rrect.transform(viewMatrix, devRRect.writable())) {
+    if (auto rr = rrect.transform(viewMatrix)) {
         auto edgeType = (aa == GrAA::kYes) ? GrClipEdgeType::kInverseFillAA
                                            : GrClipEdgeType::kInverseFillBW;
-        auto [success, fp] = GrRRectEffect::Make(/*inputFP=*/nullptr, edgeType, *devRRect,
-                                                 shaderCaps);
+        auto [success, fp] = GrRRectEffect::Make(/*inputFP=*/nullptr, edgeType, *rr, shaderCaps);
         return (success) ? std::move(fp) : nullptr;
     }
     return nullptr;
@@ -393,8 +391,7 @@ void Device::clipRegion(const SkRegion& globalRgn, SkClipOp op) {
     } else if (globalRgn.isRect()) {
         fClip.clipRect(this->globalToDevice().asM33(), SkRect::Make(globalRgn.getBounds()), aa, op);
     } else {
-        SkPath path;
-        globalRgn.getBoundaryPath(&path);
+        SkPath path = globalRgn.getBoundaryPath();
         fClip.clipPath(this->globalToDevice().asM33(), path, aa, op);
     }
 }
@@ -409,9 +406,7 @@ void Device::android_utils_clipAsRgn(SkRegion* region) const {
         if (e.fShape.isRect() && e.fLocalToDevice.isIdentity()) {
             tmp.setRect(e.fShape.rect().roundOut());
         } else {
-            SkPath tmpPath;
-            e.fShape.asPath(&tmpPath);
-            tmpPath.transform(e.fLocalToDevice);
+            SkPath tmpPath = e.fShape.asPath().makeTransform(e.fLocalToDevice);
             tmp.setPath(tmpPath, deviceBounds);
         }
 
@@ -480,10 +475,8 @@ void Device::drawPoints(SkCanvas::PointMode mode, SkSpan<const SkPoint> pts, con
                                  paint,
                                  this->localToDevice(),
                                  &grPaint)) {
-                SkPath path;
+                SkPath path = SkPath::Line(pts[0], pts[1]);
                 path.setIsVolatile(true);
-                path.moveTo(pts[0]);
-                path.lineTo(pts[1]);
                 fSurfaceDrawContext->drawPath(this->clip(),
                                               std::move(grPaint),
                                               aa,
@@ -532,7 +525,7 @@ void Device::drawPoints(SkCanvas::PointMode mode, SkSpan<const SkPoint> pts, con
         paint.getMaskFilter() ||
         fSurfaceDrawContext->chooseAAType(aa) == GrAAType::kCoverage) {
         SkRasterClip rc(this->devClipBounds());
-        SkDrawBase draw;
+        skcpu::Draw draw;
         // don't need to set fBlitterChoose, as it should never get used
         draw.fDst = SkPixmap(SkImageInfo::MakeUnknown(this->width(), this->height()), nullptr, 0);
         draw.fCTM = &this->localToDevice();
@@ -690,11 +683,11 @@ void Device::drawDRRect(const SkRRect& outer, const SkRRect& inner, const SkPain
         }
     }
 
-    SkPath path;
+    auto path = SkPathBuilder(SkPathFillType::kEvenOdd)
+                .addRRect(outer)
+                .addRRect(inner)
+                .detach();
     path.setIsVolatile(true);
-    path.addRRect(outer);
-    path.addRRect(inner);
-    path.setFillType(SkPathFillType::kEvenOdd);
 
     // TODO: We are losing the possible mutability of the path here but this should probably be
     // fixed by upgrading GrStyledShape to handle DRRects.
@@ -710,10 +703,9 @@ void Device::drawRegion(const SkRegion& region, const SkPaint& paint) {
     ASSERT_SINGLE_OWNER
 
     if (paint.getMaskFilter()) {
-        SkPath path;
-        region.getBoundaryPath(&path);
+        SkPath path = region.getBoundaryPath();
         path.setIsVolatile(true);
-        return this->drawPath(path, paint, true);
+        return this->drawPath(path, paint);
     }
 
     GrPaint grPaint;
@@ -771,10 +763,10 @@ void Device::drawArc(const SkArc& arc, const SkPaint& paint) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-void Device::drawPath(const SkPath& origSrcPath, const SkPaint& paint, bool pathIsMutable) {
+void Device::drawPath(const SkPath& origSrcPath, const SkPaint& paint) {
 #if defined(GPU_TEST_UTILS)
     if (fContext->priv().options().fAllPathsVolatile && !origSrcPath.isVolatile()) {
-        this->drawPath(SkPath(origSrcPath).setIsVolatile(true), paint, true);
+        this->drawPath(SkPath(origSrcPath).setIsVolatile(true), paint);
         return;
     }
 #endif
@@ -794,7 +786,6 @@ void Device::drawPath(const SkPath& origSrcPath, const SkPaint& paint, bool path
         return;
     }
 
-    // TODO: losing possible mutability of 'origSrcPath' here
     GrStyledShape shape(origSrcPath, paint);
 
     GrBlurUtils::DrawShapeWithMaskFilter(fContext.get(), fSurfaceDrawContext.get(), this->clip(),
@@ -959,7 +950,8 @@ bool Device::drawAsTiledImageRect(SkCanvas* canvas,
             constraint,
             rCtx->priv().options().fSharpenMipmappedTextures,
             cacheSize,
-            maxTextureSize);
+            maxTextureSize,
+            !rCtx->priv().caps()->shaderCaps()->fHasLowFragmentPrecision);
 #if defined(GPU_TEST_UTILS)
     gNumTilesDrawnGanesh.store(numTiles, std::memory_order_relaxed);
 #endif
@@ -1016,7 +1008,10 @@ void Device::drawImageLattice(const SkImage* image,
     ASSERT_SINGLE_OWNER
     auto iter = std::make_unique<SkLatticeIter>(lattice, dst);
 
-    auto [view, ct] = skgpu::ganesh::AsView(this->recordingContext(), image, skgpu::Mipmapped::kNo);
+    auto [view, ct] = skgpu::ganesh::AsView(this->recordingContext(),
+                                            image,
+                                            skgpu::Mipmapped::kNo,
+                                            this->targetProxy());
     if (view) {
         GrColorInfo colorInfo(ct, image->alphaType(), image->refColorSpace());
         this->drawViewLattice(
@@ -1104,17 +1099,16 @@ void Device::drawShadow(SkCanvas* canvas, const SkPath& path, const SkDrawShadow
 
 ///////////////////////////////////////////////////////////////////////////////
 
-void Device::drawAtlas(const SkRSXform xform[],
-                       const SkRect texRect[],
-                       const SkColor colors[],
-                       int count,
+void Device::drawAtlas(SkSpan<const SkRSXform> xform,
+                       SkSpan<const SkRect> texRect,
+                       SkSpan<const SkColor> colors,
                        sk_sp<SkBlender> blender,
                        const SkPaint& paint) {
     ASSERT_SINGLE_OWNER
     GR_CREATE_TRACE_MARKER_CONTEXT("skgpu::ganesh::Device", "drawAtlas", fContext.get());
 
     GrPaint grPaint;
-    if (colors) {
+    if (!colors.empty()) {
         if (!SkPaintToGrPaintWithBlend(fSurfaceDrawContext.get(),
                                        paint,
                                        this->localToDevice(),
@@ -1131,7 +1125,7 @@ void Device::drawAtlas(const SkRSXform xform[],
         }
     }
 
-    fSurfaceDrawContext->drawAtlas(this->clip(), std::move(grPaint), this->localToDevice(), count,
+    fSurfaceDrawContext->drawAtlas(this->clip(), std::move(grPaint), this->localToDevice(),
                                    xform, texRect, colors);
 }
 

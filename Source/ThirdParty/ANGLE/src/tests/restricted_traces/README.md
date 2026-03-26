@@ -153,6 +153,16 @@ angle_enable_cl = true
     angle_extract_native_libs = true
 </details>
 
+## Capturing long traces
+
+The tracer will capture traces larger than the available physical memory on the
+target device. However, for very long traces there may be noticeable hitching
+during disk-writes once available memory is exhausted. If this becomes problematic a
+release build can be used, or to minimize hitching completely, disable binary data
+file compression. To do this ensure that the following property is set for capture:
+```
+adb shell setprop debug.angle.capture.compression 0
+```
 ## Determine the target app
 
 We first need to identify which application we want to trace.  That can generally be done by
@@ -242,6 +252,28 @@ We need to write out the trace file in a location accessible by the app. We use 
 storage on sdcard, but create a subfolder to isolate ANGLE's files:
 ```
 adb shell mkdir -p /sdcard/Android/data/$PACKAGE_NAME/angle_capture
+```
+
+If the [capture](#Trigger the capture) failed due
+to these errors:
+
+```
+Output directory
+'/sdcard/Android/data/$PACKAGE_NAME/angle_capture/' does not exist.
+Create it over adb using mkdir.
+```
+
+```
+Could not open binary data file /sdcard/Android/data/$PACKAGE_NAME/angle_capture/$LABEL.angledata.gz
+```
+
+It means the app does not have access to /sdcard/. We will need to use the app's
+own data storage, which requires enabling adb root first:
+
+```
+adb root
+adb shell setprop debug.angle.capture.out_dir /data/data/$PACKAGE_NAME/angle_capture
+adb shell mkdir -p /data/data/$PACKAGE_NAME/angle_capture
 ```
 
 ## Start the target app
@@ -452,7 +484,7 @@ cd screenshots
 
 And run the compare script:
 ```
-python3 ../src/tests/restricted_traces/compare_trace_screenshots.py versus_native --trace-list-path ../src/tests/restricted_traces/
+python3 ../src/tests/restricted_traces/compare_trace_screenshots.py versus_native --screenshot-dir . --trace-list-path ../src/tests/restricted_traces/
 ```
 
 The script will print out results comparing ANGLE vs. native screenshots at different fuzz factors.
@@ -464,6 +496,30 @@ asphalt_8 angle_vulkan_asphalt_8.png angle_native_asphalt_8.png 641849 222157 11
 asphalt_9 angle_vulkan_asphalt_9.png angle_native_asphalt_9.png 17919 420 305 293 232 3
 ...
 ```
+
+Script will also save difference PNG files for each fuzz factor into the `--screenshot-dir`. These
+files will be saved even if there is no difference. To discard such files you may add
+`--discard_zero_diff_png` (or `-d`) argument **before** the `versus_native` command.
+
+# Comparing screenshots in two directories at different fuzz factors
+
+In some cases it may be useful to compare screenshots in two directories. For example: to compare
+different runs on the same device, different loops of the same replay run, runs on different
+devices, and so on.
+
+After you have prepared screenshots for comparison, run the `fuzz_ab` command:
+
+```
+python3 compare_trace_screenshots.py -d fuzz_ab --a_dir /my/trace/a --b_dir /my/trace/b --out /my/trace/diff
+```
+
+It will compare screenshots in these directories at different fuzz factors (similar to the
+`versus_native` command). In this example `-d` (`--discard_zero_diff_png`) argument was added to
+only keep PNG files with the difference.
+
+Command also has `--relaxed_file_list_match` (`-r`) argument, allowing to compare directories with
+at least single match, which may be handy in some situations.
+
 # Upgrading existing traces
 
 With tracer updates sometimes we want to re-run tracing to upgrade the trace file format or to

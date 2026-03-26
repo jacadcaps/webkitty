@@ -84,6 +84,16 @@ bool operator==(const CGRect& a, const CGRect& b)
 
 #if PLATFORM(IOS_FAMILY)
 
+std::ostream& operator<<(std::ostream& os, const UIEdgeInsets& insets)
+{
+    return os << "(top = " << insets.top << ", left = " << insets.left << ", bottom = " << insets.bottom << ", right = " << insets.right << ")";
+}
+
+bool operator==(const UIEdgeInsets& a, const UIEdgeInsets& b)
+{
+    return UIEdgeInsetsEqualToEdgeInsets(a, b);
+}
+
 void TestWebKitAPI::Util::instantiateUIApplicationIfNeeded(Class customApplicationClass)
 {
     if (UIApplication.sharedApplication)

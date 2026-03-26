@@ -147,7 +147,7 @@ void JSTestSetLikePrototype::finishCreation(VM& vm)
 const ClassInfo JSTestSetLike::s_info = { "TestSetLike"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestSetLike) };
 
 JSTestSetLike::JSTestSetLike(Structure* structure, JSDOMGlobalObject& globalObject, Ref<TestSetLike>&& impl)
-    : JSDOMWrapper<TestSetLike>(structure, globalObject, WTFMove(impl))
+    : JSDOMWrapper<TestSetLike>(structure, globalObject, WTF::move(impl))
 {
 }
 
@@ -172,7 +172,7 @@ JSValue JSTestSetLike::getConstructor(VM& vm, const JSGlobalObject* globalObject
 
 void JSTestSetLike::destroy(JSC::JSCell* cell)
 {
-    JSTestSetLike* thisObject = static_cast<JSTestSetLike*>(cell);
+    SUPPRESS_MEMORY_UNSAFE_CAST JSTestSetLike* thisObject = static_cast<JSTestSetLike*>(cell);
     thisObject->JSTestSetLike::~JSTestSetLike();
 }
 
@@ -363,7 +363,7 @@ bool JSTestSetLikeOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> ha
 
 void JSTestSetLikeOwner::finalize(JSC::Handle<JSC::Unknown> handle, void* context)
 {
-    auto* jsTestSetLike = static_cast<JSTestSetLike*>(handle.slot()->asCell());
+    SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestSetLike = static_cast<JSTestSetLike*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
     uncacheWrapper(world, jsTestSetLike->protectedWrapped().ptr(), jsTestSetLike);
 }
@@ -377,7 +377,7 @@ extern "C" { extern void (*const __identifier("??_7TestSetLike@WebCore@@6B@")[])
 extern "C" { extern void* _ZTVN7WebCore11TestSetLikeE[]; }
 #endif
 template<std::same_as<TestSetLike> T>
-static inline void verifyVTable(TestSetLike* ptr) 
+static inline void verifyVTable(TestSetLike* ptr)
 {
     if constexpr (std::is_polymorphic_v<T>) {
         const void* actualVTablePointer = getVTablePointer<T>(ptr);
@@ -397,12 +397,13 @@ static inline void verifyVTable(TestSetLike* ptr)
 #endif
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestSetLike>&& impl)
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<TestSetLike>&& impl)
 {
+    UNUSED_PARAM(lexicalGlobalObject);
 #if ENABLE(BINDING_INTEGRITY)
     verifyVTable<TestSetLike>(impl.ptr());
 #endif
-    return createWrapper<TestSetLike>(globalObject, WTFMove(impl));
+    return createWrapper<TestSetLike>(globalObject, WTF::move(impl));
 }
 
 JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestSetLike& impl)

@@ -25,6 +25,9 @@
 
 #pragma once
 
+#include <wtf/Compiler.h>
+#include <wtf/Platform.h>
+
 #if HAVE(APP_SSO)
 
 #import <pal/spi/cocoa/AppSSOSPI.h>
@@ -37,16 +40,16 @@ SOFT_LINK_CLASS_FOR_HEADER(PAL, SOAuthorization);
 SOFT_LINK_CLASS_FOR_HEADER(PAL, SOAuthorizationHints);
 
 SOFT_LINK_CONSTANT_FOR_HEADER(PAL, AppSSO, SOAuthorizationOptionUserActionInitiated, NSString*);
-#define SOAuthorizationOptionUserActionInitiated PAL::get_AppSSO_SOAuthorizationOptionUserActionInitiated()
+#define SOAuthorizationOptionUserActionInitiated PAL::get_AppSSO_SOAuthorizationOptionUserActionInitiatedSingleton()
 
 SOFT_LINK_CONSTANT_FOR_HEADER(PAL, AppSSO, SOAuthorizationOptionInitiatorOrigin, NSString*);
-#define SOAuthorizationOptionInitiatorOrigin PAL::get_AppSSO_SOAuthorizationOptionInitiatorOrigin()
+#define SOAuthorizationOptionInitiatorOrigin PAL::get_AppSSO_SOAuthorizationOptionInitiatorOriginSingleton()
 
 SOFT_LINK_CONSTANT_FOR_HEADER(PAL, AppSSO, SOAuthorizationOptionInitiatingAction, NSString*);
-#define SOAuthorizationOptionInitiatingAction PAL::get_AppSSO_SOAuthorizationOptionInitiatingAction()
+#define SOAuthorizationOptionInitiatingAction PAL::get_AppSSO_SOAuthorizationOptionInitiatingActionSingleton()
 
 SOFT_LINK_CONSTANT_FOR_HEADER(PAL, AppSSO, SOErrorDomain, NSErrorDomain);
-#define SOErrorDomain PAL::get_AppSSO_SOErrorDomain()
+#define SOErrorDomain PAL::get_AppSSO_SOErrorDomainSingleton()
 
 SOFT_LINK_FRAMEWORK_FOR_HEADER(PAL, AppSSOCore);
 

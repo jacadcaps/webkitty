@@ -20,10 +20,12 @@
 #include "api/audio/audio_device.h"
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
 #include "api/audio_codecs/builtin_audio_encoder_factory.h"
+#include "api/create_modular_peer_connection_factory.h"
 #include "api/create_peerconnection_factory.h"
 #include "api/data_channel_interface.h"
 #include "api/enable_media.h"
 #include "api/enable_media_with_defaults.h"
+#include "api/environment/environment.h"
 #include "api/environment/environment_factory.h"
 #include "api/field_trials.h"
 #include "api/field_trials_view.h"
@@ -87,30 +89,29 @@ using ::testing::NotNull;
 using ::testing::Return;
 using ::testing::UnorderedElementsAre;
 
-static const char kStunIceServer[] = "stun:stun.l.google.com:19302";
-static const char kTurnIceServer[] = "turn:test.com:1234";
-static const char kTurnIceServerWithTransport[] =
-    "turn:hello.com?transport=tcp";
-static const char kSecureTurnIceServer[] = "turns:hello.com?transport=tcp";
-static const char kSecureTurnIceServerWithoutTransportParam[] =
+constexpr char kStunIceServer[] = "stun:stun.l.google.com:19302";
+constexpr char kTurnIceServer[] = "turn:test.com:1234";
+constexpr char kTurnIceServerWithTransport[] = "turn:hello.com?transport=tcp";
+constexpr char kSecureTurnIceServer[] = "turns:hello.com?transport=tcp";
+constexpr char kSecureTurnIceServerWithoutTransportParam[] =
     "turns:hello.com:443";
-static const char kSecureTurnIceServerWithoutTransportAndPortParam[] =
+constexpr char kSecureTurnIceServerWithoutTransportAndPortParam[] =
     "turns:hello.com";
-static const char kTurnIceServerWithNoUsernameInUri[] = "turn:test.com:1234";
-static const char kTurnPassword[] = "turnpassword";
-static const int kDefaultStunPort = 3478;
-static const int kDefaultStunTlsPort = 5349;
-static const char kTurnUsername[] = "test";
-static const char kStunIceServerWithIPv4Address[] = "stun:1.2.3.4:1234";
-static const char kStunIceServerWithIPv4AddressWithoutPort[] = "stun:1.2.3.4";
-static const char kStunIceServerWithIPv6Address[] = "stun:[2401:fa00:4::]:1234";
-static const char kStunIceServerWithIPv6AddressWithoutPort[] =
+constexpr char kTurnIceServerWithNoUsernameInUri[] = "turn:test.com:1234";
+constexpr char kTurnPassword[] = "turnpassword";
+constexpr int kDefaultStunPort = 3478;
+constexpr int kDefaultStunTlsPort = 5349;
+constexpr char kTurnUsername[] = "test";
+constexpr char kStunIceServerWithIPv4Address[] = "stun:1.2.3.4:1234";
+constexpr char kStunIceServerWithIPv4AddressWithoutPort[] = "stun:1.2.3.4";
+constexpr char kStunIceServerWithIPv6Address[] = "stun:[2401:fa00:4::]:1234";
+constexpr char kStunIceServerWithIPv6AddressWithoutPort[] =
     "stun:[2401:fa00:4::]";
-static const char kTurnIceServerWithIPv6Address[] = "turn:[2401:fa00:4::]:1234";
+constexpr char kTurnIceServerWithIPv6Address[] = "turn:[2401:fa00:4::]:1234";
 
 class NullPeerConnectionObserver : public PeerConnectionObserver {
  public:
-  virtual ~NullPeerConnectionObserver() = default;
+  ~NullPeerConnectionObserver() override = default;
   void OnSignalingChange(
       PeerConnectionInterface::SignalingState new_state) override {}
   void OnAddStream(scoped_refptr<MediaStreamInterface> stream) override {}
@@ -122,7 +123,8 @@ class NullPeerConnectionObserver : public PeerConnectionObserver {
       PeerConnectionInterface::IceConnectionState new_state) override {}
   void OnIceGatheringChange(
       PeerConnectionInterface::IceGatheringState new_state) override {}
-  void OnIceCandidate(const IceCandidateInterface* candidate) override {}
+  void OnIceCandidate(const IceCandidate* candidate) override {}
+  void OnIceCandidateRemoved(const IceCandidate* candidate) override {}
 };
 
 class MockNetworkManager : public NetworkManager {
@@ -143,7 +145,7 @@ class PeerConnectionFactoryTest : public ::testing::Test {
         main_thread_(socket_server_.get()) {}
 
  private:
-  void SetUp() {
+  void SetUp() override {
 #ifdef WEBRTC_ANDROID
     InitializeAndroidObjects();
 #endif
@@ -291,10 +293,12 @@ CreatePeerConnectionFactoryWithRtxDisabled() {
           OpenH264DecoderTemplateAdapter, Dav1dDecoderTemplateAdapter>>(),
   EnableMedia(pcf_dependencies);
 
+  Environment env = CreateEnvironment();
   scoped_refptr<ConnectionContext> context =
-      ConnectionContext::Create(CreateEnvironment(), &pcf_dependencies);
+      ConnectionContext::Create(env, &pcf_dependencies);
   context->set_use_rtx(false);
-  return make_ref_counted<PeerConnectionFactory>(context, &pcf_dependencies);
+  return make_ref_counted<PeerConnectionFactory>(env, context,
+                                                 &pcf_dependencies);
 }
 
 // Verify creation of PeerConnection using internal ADM, video factory and
@@ -665,8 +669,7 @@ TEST_F(PeerConnectionFactoryTest, LocalRendering) {
 
 TEST(PeerConnectionFactoryDependenciesTest,
      CanInjectFieldTrialsWithEnvironment) {
-  std::unique_ptr<FieldTrialsView> field_trials =
-      FieldTrials::CreateNoGlobal("");
+  std::unique_ptr<FieldTrialsView> field_trials = FieldTrials::Create("");
   ASSERT_THAT(field_trials, NotNull());
   FieldTrialsView* raw_field_trials = field_trials.get();
 
@@ -678,29 +681,6 @@ TEST(PeerConnectionFactoryDependenciesTest,
   scoped_refptr<PeerConnectionFactory> pcf =
       PeerConnectionFactory::Create(std::move(pcf_dependencies));
   EXPECT_EQ(&pcf->field_trials(), raw_field_trials);
-}
-
-TEST(PeerConnectionFactoryDependenciesTest,
-     PreferFieldTrialsInjectedExplicetly) {
-  std::unique_ptr<FieldTrialsView> env_field_trials =
-      FieldTrials::CreateNoGlobal("");
-  std::unique_ptr<FieldTrialsView> explicit_field_trials =
-      FieldTrials::CreateNoGlobal("");
-  ASSERT_FALSE(env_field_trials.get() == explicit_field_trials.get());
-  FieldTrialsView* raw_explicit_field_trials = explicit_field_trials.get();
-
-  PeerConnectionFactoryDependencies pcf_dependencies;
-  pcf_dependencies.env = CreateEnvironment(std::move(env_field_trials));
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-  pcf_dependencies.trials = std::move(explicit_field_trials);
-#pragma clang diagnostic pop
-  pcf_dependencies.adm = FakeAudioCaptureModule::Create();
-  EnableMediaWithDefaults(pcf_dependencies);
-
-  scoped_refptr<PeerConnectionFactory> pcf =
-      PeerConnectionFactory::Create(std::move(pcf_dependencies));
-  EXPECT_EQ(&pcf->field_trials(), raw_explicit_field_trials);
 }
 
 TEST(PeerConnectionFactoryDependenciesTest, UsesNetworkManager) {
@@ -734,12 +714,12 @@ TEST(PeerConnectionFactoryDependenciesTest, UsesPacketSocketFactory) {
       std::make_unique<NiceMock<MockPacketSocketFactory>>();
 
   Event called;
-  EXPECT_CALL(*mock_socket_factory, CreateUdpSocket(_, _, _))
-      .WillOnce(InvokeWithoutArgs([&] {
+  EXPECT_CALL(*mock_socket_factory, CreateUdpSocket)
+      .WillOnce([&] {
         called.Set();
         return nullptr;
-      }))
-      .WillRepeatedly(Return(nullptr));
+      })
+      .WillRepeatedly([] { return nullptr; });
 
   PeerConnectionFactoryDependencies pcf_dependencies;
   pcf_dependencies.packet_socket_factory = std::move(mock_socket_factory);
@@ -781,6 +761,30 @@ TEST(PeerConnectionFactoryDependenciesTest,
   scoped_refptr<PeerConnectionFactoryInterface> pcf =
       CreateModularPeerConnectionFactory(std::move(pcf_dependencies));
   pcf->StartAecDump(nullptr, 24'242);
+}
+
+TEST(PeerConnectionFactoryDependenciesTest, RepeatMediaEngineInitialization) {
+  scoped_refptr<AudioDeviceModule> adm = FakeAudioCaptureModule::Create();
+  PeerConnectionFactoryDependencies pcf_dependencies;
+  pcf_dependencies.adm = adm;
+  pcf_dependencies.signaling_thread = Thread::Current();
+  pcf_dependencies.worker_thread = Thread::Current();
+  pcf_dependencies.network_thread = Thread::Current();
+  EnableMediaWithDefaults(pcf_dependencies);
+
+  scoped_refptr<PeerConnectionFactoryInterface> pcf =
+      CreateModularPeerConnectionFactory(std::move(pcf_dependencies));
+
+  for (int i = 0; i < 10; ++i) {
+    EXPECT_FALSE(adm->Initialized());
+    PeerConnectionInterface::RTCConfiguration config;
+    NullPeerConnectionObserver observer;
+    auto pc = pcf->CreatePeerConnectionOrError(
+        config, PeerConnectionDependencies(&observer));
+    ASSERT_TRUE(pc.ok());
+    EXPECT_TRUE(adm->Initialized());
+  }
+  EXPECT_FALSE(adm->Initialized());
 }
 
 }  // namespace

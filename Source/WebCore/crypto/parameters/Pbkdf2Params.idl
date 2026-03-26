@@ -27,6 +27,7 @@ typedef (object or DOMString) HashAlgorithmIdentifier;
 
 [
     ImplementedAs=CryptoAlgorithmPbkdf2Params,
+    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary Pbkdf2Params : CryptoAlgorithmParameters {
     required BufferSource salt;
     required [EnforceRange] unsigned long iterations;

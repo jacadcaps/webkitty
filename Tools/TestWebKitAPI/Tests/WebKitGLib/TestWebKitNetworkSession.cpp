@@ -202,7 +202,7 @@ static void testNetworkSessionProxySettings(ProxyTest* test, gconstpointer)
         g_assert_nonnull(data);
         auto* test = static_cast<ProxyTest*>(userData);
         GUniquePtr<char> proxyServerPortAsString = test->proxyServerPortAsString();
-        ASSERT_CMP_CSTRING(CString({ data.get(), dataSize }), ==, proxyServerPortAsString.get());
+        ASSERT_CMP_CSTRING(CString(std::span { data.get(), dataSize }), ==, proxyServerPortAsString.get());
         test->quitMainLoop();
         }, test);
     g_main_loop_run(test->m_mainLoop);

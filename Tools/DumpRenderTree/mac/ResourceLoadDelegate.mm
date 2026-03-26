@@ -37,6 +37,7 @@
 #import <WebKit/WebKitLegacy.h>
 #import <WebKit/WebNSURLExtras.h>
 #import <wtf/Assertions.h>
+#import <wtf/text/MakeString.h>
 
 @interface NSURL (DRTExtras)
 - (NSString *)_drt_descriptionSuitableForTestResult;
@@ -184,7 +185,10 @@ BOOL canAuthenticateServerTrustAgainstProtectionSpace(NSString *host)
             String blockedURL = [url absoluteString];
             replace(blockedURL, JSC::Yarr::RegularExpression("&key=[^&]+&"_s), "&key=GENERATED_KEY&"_s);
             replace(blockedURL, JSC::Yarr::RegularExpression("reportID=[-0123456789abcdefABCDEF]+"_s), "reportID=GENERATED_REPORT_ID"_s);
-            printf("Blocked access to external URL %s\n", blockedURL.utf8().data());
+            auto script = makeString("console.log('Blocked access to external URL "_s, blockedURL, "');"_s);
+            auto scriptRef = adopt(JSStringCreateWithUTF8CString(script.utf8().data()));
+            JSGlobalContextRef jsContext = [mainFrame globalContext];
+            JSEvaluateScript(jsContext, scriptRef.get(), 0, 0, 0, 0);
             return nil;
         }
     }

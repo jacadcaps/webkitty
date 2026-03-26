@@ -237,7 +237,8 @@ class ContextMtl : public ContextImpl, public mtl::Context
     BufferImpl *createBuffer(const gl::BufferState &state) override;
 
     // Vertex Array creation
-    VertexArrayImpl *createVertexArray(const gl::VertexArrayState &state) override;
+    VertexArrayImpl *createVertexArray(const gl::VertexArrayState &state,
+                                       const gl::VertexArrayBuffers &vertexArrayBuffers) override;
 
     // Query and Fence creation
     QueryImpl *createQuery(gl::QueryType type) override;
@@ -354,6 +355,8 @@ class ContextMtl : public ContextImpl, public mtl::Context
     void flushCommandBuffer(mtl::CommandBufferFinishOperation operation);
     void present(const gl::Context *context, id<CAMetalDrawable> presentationDrawable);
     angle::Result finishCommandBuffer();
+
+    void addCommandBufferScheduledCallback(std::function<void()> callback);
 
     // Check whether compatible render pass has been started. Compatible render pass is a render
     // pass having the same attachments, and possibly having different load/store options.

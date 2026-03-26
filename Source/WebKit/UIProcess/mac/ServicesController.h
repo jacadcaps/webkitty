@@ -31,6 +31,7 @@
 #include <wtf/Forward.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/darwin/DispatchOSObject.h>
 
 namespace WebKit {
 
@@ -49,7 +50,7 @@ public:
 private:
     ServicesController();
 
-    dispatch_queue_t m_refreshQueue;
+    OSObjectPtr<dispatch_queue_t> m_refreshQueue;
     std::atomic_bool m_hasPendingRefresh;
 
     std::atomic<bool> m_hasImageServices;

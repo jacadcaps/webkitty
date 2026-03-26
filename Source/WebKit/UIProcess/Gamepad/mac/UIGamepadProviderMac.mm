@@ -39,13 +39,13 @@ namespace WebKit {
 WebPageProxy* UIGamepadProvider::platformWebPageProxyForGamepadInput()
 {
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanCommunicateWithWindowServer));
-    auto responder = [[NSApp keyWindow] firstResponder];
+    RetainPtr responder = [[NSApp keyWindow] firstResponder];
 
-    if (RetainPtr view = dynamic_objc_cast<WKWebView>(responder))
+    if (RetainPtr view = dynamic_objc_cast<WKWebView>(responder.get()))
         return view->_page.get();
 
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    if (RetainPtr view = dynamic_objc_cast<WKView>(responder))
+    if (RetainPtr view = dynamic_objc_cast<WKView>(responder.get()))
         return toImpl(view.get().pageRef);
 ALLOW_DEPRECATED_DECLARATIONS_END
 

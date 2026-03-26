@@ -45,7 +45,11 @@ _log = logging.getLogger(__name__)
 @method_decorator(csrf_exempt, name='dispatch')
 class Results(View):
     def post(self, request):
-        data = json.loads(request.body)
+        try:
+            data = json.loads(request.body)
+        except json.decoder.JSONDecodeError as e:
+            _log.error(f'Exception while decoding results data as json: {e} \n data: {request.body} \n request: {request}')
+            return HttpResponse('Invalid data')
 
         if data.get('EWS_API_KEY') != util.load_password('EWS_API_KEY'):
             _log.error('Incorrect API Key {}. Host: {}. Ignoring data.'.format(data.get('EWS_API_KEY'), data.get('hostname')))

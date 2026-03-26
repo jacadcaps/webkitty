@@ -29,7 +29,7 @@
 #import "DOMURL.h"
 #import "DeprecatedGlobalSettings.h"
 #import "DictionaryLookup.h"
-#import "Document.h"
+#import "DocumentView.h"
 #import "EventHandler.h"
 #import "FrameDestructionObserverInlines.h"
 #import "HTMLMediaElement.h"
@@ -44,6 +44,7 @@
 #import "UTIUtilities.h"
 #import <AVFoundation/AVPlayer.h>
 #import <wtf/BlockPtr.h>
+#import <wtf/darwin/DispatchExtras.h>
 
 #if PLATFORM(MAC)
 #import "NSScrollerImpDetails.h"
@@ -73,6 +74,31 @@
 - (instancetype)initWithString:(NSString *)fullText;
 @end
 
+static NSRange clampRange(NSRange rangeToClamp, NSRange extentRange)
+{
+    NSUInteger minRange1 = rangeToClamp.location;
+    NSUInteger maxRange1 = NSMaxRange(rangeToClamp);
+
+    NSUInteger minRange2 = extentRange.location;
+    NSUInteger maxRange2 = NSMaxRange(extentRange);
+
+    NSUInteger minCommon = clampTo(minRange1, minRange2, maxRange2);
+    NSUInteger maxCommon = clampTo(maxRange1, minRange2, maxRange2);
+
+    if (rangeToClamp.location == NSNotFound) {
+        minCommon = maxRange2;
+        maxCommon = maxRange2;
+    } else if (minCommon > maxCommon)
+        std::swap(minCommon, maxCommon);
+
+    NSRange result = NSMakeRange(minCommon, maxCommon - minCommon);
+
+    if (extentRange.location == NSNotFound)
+        result = NSMakeRange(NSNotFound, 0);
+
+    return result;
+}
+
 @implementation FakeImageAnalysisResult {
     RetainPtr<NSAttributedString> _string;
 }
@@ -88,7 +114,9 @@
 
 - (NSAttributedString *)_attributedStringForRange:(NSRange)range
 {
-    return [_string attributedSubstringFromRange:range];
+    NSRange validRange = NSMakeRange(0, [_string length]);
+    NSRange safeRange = clampRange(range, validRange);
+    return [_string attributedSubstringFromRange:safeRange];
 }
 
 @end
@@ -128,7 +156,7 @@ bool Internals::userPrefersReducedMotion() const
 
 ExceptionOr<RefPtr<Range>> Internals::rangeForDictionaryLookupAtLocation(int x, int y)
 {
-    auto* document = contextDocument();
+    RefPtr document = contextDocument();
     if (!document || !document->frame())
         return Exception { ExceptionCode::InvalidAccessError };
 
@@ -136,7 +164,7 @@ ExceptionOr<RefPtr<Range>> Internals::rangeForDictionaryLookupAtLocation(int x, 
 
     constexpr OptionSet<HitTestRequest::Type> hitType { HitTestRequest::Type::ReadOnly, HitTestRequest::Type::Active, HitTestRequest::Type::DisallowUserAgentShadowContent, HitTestRequest::Type::AllowChildFrameContent };
     
-    auto* localFrame = dynamicDowncast<LocalFrame>(document->frame()->mainFrame());
+    RefPtr localFrame = dynamicDowncast<LocalFrame>(document->frame()->mainFrame());
     if (!localFrame)
         return nullptr; 
 
@@ -163,15 +191,15 @@ void Internals::setUsesOverlayScrollbars(bool enabled)
     NSScrollerStyle style = enabled ? NSScrollerStyleOverlay : NSScrollerStyleLegacy;
     [NSScrollerImpPair _updateAllScrollerImpPairsForNewRecommendedScrollerStyle:style];
 
-    auto* document = contextDocument();
+    RefPtr document = contextDocument();
     if (!document || !document->frame())
         return;
 
-    auto* localFrame = dynamicDowncast<LocalFrame>(document->frame()->mainFrame());
+    RefPtr localFrame = dynamicDowncast<LocalFrame>(document->frame()->mainFrame());
     if (!localFrame)
         return;
 
-    localFrame->view()->scrollbarStyleDidChange();
+    localFrame->protectedView()->scrollbarStyleDidChange();
 }
 
 #endif
@@ -182,7 +210,7 @@ double Internals::privatePlayerVolume(const HTMLMediaElement& element)
     RefPtr corePlayer = element.player();
     if (!corePlayer)
         return 0;
-    auto player = corePlayer->objCAVFoundationAVPlayer();
+    RetainPtr player = corePlayer->objCAVFoundationAVPlayer();
     if (!player)
         return 0;
     return [player volume];
@@ -193,7 +221,7 @@ bool Internals::privatePlayerMuted(const HTMLMediaElement& element)
     RefPtr corePlayer = element.player();
     if (!corePlayer)
         return false;
-    auto player = corePlayer->objCAVFoundationAVPlayer();
+    RetainPtr player = corePlayer->objCAVFoundationAVPlayer();
     if (!player)
         return false;
     return [player isMuted];
@@ -240,7 +268,7 @@ DDScannerResult *Internals::fakeDataDetectorResultForTesting()
         if (!CFArrayGetCount(results.get()))
             return nil;
 
-        return { [[PAL::getDDScannerResultClass() resultsFromCoreResults:results.get()] firstObject] };
+        return { [[PAL::getDDScannerResultClassSingleton() resultsFromCoreResults:results.get()] firstObject] };
     }();
     return result->get();
 }
@@ -284,9 +312,9 @@ bool Internals::emitWebCoreLogs(unsigned logCount, bool useMainThread) const
             RELEASE_LOG_FORWARDABLE(Testing, WEBCORE_TEST_LOG, i);
     });
     if (useMainThread)
-        dispatch_async(dispatch_get_main_queue(), blockPtr.get());
+        dispatch_async(mainDispatchQueueSingleton(), blockPtr.get());
     else
-        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), blockPtr.get());
+        dispatch_async(globalDispatchQueueSingleton(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), blockPtr.get());
     return true;
 }
 
@@ -297,9 +325,9 @@ bool Internals::emitLogs(const String& logString, unsigned logCount, bool useMai
             RELEASE_LOG(Testing, "%s", logString.utf8().data());
     });
     if (useMainThread)
-        dispatch_async(dispatch_get_main_queue(), blockPtr.get());
+        dispatch_async(mainDispatchQueueSingleton(), blockPtr.get());
     else
-        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), blockPtr.get());
+        dispatch_async(globalDispatchQueueSingleton(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), blockPtr.get());
     return true;
 }
 #endif // ENABLE(LOGD_BLOCKING_IN_WEBCONTENT)

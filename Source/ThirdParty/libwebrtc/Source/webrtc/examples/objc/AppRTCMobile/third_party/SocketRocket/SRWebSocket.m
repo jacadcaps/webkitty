@@ -331,7 +331,7 @@ static __strong NSData *CRLFCRLF;
     // Going to set a specific on the queue so we can validate we're on the work queue
     dispatch_queue_set_specific(_workQueue, (__bridge void *)self, maybe_bridge(_workQueue), NULL);
     
-    _delegateDispatchQueue = dispatch_get_main_queue();
+    _delegateDispatchQueue = mainDispatchQueueSingleton();
     sr_dispatch_retain(_delegateDispatchQueue);
     
     _readBuffer = [[NSMutableData alloc] init];

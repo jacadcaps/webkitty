@@ -23,8 +23,7 @@
 
 #include "ActiveDOMObject.h"
 #include "ContextDestructionObserverInlines.h"
-#include "Document.h"
-#include "DocumentInlines.h"
+#include "DocumentQuirks.h"
 #include "ExtendedDOMClientIsoSubspaces.h"
 #include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMAbstractOperations.h"
@@ -38,7 +37,6 @@
 #include "JSDOMOperation.h"
 #include "JSDOMWrapperCache.h"
 #include "JSNode.h"
-#include "Quirks.h"
 #include "ScriptExecutionContext.h"
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/HeapAnalyzer.h>
@@ -132,7 +130,7 @@ void JSTestEventTargetPrototype::finishCreation(VM& vm)
 const ClassInfo JSTestEventTarget::s_info = { "TestEventTarget"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestEventTarget) };
 
 JSTestEventTarget::JSTestEventTarget(Structure* structure, JSDOMGlobalObject& globalObject, Ref<TestEventTarget>&& impl)
-    : JSEventTarget(structure, globalObject, WTFMove(impl))
+    : JSEventTarget(structure, globalObject, WTF::move(impl))
 {
 }
 
@@ -167,7 +165,7 @@ bool JSTestEventTarget::legacyPlatformObjectGetOwnProperty(JSObject* object, JSG
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     if (auto index = parseIndex(propertyName)) {
         if (auto item = thisObject->wrapped().item(index.value()); !!item) [[likely]] {
-            auto value = toJS<IDLInterface<Node>>(*lexicalGlobalObject, *thisObject->globalObject(), throwScope, WTFMove(item));
+            auto value = toJS<IDLInterface<Node>>(*lexicalGlobalObject, *thisObject->globalObject(), throwScope, IDLInterface<Node>::extractValueFromNullable(WTF::move(item)));
             RETURN_IF_EXCEPTION(throwScope, false);
             slot.setValue(thisObject, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly), value);
             return true;
@@ -180,7 +178,7 @@ bool JSTestEventTarget::legacyPlatformObjectGetOwnProperty(JSObject* object, JSG
             return thisObject.wrapped().namedItem(propertyNameToAtomString(propertyName));
         });
         if (auto namedProperty = accessVisibleNamedProperty<LegacyOverrideBuiltIns::No>(*lexicalGlobalObject, *thisObject, propertyName, getterFunctor)) {
-            auto value = toJS<IDLInterface<Node>>(*lexicalGlobalObject, *thisObject->globalObject(), throwScope, WTFMove(namedProperty.value()));
+            auto value = toJS<IDLInterface<Node>>(*lexicalGlobalObject, *thisObject->globalObject(), throwScope, WTF::move(namedProperty.value()));
             RETURN_IF_EXCEPTION(throwScope, false);
             slot.setValue(thisObject, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly), value);
             return true;
@@ -203,7 +201,7 @@ bool JSTestEventTarget::getOwnPropertySlotByIndex(JSObject* object, JSGlobalObje
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     if (index <= MAX_ARRAY_INDEX) [[likely]] {
         if (auto item = thisObject->wrapped().item(index); !!item) [[likely]] {
-            auto value = toJS<IDLInterface<Node>>(*lexicalGlobalObject, *thisObject->globalObject(), throwScope, WTFMove(item));
+            auto value = toJS<IDLInterface<Node>>(*lexicalGlobalObject, *thisObject->globalObject(), throwScope, IDLInterface<Node>::extractValueFromNullable(WTF::move(item)));
             RETURN_IF_EXCEPTION(throwScope, false);
             slot.setValue(thisObject, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly), value);
             return true;
@@ -216,7 +214,7 @@ bool JSTestEventTarget::getOwnPropertySlotByIndex(JSObject* object, JSGlobalObje
         return thisObject.wrapped().namedItem(propertyNameToAtomString(propertyName));
     });
     if (auto namedProperty = accessVisibleNamedProperty<LegacyOverrideBuiltIns::No>(*lexicalGlobalObject, *thisObject, propertyName, getterFunctor)) {
-        auto value = toJS<IDLInterface<Node>>(*lexicalGlobalObject, *thisObject->globalObject(), throwScope, WTFMove(namedProperty.value()));
+        auto value = toJS<IDLInterface<Node>>(*lexicalGlobalObject, *thisObject->globalObject(), throwScope, WTF::move(namedProperty.value()));
         RETURN_IF_EXCEPTION(throwScope, false);
         slot.setValue(thisObject, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly), value);
         return true;
@@ -224,7 +222,7 @@ bool JSTestEventTarget::getOwnPropertySlotByIndex(JSObject* object, JSGlobalObje
     return JSObject::getOwnPropertySlotByIndex(object, lexicalGlobalObject, index, slot);
 }
 
-void JSTestEventTarget::getOwnPropertyNames(JSObject* object, JSGlobalObject* lexicalGlobalObject, PropertyNameArray& propertyNames, DontEnumPropertiesMode mode)
+void JSTestEventTarget::getOwnPropertyNames(JSObject* object, JSGlobalObject* lexicalGlobalObject, PropertyNameArrayBuilder& propertyNames, DontEnumPropertiesMode mode)
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto* thisObject = jsCast<JSTestEventTarget*>(object);
@@ -262,7 +260,7 @@ bool JSTestEventTarget::put(JSCell* cell, JSGlobalObject* lexicalGlobalObject, P
         ownDescriptor.setPropertySlot(lexicalGlobalObject, propertyName, slot);
         RETURN_IF_EXCEPTION(throwScope, false);
     }
-    RELEASE_AND_RETURN(throwScope, ordinarySetWithOwnDescriptor(lexicalGlobalObject, thisObject, propertyName, value, putPropertySlot.thisValue(), WTFMove(ownDescriptor), putPropertySlot.isStrictMode()));
+    RELEASE_AND_RETURN(throwScope, ordinarySetWithOwnDescriptor(lexicalGlobalObject, thisObject, propertyName, value, putPropertySlot.thisValue(), WTF::move(ownDescriptor), putPropertySlot.isStrictMode()));
 }
 
 bool JSTestEventTarget::putByIndex(JSCell* cell, JSGlobalObject* lexicalGlobalObject, unsigned index, JSValue value, bool shouldThrow)
@@ -407,7 +405,7 @@ extern "C" { extern void (*const __identifier("??_7TestEventTarget@WebCore@@6B@"
 extern "C" { extern void* _ZTVN7WebCore15TestEventTargetE[]; }
 #endif
 template<std::same_as<TestEventTarget> T>
-static inline void verifyVTable(TestEventTarget* ptr) 
+static inline void verifyVTable(TestEventTarget* ptr)
 {
     if constexpr (std::is_polymorphic_v<T>) {
         const void* actualVTablePointer = getVTablePointer<T>(ptr);
@@ -427,12 +425,13 @@ static inline void verifyVTable(TestEventTarget* ptr)
 #endif
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestEventTarget>&& impl)
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<TestEventTarget>&& impl)
 {
+    UNUSED_PARAM(lexicalGlobalObject);
 #if ENABLE(BINDING_INTEGRITY)
     verifyVTable<TestEventTarget>(impl.ptr());
 #endif
-    return createWrapper<TestEventTarget>(globalObject, WTFMove(impl));
+    return createWrapper<TestEventTarget>(globalObject, WTF::move(impl));
 }
 
 JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestEventTarget& impl)

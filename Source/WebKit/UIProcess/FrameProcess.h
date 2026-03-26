@@ -34,7 +34,8 @@ namespace WebKit {
 class BrowsingContextGroup;
 class WebPreferences;
 class WebProcessProxy;
-enum class InjectBrowsingContextIntoProcess : bool;
+enum class BrowsingContextGroupUpdate : uint8_t;
+enum class LoadedWebArchive : bool;
 
 // Note: This object should only be referenced by WebFrameProxy because its destructor is an
 // important part of managing the lifetime of a frame and the process used by the frame.
@@ -46,18 +47,23 @@ public:
     const WebProcessProxy& process() const { return m_process.get(); }
     WebProcessProxy& process() { return m_process.get(); }
     bool isSharedProcess() const { return !m_site; }
+    const WebCore::Site& sharedProcessMainFrameSite() const { ASSERT(!m_site); return m_mainFrameSite; }
+    bool isArchiveProcess() const { return m_isArchiveProcess; }
 
 private:
     friend class BrowsingContextGroup; // FrameProcess should not be created except by BrowsingContextGroup.
-    static Ref<FrameProcess> create(WebProcessProxy& process, BrowsingContextGroup& group, const std::optional<WebCore::Site>& site, const WebPreferences& preferences, InjectBrowsingContextIntoProcess injectBrowsingContextIntoProcess)
+    static Ref<FrameProcess> create(WebProcessProxy& process, BrowsingContextGroup& group, const std::optional<WebCore::Site>& site, const WebCore::Site& mainFrameSite,
+        const WebPreferences& preferences, LoadedWebArchive loadedWebArchive, BrowsingContextGroupUpdate browsingContextGroupUpdate)
     {
-        return adoptRef(*new FrameProcess(process, group, site, preferences, injectBrowsingContextIntoProcess));
+        return adoptRef(*new FrameProcess(process, group, site, mainFrameSite, preferences, loadedWebArchive, browsingContextGroupUpdate));
     }
-    FrameProcess(WebProcessProxy&, BrowsingContextGroup&, const std::optional<WebCore::Site>&, const WebPreferences&, InjectBrowsingContextIntoProcess);
+    FrameProcess(WebProcessProxy&, BrowsingContextGroup&, const std::optional<WebCore::Site>&, const WebCore::Site& mainFrameSite, const WebPreferences&, LoadedWebArchive, BrowsingContextGroupUpdate);
 
     const Ref<WebProcessProxy> m_process;
     WeakPtr<BrowsingContextGroup> m_browsingContextGroup;
     const std::optional<WebCore::Site> m_site;
+    const WebCore::Site m_mainFrameSite;
+    bool m_isArchiveProcess;
 };
 
 }

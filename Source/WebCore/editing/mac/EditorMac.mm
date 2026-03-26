@@ -97,7 +97,7 @@ void Editor::platformCopyFont()
 
     PasteboardBuffer pasteboardBuffer;
     pasteboardBuffer.contentOrigin = document().originIdentifierForPasteboard();
-    pasteboardBuffer.type = legacyFontPasteboardType();
+    pasteboardBuffer.type = legacyFontPasteboardTypeSingleton();
     pasteboardBuffer.data = SharedBuffer::create(fontData.get());
     pasteboard.write(pasteboardBuffer);
 }
@@ -109,7 +109,7 @@ void Editor::platformPasteFont()
     client()->setInsertionPasteboard(pasteboard.name());
 
     RetainPtr<NSData> fontData;
-    if (auto buffer = pasteboard.readBuffer(std::nullopt, legacyFontPasteboardType()))
+    if (auto buffer = pasteboard.readBuffer(std::nullopt, legacyFontPasteboardTypeSingleton()))
         fontData = buffer->createNSData();
     auto fontSampleString = adoptNS([[NSAttributedString alloc] initWithRTF:fontData.get() documentAttributes:nil]);
     auto fontAttributes = RetainPtr([fontSampleString fontAttributesInRange:NSMakeRange(0, 1)]);
@@ -117,20 +117,20 @@ void Editor::platformPasteFont()
     auto style = MutableStyleProperties::create();
 
     Color backgroundColor;
-    if (NSColor *nsBackgroundColor = dynamic_objc_cast<NSColor>([fontAttributes objectForKey:NSBackgroundColorAttributeName]))
-        backgroundColor = colorFromCocoaColor(nsBackgroundColor);
+    if (RetainPtr nsBackgroundColor = dynamic_objc_cast<NSColor>([fontAttributes objectForKey:NSBackgroundColorAttributeName]))
+        backgroundColor = colorFromCocoaColor(nsBackgroundColor.get());
     if (!backgroundColor.isValid())
         backgroundColor = Color::transparentBlack;
     style->setProperty(CSSPropertyBackgroundColor, CSSValuePool::singleton().createColorValue(backgroundColor));
 
-    if (NSFont *font = dynamic_objc_cast<NSFont>([fontAttributes objectForKey:NSFontAttributeName])) {
+    if (RetainPtr font = dynamic_objc_cast<NSFont>([fontAttributes objectForKey:NSFontAttributeName])) {
         // FIXME: Need more sophisticated escaping code if we want to handle family names
         // with characters like single quote or backslash in their names.
-        style->setProperty(CSSPropertyFontFamily, [NSString stringWithFormat:@"'%@'", [font familyName]]);
+        style->setProperty(CSSPropertyFontFamily, [NSString stringWithFormat:@"'%@'", retainPtr([font familyName]).get()]);
         style->setProperty(CSSPropertyFontSize, CSSPrimitiveValue::create([font pointSize], CSSUnitType::CSS_PX));
         // FIXME: Map to the entire range of CSS weight values.
-        style->setProperty(CSSPropertyFontWeight, ([NSFontManager.sharedFontManager weightOfFont:font] >= 7) ? CSSValueBold : CSSValueNormal);
-        style->setProperty(CSSPropertyFontStyle, ([NSFontManager.sharedFontManager traitsOfFont:font] & NSItalicFontMask) ? CSSValueItalic : CSSValueNormal);
+        style->setProperty(CSSPropertyFontWeight, ([NSFontManager.sharedFontManager weightOfFont:font.get()] >= 7) ? CSSValueBold : CSSValueNormal);
+        style->setProperty(CSSPropertyFontStyle, ([NSFontManager.sharedFontManager traitsOfFont:font.get()] & NSItalicFontMask) ? CSSValueItalic : CSSValueNormal);
     } else {
         style->setProperty(CSSPropertyFontFamily, "Helvetica"_s);
         style->setProperty(CSSPropertyFontSize, CSSPrimitiveValue::create(12, CSSUnitType::CSS_PX));
@@ -139,8 +139,8 @@ void Editor::platformPasteFont()
     }
 
     Color foregroundColor;
-    if (NSColor *nsForegroundColor = dynamic_objc_cast<NSColor>([fontAttributes objectForKey:NSForegroundColorAttributeName])) {
-        foregroundColor = colorFromCocoaColor(nsForegroundColor);
+    if (RetainPtr nsForegroundColor = dynamic_objc_cast<NSColor>([fontAttributes objectForKey:NSForegroundColorAttributeName])) {
+        foregroundColor = colorFromCocoaColor(nsForegroundColor.get());
         if (!foregroundColor.isValid())
             foregroundColor = Color::transparentBlack;
     } else
@@ -148,8 +148,8 @@ void Editor::platformPasteFont()
     style->setProperty(CSSPropertyColor, CSSValuePool::singleton().createColorValue(foregroundColor));
 
     FontShadow fontShadow;
-    if (NSShadow *nsFontShadow = dynamic_objc_cast<NSShadow>([fontAttributes objectForKey:NSShadowAttributeName]))
-        fontShadow = fontShadowFromNSShadow(nsFontShadow);
+    if (RetainPtr nsFontShadow = dynamic_objc_cast<NSShadow>([fontAttributes objectForKey:NSShadowAttributeName]))
+        fontShadow = fontShadowFromNSShadow(nsFontShadow.get());
     style->setProperty(CSSPropertyTextShadow, serializationForCSS(fontShadow));
 
     auto superscriptStyle = [[fontAttributes objectForKey:NSSuperscriptAttributeName] intValue];
@@ -184,10 +184,10 @@ RefPtr<SharedBuffer> Editor::dataSelectionForPasteboard(const String& pasteboard
     if (pasteboardType == WebArchivePboardType || pasteboardType == String(UTTypeWebArchive.identifier))
         return selectionInWebArchiveFormat();
 
-    if (pasteboardType == String(legacyRTFDPasteboardType()))
+    if (pasteboardType == String(legacyRTFDPasteboardTypeSingleton()))
         return dataInRTFDFormat(attributedString(*adjustedSelectionRange(), IgnoreUserSelectNone::Yes).nsAttributedString().get());
 
-    if (pasteboardType == String(legacyRTFPasteboardType())) {
+    if (pasteboardType == String(legacyRTFPasteboardTypeSingleton())) {
         auto string = attributedString(*adjustedSelectionRange(), IgnoreUserSelectNone::Yes).nsAttributedString();
         // FIXME: Why is this stripping needed here, but not in writeSelectionToPasteboard?
         if ([string containsAttachments])
@@ -256,7 +256,7 @@ void Editor::writeImageToPasteboard(Pasteboard& pasteboard, Element& imageElemen
     pasteboardImage.url.url = url;
     pasteboardImage.url.title = title;
     pasteboardImage.url.userVisibleForm = WTF::userVisibleString(pasteboardImage.url.url.createNSURL().get());
-    if (auto* buffer = cachedImage->resourceBuffer())
+    if (RefPtr buffer = cachedImage->resourceBuffer())
         pasteboardImage.resourceData = buffer->makeContiguous();
     pasteboardImage.resourceMIMEType = cachedImage->response().mimeType();
 

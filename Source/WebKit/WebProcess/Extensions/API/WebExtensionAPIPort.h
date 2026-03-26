@@ -55,7 +55,7 @@ public:
     std::optional<WebPageProxyIdentifier> owningPageProxyIdentifier() const { return m_owningPageProxyIdentifier; }
     const std::optional<WebExtensionMessageSenderParameters>& senderParameters() const { return m_senderParameters; }
 
-    void postMessage(WebFrame&, NSString *, NSString **outExceptionString);
+    void postMessage(WebFrame&, const String&, NSString **outExceptionString);
     void disconnect();
 
     bool isDisconnected() const { return m_disconnected; }
@@ -147,11 +147,13 @@ private:
     RetainPtr<JSValue> m_error;
     std::optional<WebExtensionMessageSenderParameters> m_senderParameters;
 
-    RefPtr<WebExtensionAPIEvent> m_onMessage;
-    RefPtr<WebExtensionAPIEvent> m_onDisconnect;
+    const RefPtr<WebExtensionAPIEvent> m_onMessage;
+    const RefPtr<WebExtensionAPIEvent> m_onDisconnect;
 #endif
 };
 
 } // namespace WebKit
+
+SPECIALIZE_TYPE_TRAITS_WEB_EXTENSION(WebExtensionAPIPort, port);
 
 #endif // ENABLE(WK_WEB_EXTENSIONS)

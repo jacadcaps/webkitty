@@ -37,6 +37,7 @@
 #import <Carbon/Carbon.h>
 #import <WebKit/WKProcessPoolPrivate.h>
 #import <WebKit/WKWebView.h>
+#import <WebKit/WKWebViewConfigurationPrivate.h>
 #import <WebKit/WKWebViewPrivate.h>
 #import <WebKit/WKWebViewPrivateForTesting.h>
 #import <wtf/RetainPtr.h>

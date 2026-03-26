@@ -49,6 +49,7 @@ namespace WebKit {
 
 class IPCConnectionTester;
 class IPCStreamTester;
+struct TestParameter;
 
 // Main test interface for initiating various IPC test activities.
 class IPCTester final : public IPC::MessageReceiver, public RefCounted<IPCTester> {
@@ -61,7 +62,7 @@ public:
 
     // IPC::MessageReceiver overrides.
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
-    bool didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
+    void didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
 private:
     IPCTester();
 
@@ -76,11 +77,14 @@ private:
     void sendSameSemaphoreBack(IPC::Connection&, IPC::Semaphore&&);
     void sendSemaphoreBackAndSignalProtocol(IPC::Connection&, IPC::Semaphore&&);
     void sendAsyncMessageToReceiver(IPC::Connection&, uint32_t);
+    void sendAsyncMessageToReceiverRequestingReply(IPC::Connection&, uint32_t value, CompletionHandler<void(uint32_t, bool)>&&);
     void asyncPing(uint32_t value, CompletionHandler<void(uint32_t)>&&);
     void syncPing(IPC::Connection&, uint32_t value, CompletionHandler<void(uint32_t)>&&);
     void syncPingEmptyReply(IPC::Connection&, uint32_t value, CompletionHandler<void()>&&);
     void asyncOptionalExceptionData(IPC::Connection&, bool sendEngaged, CompletionHandler<void(std::optional<WebCore::ExceptionData>, String)>&&);
-
+    void emptyMessage() { }
+    void emptyMessageWithReply(CompletionHandler<void(uint64_t)>&&);
+    void checkTestParameter(IPC::Connection&, TestParameter);
     void stopIfNeeded();
 
     RefPtr<WorkQueue> m_testQueue;

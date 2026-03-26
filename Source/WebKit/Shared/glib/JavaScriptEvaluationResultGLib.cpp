@@ -35,6 +35,16 @@
 
 namespace WebKit {
 
+class JavaScriptEvaluationResult::GLibExtractor {
+public:
+    Map takeMap() { return WTF::move(m_map); }
+    JSObjectID addObjectToMap(GVariant*);
+private:
+    Value toValue(GVariant*);
+
+    Map m_map;
+};
+
 GRefPtr<JSCValue> JavaScriptEvaluationResult::toJSC()
 {
     auto context = API::SerializedScriptValue::deserializationContext();
@@ -42,17 +52,17 @@ GRefPtr<JSCValue> JavaScriptEvaluationResult::toJSC()
     return jscContextGetOrCreateValue(jscContextGetOrCreate(context.get()).get(), js.get());
 }
 
-JSObjectID JavaScriptEvaluationResult::addObjectToMap(GVariant* variant)
+JSObjectID JavaScriptEvaluationResult::GLibExtractor::addObjectToMap(GVariant* variant)
 {
     auto identifier = JSObjectID::generate();
     m_map.add(identifier, toValue(variant));
     return identifier;
 }
 
-auto JavaScriptEvaluationResult::toValue(GVariant* variant) -> Value
+auto JavaScriptEvaluationResult::GLibExtractor::toValue(GVariant* variant) -> Value
 {
     if (g_variant_is_of_type(variant, G_VARIANT_TYPE("a{sv}"))) {
-        HashMap<JSObjectID, JSObjectID> map;
+        ObjectMap objectMap;
         GVariantIter iter;
         g_variant_iter_init(&iter, variant);
         const char* key;
@@ -64,9 +74,9 @@ auto JavaScriptEvaluationResult::toValue(GVariant* variant) -> Value
             m_map.add(keyID, String::fromUTF8(key));
             auto valueID = JSObjectID::generate();
             m_map.add(valueID, toValue(value));
-            map.add(keyID, valueID);
+            objectMap.add(keyID, valueID);
         }
-        return { WTFMove(map) };
+        return { WTF::move(objectMap) };
     }
 
     if (g_variant_is_of_type(variant, G_VARIANT_TYPE_UINT32))
@@ -88,11 +98,6 @@ auto JavaScriptEvaluationResult::toValue(GVariant* variant) -> Value
         return String::fromUTF8(g_variant_get_string(variant, nullptr));
 
     return EmptyType::Null;
-}
-
-JavaScriptEvaluationResult::JavaScriptEvaluationResult(GVariant* variant)
-    : m_root(addObjectToMap(variant))
-{
 }
 
 static bool isSerializable(GVariant* variant)
@@ -129,7 +134,10 @@ std::optional<JavaScriptEvaluationResult> JavaScriptEvaluationResult::extract(GV
 {
     if (!isSerializable(variant))
         return std::nullopt;
-    return JavaScriptEvaluationResult(variant);
+
+    GLibExtractor extractor;
+    auto root = extractor.addObjectToMap(variant);
+    return JavaScriptEvaluationResult { root, extractor.takeMap() };
 }
 
 } // namespace WebKit

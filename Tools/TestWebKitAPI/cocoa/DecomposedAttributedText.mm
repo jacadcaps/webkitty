@@ -27,6 +27,7 @@
 #import "DecomposedAttributedText.h"
 
 #import <wtf/cocoa/VectorCocoa.h>
+#import <wtf/text/MakeString.h>
 
 static DecomposedAttributedText::ListMarker convertMarker(NSTextListMarkerFormat marker)
 {
@@ -39,7 +40,7 @@ static DecomposedAttributedText::ListMarker convertMarker(NSTextListMarkerFormat
     if ([marker isEqualToString:NSTextListMarkerLowercaseRoman])
         return DecomposedAttributedText::ListMarker::LowercaseRoman;
 
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("unexpected marker type %@", marker);
+    return DecomposedAttributedText::ListMarker { marker };
 }
 
 #if PLATFORM(MAC)
@@ -56,6 +57,33 @@ constexpr auto PlatformFontDescriptorTraitBold = UIFontDescriptorTraitBold;
 constexpr auto PlatformFontDescriptorTraitItalic = UIFontDescriptorTraitItalic;
 #endif
 
+// Merge the last element of `children` and `child` iff they are both Strings and do not have newlines in between;
+// otherwise, add `child` as a new element.
+// FIXME: This is incomplete currently, and should ideally merge any `Element`s if they are structurally the same.
+static void addTextChild(Vector<DecomposedAttributedText::Element>& children, const DecomposedAttributedText::Element& child)
+{
+    if (children.isEmpty()) {
+        children.append(child);
+        return;
+    }
+
+    auto& last = children.last();
+    if (last.index() != child.index() || !std::holds_alternative<String>(child)) {
+        children.append(child);
+        return;
+    }
+
+    auto lastString = std::get<String>(last);
+    auto childString = std::get<String>(child);
+
+    if (lastString.endsWith('\n') || childString.startsWith('\n')) {
+        children.append(child);
+        return;
+    }
+
+    last = makeString(lastString, childString);
+}
+
 static void decomposeChildren(HashMap<NSTextList *, DecomposedAttributedText::ListID>& textListToIdentifiers, NSDictionary<NSAttributedStringKey, id> *attributes, size_t index, Vector<DecomposedAttributedText::Element>& children, NSString *text)
 {
     RetainPtr<NSArray<NSTextList *>> textLists = [attributes[NSParagraphStyleAttributeName] textLists];
@@ -70,7 +98,7 @@ static void decomposeChildren(HashMap<NSTextList *, DecomposedAttributedText::Li
         if (traits & PlatformFontDescriptorTraitItalic)
             child = DecomposedAttributedText::Italic { { child } };
 
-        children.append(child);
+        addTextChild(children, child);
         return;
     }
 
@@ -121,8 +149,8 @@ Runs runsForAttributedText(NSAttributedString *string)
 {
     __block Runs allTextAttributes;
     [string enumerateAttributesInRange:NSMakeRange(0, [string length]) options:0 usingBlock:^(NSDictionary<NSAttributedStringKey, id> *attributes, NSRange range, BOOL *) {
-        RetainPtr trimmedSubstring = [[[string string] substringWithRange:range] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-        allTextAttributes.append(std::pair { trimmedSubstring, attributes });
+        RetainPtr substring = [[string string] substringWithRange:range];
+        allTextAttributes.append(std::pair { substring, attributes });
     }];
     return allTextAttributes;
 }
@@ -130,6 +158,11 @@ Runs runsForAttributedText(NSAttributedString *string)
 DecomposedAttributedText decompose(NSAttributedString *string)
 {
     return decomposeAttributedTextRuns(runsForAttributedText(string));
+}
+
+bool operator==(const DecomposedAttributedText::ListMarker& lhs, const DecomposedAttributedText::ListMarker& rhs)
+{
+    return lhs.data == rhs.data;
 }
 
 bool operator==(const DecomposedAttributedText::OrderedList& lhs, const DecomposedAttributedText::OrderedList& rhs)
@@ -196,19 +229,24 @@ TextStream& operator<<(TextStream& stream, const DecomposedAttributedText& value
 
 TextStream& operator<<(TextStream& stream, const DecomposedAttributedText::ListMarker& value)
 {
-    switch (value) {
-    case DecomposedAttributedText::ListMarker::Circle:
-        stream << "circle";
-        break;
-    case DecomposedAttributedText::ListMarker::Decimal:
-        stream << "decimal";
-        break;
-    case DecomposedAttributedText::ListMarker::Disc:
-        stream << "disc";
-        break;
-    case DecomposedAttributedText::ListMarker::LowercaseRoman:
-        stream << "lowercase-roman";
-        break;
-    }
+    WTF::switchOn(value.data, [&](DecomposedAttributedText::ListMarker::Type type) {
+        switch (type) {
+        case DecomposedAttributedText::ListMarker::Circle:
+            stream << "circle";
+            break;
+        case DecomposedAttributedText::ListMarker::Decimal:
+            stream << "decimal";
+            break;
+        case DecomposedAttributedText::ListMarker::Disc:
+            stream << "disc";
+            break;
+        case DecomposedAttributedText::ListMarker::LowercaseRoman:
+            stream << "lowercase-roman";
+            break;
+        }
+    }, [&](const String& string) {
+        stream << string;
+    });
+
     return stream;
 }

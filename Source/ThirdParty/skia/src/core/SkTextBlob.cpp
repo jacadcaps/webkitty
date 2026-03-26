@@ -20,7 +20,6 @@
 #include "include/private/base/SkMalloc.h"
 #include "include/private/base/SkTo.h"
 #include "src/base/SkSafeMath.h"
-#include "src/base/SkTLazy.h"
 #include "src/core/SkFontPriv.h"
 #include "src/core/SkGlyph.h"
 #include "src/core/SkReadBuffer.h"
@@ -905,7 +904,7 @@ int get_glyph_run_intercepts(const sktext::GlyphRun& glyphRun,
     SkStrikeSpec strikeSpec = SkStrikeSpec::MakeWithNoDevice(interceptFont, &interceptPaint);
     SkBulkGlyphMetricsAndPaths metricsAndPaths{strikeSpec};
 
-    const SkPoint* posCursor = glyphRun.positions().begin();
+    const SkPoint* posCursor = glyphRun.positions().data();
     for (const SkGlyph* glyph : metricsAndPaths.glyphs(glyphRun.glyphsIDs())) {
         SkPoint pos = *posCursor++;
 
@@ -926,10 +925,10 @@ int get_glyph_run_intercepts(const sktext::GlyphRun& glyphRun,
 
 int SkTextBlob::getIntercepts(const SkScalar bounds[2], SkScalar intervals[],
                               const SkPaint* paint) const {
-    SkTLazy<SkPaint> defaultPaint;
+    std::optional<SkPaint> defaultPaint;
     if (paint == nullptr) {
-        defaultPaint.init();
-        paint = defaultPaint.get();
+        defaultPaint.emplace();
+        paint = &defaultPaint.value();
     }
 
     sktext::GlyphRunBuilder builder;
@@ -958,9 +957,7 @@ std::vector<SkScalar> SkFont::getIntercepts(SkSpan<const SkGlyphID> glyphs,
 
     const SkPaint paint(paintPtr ? *paintPtr : SkPaint());
     const SkScalar bounds[] = {top, bottom};
-    const sktext::GlyphRun run(*this,
-                         positions, glyphs,
-                         {nullptr, 0}, {nullptr, 0}, {nullptr, 0});
+    const sktext::GlyphRun run(*this, positions, glyphs, {}, {}, {});
 
     std::vector<SkScalar> result;
     result.resize(count * 2);   // worst case allocation

@@ -68,7 +68,7 @@ std::optional<WebPushMessage> WebPushMessage::fromDictionary(NSDictionary *dicti
             return std::nullopt;
     }
 
-    WebPushMessage message { { }, String { pushPartition.get() }, URL { url.get() }, WTFMove(payload) };
+    WebPushMessage message { { }, String { pushPartition.get() }, URL { url.get() }, WTF::move(payload) };
 #else
     WebPushMessage message { { }, String { pushPartition.get() }, URL { url.get() }, { } };
 #endif
@@ -79,7 +79,7 @@ std::optional<WebPushMessage> WebPushMessage::fromDictionary(NSDictionary *dicti
     return message;
 }
 
-NSDictionary *WebPushMessage::toDictionary() const
+RetainPtr<NSDictionary> WebPushMessage::toDictionary() const
 {
     RetainPtr<NSData> nsData;
     if (pushData)

@@ -149,7 +149,7 @@ void JSTestMapLikePrototype::finishCreation(VM& vm)
 const ClassInfo JSTestMapLike::s_info = { "TestMapLike"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestMapLike) };
 
 JSTestMapLike::JSTestMapLike(Structure* structure, JSDOMGlobalObject& globalObject, Ref<TestMapLike>&& impl)
-    : JSDOMWrapper<TestMapLike>(structure, globalObject, WTFMove(impl))
+    : JSDOMWrapper<TestMapLike>(structure, globalObject, WTF::move(impl))
 {
 }
 
@@ -174,7 +174,7 @@ JSValue JSTestMapLike::getConstructor(VM& vm, const JSGlobalObject* globalObject
 
 void JSTestMapLike::destroy(JSC::JSCell* cell)
 {
-    JSTestMapLike* thisObject = static_cast<JSTestMapLike*>(cell);
+    SUPPRESS_MEMORY_UNSAFE_CAST JSTestMapLike* thisObject = static_cast<JSTestMapLike*>(cell);
     thisObject->JSTestMapLike::~JSTestMapLike();
 }
 
@@ -389,7 +389,7 @@ bool JSTestMapLikeOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> ha
 
 void JSTestMapLikeOwner::finalize(JSC::Handle<JSC::Unknown> handle, void* context)
 {
-    auto* jsTestMapLike = static_cast<JSTestMapLike*>(handle.slot()->asCell());
+    SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestMapLike = static_cast<JSTestMapLike*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
     uncacheWrapper(world, jsTestMapLike->protectedWrapped().ptr(), jsTestMapLike);
 }
@@ -403,7 +403,7 @@ extern "C" { extern void (*const __identifier("??_7TestMapLike@WebCore@@6B@")[])
 extern "C" { extern void* _ZTVN7WebCore11TestMapLikeE[]; }
 #endif
 template<std::same_as<TestMapLike> T>
-static inline void verifyVTable(TestMapLike* ptr) 
+static inline void verifyVTable(TestMapLike* ptr)
 {
     if constexpr (std::is_polymorphic_v<T>) {
         const void* actualVTablePointer = getVTablePointer<T>(ptr);
@@ -423,12 +423,13 @@ static inline void verifyVTable(TestMapLike* ptr)
 #endif
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestMapLike>&& impl)
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<TestMapLike>&& impl)
 {
+    UNUSED_PARAM(lexicalGlobalObject);
 #if ENABLE(BINDING_INTEGRITY)
     verifyVTable<TestMapLike>(impl.ptr());
 #endif
-    return createWrapper<TestMapLike>(globalObject, WTFMove(impl));
+    return createWrapper<TestMapLike>(globalObject, WTF::move(impl));
 }
 
 JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestMapLike& impl)

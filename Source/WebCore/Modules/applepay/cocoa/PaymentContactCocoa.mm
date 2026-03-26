@@ -42,7 +42,7 @@ namespace WebCore {
 
 static RetainPtr<PKContact> convert(unsigned version, const ApplePayPaymentContact& contact)
 {
-    auto result = adoptNS([PAL::allocPKContactInstance() init]);
+    RetainPtr result = adoptNS([PAL::allocPKContactInstance() init]);
 
     RetainPtr<NSString> familyName;
     RetainPtr<NSString> phoneticFamilyName;
@@ -80,7 +80,7 @@ static RetainPtr<PKContact> convert(unsigned version, const ApplePayPaymentConta
         [result setPhoneNumber:adoptNS([allocCNPhoneNumberInstance() initWithStringValue:contact.phoneNumber.createNSString().get()]).get()];
 
     if (contact.addressLines && !contact.addressLines->isEmpty()) {
-        auto address = adoptNS([allocCNMutablePostalAddressInstance() init]);
+        RetainPtr address = adoptNS([allocCNMutablePostalAddressInstance() init]);
 
         StringBuilder builder;
         for (unsigned i = 0; i < contact.addressLines->size(); ++i) {
@@ -121,30 +121,30 @@ static ApplePayPaymentContact convert(unsigned version, PKContact *contact)
     result.phoneNumber = static_cast<CNPhoneNumber *>(contact.phoneNumber).stringValue;
     result.emailAddress = contact.emailAddress;
 
-    NSPersonNameComponents *name = contact.name;
-    result.givenName = name.givenName;
-    result.familyName = name.familyName;
+    RetainPtr<NSPersonNameComponents> name = contact.name;
+    result.givenName = name.get().givenName;
+    result.familyName = name.get().familyName;
     if (name)
-        result.localizedName = [NSPersonNameComponentsFormatter localizedStringFromPersonNameComponents:name style:NSPersonNameComponentsFormatterStyleDefault options:0];
+        result.localizedName = [NSPersonNameComponentsFormatter localizedStringFromPersonNameComponents:name.get() style:NSPersonNameComponentsFormatterStyleDefault options:0];
 
     if (version >= 3) {
-        NSPersonNameComponents *phoneticName = name.phoneticRepresentation;
-        result.phoneticGivenName = phoneticName.givenName;
-        result.phoneticFamilyName = phoneticName.familyName;
+        RetainPtr<NSPersonNameComponents> phoneticName = name.get().phoneticRepresentation;
+        result.phoneticGivenName = phoneticName.get().givenName;
+        result.phoneticFamilyName = phoneticName.get().familyName;
         if (phoneticName)
-            result.localizedPhoneticName = [NSPersonNameComponentsFormatter localizedStringFromPersonNameComponents:name style:NSPersonNameComponentsFormatterStyleDefault options:NSPersonNameComponentsFormatterPhonetic];
+            result.localizedPhoneticName = [NSPersonNameComponentsFormatter localizedStringFromPersonNameComponents:name.get() style:NSPersonNameComponentsFormatterStyleDefault options:NSPersonNameComponentsFormatterPhonetic];
     }
 
-    CNPostalAddress *postalAddress = contact.postalAddress;
-    if (postalAddress.street.length)
-        result.addressLines = String(postalAddress.street).split('\n');
-    result.subLocality = postalAddress.subLocality;
-    result.locality = postalAddress.city;
-    result.postalCode = postalAddress.postalCode;
-    result.subAdministrativeArea = postalAddress.subAdministrativeArea;
-    result.administrativeArea = postalAddress.state;
-    result.country = postalAddress.country;
-    result.countryCode = postalAddress.ISOCountryCode;
+    RetainPtr<CNPostalAddress> postalAddress = contact.postalAddress;
+    if (postalAddress.get().street.length)
+        result.addressLines = String(postalAddress.get().street).split('\n');
+    result.subLocality = postalAddress.get().subLocality;
+    result.locality = postalAddress.get().city;
+    result.postalCode = postalAddress.get().postalCode;
+    result.subAdministrativeArea = postalAddress.get().subAdministrativeArea;
+    result.administrativeArea = postalAddress.get().state;
+    result.country = postalAddress.get().country;
+    result.countryCode = postalAddress.get().ISOCountryCode;
 
     return result;
 }
@@ -152,7 +152,7 @@ static ApplePayPaymentContact convert(unsigned version, PKContact *contact)
 PaymentContact::PaymentContact() = default;
 
 PaymentContact::PaymentContact(RetainPtr<PKContact>&& pkContact)
-    : m_pkContact { WTFMove(pkContact) }
+    : m_pkContact { WTF::move(pkContact) }
 {
 }
 

@@ -27,14 +27,14 @@
 
 #if USE(CG)
 
-#include "ImageBuffer.h"
-#include "ImageBufferCGBackend.h"
+#include <WebCore/ImageBuffer.h>
+#include <WebCore/ImageBufferCGBackend.h>
 #include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class ImageBufferCGBitmapBackend final : public ImageBufferCGBackend {
-    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(ImageBufferCGBitmapBackend);
+    WTF_MAKE_TZONE_ALLOCATED(ImageBufferCGBitmapBackend);
     WTF_MAKE_NONCOPYABLE(ImageBufferCGBitmapBackend);
 public:
     ~ImageBufferCGBitmapBackend();

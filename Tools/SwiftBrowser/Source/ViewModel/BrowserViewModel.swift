@@ -23,10 +23,10 @@
 
 import CoreTransferable
 import Foundation
-import os
 import Observation
 import UniformTypeIdentifiers
-@_spi(Private) import WebKit
+@_spi(Private) @_spi(CrossImportOverlay) import WebKit
+import os
 
 struct PDF {
     let data: Data
@@ -191,6 +191,17 @@ final class BrowserViewModel {
     func setMicrophoneCaptureState(_ state: WKMediaCaptureState) {
         Task { @MainActor in
             await page.setMicrophoneCaptureState(state)
+        }
+    }
+
+    func updateWebPreferences() {
+        let preferences = page.backingWebView.configuration.preferences
+        for feature in WKPreferences._features() {
+            guard let value = UserDefaults.standard.object(forKey: feature.key) as? Bool else {
+                continue
+            }
+
+            preferences._setEnabled(value, for: feature)
         }
     }
 }

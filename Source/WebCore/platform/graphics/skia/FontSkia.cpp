@@ -38,10 +38,11 @@ namespace WebCore {
 
 Path Font::platformPathForGlyph(Glyph glyph) const
 {
-    auto path = PathSkia::create();
     const auto& font = m_platformData.skFont();
-    font.getPath(glyph, path->platformPath());
-    return { path };
+    if (auto skPath = font.getPath(glyph))
+        return { PathSkia::create(WTF::move(*skPath)) };
+
+    return { };
 }
 
 FloatRect Font::platformBoundsForGlyph(Glyph glyph) const
@@ -50,8 +51,7 @@ FloatRect Font::platformBoundsForGlyph(Glyph glyph) const
         return { };
 
     const auto& font = m_platformData.skFont();
-    SkRect bounds;
-    font.getBounds(&glyph, 1, &bounds, nullptr);
+    SkRect bounds = font.getBounds(glyph, nullptr);
     if (!font.isSubpixel()) {
         SkIRect rect;
         bounds.roundOut(&rect);
@@ -60,14 +60,35 @@ FloatRect Font::platformBoundsForGlyph(Glyph glyph) const
     return bounds;
 }
 
+Vector<FloatRect, Font::inlineGlyphRunCapacity> Font::platformBoundsForGlyphs(const Vector<Glyph, inlineGlyphRunCapacity>& glyphs) const
+{
+    if (!m_platformData.size())
+        return { };
+
+    static_assert(sizeof(Glyph) == sizeof(SkGlyphID));
+
+    Vector<SkRect, inlineGlyphRunCapacity> bounds(glyphs.size());
+    const auto& font = m_platformData.skFont();
+    font.getBounds(glyphs.span(), bounds.mutableSpan(), nullptr);
+    return bounds.map<Vector<FloatRect, inlineGlyphRunCapacity>>([&](const auto& boundsRect) -> auto {
+        if (font.isSubpixel())
+            return boundsRect;
+
+        SkRect returnValue = boundsRect;
+        SkIRect rect;
+        returnValue.roundOut(&rect);
+        returnValue.set(rect);
+        return returnValue;
+    });
+}
+
 float Font::platformWidthForGlyph(Glyph glyph) const
 {
     if (!m_platformData.size())
         return 0;
 
     const auto& font = m_platformData.skFont();
-    SkScalar width;
-    font.getWidths(&glyph, 1, &width);
+    SkScalar width = font.getWidth(glyph);
 
     if (!font.isSubpixel())
         width = SkScalarRoundToInt(width);
@@ -181,13 +202,13 @@ bool Font::platformSupportsCodePoint(char32_t character, std::optional<char32_t>
 static inline SkFont::Edging edgingForFontSmoothingMode(const SkFont& font, FontSmoothingMode smoothingMode)
 {
     switch (smoothingMode) {
-    case FontSmoothingMode::AutoSmoothing:
+    case FontSmoothingMode::Auto:
         return font.getEdging();
     case FontSmoothingMode::Antialiased:
         return SkFont::Edging::kAntiAlias;
     case FontSmoothingMode::SubpixelAntialiased:
         return SkFont::Edging::kSubpixelAntiAlias;
-    case FontSmoothingMode::NoSmoothing:
+    case FontSmoothingMode::None:
         return SkFont::Edging::kAlias;
     }
 

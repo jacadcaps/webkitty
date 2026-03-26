@@ -46,12 +46,12 @@ CocoaImage *webCoreTextAttachmentMissingPlatformImage()
     dispatch_once(&once, ^{
         RetainPtr webCoreBundle = [NSBundle bundleWithIdentifier:@"com.apple.WebCore"];
 #if PLATFORM(IOS_FAMILY)
-        RetainPtr image = [PAL::getUIImageClass() imageNamed:@"missingImage" inBundle:webCoreBundle.get() compatibleWithTraitCollection:nil];
+        RetainPtr image = [PAL::getUIImageClassSingleton() imageNamed:@"missingImage" inBundle:webCoreBundle.get() compatibleWithTraitCollection:nil];
 #else
         RetainPtr image = [webCoreBundle imageForResource:@"missingImage"];
 #endif
         ASSERT_WITH_MESSAGE(!!image, "Unable to find missingImage.");
-        webCoreTextAttachmentMissingPlatformImageIfExists() = WTFMove(image);
+        webCoreTextAttachmentMissingPlatformImageIfExists() = WTF::move(image);
     });
 
     return webCoreTextAttachmentMissingPlatformImageIfExists().get();

@@ -22,6 +22,7 @@
 #include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
 #include "api/video/video_frame_metadata.h"
+#include "rtc_base/checks.h"
 #include "rtc_base/system/rtc_export.h"
 
 namespace webrtc {
@@ -113,9 +114,8 @@ class TransformableVideoFrameInterface : public TransformableFrameInterface {
   RTC_EXPORT explicit TransformableVideoFrameInterface(Passkey passkey);
   virtual ~TransformableVideoFrameInterface() = default;
   virtual bool IsKeyFrame() const = 0;
-
+  virtual std::optional<std::string> Rid() const { return std::nullopt; }
   virtual VideoFrameMetadata Metadata() const = 0;
-
   virtual void SetMetadata(const VideoFrameMetadata&) = 0;
 };
 

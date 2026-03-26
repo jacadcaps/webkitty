@@ -17,7 +17,7 @@
 #include "include/core/SkPoint.h"
 #include "include/core/SkString.h"
 #include "include/core/SkSurface.h"
-#include "include/effects/SkGradientShader.h"
+#include "include/effects/SkGradient.h"
 #include "include/gpu/ganesh/GrDirectContext.h"
 #include "include/gpu/ganesh/SkMeshGanesh.h"
 #include "include/private/base/SkAssert.h"
@@ -111,13 +111,8 @@ protected:
             fSpecWithNoColor = std::move(spec);
         }
 
-        static constexpr SkColor kColors[] = {SK_ColorTRANSPARENT, SK_ColorWHITE};
-        fShader = SkGradientShader::MakeRadial({10, 10},
-                                               3,
-                                               kColors,
-                                               nullptr,
-                                               2,
-                                               SkTileMode::kMirror);
+        static constexpr SkColor4f kColors[] = {SkColors::kTransparent, SkColors::kWhite};
+        fShader = SkShaders::RadialGradient({10, 10}, 3, {{kColors, {}, SkTileMode::kMirror}, {}});
     }
 
     DrawResult onGpuSetup(SkCanvas* canvas, SkString* string, GraphiteTestContext*) override {
@@ -407,8 +402,8 @@ protected:
             }
         }
         SkPoint pts[]    = {{kRect.fLeft, 0}, {kRect.centerX(), 0}};
-        SkColor colors[] = {SK_ColorWHITE,    SK_ColorTRANSPARENT};
-        fShader = SkGradientShader::MakeLinear(pts, colors, nullptr, 2, SkTileMode::kMirror);
+        const SkColor4f colors[] = {SkColors::kWhite, SkColors::kTransparent};
+        fShader = SkShaders::LinearGradient(pts, {{colors, {}, SkTileMode::kMirror}, {}});
 
         fVB = SkMeshes::MakeVertexBuffer(kQuad, sizeof(kQuad));
     }
@@ -561,13 +556,9 @@ protected:
         }
         fSpec = std::move(spec);
 
-        SkColor colors[] = {SK_ColorWHITE, SK_ColorBLACK};
-        fShader = SkGradientShader::MakeRadial(kGradCenter,
-                                               .4f,
-                                               colors,
-                                               nullptr,
-                                               2,
-                                               SkTileMode::kMirror);
+        const SkColor4f colors[] = {SkColors::kWhite, SkColors::kBlack};
+        fShader = SkShaders::RadialGradient(kGradCenter, .4f,
+                                            {{colors, {}, SkTileMode::kMirror}, {}});
 
         fVB = SkMeshes::MakeVertexBuffer(kQuad, sizeof(kQuad));
     }
@@ -774,8 +765,7 @@ protected:
                     bounds = p;
                 }
 
-                SkPoint t[4];
-                SkRect::MakeWH(2.f, 2.f).toQuad(t);
+                std::array<SkPoint, 4> t = SkRect::MakeWH(2.f, 2.f).toQuad();
                 SkMatrix::RotateDeg(90.f*i, {1.f, 1.f}).mapPoints(t);
 
                 Vertex vertices[6];
@@ -823,17 +813,15 @@ protected:
             vb = make_vertex_buffer(ctx, /*data=*/nullptr, kNumIBUpdates * 4 * sizeof(Vertex));
             SkASSERT(vb);
             for (int i = 0; i < kNumIBUpdates; ++i) {
-                SkPoint p[4];
                 auto rect = r.makeOffset(100*i, 0);
-                rect.toQuad(p);
+                const std::array<SkPoint, 4> p = rect.toQuad();
                 if (i) {
                     bounds.join(rect);
                 } else {
                     bounds = rect;
                 }
 
-                SkPoint t[4];
-                SkRect::MakeWH(2.f, 2.f).toQuad(t);
+                std::array<SkPoint, 4> t = SkRect::MakeWH(2.f, 2.f).toQuad();
                 SkMatrix::RotateDeg(90.f*i, {1.f, 1.f}).mapPoints(t);
                 Vertex vertices[4]{{p[0], t[0]}, {p[1], t[1]}, {p[2], t[2]}, {p[3], t[3]}};
                 SkAssertResult(
@@ -1098,18 +1086,11 @@ protected:
         }
         colors[std::size(colors) - 1] = colors[0];
         SkPaint paint;
-        SkGradientShader::Interpolation interpolation;
-        interpolation.fColorSpace = SkGradientShader::Interpolation::ColorSpace::kHSL;
-        fShader = SkGradientShader::MakeSweep(kRect.centerX(), kRect.centerY(),
-                                              colors,
-                                              SkColorSpace::MakeSRGB(),
-                                              nullptr,
-                                              std::size(colors),
-                                              SkTileMode::kRepeat,
-                                              0,
-                                              360.f,
-                                              interpolation,
-                                              /*localMatrix=*/nullptr);
+        SkGradient::Interpolation interpolation;
+        interpolation.fColorSpace = SkGradient::Interpolation::ColorSpace::kHSL;
+        fShader = SkShaders::SweepGradient(kRect.center(), 0, 360,
+                                      {{colors, {}, SkTileMode::kRepeat, SkColorSpace::MakeSRGB()},
+                                       interpolation});
     }
 
     SkString getName() const override { return SkString("picture_mesh"); }

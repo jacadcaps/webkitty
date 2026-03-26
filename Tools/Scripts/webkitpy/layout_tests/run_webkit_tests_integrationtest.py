@@ -367,10 +367,22 @@ class RunTest(unittest.TestCase, StreamTestingMixin):
         self.assertEqual(get_tests_run(['--no-retry-failures',  '--skip-failing-tests', '--skipped=always'] + list_of_tests_failing), [])
 
     def test_ews_corner_case_skipped_test(self):
-        # When we specify on the command line the name of a test skipped this test should run
+        # When we specify on the command line the name of a test skipped this test should run.
         self.assertEqual(get_tests_run(['passes/skipped/skip.html']), ['passes/skipped/skip.html'])
-        # Unless we specify also '--skipped=always', then it should be skipped even when we list it on the command line
+        # With '--skipped=always', it should be skipped even when we list it on the command line.
         self.assertEqual(get_tests_run(['--skipped=always', 'passes/skipped/skip.html']), [])
+
+    def test_ews_corner_case_skipped_test_with_layouttests_prefix(self):
+        # When we specify a skipped test with LayoutTests/ prefix, it should run.
+        self.assertEqual(get_tests_run(['LayoutTests/passes/skipped/skip.html']), ['passes/skipped/skip.html'])
+        # With '--skipped=always', it should be skipped even when we list it on the command line.
+        self.assertEqual(get_tests_run(['--skipped=always', 'LayoutTests/passes/skipped/skip.html']), [])
+
+    def test_ews_corner_case_skipped_test_with_relative_path(self):
+        # When we specify a skipped test with a relative path, it should run.
+        self.assertEqual(get_tests_run(['../LayoutTests/passes/skipped/skip.html']), ['passes/skipped/skip.html'])
+        # With '--skipped=always', it should be skipped even when we list it on the command line.
+        self.assertEqual(get_tests_run(['--skipped=always', '../LayoutTests/passes/skipped/skip.html']), [])
 
     def test_ews_corner_case_skipped_directory(self):
         # When a whole directory is skipped, then the tests inside should not run if we specify the name of the directory
@@ -717,6 +729,18 @@ class RunTest(unittest.TestCase, StreamTestingMixin):
         host = MockHost()
         host.filesystem.write_text_file('/tmp/layout-test-results/DumpRenderTree_2011-06-13-150719_quadzen.crash', mock_crash_report)
         _, regular_output, _ = logging_run(['failures/unexpected/crash-with-stderr.html', '--dump-render-tree'], tests_included=True, host=host)
+        expected_crash_log = mock_crash_report
+        self.assertEqual(host.filesystem.read_text_file('/tmp/layout-test-results/failures/unexpected/crash-with-stderr-crash-log.txt'), expected_crash_log)
+
+    def test_crash_log_webkit_test_runner(self):
+        # FIXME: Need to rewrite these tests to not be mac-specific, or move them elsewhere.
+        # Currently CrashLog uploading only works on Darwin and Windows.
+        if not self._platform.is_mac() or self._platform.is_win():
+            return
+        mock_crash_report = make_mock_crash_report_darwin('WebKitTestRunner', 12345)
+        host = MockHost()
+        host.filesystem.write_text_file('/tmp/layout-test-results/WebKitTestRunner_2011-06-13-150719_quadzen.crash', mock_crash_report)
+        _, regular_output, _ = logging_run(['failures/unexpected/crash-with-stderr.html', '-2'], tests_included=True, host=host)
         expected_crash_log = mock_crash_report
         self.assertEqual(host.filesystem.read_text_file('/tmp/layout-test-results/failures/unexpected/crash-with-stderr-crash-log.txt'), expected_crash_log)
 

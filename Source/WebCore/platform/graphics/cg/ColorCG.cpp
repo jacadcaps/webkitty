@@ -102,13 +102,7 @@ std::optional<SRGBA<uint8_t>> roundAndClampToSRGBALossy(CGColorRef color)
 template<ColorSpace space>
 static CGColorTransformRef cachedCGColorTransform()
 {
-    static LazyNeverDestroyed<RetainPtr<CGColorTransformRef>> transform;
-
-    static std::once_flag onceFlag;
-    std::call_once(onceFlag, [] {
-        transform.construct(adoptCF(CGColorTransformCreate(cachedCGColorSpace<space>(), nullptr)));
-    });
-
+    static NeverDestroyed<RetainPtr<CGColorTransformRef>> transform = adoptCF(CGColorTransformCreate(cachedCGColorSpaceSingleton<space>(), nullptr));
     return transform->get();
 }
 
@@ -116,13 +110,13 @@ Color Color::createAndLosslesslyConvertToSupportedColorSpace(CGColorRef color, O
 {
     // FIXME: This should probably use ExtendedSRGBA rather than XYZ_D50, as it is a more commonly used color space and just as expressive.
     constexpr auto destinationColorSpace = HasCGColorSpaceMapping<ColorSpace::XYZ_D50> ? ColorSpace::XYZ_D50 : ColorSpace::SRGB;
-    ASSERT(CGColorSpaceGetNumberOfComponents(cachedCGColorSpace<destinationColorSpace>()) == 3);
+    ASSERT(CGColorSpaceGetNumberOfComponents(cachedCGColorSpaceSingleton<destinationColorSpace>()) == 3);
 
-    auto sourceCGColorSpace = CGColorGetColorSpace(color);
+    RetainPtr sourceCGColorSpace = CGColorGetColorSpace(color);
     auto sourceComponents = CGColorGetComponents(color);
     std::array<CGFloat, 3> destinationComponents { };
 
-    auto result = CGColorTransformConvertColorComponents(cachedCGColorTransform<destinationColorSpace>(), sourceCGColorSpace, kCGRenderingIntentDefault, sourceComponents, destinationComponents.data());
+    auto result = CGColorTransformConvertColorComponents(cachedCGColorTransform<destinationColorSpace>(), sourceCGColorSpace.get(), kCGRenderingIntentDefault, sourceComponents, destinationComponents.data());
     ASSERT_UNUSED(result, result);
 
     float a = destinationComponents[0];
@@ -139,7 +133,7 @@ Color Color::createAndPreserveColorSpace(CGColorRef color, OptionSet<Flags> flag
         return Color();
 
     auto components = componentsSpan(color);
-    auto colorSpace = colorSpaceForCGColorSpace(CGColorGetColorSpace(color));
+    auto colorSpace = colorSpaceForCGColorSpace(RetainPtr { CGColorGetColorSpace(color) }.get());
 
     if (components.size() != 4 || !colorSpace)
         return createAndLosslesslyConvertToSupportedColorSpace(color, flags);
@@ -161,13 +155,13 @@ static std::pair<CGColorSpaceRef, ColorComponents<float, 4>> convertToCGCompatib
 
     using FallbackColorType = std::conditional_t<HasCGColorSpaceMapping<ColorSpace::ExtendedSRGB>, ExtendedSRGBA<float>, SRGBA<float>>;
 
-    if (auto cgColorSpace = cachedNullableCGColorSpace(colorSpace))
-        return { cgColorSpace, components };
+    if (RetainPtr cgColorSpace = cachedNullableCGColorSpaceSingleton(colorSpace))
+        return { cgColorSpace.get(), components };
 
     auto componentsConvertedToFallbackColorSpace = callWithColorType(components, colorSpace, [] (const auto& color) {
         return asColorComponents(convertColor<FallbackColorType>(color).resolved());
     });
-    return { cachedCGColorSpace<ColorSpaceFor<FallbackColorType>>(), componentsConvertedToFallbackColorSpace };
+    return { cachedCGColorSpaceSingleton<ColorSpaceFor<FallbackColorType>>(), componentsConvertedToFallbackColorSpace };
 }
 
 static RetainPtr<CGColorRef> createCGColor(const Color& color)
@@ -186,27 +180,15 @@ RetainPtr<CGColorRef> cachedCGColor(const Color& color)
     if (auto srgb = color.tryGetAsSRGBABytes()) {
         switch (PackedColor::RGBA { *srgb }.value) {
         case PackedColor::RGBA { Color::transparentBlack }.value: {
-            static LazyNeverDestroyed<RetainPtr<CGColorRef>> transparentCGColor;
-            static std::once_flag onceFlag;
-            std::call_once(onceFlag, [] {
-                transparentCGColor.construct(createCGColor(Color::transparentBlack));
-            });
+            static NeverDestroyed<RetainPtr<CGColorRef>> transparentCGColor = createCGColor(Color::transparentBlack);
             return transparentCGColor.get();
         }
         case PackedColor::RGBA { Color::black }.value: {
-            static LazyNeverDestroyed<RetainPtr<CGColorRef>> blackCGColor;
-            static std::once_flag onceFlag;
-            std::call_once(onceFlag, [] {
-                blackCGColor.construct(createCGColor(Color::black));
-            });
+            static NeverDestroyed<RetainPtr<CGColorRef>> blackCGColor = createCGColor(Color::black);
             return blackCGColor.get();
         }
         case PackedColor::RGBA { Color::white }.value: {
-            static LazyNeverDestroyed<RetainPtr<CGColorRef>> whiteCGColor;
-            static std::once_flag onceFlag;
-            std::call_once(onceFlag, [] {
-                whiteCGColor.construct(createCGColor(Color::white));
-            });
+            static NeverDestroyed<RetainPtr<CGColorRef>> whiteCGColor = createCGColor(Color::white);
             return whiteCGColor.get();
         }
         }
@@ -222,7 +204,7 @@ RetainPtr<CGColorRef> cachedCGColor(const Color& color)
 RetainPtr<CGColorRef> createSDRCGColorForColorspace(const Color& color, const DestinationColorSpace& colorSpace)
 {
     RetainPtr result = cachedCGColor(color);
-    RetainPtr standardRangeColorSpace = adoptCF(CGColorSpaceCreateCopyWithStandardRange(colorSpace.platformColorSpace()));
+    RetainPtr standardRangeColorSpace = adoptCF(CGColorSpaceCreateCopyWithStandardRange(colorSpace.protectedPlatformColorSpace().get()));
     return adoptCF(CGColorCreateCopyByMatchingToColorSpace(standardRangeColorSpace.get(), kCGRenderingIntentDefault, result.get(), nullptr));
 }
 
@@ -250,7 +232,7 @@ ColorComponents<float, 4> platformConvertColorComponents(ColorSpace inputColorSp
     std::array<CGFloat, 4> sourceComponents { c1, c2, c3, c4 };
     std::array<CGFloat, 4> destinationComponents { };
 
-    auto transform = adoptCF(CGColorTransformCreate(outputColorSpace.platformColorSpace(), nullptr));
+    auto transform = adoptCF(CGColorTransformCreate(outputColorSpace.protectedPlatformColorSpace().get(), nullptr));
     auto result = CGColorTransformConvertColorComponents(transform.get(), cgInputColorSpace, kCGRenderingIntentDefault, sourceComponents.data(), destinationComponents.data());
     ASSERT_UNUSED(result, result);
     // CGColorTransformConvertColorComponents doesn't copy over any alpha component.

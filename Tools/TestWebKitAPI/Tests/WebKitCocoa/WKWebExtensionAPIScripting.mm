@@ -141,7 +141,7 @@ TEST(WKWebExtensionAPIScripting, ErrorsRegisteredContentScript)
         @"browser.test.assertThrows(() => browser.scripting.unregisterContentScripts({ ids: 0 }), /'ids' is expected to be an array of strings, but a number was provided/i)",
         @"browser.test.assertThrows(() => browser.scripting.unregisterContentScripts({ ids: [ 0 ] }), /'ids' is expected to be an array of strings, but a number was provided/i)",
 
-        @"browser.test.assertRejects(() => browser.scripting.registerContentScripts([{ id: '1', matches: ['*://*/*'], js: ['invalidFile.js'] }]), /Invalid resource 'invalidFile.js'/i)",
+        @"await browser.test.assertRejects(browser.scripting.registerContentScripts([{ id: '1', matches: ['*://*/*'], js: ['invalidFile.js'] }]), /Invalid resource 'invalidFile.js'/i)",
 
         @"browser.test.notifyPass()"
     ]);
@@ -296,7 +296,7 @@ TEST(WKWebExtensionAPIScripting, ExecuteScriptWithFrameIds)
         @"browser.test.sendMessage('Load Tab')"
     ]);
 
-    auto *contentScript = Util::constructScript(@[
+    RetainPtr contentScript = Util::constructScript(@[
         @"browser.runtime.sendMessage('Hello from frame')",
     ]);
 
@@ -323,7 +323,7 @@ TEST(WKWebExtensionAPIScripting, ExecuteScriptWithFrameIds)
 
     auto *resources = @{
         @"background.js": backgroundScript,
-        @"content.js": contentScript,
+        @"content.js": contentScript.get(),
     };
 
     auto manager = Util::loadExtension(manifest, resources);
@@ -368,7 +368,7 @@ TEST(WKWebExtensionAPIScripting, ExecuteScriptWithDocumentIds)
         @"browser.test.sendMessage('Load Tab')"
     ]);
 
-    auto *contentScript = Util::constructScript(@[
+    RetainPtr contentScript = Util::constructScript(@[
         @"browser.runtime.sendMessage('Hello from frame')",
     ]);
 
@@ -395,7 +395,7 @@ TEST(WKWebExtensionAPIScripting, ExecuteScriptWithDocumentIds)
 
     auto *resources = @{
         @"background.js": backgroundScript,
-        @"content.js": contentScript,
+        @"content.js": contentScript.get(),
     };
 
     auto manager = Util::loadExtension(manifest, resources);
@@ -1127,7 +1127,7 @@ TEST(WKWebExtensionAPIScripting, UnregisterContentScripts)
         // Unrecognized ids should return an error and result in a no-op.
 
         @"    await browser.scripting.registerContentScripts([{ id: '1', matches: ['*://localhost/*'], js: ['changeBackgroundColorScript.js'] }])",
-        @"    browser.test.assertRejects(browser.scripting.unregisterContentScripts({ 'ids': ['1', '2'] }))",
+        @"    await browser.test.assertRejects(browser.scripting.unregisterContentScripts({ 'ids': ['1', '2'] }))",
 
         @"    results = await browser.scripting.executeScript({ target: { tabId: tabId }, func: getBackgroundColor })",
         @"    browser.test.assertEq(results[0].result, pinkValue)",
@@ -1832,6 +1832,57 @@ TEST(WKWebExtensionAPIScripting, InjectScriptWithTrustedTypesCSP)
     auto *urlRequest = server.requestWithLocalhost();
     [manager.get().context setPermissionStatus:WKWebExtensionContextPermissionStatusGrantedExplicitly forURL:urlRequest.URL];
     [manager.get().defaultTab.webView loadRequest:urlRequest];
+
+    [manager run];
+}
+
+TEST(WKWebExtensionAPIScripting, MigrateScriptDataToNewFormat)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"var expectedResults = [{",
+        @"  id: '1',",
+        @"  js: ['content.js'],",
+        @"  matches: ['*://localhost/*'],",
+        @"  persistAcrossSessions: true",
+        @"}]",
+
+        @"var results",
+        @"var resultsPassingIds",
+
+        @"results = await browser.scripting.getRegisteredContentScripts()",
+        @"resultsPassingIds = await browser.scripting.getRegisteredContentScripts({ ids: ['1'] })",
+
+        @"browser.test.assertDeepEq(results, resultsPassingIds)",
+        @"browser.test.assertDeepEq(results, expectedResults)",
+
+        @"browser.test.notifyPass()",
+    ]);
+
+    static auto *resources = @{
+        @"background.js": backgroundScript,
+        @"content.js": Util::constructScript(@[]),
+    };
+
+    auto manager = Util::parseExtension(scriptingManifest, resources, WKWebExtensionControllerConfiguration._temporaryConfiguration);
+
+    // Give the extension a unique identifier so it opts into saving data in the temporary configuration.
+    manager.get().context.uniqueIdentifier = @"org.webkit.test.extension (76C788B8)";
+
+    [manager load];
+
+    auto *storageDirectory = manager.get().controller.configuration._storageDirectoryPath;
+    storageDirectory = [storageDirectory stringByAppendingPathComponent:manager.get().context.uniqueIdentifier];
+
+    static auto *files = @[
+        [NSBundle.test_resourcesBundle URLForResource:@"RegisteredContentScripts" withExtension:@"db"],
+        [NSBundle.test_resourcesBundle URLForResource:@"RegisteredContentScripts" withExtension:@"db-shm"],
+        [NSBundle.test_resourcesBundle URLForResource:@"RegisteredContentScripts" withExtension:@"db-wal"]
+    ];
+
+    for (NSURL *file in files) {
+        NSString *combinedPath = [storageDirectory stringByAppendingPathComponent:[file lastPathComponent]];
+        [NSFileManager.defaultManager copyItemAtURL:file toURL:[NSURL fileURLWithPath:combinedPath] error:nil];
+    }
 
     [manager run];
 }

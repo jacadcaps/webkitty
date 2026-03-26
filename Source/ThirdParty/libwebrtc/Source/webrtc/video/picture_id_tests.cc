@@ -240,7 +240,7 @@ class PictureIdTest : public test::CallTest,
  public:
   PictureIdTest() : num_temporal_layers_(GetParam()) {}
 
-  virtual ~PictureIdTest() {
+  ~PictureIdTest() override {
     SendTask(task_queue(), [this]() {
       send_transport_.reset();
       receive_transport_.reset();
@@ -286,6 +286,7 @@ void PictureIdTest::SetupEncoder(VideoEncoderFactory* encoder_factory,
     GetVideoSendConfig()->rtp.payload_name = payload_name;
     GetVideoEncoderConfig()->codec_type =
         PayloadStringToCodecType(payload_name);
+    GetVideoEncoderConfig()->video_format = SdpVideoFormat(payload_name);
     SetVideoEncoderConfig(/* number_of_streams */ 1);
   });
 }

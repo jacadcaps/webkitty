@@ -1333,7 +1333,7 @@ private:
         int firstVertex;
         VertexWriter vertices = target->makeVertexWriter(fProgramInfo->geomProc().vertexStride(),
                                                          fVertCount, &vertexBuffer, &firstVertex);
-        if (!vertices) {
+        if (!vertices) SK_UNLIKELY {
             SkDebugf("Could not allocate vertices\n");
             return;
         }
@@ -1341,7 +1341,7 @@ private:
         sk_sp<const GrBuffer> indexBuffer = nullptr;
         int firstIndex = 0;
         uint16_t* indices = target->makeIndexSpace(fIndexCount, &indexBuffer, &firstIndex);
-        if (!indices) {
+        if (!indices) SK_UNLIKELY {
             SkDebugf("Could not allocate indices\n");
             return;
         }
@@ -1705,7 +1705,7 @@ private:
         int firstVertex;
         VertexWriter vertices = target->makeVertexWriter(fProgramInfo->geomProc().vertexStride(),
                                                          fVertCount, &vertexBuffer, &firstVertex);
-        if (!vertices) {
+        if (!vertices) SK_UNLIKELY {
             SkDebugf("Could not allocate vertices\n");
             return;
         }
@@ -1713,7 +1713,7 @@ private:
         sk_sp<const GrBuffer> indexBuffer;
         int firstIndex = 0;
         uint16_t* indices = target->makeIndexSpace(fIndexCount, &indexBuffer, &firstIndex);
-        if (!indices) {
+        if (!indices) SK_UNLIKELY {
             SkDebugf("Could not allocate indices\n");
             return;
         }
@@ -1921,7 +1921,7 @@ public:
             }
 
             // we don't handle it if curvature of the stroke is less than curvature of the ellipse
-            if (scaledStroke.fX * (params.fXRadius * params.fYRadius) <
+            if (scaledStroke.fX * (params.fYRadius * params.fYRadius) <
                         (scaledStroke.fY * scaledStroke.fY) * params.fXRadius ||
                 scaledStroke.fY * (params.fXRadius * params.fXRadius) <
                         (scaledStroke.fX * scaledStroke.fX) * params.fYRadius) {
@@ -2735,7 +2735,7 @@ private:
 
         VertexWriter verts = target->makeVertexWriter(fProgramInfo->geomProc().vertexStride(),
                                                       fVertCount, &vertexBuffer, &firstVertex);
-        if (!verts) {
+        if (!verts) SK_UNLIKELY {
             SkDebugf("Could not allocate vertices\n");
             return;
         }
@@ -2743,7 +2743,7 @@ private:
         sk_sp<const GrBuffer> indexBuffer;
         int firstIndex = 0;
         uint16_t* indices = target->makeIndexSpace(fIndexCount, &indexBuffer, &firstIndex);
-        if (!indices) {
+        if (!indices) SK_UNLIKELY {
             SkDebugf("Could not allocate indices\n");
             return;
         }

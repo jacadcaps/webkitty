@@ -34,9 +34,9 @@
 #import <Metal/Metal.h>
 #import <WebCore/PlatformXR.h>
 #import <WebCore/PlatformXRPose.h>
-#import <wtf/OSObjectPtr.h>
 #import <wtf/RunLoop.h>
 #import <wtf/WeakObjCPtr.h>
+#import <wtf/darwin/DispatchOSObject.h>
 
 #import "ARKitSoftLink.h"
 
@@ -268,7 +268,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     [_cameraLayer setOpaque:YES];
     [_cameraLayer addSublayer:[CAMetalLayer layer]];
     _metalLayer = [_cameraLayer sublayers][0];
-    [_metalLayer setDevice:_device.get()];
+    [_metalLayer setDeviceWithDevice:_device.get()];
     [_metalLayer setOpaque:NO];
     [_metalLayer setPixelFormat:MTLPixelFormatBGRA8Unorm_sRGB];
     [_metalLayer setPresentsWithTransaction:YES];

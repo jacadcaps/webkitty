@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -65,6 +66,7 @@ private:
 
     WebPage* page() { return m_page.get(); }
     WebCore::ModelPlayerClient* client() { return m_client.get(); }
+    RefPtr<WebCore::ModelPlayerClient> protectedClient() { return m_client.get(); }
 
     template<typename T> void send(T&& message);
     template<typename T, typename C> void sendWithAsyncReply(T&& message, C&& completionHandler);
@@ -87,7 +89,7 @@ private:
     void reload(WebCore::Model&, WebCore::LayoutSize, WebCore::ModelPlayerAnimationState&, std::unique_ptr<WebCore::ModelPlayerTransformState>&&) final;
     void visibilityStateDidChange() final;
     void sizeDidChange(WebCore::LayoutSize) final;
-    PlatformLayer* layer() final;
+    void configureGraphicsLayer(WebCore::GraphicsLayer&, WebCore::ModelPlayerGraphicsLayerConfiguration&&) final;
     void handleMouseDown(const WebCore::LayoutPoint&, MonotonicTime) final;
     void handleMouseMove(const WebCore::LayoutPoint&, MonotonicTime) final;
     void handleMouseUp(const WebCore::LayoutPoint&, MonotonicTime) final;
@@ -109,7 +111,7 @@ private:
     void hasAudio(CompletionHandler<void(std::optional<bool>&&)>&&) final;
     void isMuted(CompletionHandler<void(std::optional<bool>&&)>&&) final;
     void setIsMuted(bool, CompletionHandler<void(bool success)>&&) final;
-    Vector<RetainPtr<id>> accessibilityChildren() final;
+    WebCore::ModelPlayerAccessibilityChildren accessibilityChildren() final;
     void setAutoplay(bool) final;
     void setLoop(bool) final;
     void setPlaybackRate(double, CompletionHandler<void(double effectivePlaybackRate)>&&) final;
@@ -126,6 +128,11 @@ private:
     void endStageModeInteraction() final;
     void animateModelToFitPortal(CompletionHandler<void(bool)>&&) final;
     void resetModelTransformAfterDrag() final;
+
+#if ENABLE(MODEL_ELEMENT_IMMERSIVE)
+    void ensureImmersivePresentation(CompletionHandler<void(std::optional<WebCore::LayerHostingContextIdentifier>)>&&) final;
+    void exitImmersivePresentation(CompletionHandler<void()>&&) final;
+#endif
 
     WebCore::ModelPlayerIdentifier m_id;
     WeakPtr<WebPage> m_page;

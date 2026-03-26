@@ -50,13 +50,14 @@ static WorkQueue& serviceWorkerDownloadTaskQueueSingleton()
 WTF_MAKE_TZONE_ALLOCATED_IMPL(ServiceWorkerDownloadTask);
 
 ServiceWorkerDownloadTask::ServiceWorkerDownloadTask(NetworkSession& session, NetworkDataTaskClient& client, WebSWServerToContextConnection& serviceWorkerConnection, ServiceWorkerIdentifier serviceWorkerIdentifier, SWServerConnectionIdentifier serverConnectionIdentifier, FetchIdentifier fetchIdentifier, const WebCore::ResourceRequest& request, const ResourceResponse& response, DownloadID downloadID)
-    : NetworkDataTask(session, client, request, StoredCredentialsPolicy::DoNotUse, false, false)
+    : NetworkDataTask(session, client, request, StoredCredentialsPolicy::DoNotUse, false, false, false)
     , m_serviceWorkerConnection(serviceWorkerConnection)
     , m_serviceWorkerIdentifier(serviceWorkerIdentifier)
     , m_serverConnectionIdentifier(serverConnectionIdentifier)
     , m_fetchIdentifier(fetchIdentifier)
     , m_downloadID(downloadID)
     , m_networkProcess(*serviceWorkerConnection.networkProcess())
+    , m_sharedPreferences(serviceWorkerConnection.sharedPreferencesForWebProcess())
 {
     auto expectedContentLength = response.expectedContentLength();
     if (expectedContentLength != -1)
@@ -96,7 +97,7 @@ template<typename Message> bool ServiceWorkerDownloadTask::sendToServiceWorker(M
 
 void ServiceWorkerDownloadTask::dispatch(Function<void()>&& function)
 {
-    serviceWorkerDownloadTaskQueueSingleton().dispatch([protectedThis = Ref { *this }, function = WTFMove(function)] {
+    serviceWorkerDownloadTaskQueueSingleton().dispatch([protectedThis = Ref { *this }, function = WTF::move(function)] {
         function();
     });
 }
@@ -146,7 +147,7 @@ void ServiceWorkerDownloadTask::setPendingDownloadLocation(const WTF::String& fi
     NetworkDataTask::setPendingDownloadLocation(filename, { }, allowOverwrite);
 
     ASSERT(!m_sandboxExtension);
-    m_sandboxExtension = SandboxExtension::create(WTFMove(sandboxExtensionHandle));
+    m_sandboxExtension = SandboxExtension::create(WTF::move(sandboxExtensionHandle));
     if (RefPtr sandboxExtension = m_sandboxExtension)
         sandboxExtension->consume();
 
@@ -231,7 +232,7 @@ void ServiceWorkerDownloadTask::didFinish()
         if (RefPtr download = m_networkProcess->checkedDownloadManager()->download(*m_pendingDownloadID)) {
 #if HAVE(MODERN_DOWNLOADPROGRESS)
             if (RefPtr sandboxExtension = std::exchange(m_sandboxExtension, nullptr))
-                download->setSandboxExtension(WTFMove(sandboxExtension));
+                download->setSandboxExtension(WTF::move(sandboxExtension));
 #endif
             download->didFinish();
         }
@@ -245,7 +246,7 @@ void ServiceWorkerDownloadTask::didFail(ResourceError&& error)
 {
     ASSERT(!isMainRunLoop());
 
-    didFailDownload(WTFMove(error));
+    didFailDownload(WTF::move(error));
 }
 
 void ServiceWorkerDownloadTask::didFailDownload(std::optional<ResourceError>&& error)
@@ -254,7 +255,7 @@ void ServiceWorkerDownloadTask::didFailDownload(std::optional<ResourceError>&& e
 
     m_downloadFile = { };
 
-    callOnMainRunLoop([this, protectedThis = Ref { *this }, error = crossThreadCopy(WTFMove(error))] {
+    callOnMainRunLoop([this, protectedThis = Ref { *this }, error = crossThreadCopy(WTF::move(error))] {
         if (m_state == State::Completed)
             return;
 
@@ -271,6 +272,11 @@ void ServiceWorkerDownloadTask::didFailDownload(std::optional<ResourceError>&& e
         if (RefPtr client = m_client.get())
             client->didCompleteWithError(resourceError);
     });
+}
+
+std::optional<SharedPreferencesForWebProcess> ServiceWorkerDownloadTask::sharedPreferencesForWebProcess(const IPC::Connection& connection) const
+{
+    return m_sharedPreferences;
 }
 
 } // namespace WebKit

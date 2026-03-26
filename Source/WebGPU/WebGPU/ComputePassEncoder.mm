@@ -143,6 +143,13 @@ static bool addResourceToActiveResources(const TextureView& texture, OptionSet<B
     return addTextureToActiveResources(&texture.apiParentTexture(), texture.parentTexture(), resourceUsage, usagesForResource, bindGroup, texture.baseMipLevel(), texture.baseArrayLayer(), WGPUTextureAspect_DepthOnly) && addTextureToActiveResources(&texture.apiParentTexture(), texture.parentTexture(), resourceUsage, usagesForResource, bindGroup, texture.baseMipLevel(), texture.baseArrayLayer(), WGPUTextureAspect_StencilOnly);
 }
 
+static bool addResourceToActiveResources(const Texture& texture, OptionSet<BindGroupEntryUsage> resourceUsage, BindGroupId bindGroup, auto& usagesForResource)
+{
+    constexpr uint32_t baseMipLevel = 0;
+    constexpr uint32_t baseArrayLayer = 0;
+    return addTextureToActiveResources(&texture, texture.texture(), resourceUsage, usagesForResource, bindGroup, baseMipLevel, baseArrayLayer, WGPUTextureAspect_DepthOnly) && addTextureToActiveResources(&texture, texture.texture(), resourceUsage, usagesForResource, bindGroup, baseMipLevel, baseArrayLayer, WGPUTextureAspect_StencilOnly);
+}
+
 static bool addResourceToActiveResources(const BindGroupEntryUsageData::Resource& resource, OptionSet<BindGroupEntryUsage> resourceUsage, BindGroupId bindGroup, EntryMapContainer& usagesForResource, TextureEntryMapContainer& textureUsagesForResource, CommandEncoder& parentEncoder)
 {
     return WTF::switchOn(resource, [&](const RefPtr<Buffer>& buffer) {
@@ -151,6 +158,10 @@ static bool addResourceToActiveResources(const BindGroupEntryUsageData::Resource
                 buffer->indirectBufferInvalidated(parentEncoder);
             return addResourceToActiveResources(buffer.get(), resourceUsage, usagesForResource);
         }
+        return true;
+    }, [&](const RefPtr<const Texture>& texture) {
+        if (texture.get())
+            return addResourceToActiveResources(*texture.get(), resourceUsage, bindGroup, textureUsagesForResource);
         return true;
     }, [&](const RefPtr<const TextureView>& textureView) {
         if (textureView.get())
@@ -185,14 +196,9 @@ void ComputePassEncoder::executePreDispatchCommands(const Buffer* indirectBuffer
     auto pipelineIdentifier = pipeline->uniqueId();
     for (auto& kvp : m_bindGroups) {
         auto bindGroupIndex = kvp.key;
-
-        if (!kvp.value.get()) {
-            makeInvalid(@"bind group was deallocated");
-            return;
-        }
-        auto group = kvp.value;
+        Ref group = kvp.value;
         if (group->hasSamplers())
-            protectedParentEncoder()->rebindSamplersPreCommit(group.get());
+            protectedParentEncoder()->rebindSamplersPreCommit(group);
 
         if (!group->previouslyValidatedBindGroup(bindGroupIndex, pipelineIdentifier, m_maxDynamicOffsetAtIndex[bindGroupIndex])) {
             if (group->makeSubmitInvalid(ShaderStage::Compute, pipelineLayout->protectedOptionalBindGroupLayout(bindGroupIndex).get())) {
@@ -203,7 +209,7 @@ void ComputePassEncoder::executePreDispatchCommands(const Buffer* indirectBuffer
             const Vector<uint32_t>* dynamicOffsets = nullptr;
             if (auto it = m_bindGroupDynamicOffsets.find(bindGroupIndex); it != m_bindGroupDynamicOffsets.end())
                 dynamicOffsets = &it->value;
-            if (NSString* error = errorValidatingBindGroup(*group, pipeline->minimumBufferSizes(bindGroupIndex), dynamicOffsets)) {
+            if (NSString* error = errorValidatingBindGroup(group, pipeline->minimumBufferSizes(bindGroupIndex), dynamicOffsets)) {
                 makeInvalid(error);
                 return;
             }
@@ -232,7 +238,7 @@ void ComputePassEncoder::executePreDispatchCommands(const Buffer* indirectBuffer
                     continue;
 
                 if (!addResourceToActiveResources(usageData.resource, usageData.usage, BindGroupId { bindGroupIndex }, usagesForResource, textureUsagesForResource, protectedParentEncoder())) {
-                    makeInvalid();
+                    makeInvalid(@"GPUComputePassEncoder.executePreDispatchCommands - could not track resource");
                     return;
                 }
             }
@@ -265,7 +271,7 @@ void ComputePassEncoder::dispatch(uint32_t x, uint32_t y, uint32_t z)
     executePreDispatchCommands();
     auto dimensionMax = m_device->limits().maxComputeWorkgroupsPerDimension;
     if (x > dimensionMax || y > dimensionMax || z > dimensionMax) {
-        makeInvalid();
+        makeInvalid([NSString stringWithFormat:@"x(%u) > dimensionMax(%u) || y(%u) > dimensionMax(%u) || z(%u) > dimensionMax(%u)", x, dimensionMax, y, dimensionMax, z, dimensionMax]);
         return;
     }
 
@@ -277,10 +283,8 @@ void ComputePassEncoder::dispatch(uint32_t x, uint32_t y, uint32_t z)
 
 id<MTLBuffer> ComputePassEncoder::runPredispatchIndirectCallValidation(const Buffer& indirectBuffer, uint64_t indirectOffset)
 {
-    static id<MTLFunction> function = nil;
-    id<MTLDevice> mtlDevice = m_device->device();
-    static std::once_flag onceFlag;
-    std::call_once(onceFlag, [&] {
+    static id<MTLFunction> function = [this] {
+        id<MTLDevice> mtlDevice = m_device->device();
         auto dimensionMax = m_device->limits().maxComputeWorkgroupsPerDimension;
         MTLCompileOptions* options = [MTLCompileOptions new];
         ALLOW_DEPRECATED_DECLARATIONS_BEGIN
@@ -291,8 +295,8 @@ id<MTLBuffer> ComputePassEncoder::runPredispatchIndirectCallValidation(const Buf
         if (error)
             WTFLogAlways("%@", error); // NOLINT
 
-        function = [library newFunctionWithName:@"csDispatchClamp"];
-    });
+        return [library newFunctionWithName:@"csDispatchClamp"];
+    }();
     RELEASE_ASSERT(function);
 
     auto device = m_device;
@@ -309,13 +313,13 @@ void ComputePassEncoder::dispatchIndirect(const Buffer& indirectBuffer, uint64_t
 {
     RETURN_IF_FINISHED();
     if (!isValidToUseWith(indirectBuffer, *this)) {
-        makeInvalid();
+        makeInvalid(@"GPUComputePassEncoder.dispatchIndirect: indirectBuffer is not valid to use with this GPUComputePassEncoder");
         return;
     }
 
     auto indirectOffsetSum = checkedSum<uint64_t>(indirectOffset, 3 * sizeof(uint32_t));
     if ((indirectOffset % 4) || !(indirectBuffer.usage() & WGPUBufferUsage_Indirect) || indirectOffsetSum.hasOverflowed() || (indirectOffsetSum.value() > indirectBuffer.initialSize())) {
-        makeInvalid();
+        makeInvalid([NSString stringWithFormat:@"GPUComputePassEncoder.dispatchIndirect: (indirectOffset(%llu) mod 4) || !(indirectBuffer.usage(%u) & WGPUBufferUsage_Indirect(%u)) || indirectOffsetSum.hasOverflowed(%d) || (indirectOffsetSum(%llu) > indirectBuffer.initialSize(%llu))", indirectOffset, indirectBuffer.usage(), WGPUBufferUsage_Indirect, indirectOffsetSum.hasOverflowed(), indirectOffsetSum.hasOverflowed() ? 0 : indirectOffsetSum.value(), indirectBuffer.initialSize()]);
         return;
     }
 
@@ -427,6 +431,9 @@ static void setCommandEncoder(const BindGroupEntryUsageData::Resource& resource,
     WTF::switchOn(resource, [&](const RefPtr<Buffer>& buffer) {
         if (buffer)
             buffer->setCommandEncoder(parentEncoder);
+        }, [&](const RefPtr<const Texture>& texture) {
+            if (texture)
+                texture->setCommandEncoder(parentEncoder);
         }, [&](const RefPtr<const TextureView>& textureView) {
             if (textureView)
                 textureView->setCommandEncoder(parentEncoder);
@@ -451,6 +458,7 @@ void ComputePassEncoder::setBindGroup(uint32_t groupIndex, const BindGroup* grou
         m_bindGroupResources.remove(groupIndex);
         m_bindGroupDynamicOffsets.remove(groupIndex);
         m_maxDynamicOffsetAtIndex[groupIndex] = 0;
+        return;
     }
 
     auto& group = *groupPtr;
@@ -470,7 +478,7 @@ void ComputePassEncoder::setBindGroup(uint32_t groupIndex, const BindGroup* grou
     }
 
     if (dynamicOffsets && dynamicOffsets->size()) {
-        m_bindGroupDynamicOffsets.set(groupIndex, WTFMove(*dynamicOffsets));
+        m_bindGroupDynamicOffsets.set(groupIndex, WTF::move(*dynamicOffsets));
         m_maxDynamicOffsetAtIndex[groupIndex] = 0;
     } else if (m_bindGroupDynamicOffsets.remove(groupIndex))
         m_maxDynamicOffsetAtIndex[groupIndex] = 0;
@@ -490,14 +498,14 @@ void ComputePassEncoder::setBindGroup(uint32_t groupIndex, const BindGroup* grou
     }
 
     m_bindGroupResources.set(groupIndex, resourceList);
-    m_bindGroups.set(groupIndex, &group);
+    m_bindGroups.set(groupIndex, group);
 }
 
 void ComputePassEncoder::setPipeline(const ComputePipeline& pipeline)
 {
     RETURN_IF_FINISHED();
     if (!isValidToUseWith(pipeline, *this)) {
-        makeInvalid();
+        makeInvalid(@"GPUComputePipeline is invalid to use with this GPUComputePassEncoder");
         return;
     }
 
@@ -572,7 +580,7 @@ void wgpuComputePassEncoderPushDebugGroup(WGPUComputePassEncoder computePassEnco
 
 void wgpuComputePassEncoderSetBindGroup(WGPUComputePassEncoder computePassEncoder, uint32_t groupIndex, WGPUBindGroup group, std::optional<Vector<uint32_t>>&& dynamicOffsets)
 {
-    WebGPU::protectedFromAPI(computePassEncoder)->setBindGroup(groupIndex, group ? WebGPU::protectedFromAPI(group).ptr() : nullptr, WTFMove(dynamicOffsets));
+    WebGPU::protectedFromAPI(computePassEncoder)->setBindGroup(groupIndex, group ? WebGPU::protectedFromAPI(group).ptr() : nullptr, WTF::move(dynamicOffsets));
 }
 
 void wgpuComputePassEncoderSetPipeline(WGPUComputePassEncoder computePassEncoder, WGPUComputePipeline pipeline)

@@ -57,6 +57,12 @@ public:
     void addActivityState(uint32_t);
     void removeActivityState(uint32_t);
 
+    virtual void setFullscreen(bool);
+    virtual void setMaximized(bool);
+
+    bool isFullscreen() const { return m_fullscreen; }
+    bool isMaximized() const { return m_maximized; }
+
 protected:
     ViewBackend(uint32_t width, uint32_t height);
 
@@ -72,6 +78,8 @@ protected:
     uint32_t m_width { 0 };
     uint32_t m_height { 0 };
     std::unique_ptr<InputClient> m_inputClient;
+    bool m_fullscreen { false };
+    bool m_maximized { false };
 };
 
 } // namespace WPEToolingBackends

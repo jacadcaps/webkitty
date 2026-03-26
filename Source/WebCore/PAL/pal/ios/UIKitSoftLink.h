@@ -25,6 +25,9 @@
 
 #pragma once
 
+// FIXME: Remove the `__has_feature(modules)` condition when possible.
+#if !__has_feature(modules)
+
 #if PLATFORM(IOS_FAMILY)
 
 #import <pal/spi/ios/UIKitSPI.h>
@@ -67,8 +70,6 @@ SOFT_LINK_CLASS_FOR_HEADER(PAL, UITraitCollection)
 SOFT_LINK_CLASS_FOR_HEADER(PAL, UIView)
 SOFT_LINK_CLASS_FOR_HEADER(PAL, UIViewController)
 SOFT_LINK_CLASS_FOR_HEADER(PAL, UIWindow)
-SOFT_LINK_FUNCTION_FOR_HEADER(PAL, UIKit, _UIKitGetTextEffectsCatalog, CUICatalog *, (void), ())
-#define _UIKitGetTextEffectsCatalog PAL::softLink_UIKit__UIKitGetTextEffectsCatalog
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, UIKit, UIAccessibilityIsGrayscaleEnabled, BOOL, (void), ())
 #define UIAccessibilityIsGrayscaleEnabled PAL::softLink_UIKit_UIAccessibilityIsGrayscaleEnabled
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, UIKit, UIAccessibilityIsInvertColorsEnabled, BOOL, (void), ())
@@ -91,3 +92,5 @@ SOFT_LINK_FUNCTION_FOR_HEADER(PAL, UIKit, UIImagePNGRepresentation, NSData *, (U
 #define UIImagePNGRepresentation PAL::softLink_UIKit_UIImagePNGRepresentation
 
 #endif
+
+#endif // !__has_feature(modules)

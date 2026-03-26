@@ -4,7 +4,7 @@ set -e
 
 # On Linux systems, this script needs to be run with root rights.
 if [ `uname` != "Darwin" ] && [ $UID -ne 0 ]; then
-    sudo $0
+    sudo "$0" "$@"
     exit 0
 fi
 
@@ -49,23 +49,23 @@ function installDependencies {
 
     packageManager=$(guessPackageManager)
     source "$(dirname "$0")/dependencies/$packageManager"
-    installDependenciesWith${packageManager^}
+    installDependenciesWith${packageManager^} "$@"
 }
 
 function installDependenciesWithApt {
-    apt-get install -y --no-install-recommends ${PACKAGES[@]}
+    apt-get install -y --no-install-recommends "$@" ${PACKAGES[@]}
 }
 
 function installDependenciesWithBrew {
-    brew install ${PACKAGES[@]}
+    brew install "$@" ${PACKAGES[@]}
 }
 
 function installDependenciesWithDnf {
-    dnf install ${PACKAGES[@]}
+    dnf install "$@" ${PACKAGES[@]}
 }
 
 function installDependenciesWithPacman {
-    pacman -S --needed ${PACKAGES[@]}
+    pacman -S --needed "$@" ${PACKAGES[@]}
 
     cat <<-EOF
 
@@ -89,4 +89,4 @@ Alternatively, you may use a Python 2.x virtualenv while hacking on WebKitGTK:
 EOF
 }
 
-installDependencies
+installDependencies "$@"

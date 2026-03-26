@@ -34,13 +34,24 @@
 #include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 
+#if ENABLE(THREADED_ANIMATIONS)
+#include "RemoteProgressBasedTimelineRegistry.h"
+#endif
+
 namespace WebCore {
 class PlatformMouseEvent;
+#if ENABLE(THREADED_ANIMATIONS)
+class ScrollingTreeScrollingNode;
+#endif
 };
 
 namespace WebKit {
 
 class RemoteScrollingCoordinatorProxy;
+
+#if ENABLE(THREADED_ANIMATIONS)
+class RemoteAnimationTimeline;
+#endif
 
 class RemoteScrollingTree : public WebCore::ScrollingTree {
     WTF_MAKE_TZONE_ALLOCATED(RemoteScrollingTree);
@@ -64,6 +75,7 @@ public:
     void scrollingTreeNodeDidStopWheelEventScroll(WebCore::ScrollingTreeScrollingNode&) override;
     bool scrollingTreeNodeRequestsScroll(WebCore::ScrollingNodeID, const WebCore::RequestedScrollData&) override;
     bool scrollingTreeNodeRequestsKeyboardScroll(WebCore::ScrollingNodeID, const WebCore::RequestedKeyboardScrollData&) override;
+    void scrollingTreeNodeDidStopProgrammaticScroll(WebCore::ScrollingTreeScrollingNode&) override;
 
     void scrollingTreeNodeWillStartScroll(WebCore::ScrollingNodeID) override;
     void scrollingTreeNodeDidEndScroll(WebCore::ScrollingNodeID) override;
@@ -80,6 +92,12 @@ public:
 
     void tryToApplyLayerPositions();
 
+#if ENABLE(THREADED_ANIMATIONS)
+    void updateTimelinesRegistration(WebCore::ProcessIdentifier, const WebCore::AcceleratedTimelinesUpdate&);
+    RefPtr<const RemoteAnimationTimeline> timeline(const TimelineID&) const;
+    HashSet<Ref<RemoteProgressBasedTimeline>> timelinesForScrollingNodeIDForTesting(WebCore::ScrollingNodeID) const;
+#endif
+
 protected:
     explicit RemoteScrollingTree(RemoteScrollingCoordinatorProxy&);
 
@@ -93,6 +111,13 @@ protected:
     // This gets nulled out via invalidate(), since the scrolling thread can hold a ref to the ScrollingTree after the RemoteScrollingCoordinatorProxy has gone away.
     WeakPtr<RemoteScrollingCoordinatorProxy> m_scrollingCoordinatorProxy;
     bool m_hasNodesWithSynchronousScrollingReasons WTF_GUARDED_BY_LOCK(m_treeLock) { false };
+
+#if ENABLE(THREADED_ANIMATIONS)
+    void updateProgressBasedTimelinesForNode(const WebCore::ScrollingTreeScrollingNode&);
+
+private:
+    std::unique_ptr<RemoteProgressBasedTimelineRegistry> m_progressBasedTimelineRegistry;
+#endif
 };
 
 class RemoteLayerTreeHitTestLocker {

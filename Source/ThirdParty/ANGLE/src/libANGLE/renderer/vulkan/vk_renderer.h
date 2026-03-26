@@ -54,13 +54,9 @@ using ExtensionNameList                    = angle::FixedVector<const char *, kM
 
 static constexpr size_t kMaxSyncValExtraProperties = 9;
 // Information used to accurately skip known synchronization issues in ANGLE.
-// TODO: remove messageContents1 and messageContents2 fields after all
-// supressions have transitioned to using extraProperties.
 struct SkippedSyncvalMessage
 {
     const char *messageId;
-    const char *messageContents1;
-    const char *messageContents2                            = "";
     bool isDueToNonConformantCoherentColorFramebufferFetch  = false;
     const char *extraProperties[kMaxSyncValExtraProperties] = {};
 };
@@ -198,6 +194,12 @@ class Renderer : angle::NonCopyable
     {
         return mPhysicalDeviceFeatures;
     }
+    const VkPhysicalDeviceShaderIntegerDotProductProperties &
+    getPhysicalDeviceShaderIntegerDotProductProperties() const
+    {
+        return mShaderIntegerDotProductProperties;
+    }
+
     const VkPhysicalDeviceFeatures2KHR &getEnabledFeatures() const { return mEnabledFeatures; }
     VkDevice getDevice() const { return mDevice; }
 
@@ -207,6 +209,12 @@ class Renderer : angle::NonCopyable
     angle::Result checkQueueForSurfacePresent(vk::ErrorContext *context,
                                               VkSurfaceKHR surface,
                                               bool *supportedOut);
+
+    const VkPhysicalDeviceExternalMemoryHostPropertiesEXT &
+    getPhysicalDeviceExternalMemoryHostProperties() const
+    {
+        return mExternalMemoryHostProperties;
+    }
 
     const gl::Caps &getNativeCaps() const;
     const gl::TextureCapsMap &getNativeTextureCaps() const;
@@ -246,9 +254,6 @@ class Renderer : angle::NonCopyable
                                                   size_t *pipelineCacheSizeOut,
                                                   size_t lastSyncSize,
                                                   std::vector<uint8_t> *pipelineCacheDataOut);
-    angle::Result syncPipelineCacheVk(vk::ErrorContext *context,
-                                      vk::GlobalOps *globalOps,
-                                      const gl::Context *contextGL);
 
     const angle::FeaturesVk &getFeatures() const { return mFeatures; }
     uint32_t getMaxVertexAttribDivisor() const { return mMaxVertexAttribDivisor; }
@@ -407,9 +412,6 @@ class Renderer : angle::NonCopyable
     bool enableDebugUtils() const { return mEnableDebugUtils; }
     bool angleDebuggerMode() const { return mAngleDebuggerMode; }
 
-    SamplerCache &getSamplerCache() { return mSamplerCache; }
-    SamplerYcbcrConversionCache &getYuvConversionCache() { return mYuvConversionCache; }
-
     void onAllocateHandle(vk::HandleType handleType);
     void onDeallocateHandle(vk::HandleType handleType, uint32_t count);
 
@@ -511,9 +513,13 @@ class Renderer : angle::NonCopyable
         return mEventStageToPipelineStageFlagsMap[eventStage];
     }
 
-    const ImageMemoryBarrierData &getImageMemoryBarrierData(ImageLayout layout) const
+    const ImageMemoryBarrierData &getImageMemoryBarrierData(ImageAccess imageAccess) const
     {
-        return mImageLayoutAndMemoryBarrierDataMap[layout];
+        return mImageLayoutAndMemoryBarrierDataMap[imageAccess];
+    }
+    VkImageLayout getVkImageLayout(ImageAccess imageAccess) const
+    {
+        return getImageMemoryBarrierData(imageAccess).layout;
     }
 
     VkShaderStageFlags getSupportedVulkanShaderStageMask() const
@@ -569,7 +575,13 @@ class Renderer : angle::NonCopyable
 
     bool isShadingRateSupported(gl::ShadingRate shadingRate) const
     {
-        return mSupportedFragmentShadingRates.test(shadingRate);
+        return mSupportedFragmentShadingRatesEXT.test(shadingRate);
+    }
+
+    const angle::ShadingRateMap &getSupportedFragmentShadingRateEXTSampleCounts() const
+    {
+        ASSERT(mFeatures.supportsFragmentShadingRate.enabled);
+        return mSupportedFragmentShadingRateEXTSampleCounts;
     }
 
     VkExtent2D getMaxFragmentShadingRateAttachmentTexelSize() const
@@ -579,6 +591,8 @@ class Renderer : angle::NonCopyable
     }
 
     void addBufferBlockToOrphanList(vk::BufferBlock *block) { mOrphanedBufferBlockList.add(block); }
+    void addSamplerToOrphanList(SharedSamplerPtr sampler);
+    void addSamplerYcbcrConversionToOrphanList(VkSamplerYcbcrConversion conversion);
 
     VkDeviceSize getSuballocationDestroyedSize() const
     {
@@ -698,6 +712,26 @@ class Renderer : angle::NonCopyable
 
     bool supportsAstcHdr() const;
 
+    uint32_t getNativeVectorWidthDouble() const { return mNativeVectorWidthDouble; }
+    uint32_t getNativeVectorWidthHalf() const { return mNativeVectorWidthHalf; }
+    uint32_t getPreferredVectorWidthDouble() const { return mPreferredVectorWidthDouble; }
+    uint32_t getPreferredVectorWidthHalf() const { return mPreferredVectorWidthHalf; }
+
+    bool isVertexAttributeInstanceRateZeroDivisorAllowed() const
+    {
+        return !mFeatures.supportsVertexInputDynamicState.enabled ||
+               mVertexAttributeDivisorFeatures.vertexAttributeInstanceRateZeroDivisor == VK_TRUE;
+    }
+
+    uint32_t getMinCommandCountToSubmit() const { return mMinCommandCountToSubmit; }
+
+    angle::Result onFrameBoundary(const gl::Context *contextGL);
+
+    uint32_t getMinRenderPassWriteCommandCountToEarlySubmit() const
+    {
+        return mMinRPWriteCommandCountToEarlySubmit;
+    }
+
   private:
     angle::Result setupDevice(vk::ErrorContext *context,
                               const angle::FeatureOverrides &featureOverrides,
@@ -754,6 +788,7 @@ class Renderer : angle::NonCopyable
                                     vk::PipelineCache *pipelineCache,
                                     bool *success);
     angle::Result ensurePipelineCacheInitialized(vk::ErrorContext *context);
+    angle::Result syncPipelineCacheVk(const gl::Context *contextGL);
 
     template <VkFormatFeatureFlags VkFormatProperties::*features>
     VkFormatFeatureFlags getFormatFeatureBits(angle::FormatID formatID,
@@ -778,6 +813,8 @@ class Renderer : angle::NonCopyable
     // Find the threshold for pending suballocation and image garbage sizes before the context
     // should be flushed.
     void calculatePendingGarbageSizeLimit();
+
+    bool cleanupOrphanedSamplers();
 
     template <typename CommandBufferHelperT, typename RecyclerT>
     angle::Result getCommandBufferImpl(vk::ErrorContext *context,
@@ -872,7 +909,7 @@ class Renderer : angle::NonCopyable
         mRasterizationOrderAttachmentAccessFeatures;
     VkPhysicalDeviceShaderAtomicFloatFeaturesEXT mShaderAtomicFloatFeatures;
     VkPhysicalDeviceMaintenance5FeaturesKHR mMaintenance5Features;
-    VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT mSwapchainMaintenance1Features;
+    VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR mSwapchainMaintenance1Features;
     VkPhysicalDeviceLegacyDitheringFeaturesEXT mDitheringFeatures;
     VkPhysicalDeviceDrmPropertiesEXT mDrmProperties;
     VkPhysicalDeviceTimelineSemaphoreFeaturesKHR mTimelineSemaphoreFeatures;
@@ -897,12 +934,20 @@ class Renderer : angle::NonCopyable
     VkPhysicalDeviceMaintenance3Properties mMaintenance3Properties;
     VkPhysicalDeviceFaultFeaturesEXT mFaultFeatures;
     VkPhysicalDeviceASTCDecodeFeaturesEXT mPhysicalDeviceAstcDecodeFeatures;
+    VkPhysicalDeviceUnifiedImageLayoutsFeaturesKHR mUnifiedImageLayoutsFeatures;
+    VkPhysicalDeviceShaderIntegerDotProductFeatures mShaderIntegerDotProductFeatures;
+    VkPhysicalDeviceShaderIntegerDotProductProperties mShaderIntegerDotProductProperties;
+    VkPhysicalDeviceGlobalPriorityQueryFeaturesEXT mPhysicalDeviceGlobalPriorityQueryFeatures;
+    VkPhysicalDeviceExternalMemoryHostPropertiesEXT mExternalMemoryHostProperties;
+    VkPhysicalDeviceBufferDeviceAddressFeaturesKHR mBufferDeviceAddressFeatures;
+    VkPhysicalDeviceShaderAtomicInt64Features mShaderAtomicInt64Features;
 
     uint32_t mLegacyDitheringVersion = 0;
 
-    angle::PackedEnumBitSet<gl::ShadingRate, uint16_t> mSupportedFragmentShadingRates;
-    angle::PackedEnumMap<gl::ShadingRate, VkSampleCountFlags>
-        mSupportedFragmentShadingRateSampleCounts;
+    // EXT_fragment_shading_rate
+    angle::ShadingRateSet mSupportedFragmentShadingRatesEXT;
+    angle::ShadingRateMap mSupportedFragmentShadingRateEXTSampleCounts;
+
     std::vector<VkQueueFamilyProperties> mQueueFamilyProperties;
     uint32_t mCurrentQueueFamilyIndex;
     uint32_t mMaxVertexAttribDivisor;
@@ -922,6 +967,11 @@ class Renderer : angle::NonCopyable
     vk::BufferBlockGarbageList mOrphanedBufferBlockList;
     // Holds RefCountedEvent that are free and ready to reuse
     vk::RefCountedEventRecycler mRefCountedEventRecycler;
+
+    // Holds orphaned VkSampler and VkSamplerYcbcrConversion objects when ShareGroup gets destroyed
+    angle::SimpleMutex mOrphanedSamplerMutex;
+    std::vector<SharedSamplerPtr> mOrphanedSamplers;
+    std::vector<VkSamplerYcbcrConversion> mOrphanedSamplerYcbcrConversions;
 
     VkDeviceSize mPendingGarbageSizeLimit;
 
@@ -951,8 +1001,8 @@ class Renderer : angle::NonCopyable
     // 1. initialization of the cache
     // 2. Vulkan driver guarantees synchronization for read and write operations but the spec
     //    requires external synchronization when mPipelineCache is the dstCache of
-    //    vkMergePipelineCaches. Lock the mutex if mergeProgramPipelineCachesToGlobalCache is
-    //    enabled
+    //    vkMergePipelineCaches. Though some buggy vulkan drivers need external synchronization
+    //    for all access. Lock the mutex if externallySynchronizePipelineCacheAccess is enabled
     angle::SimpleMutex mPipelineCacheMutex;
     vk::PipelineCache mPipelineCache;
     size_t mCurrentPipelineCacheBlobCacheSlotIndex;
@@ -1010,8 +1060,6 @@ class Renderer : angle::NonCopyable
         mOutsideRenderPassCommandBufferRecycler;
     vk::CommandBufferRecycler<vk::RenderPassCommandBufferHelper> mRenderPassCommandBufferRecycler;
 
-    SamplerCache mSamplerCache;
-    SamplerYcbcrConversionCache mYuvConversionCache;
     angle::HashMap<VkFormat, uint32_t> mVkFormatDescriptorCountMap;
     vk::ActiveHandleCounter mActiveHandleCounts;
     angle::SimpleMutex mActiveHandleCountsMutex;
@@ -1049,7 +1097,7 @@ class Renderer : angle::NonCopyable
     VkShaderStageFlags mSupportedVulkanShaderStageMask;
     // The 1:1 mapping between EventStage and VkPipelineStageFlags
     EventStageToVkPipelineStageFlagsMap mEventStageToPipelineStageFlagsMap;
-    ImageLayoutToMemoryBarrierDataMap mImageLayoutAndMemoryBarrierDataMap;
+    ImageAccessToMemoryBarrierDataMap mImageLayoutAndMemoryBarrierDataMap;
 
     // Use thread pool to compress cache data.
     std::shared_ptr<angle::WaitableEvent> mCompressEvent;
@@ -1077,6 +1125,20 @@ class Renderer : angle::NonCopyable
 
     // Record submitted queue serials not belongs to any context.
     vk::ResourceUse mSubmittedResourceUse;
+
+    // Potentially vendor & feature-specific device info.
+    uint32_t mNativeVectorWidthDouble;
+    uint32_t mNativeVectorWidthHalf;
+    uint32_t mPreferredVectorWidthDouble;
+    uint32_t mPreferredVectorWidthHalf;
+
+    // The number of minimum commands in the command buffer to prefer submit at FBO boundary or
+    // immediately submit when the device is idle after calling to flush.
+    uint32_t mMinCommandCountToSubmit;
+
+    // The number of minimum write commands in the command buffer to trigger one submission of
+    // pending commands at draw call time
+    uint32_t mMinRPWriteCommandCountToEarlySubmit;
 };
 
 ANGLE_INLINE Serial Renderer::generateQueueSerial(SerialIndex index)

@@ -11,13 +11,18 @@
 #include "modules/audio_processing/agc2/rnn_vad/test_utils.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <fstream>
+#include <ios>
 #include <memory>
 #include <string>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "absl/strings/string_view.h"
+#include "api/array_view.h"
+#include "modules/audio_processing/agc2/rnn_vad/common.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/numerics/safe_compare.h"
 #include "test/gtest.h"
@@ -41,7 +46,7 @@ class FloatFileReader : public FileReader {
   }
   FloatFileReader(const FloatFileReader&) = delete;
   FloatFileReader& operator=(const FloatFileReader&) = delete;
-  ~FloatFileReader() = default;
+  ~FloatFileReader() override = default;
 
   int size() const override { return size_; }
   bool ReadChunk(ArrayView<float> dst) override {
@@ -57,8 +62,10 @@ class FloatFileReader : public FileReader {
     return is_.gcount() == bytes_to_read;
   }
   bool ReadValue(float& dst) override { return ReadChunk({&dst, 1}); }
-  void SeekForward(int hop) override { is_.seekg(hop * sizeof(T), is_.cur); }
-  void SeekBeginning() override { is_.seekg(0, is_.beg); }
+  void SeekForward(int hop) override {
+    is_.seekg(hop * sizeof(T), std::ifstream::cur);
+  }
+  void SeekBeginning() override { is_.seekg(0, std::ifstream::beg); }
 
  private:
   std::ifstream is_;
@@ -100,7 +107,9 @@ ChunksFileReader CreatePitchBuffer24kHzReader() {
       /*filename=*/test::ResourcePath(
           "audio_processing/agc2/rnn_vad/pitch_buf_24k", "dat"));
   const int num_chunks = CheckedDivExact(reader->size(), kBufSize24kHz);
-  return {/*chunk_size=*/kBufSize24kHz, num_chunks, std::move(reader)};
+  return {.chunk_size = kBufSize24kHz,
+          .num_chunks = num_chunks,
+          .reader = std::move(reader)};
 }
 
 ChunksFileReader CreateLpResidualAndPitchInfoReader() {
@@ -110,7 +119,9 @@ ChunksFileReader CreateLpResidualAndPitchInfoReader() {
       /*filename=*/test::ResourcePath(
           "audio_processing/agc2/rnn_vad/pitch_lp_res", "dat"));
   const int num_chunks = CheckedDivExact(reader->size(), kChunkSize);
-  return {kChunkSize, num_chunks, std::move(reader)};
+  return {.chunk_size = kChunkSize,
+          .num_chunks = num_chunks,
+          .reader = std::move(reader)};
 }
 
 std::unique_ptr<FileReader> CreateGruInputReader() {

@@ -23,6 +23,8 @@ class CommandBuffer;
 class Context;
 class Resource;
 class ResourceProvider;
+class RuntimeEffectDictionary;
+class ScratchResourceManager;
 class Surface;
 class TaskList;
 class Texture;
@@ -44,6 +46,10 @@ public:
     bool instantiateNonVolatileLazyProxies(ResourceProvider*);
 
     void setFailureResultForFinishedProcs();
+
+    bool prepareResources(ResourceProvider*,
+                          ScratchResourceManager*,
+                          sk_sp<const RuntimeEffectDictionary>);
 
     bool addCommands(Context*,
                      CommandBuffer*,

@@ -27,6 +27,7 @@
 #import <WebKit/_WKTextExtraction.h>
 
 #ifdef __cplusplus
+#if !__has_feature(modules)
 
 #import "PDFPluginIdentifier.h"
 #import <WebCore/CocoaView.h>
@@ -46,6 +47,7 @@
 #import <wtf/NakedPtr.h>
 #import <wtf/RefPtr.h>
 #import <wtf/RetainPtr.h>
+#import <wtf/Variant.h>
 #import <wtf/WeakObjCPtr.h>
 #import <wtf/spi/cocoa/NSObjCRuntimeSPI.h>
 
@@ -60,9 +62,9 @@
 #import "WKContentView.h"
 #import "WKContentViewInteraction.h"
 #import "WKFullScreenWindowControllerIOS.h"
+#import <WebCore/BoxExtents.h>
 #import <WebCore/FloatRect.h>
 #import <WebCore/IntDegrees.h>
-#import <WebCore/LengthBox.h>
 #import <WebCore/PlatformLayerIdentifier.h>
 #import <WebCore/ViewportArguments.h>
 #endif
@@ -107,6 +109,7 @@ class Attachment;
 
 namespace WebCore {
 struct AppHighlight;
+struct ExceptionData;
 struct ExceptionDetails;
 struct TextAnimationData;
 enum class BoxSide : uint8_t;
@@ -118,11 +121,13 @@ enum class TextSuggestionState : uint8_t;
 
 #if HAVE(DIGITAL_CREDENTIALS_UI)
 struct DigitalCredentialsRequestData;
+struct DigitalCredentialsResponseData;
 struct MobileDocumentRequest;
-struct OpenID4VPRequest;
 #endif
 
-}
+struct NodeIdentifierType;
+using NodeIdentifier = ObjectIdentifier<NodeIdentifierType>;
+} // namespace WebCore
 
 namespace WebKit {
 enum class ContinueUnsafeLoad : bool;
@@ -131,6 +136,7 @@ class IconLoadingDelegate;
 class NavigationState;
 class PointerTouchCompatibilitySimulator;
 class ResourceLoadDelegate;
+class TextExtractionURLCache;
 class UIDelegate;
 class ViewSnapshot;
 class WebPageProxy;
@@ -146,19 +152,30 @@ enum class HideScrollPocketReason : uint8_t {
     ScrolledToTop       = 1 << 1,
     SiteSpecificQuirk   = 1 << 2,
 };
+
+enum class PreferSolidColorHardPocketReason : uint8_t {
+    AttachedInspector   = 1 << 0,
+    RequestedByClient   = 1 << 1,
+};
 }
 
+@class NSScrollPocket;
 @class WKColorExtensionView;
 @class WKContentView;
 @class WKPasswordView;
 @class WKScrollGeometry;
 @class WKScrollView;
+@class WKTextExtractionInteraction;
 @class WKWebViewContentProviderRegistry;
 @class _WKFrameHandle;
 @class _WKWarningView;
 
 #if HAVE(DIGITAL_CREDENTIALS_UI)
 @class WKDigitalCredentialsPicker;
+#endif
+
+#if ENABLE(SCREEN_TIME)
+@class WKScreenTimeConfigurationObserver;
 #endif
 
 #if ENABLE(WRITING_TOOLS)
@@ -183,6 +200,13 @@ enum class HideScrollPocketReason : uint8_t {
 @protocol _WKTextManipulationDelegate;
 @protocol _WKInputDelegate;
 @protocol _WKAppHighlightDelegate;
+
+#if ENABLE(MODEL_ELEMENT_IMMERSIVE)
+@protocol _WKImmersiveEnvironmentDelegate;
+#endif
+
+enum class SimilarToOriginalTextTag : uint8_t { Value };
+using TextValidationMapValue = Variant<String, SimilarToOriginalTextTag>;
 
 #if PLATFORM(IOS_FAMILY)
 struct LiveResizeParameters {
@@ -231,8 +255,6 @@ struct PerWebProcessState {
     BOOL hasScheduledVisibleRectUpdate { NO };
     BOOL commitDidRestoreScrollPosition { NO };
 
-    BOOL avoidsUnsafeArea { YES };
-
     BOOL viewportMetaTagWidthWasExplicit { NO };
     BOOL viewportMetaTagCameFromImageDocument { NO };
     BOOL lastTransactionWasInStableState { NO };
@@ -268,12 +290,16 @@ struct PerWebProcessState {
 
     const std::unique_ptr<WebKit::NavigationState> _navigationState;
     const std::unique_ptr<WebKit::UIDelegate> _uiDelegate;
-    std::unique_ptr<WebKit::IconLoadingDelegate> _iconLoadingDelegate;
-    std::unique_ptr<WebKit::ResourceLoadDelegate> _resourceLoadDelegate;
+    const std::unique_ptr<WebKit::IconLoadingDelegate> _iconLoadingDelegate;
+    const std::unique_ptr<WebKit::ResourceLoadDelegate> _resourceLoadDelegate;
 
     WeakObjCPtr<id <_WKTextManipulationDelegate>> _textManipulationDelegate;
     WeakObjCPtr<id <_WKInputDelegate>> _inputDelegate;
     WeakObjCPtr<id <_WKAppHighlightDelegate>> _appHighlightDelegate;
+
+#if ENABLE(MODEL_ELEMENT_IMMERSIVE)
+    WeakObjCPtr<id <_WKImmersiveEnvironmentDelegate>> _immersiveEnvironmentDelegate;
+#endif
 
     RetainPtr<_WKWarningView> _warningView;
 
@@ -285,7 +311,7 @@ struct PerWebProcessState {
     BOOL _usesAutomaticContentInsetBackgroundFill;
     BOOL _shouldSuppressTopColorExtensionView;
 #if PLATFORM(MAC)
-    BOOL _alwaysPrefersSolidColorHardPocket;
+    OptionSet<WebKit::PreferSolidColorHardPocketReason> _preferSolidColorHardPocketReasons;
     BOOL _isGettingAdjustedColorForTopContentInsetColorFromDelegate;
     RetainPtr<NSColor> _overrideTopScrollEdgeEffectColor;
 #endif
@@ -305,6 +331,7 @@ struct PerWebProcessState {
 
 #if ENABLE(SCREEN_TIME)
     RetainPtr<STWebpageController> _screenTimeWebpageController;
+    RetainPtr<WKScreenTimeConfigurationObserver> _screenTimeConfigurationObserver;
 #if PLATFORM(MAC)
     RetainPtr<NSVisualEffectView> _screenTimeBlurredSnapshot;
 #else
@@ -313,7 +340,7 @@ struct PerWebProcessState {
 #endif
 
 #if PLATFORM(MAC)
-    std::unique_ptr<WebKit::WebViewImpl> _impl;
+    const std::unique_ptr<WebKit::WebViewImpl> _impl;
     RetainPtr<WKTextFinderClient> _textFinderClient;
 #if HAVE(NSWINDOW_SNAPSHOT_READINESS_HANDLER)
     BlockPtr<void()> _windowSnapshotReadinessHandler;
@@ -354,6 +381,7 @@ struct PerWebProcessState {
 #if PLATFORM(IOS_FAMILY)
     BOOL _forcesInitialScaleFactor;
     BOOL _automaticallyAdjustsViewLayoutSizesWithObscuredInset;
+    BOOL _avoidsUnsafeArea;
 #endif
     CGRect _inputViewBoundsInWindow;
 
@@ -401,7 +429,7 @@ struct PerWebProcessState {
 
     RetainPtr<NSTimer> _enclosingScrollViewScrollTimer;
     BOOL _didScrollSinceLastTimerFire;
-
+    BOOL _needsScrollend;
 
     // This value tracks the current adjustment added to the bottom inset due to the keyboard sliding out from the bottom
     // when computing obscured content insets. This is used when updating the visible content rects where we should not
@@ -477,6 +505,11 @@ struct PerWebProcessState {
     BOOL _needsTopScrollPocketDueToVisibleContentInset;
     BOOL _shouldUpdateNeedsTopScrollPocketDueToVisibleContentInset;
 #endif
+
+#if ENABLE(TEXT_EXTRACTION_FILTER)
+    HashMap<unsigned /* string hash */, TextValidationMapValue> _textValidationCache;
+#endif
+    RefPtr<WebKit::TextExtractionURLCache> _textExtractionURLCache;
 }
 
 - (BOOL)_isValid;
@@ -488,6 +521,12 @@ struct PerWebProcessState {
 
 #if ENABLE(WEB_PAGE_SPATIAL_BACKDROP)
 - (void)_spatialBackdropSourceDidChange;
+#endif
+
+#if ENABLE(MODEL_ELEMENT_IMMERSIVE)
+- (void)_allowImmersiveElementFromURL:(const URL&)url completion:(CompletionHandler<void(bool)>&&)completion;
+- (void)_presentImmersiveElement:(const WebCore::LayerHostingContextIdentifier)contextID completion:(CompletionHandler<void(bool)>&&)completion;
+- (void)_dismissImmersiveElement:(CompletionHandler<void()>&&)completion;
 #endif
 
 #if ENABLE(ATTACHMENT_ELEMENT)
@@ -559,7 +598,9 @@ struct PerWebProcessState {
 
 #if PLATFORM(MAC) && ENABLE(CONTENT_INSET_BACKGROUND_FILL)
 - (NSColor *)_adjustedColorForTopContentInsetColorFromUIDelegate:(NSColor *)proposedColor;
-@property (nonatomic, setter=_setAlwaysPrefersSolidColorHardPocket:) BOOL _alwaysPrefersSolidColorHardPocket;
+@property (nonatomic, readonly) RetainPtr<NSScrollPocket> _copyTopScrollPocket;
+- (void)_addReasonToPreferSolidColorHardPocket:(WebKit::PreferSolidColorHardPocketReason)reason;
+- (void)_removeReasonToPreferSolidColorHardPocket:(WebKit::PreferSolidColorHardPocketReason)reason;
 #endif
 
 #if ENABLE(GAMEPAD)
@@ -605,6 +646,16 @@ struct PerWebProcessState {
 
 @end
 
+@interface WKWebView (WKTextExtraction)
+
+- (void)_requestTextExtractionInternal:(_WKTextExtractionConfiguration *)configuration completion:(CompletionHandler<void(std::optional<WebCore::TextExtraction::Item>&&)>&&)completion;
+- (void)_requestJSHandleForNodeIdentifier:(NSString *)nodeIdentifier searchText:(NSString *)searchText completionHandler:(void (^)(_WKJSHandle *))completionHandler;
+#if ENABLE(TEXT_EXTRACTION_FILTER)
+- (void)_validateText:(const String&)text inFrame:(std::optional<WebCore::FrameIdentifier>&&)frameIdentifier inNode:(std::optional<WebCore::NodeIdentifier>&&)nodeIdentifier completionHandler:(CompletionHandler<void(const String&)>&&)completionHandler;
+#endif
+
+@end
+
 RetainPtr<NSError> nsErrorFromExceptionDetails(const std::optional<WebCore::ExceptionDetails>&);
 
 #if ENABLE(FULLSCREEN_API) && PLATFORM(IOS_FAMILY)
@@ -624,7 +675,18 @@ RetainPtr<NSError> nsErrorFromExceptionDetails(const std::optional<WebCore::Exce
 
 WebCore::CocoaColor *sampledFixedPositionContentColor(const WebCore::FixedContainerEdges&, WebCore::BoxSide);
 
+#if ENABLE(TEXT_EXTRACTION_FILTER)
+
+@interface WKWebView (TextExtractionFilter)
+- (void)_clearTextExtractionFilterCache;
+@end
+
+#endif
+
+#endif // !__has_feature(modules)
 #endif // __cplusplus
+
+@class WKTextExtractionItem;
 
 @interface WKWebView (NonCpp)
 
@@ -645,6 +707,7 @@ WebCore::CocoaColor *sampledFixedPositionContentColor(const WebCore::FixedContai
 
 - (void)_scrollToEdge:(_WKRectEdge)edge animated:(BOOL)animated;
 
-- (void)_requestTextExtraction:(_WKTextExtractionConfiguration *)configuration completionHandler:(void (^)(WKTextExtractionResult *))completionHandler;
+- (void)_requestTextExtraction:(_WKTextExtractionConfiguration *)configuration completionHandler:(void (^)(WKTextExtractionItem *))completionHandler;
+- (void)_describeInteraction:(_WKTextExtractionInteraction *)interaction completionHandler:(void (^)(NSString *, NSError *))completionHandler;
 
 @end

@@ -741,9 +741,51 @@ class Tracker(GenericTracker):
                     return reference
             if not block or not did_modify_cc:
                 break
-            log.warning('Waiting until {} imports bug...'.format(self.radar_importer.name))
+            print('Waiting until {} imports bug...'.format(self.radar_importer.name))
             time.sleep(10)
             issue._comments = None
             issue._references = None
 
         return None
+
+    def group_members(self, group_name):
+        query_params = 'names={}&membership=1'.format(requests.utils.quote(group_name))
+        response = self.session.get(
+            '{}/rest/group{}'.format(
+                self.url,
+                self._login_arguments(required=True, query=query_params)
+            ),
+            timeout=self.timeout,
+        )
+
+        if response.status_code // 100 == 4 and self._logins_left:
+            self._logins_left -= 1
+
+        if response.status_code != 200:
+            sys.stderr.write("Failed to fetch group '{}': HTTP {}\n".format(group_name, response.status_code))
+            if response.text:
+                try:
+                    error_data = response.json()
+                    if 'message' in error_data:
+                        sys.stderr.write("  Error: {}\n".format(error_data['message']))
+                except requests.exceptions.JSONDecodeError:
+                    sys.stderr.write("  Response: {}\n".format(response.text[:200]))
+            return None
+
+        data = response.json()
+        if 'groups' not in data or not data['groups']:
+            sys.stderr.write("Group '{}' not found in response\n".format(group_name))
+            return None
+
+        group = data['groups'][0]
+        members = []
+
+        if 'membership' in group:
+            for member in group['membership']:
+                # Member objects have 'name' field (email) and optionally 'real_name'.
+                email = member.get('name') or member.get('email')
+                real_name = member.get('real_name')
+                if email:
+                    members.append((email, real_name))
+
+        return members

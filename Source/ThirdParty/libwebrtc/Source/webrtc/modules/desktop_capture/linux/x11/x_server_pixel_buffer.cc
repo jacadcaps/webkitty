@@ -10,13 +10,18 @@
 
 #include "modules/desktop_capture/linux/x11/x_server_pixel_buffer.h"
 
+#include <X11/X.h>
+#include <X11/Xlib.h>
 #include <X11/Xutil.h>
-#include <stdint.h>
-#include <string.h>
+#include <X11/extensions/XShm.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
 
+#include <cstdint>
+#include <vector>
+
 #include "modules/desktop_capture/desktop_frame.h"
+#include "modules/desktop_capture/desktop_geometry.h"
 #include "modules/desktop_capture/linux/x11/window_list_utils.h"
 #include "modules/desktop_capture/linux/x11/x_error_trap.h"
 #include "modules/desktop_capture/linux/x11/x_window_property.h"
@@ -329,6 +334,7 @@ bool XServerPixelBuffer::CaptureRect(const DesktopRect& rect,
                                      DesktopFrame* frame) {
   RTC_DCHECK_LE(rect.right(), window_rect_.width());
   RTC_DCHECK_LE(rect.bottom(), window_rect_.height());
+  RTC_CHECK_EQ(FOURCC_ARGB, frame->pixel_format());
 
   XImage* image;
   uint8_t* data;

@@ -207,7 +207,7 @@ RefPtr<JSON::Array> WebExtensionLocalization::localizedArrayForArray(RefPtr<JSON
         else if (valueType == JSON::Value::Type::Object)
             newArray->pushObject(*localizedJSONforJSON(value->asObject()));
         else
-            newArray->pushValue(WTFMove(value));
+            newArray->pushValue(WTF::move(value));
     }
 
     return newArray;
@@ -246,14 +246,13 @@ RefPtr<JSON::Object> WebExtensionLocalization::localizationJSONForWebExtension(W
 
     auto path = pathBuilder.toString();
 
-    RefPtr<API::Error> error;
-    auto jsonString = webExtension.resourceStringForPath(path, error, WebExtension::CacheResult::No, WebExtension::SuppressNotFoundErrors::Yes);
-    if (error) {
-        webExtension.recordErrorIfNeeded(error);
+    auto jsonStringResult = webExtension.resourceStringForPath(path, WebExtension::CacheResult::No, WebExtension::SuppressNotFoundErrors::Yes);
+    if (!jsonStringResult) {
+        webExtension.recordErrorIfNeeded(jsonStringResult.error());
         return nullptr;
     }
 
-    RefPtr json = JSON::Value::parseJSON(jsonString);
+    RefPtr json = JSON::Value::parseJSON(jsonStringResult.value());
     return json ? json->asObject() : nullptr;
 }
 

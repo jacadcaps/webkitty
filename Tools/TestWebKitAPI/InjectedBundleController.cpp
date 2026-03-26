@@ -42,9 +42,7 @@ InjectedBundleController& InjectedBundleController::singleton()
     return shared;
 }
 
-InjectedBundleController::InjectedBundleController()
-{
-}
+InjectedBundleController::InjectedBundleController() = default;
 
 void InjectedBundleController::initialize(WKBundleRef bundle, WKTypeRef initializationUserData)
 {

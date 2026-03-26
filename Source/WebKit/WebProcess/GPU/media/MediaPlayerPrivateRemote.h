@@ -37,6 +37,7 @@
 #include "RemoteVideoFrameObjectHeapProxy.h"
 #include "RemoteVideoFrameProxy.h"
 #include "TextTrackPrivateRemote.h"
+#include "VideoLayerRemote.h"
 #include "VideoTrackPrivateRemote.h"
 #include <WebCore/MediaPlayerPrivate.h>
 #include <WebCore/PlatformLayer.h>
@@ -88,32 +89,31 @@ struct MediaTimeUpdateData {
 
 class MediaPlayerPrivateRemote final
     : public WebCore::MediaPlayerPrivateInterface
+    , public VideoLayerRemoteParent
     , public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<MediaPlayerPrivateRemote, WTF::DestructionThread::Main>
 #if !RELEASE_LOG_DISABLED
     , private LoggerHelper
 #endif
 {
 public:
-    static Ref<MediaPlayerPrivateRemote> create(WebCore::MediaPlayer* player, WebCore::MediaPlayerEnums::MediaEngineIdentifier remoteEngineIdentifier, WebCore::MediaPlayerIdentifier identifier, RemoteMediaPlayerManager& manager)
+    WTF_ABSTRACT_THREAD_SAFE_REF_COUNTED_AND_CAN_MAKE_WEAK_PTR_IMPL;
+
+    static Ref<MediaPlayerPrivateRemote> create(WebCore::MediaPlayer& player, WebCore::MediaPlayerEnums::MediaEngineIdentifier remoteEngineIdentifier, WebCore::MediaPlayerIdentifier identifier, RemoteMediaPlayerManager& manager)
     {
         return adoptRef(*new MediaPlayerPrivateRemote(player, remoteEngineIdentifier, identifier, manager));
     }
 
-    MediaPlayerPrivateRemote(WebCore::MediaPlayer*, WebCore::MediaPlayerEnums::MediaEngineIdentifier, WebCore::MediaPlayerIdentifier, RemoteMediaPlayerManager&);
+    MediaPlayerPrivateRemote(WebCore::MediaPlayer&, WebCore::MediaPlayerEnums::MediaEngineIdentifier, WebCore::MediaPlayerIdentifier, RemoteMediaPlayerManager&);
     ~MediaPlayerPrivateRemote();
 
     constexpr WebCore::MediaPlayerType mediaPlayerType() const final { return WebCore::MediaPlayerType::Remote; }
-
-    void ref() const final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::ref(); }
-    void deref() const final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::deref(); }
 
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&);
 
     WebCore::MediaPlayerEnums::MediaEngineIdentifier remoteEngineIdentifier() const { return m_remoteEngineIdentifier; }
     std::optional<WebCore::MediaPlayerIdentifier> identifier() const final { return m_id; }
-    IPC::Connection& connection() const { return protectedManager()->gpuProcessConnection().connection(); }
-    // FIXME: <rdar://152831358> We only need protectedConnection() for MediaPlayerPrivateRemoteCocoa.mm which is suspect.
-    Ref<IPC::Connection> protectedConnection() const { return protectedManager()->gpuProcessConnection().connection(); }
+    IPC::Connection& connection() const { return manager()->gpuProcessConnection().connection(); }
+    Ref<IPC::Connection> protectedConnection() const { return manager()->gpuProcessConnection().connection(); }
     RefPtr<WebCore::MediaPlayer> player() const { return m_player.get(); }
 
     WebCore::MediaPlayer::ReadyState readyState() const final { return m_readyState; }
@@ -179,9 +179,7 @@ public:
 
     void activeSourceBuffersChanged();
 
-#if PLATFORM(COCOA)
-    bool inVideoFullscreenOrPictureInPicture() const;
-#endif
+    bool inVideoFullscreenOrPictureInPicture() const final;
 
 #if ENABLE(ENCRYPTED_MEDIA)
     void waitingForKeyChanged(bool);
@@ -221,6 +219,8 @@ public:
     MediaTime currentTime() const final;
     MediaTime currentOrPendingSeekTime() const final;
 
+    void gpuProcessConnectionDidClose();
+
 private:
     class TimeProgressEstimator final {
     public:
@@ -237,7 +237,7 @@ private:
         void forceUseOfCachedTimeUntilNextSetTime();
 
     private:
-        Ref<const MediaPlayerPrivateRemote> protectedParent() const { return m_parent.get().releaseNonNull(); }
+        Ref<const MediaPlayerPrivateRemote> protectedParent() const { return m_parent.get(); }
 
         mutable Lock m_lock;
         std::atomic<bool> m_timeIsProgressing { false };
@@ -246,7 +246,7 @@ private:
         double m_rate WTF_GUARDED_BY_LOCK(m_lock) { 1.0 };
         mutable std::optional<MediaTime> m_lastReturnedTime WTF_GUARDED_BY_LOCK(m_lock);
         bool m_forceUseCachedTime WTF_GUARDED_BY_LOCK(m_lock) { false };
-        ThreadSafeWeakPtr<const MediaPlayerPrivateRemote> m_parent; // Cannot be null.
+        ThreadSafeWeakRef<const MediaPlayerPrivateRemote> m_parent;
     };
     TimeProgressEstimator m_currentTimeEstimator;
 
@@ -295,7 +295,7 @@ private:
     PlatformLayerContainer createVideoFullscreenLayer() final;
     void setVideoFullscreenLayer(PlatformLayer*, WTF::Function<void()>&& completionHandler) final;
     void updateVideoFullscreenInlineImage() final;
-    void setVideoFullscreenFrame(WebCore::FloatRect) final;
+    void setVideoFullscreenFrame(const WebCore::FloatRect&) final;
     void setVideoFullscreenGravity(WebCore::MediaPlayer::VideoGravity) final;
     void setVideoFullscreenMode(WebCore::MediaPlayer::VideoFullscreenMode) final;
     void videoFullscreenStandbyChanged() final;
@@ -377,7 +377,7 @@ private:
     bool wirelessVideoPlaybackDisabled() const final;
     void setWirelessVideoPlaybackDisabled(bool) final;
 
-    bool canPlayToWirelessPlaybackTarget() const final;
+    OptionSet<WebCore::MediaPlaybackTargetType> supportedPlaybackTargetTypes() const final;
     bool isCurrentPlaybackTargetWireless() const final;
     void setWirelessPlaybackTarget(Ref<WebCore::MediaPlaybackTarget>&&) final;
 
@@ -433,9 +433,6 @@ private:
 
     void tracksChanged() final;
 
-    void beginSimulatedHDCPError() final;
-    void endSimulatedHDCPError() final;
-
     String languageOfPrimaryAudioTrack() const final;
 
     size_t extraMemoryCost() const final;
@@ -458,7 +455,7 @@ private:
     AVPlayer *objCAVFoundationAVPlayer() const final { return nullptr; }
 #endif
 
-    bool performTaskAtTime(Function<void()>&&, const MediaTime&) final;
+    bool performTaskAtTime(Function<void(const MediaTime&)>&&, const MediaTime&) final;
 
     bool supportsPlayAtHostTime() const final { return m_configuration.supportsPlayAtHostTime; }
     bool supportsPauseAtHostTime() const final { return m_configuration.supportsPauseAtHostTime; }
@@ -477,9 +474,9 @@ private:
     void setShouldCheckHardwareSupport(bool) final;
 
 #if HAVE(SPATIAL_TRACKING_LABEL)
-    const String& defaultSpatialTrackingLabel() const final;
+    String defaultSpatialTrackingLabel() const final;
     void setDefaultSpatialTrackingLabel(const String&) final;
-    const String& spatialTrackingLabel() const final;
+    String spatialTrackingLabel() const final;
     void setSpatialTrackingLabel(const String&) final;
 #endif
 
@@ -500,10 +497,10 @@ private:
 #if PLATFORM(COCOA)
     void pushVideoFrameMetadata(WebCore::VideoFrameMetadata&&, RemoteVideoFrameProxy::Properties&&);
 #endif
-    RemoteVideoFrameObjectHeapProxy& videoFrameObjectHeapProxy() const { return protectedManager()->protectedGPUProcessConnection()->videoFrameObjectHeapProxy(); }
+    RemoteVideoFrameObjectHeapProxy& videoFrameObjectHeapProxy() const { return manager()->protectedGPUProcessConnection()->videoFrameObjectHeapProxy(); }
     Ref<RemoteVideoFrameObjectHeapProxy> protectedVideoFrameObjectHeapProxy() const { return videoFrameObjectHeapProxy(); }
 
-    Ref<RemoteMediaPlayerManager> protectedManager() const;
+    Ref<RemoteMediaPlayerManager> manager() const;
 
 #if PLATFORM(IOS_FAMILY)
     void sceneIdentifierDidChange() final;
@@ -518,7 +515,7 @@ private:
     mutable PlatformLayerContainer m_videoLayer;
 #endif
 
-    ThreadSafeWeakPtr<RemoteMediaPlayerManager> m_manager; // Cannot be null.
+    ThreadSafeWeakRef<RemoteMediaPlayerManager> m_manager;
     WebCore::MediaPlayerEnums::MediaEngineIdentifier m_remoteEngineIdentifier;
     WebCore::MediaPlayerIdentifier m_id;
     RemoteMediaPlayerConfiguration m_configuration;
@@ -535,7 +532,7 @@ private:
 #endif
 
     mutable Lock m_lock;
-    HashMap<RemoteMediaResourceIdentifier, RefPtr<WebCore::PlatformMediaResource>> m_mediaResources;
+    HashMap<RemoteMediaResourceIdentifier, Ref<WebCore::PlatformMediaResource>> m_mediaResources;
     StdUnorderedMap<WebCore::TrackID, Ref<AudioTrackPrivateRemote>> m_audioTracks WTF_GUARDED_BY_LOCK(m_lock);
     StdUnorderedMap<WebCore::TrackID, Ref<VideoTrackPrivateRemote>> m_videoTracks WTF_GUARDED_BY_LOCK(m_lock);
     StdUnorderedMap<WebCore::TrackID, Ref<TextTrackPrivateRemote>> m_textTracks WTF_GUARDED_BY_LOCK(m_lock);

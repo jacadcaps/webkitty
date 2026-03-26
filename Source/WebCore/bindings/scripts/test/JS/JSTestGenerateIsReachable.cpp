@@ -134,7 +134,7 @@ void JSTestGenerateIsReachablePrototype::finishCreation(VM& vm)
 const ClassInfo JSTestGenerateIsReachable::s_info = { "TestGenerateIsReachable"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestGenerateIsReachable) };
 
 JSTestGenerateIsReachable::JSTestGenerateIsReachable(Structure* structure, JSDOMGlobalObject& globalObject, Ref<TestGenerateIsReachable>&& impl)
-    : JSDOMWrapper<TestGenerateIsReachable>(structure, globalObject, WTFMove(impl))
+    : JSDOMWrapper<TestGenerateIsReachable>(structure, globalObject, WTF::move(impl))
 {
 }
 
@@ -159,7 +159,7 @@ JSValue JSTestGenerateIsReachable::getConstructor(VM& vm, const JSGlobalObject* 
 
 void JSTestGenerateIsReachable::destroy(JSC::JSCell* cell)
 {
-    JSTestGenerateIsReachable* thisObject = static_cast<JSTestGenerateIsReachable*>(cell);
+    SUPPRESS_MEMORY_UNSAFE_CAST JSTestGenerateIsReachable* thisObject = static_cast<JSTestGenerateIsReachable*>(cell);
     thisObject->JSTestGenerateIsReachable::~JSTestGenerateIsReachable();
 }
 
@@ -216,7 +216,7 @@ bool JSTestGenerateIsReachableOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC:
 
 void JSTestGenerateIsReachableOwner::finalize(JSC::Handle<JSC::Unknown> handle, void* context)
 {
-    auto* jsTestGenerateIsReachable = static_cast<JSTestGenerateIsReachable*>(handle.slot()->asCell());
+    SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestGenerateIsReachable = static_cast<JSTestGenerateIsReachable*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
     uncacheWrapper(world, jsTestGenerateIsReachable->protectedWrapped().ptr(), jsTestGenerateIsReachable);
 }
@@ -230,7 +230,7 @@ extern "C" { extern void (*const __identifier("??_7TestGenerateIsReachable@WebCo
 extern "C" { extern void* _ZTVN7WebCore23TestGenerateIsReachableE[]; }
 #endif
 template<std::same_as<TestGenerateIsReachable> T>
-static inline void verifyVTable(TestGenerateIsReachable* ptr) 
+static inline void verifyVTable(TestGenerateIsReachable* ptr)
 {
     if constexpr (std::is_polymorphic_v<T>) {
         const void* actualVTablePointer = getVTablePointer<T>(ptr);
@@ -250,12 +250,13 @@ static inline void verifyVTable(TestGenerateIsReachable* ptr)
 #endif
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestGenerateIsReachable>&& impl)
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<TestGenerateIsReachable>&& impl)
 {
+    UNUSED_PARAM(lexicalGlobalObject);
 #if ENABLE(BINDING_INTEGRITY)
     verifyVTable<TestGenerateIsReachable>(impl.ptr());
 #endif
-    return createWrapper<TestGenerateIsReachable>(globalObject, WTFMove(impl));
+    return createWrapper<TestGenerateIsReachable>(globalObject, WTF::move(impl));
 }
 
 JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestGenerateIsReachable& impl)

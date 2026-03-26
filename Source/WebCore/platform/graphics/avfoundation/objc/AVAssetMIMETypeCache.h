@@ -25,9 +25,10 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
 #if PLATFORM(COCOA)
 
-#include "MIMETypeCache.h"
+#include <WebCore/MIMETypeCache.h>
 
 namespace WebCore {
 
@@ -38,7 +39,7 @@ public:
     static AVAssetMIMETypeCache& singleton();
 
     using CacheMIMETypesCallback = std::function<void(const Vector<String>&)>;
-    void setCacheMIMETypesCallback(CacheMIMETypesCallback&& callback) { m_cacheTypeCallback = WTFMove(callback); }
+    void setCacheMIMETypesCallback(CacheMIMETypesCallback&& callback) { m_cacheTypeCallback = WTF::move(callback); }
 
     bool isAvailable() const final;
 

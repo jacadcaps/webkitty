@@ -30,7 +30,7 @@
 
 namespace WebKit {
 
-class RemoteDisplayListRecorderProxy;
+class RemoteGraphicsContextProxy;
 class RemoteImageBufferSetProxy;
 
 class RemoteLayerWithRemoteRenderingBackingStore final : public RemoteLayerBackingStore, public ImageBufferSetClient {
@@ -48,6 +48,7 @@ public:
     uint32_t checkedPtrCountWithoutThreadCheck() const final { return CanMakeCheckedPtr::checkedPtrCountWithoutThreadCheck(); }
     void incrementCheckedPtrCount() const final { CanMakeCheckedPtr::incrementCheckedPtrCount(); }
     void decrementCheckedPtrCount() const final { CanMakeCheckedPtr::decrementCheckedPtrCount(); }
+    void setDidBeginCheckedPtrDeletion() final { CanMakeCheckedPtr::setDidBeginCheckedPtrDeletion(); }
 
     void prepareToDisplay() final;
     void clearBackingStore() final;
@@ -58,31 +59,18 @@ public:
     RemoteImageBufferSetProxy* bufferSet() { return m_bufferSet.get(); }
 
     std::unique_ptr<ThreadSafeImageBufferSetFlusher> createFlusher(ThreadSafeImageBufferSetFlusher::FlushType) final;
-    std::optional<ImageBufferBackendHandle> frontBufferHandle() const final { return std::exchange(const_cast<RemoteLayerWithRemoteRenderingBackingStore*>(this)->m_backendHandle, std::nullopt); }
 #if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
     std::optional<WebCore::DynamicContentScalingDisplayList> displayListHandle() const final;
 #endif
-    void encodeBufferAndBackendInfos(IPC::Encoder&) const final;
-    std::optional<RemoteImageBufferSetIdentifier> bufferSetIdentifier() const final;
+    std::optional<ImageBufferSetIdentifier> bufferSetIdentifier() const final;
 
     void ensureBackingStore(const Parameters&) final;
     bool hasFrontBuffer() const final;
     bool frontBufferMayBeVolatile() const final;
 
-    void setBufferCacheIdentifiers(BufferIdentifierSet&& identifiers)
-    {
-        m_bufferCacheIdentifiers = WTFMove(identifiers);
-    }
-    void setBackendHandle(std::optional<ImageBufferBackendHandle>&& backendHandle)
-    {
-        m_backendHandle = WTFMove(backendHandle);
-    }
-
     void dump(WTF::TextStream&) const final;
 private:
     const RefPtr<RemoteImageBufferSetProxy> m_bufferSet;
-    BufferIdentifierSet m_bufferCacheIdentifiers;
-    std::optional<ImageBufferBackendHandle> m_backendHandle;
     bool m_cleared { true };
 };
 

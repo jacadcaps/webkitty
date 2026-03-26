@@ -26,7 +26,8 @@
 typedef (object or DOMString) HashAlgorithmIdentifier;
 
 [
-    ImplementedAs=CryptoAlgorithmEcdsaParams
+    ImplementedAs=CryptoAlgorithmEcdsaParams,
+    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary EcdsaParams : CryptoAlgorithmParameters {
     // The hash algorithm to use
     required HashAlgorithmIdentifier hash;

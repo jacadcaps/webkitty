@@ -122,7 +122,11 @@ class Tracker(GenericTracker):
             )
             expiration = response.headers.get('github-authentication-token-expiration', None)
             if expiration:
-                expiration = int(calendar.timegm(datetime.strptime(expiration, '%Y-%m-%d %H:%M:%S UTC').timetuple()))
+                # GitHub can return token expiration in either 'YYYY-MM-DD HH:MM:SS UTC' or 'YYYY-MM-DD HH:MM:SS ±HHMM' format, handle both.
+                try:
+                    expiration = int(calendar.timegm(datetime.strptime(expiration, '%Y-%m-%d %H:%M:%S UTC').timetuple()))
+                except ValueError:
+                    expiration = int(calendar.timegm(datetime.strptime(expiration, '%Y-%m-%d %H:%M:%S %z').timetuple()))
             if (expiration is None or expiration > time.time()) and response.status_code == 200 and response.json().get('login') == username:
                 return True
             sys.stderr.write('Login to {} for {} failed\n'.format(self.api_url, username))

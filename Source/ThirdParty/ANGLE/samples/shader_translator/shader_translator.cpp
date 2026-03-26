@@ -244,7 +244,6 @@ int main(int argc, char *argv[])
                       case 'g': resources.EXT_frag_depth = 1; break;
                       case 'l': resources.EXT_shader_texture_lod = 1; break;
                       case 'f': resources.EXT_shader_framebuffer_fetch = 1; break;
-                      case 'n': resources.NV_shader_framebuffer_fetch = 1; break;
                       case 'a': resources.ARM_shader_framebuffer_fetch = 1; break;
                       case 'm':
                           resources.OVR_multiview2 = 1;
@@ -254,6 +253,7 @@ int main(int argc, char *argv[])
                           break;
                       case 'y': resources.EXT_YUV_target = 1; break;
                       case 's': resources.OES_sample_variables = 1; break;
+                      case 't': resources.EXT_fragment_shading_rate = 1; break;
                       default: failCode = EFailUsage;
                     }
                         // clang-format on
@@ -463,11 +463,11 @@ void usage()
         "       -x=g     : enable EXT_frag_depth\n"
         "       -x=l     : enable EXT_shader_texture_lod\n"
         "       -x=f     : enable EXT_shader_framebuffer_fetch\n"
-        "       -x=n     : enable NV_shader_framebuffer_fetch\n"
         "       -x=a     : enable ARM_shader_framebuffer_fetch\n"
         "       -x=m     : enable OVR_multiview\n"
         "       -x=y     : enable YUV_target\n"
-        "       -x=s     : enable OES_sample_variables\n");
+        "       -x=s     : enable OES_sample_variables\n"
+        "       -x=t     : enable EXT_fragment_shading_rate\n");
     // clang-format on
 }
 

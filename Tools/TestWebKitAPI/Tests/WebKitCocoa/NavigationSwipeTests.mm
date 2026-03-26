@@ -52,6 +52,19 @@ namespace TestWebKitAPI {
 
 #if PLATFORM(IOS_FAMILY)
 
+void simulateBackSwipeAndWaitForGestureToEnd(WKWebView *webView, Function<void()>&& runBeforeCompletion = { })
+{
+    [webView _beginBackSwipeForTesting];
+    if (runBeforeCompletion)
+        runBeforeCompletion();
+
+    [webView _completeBackSwipeForTesting];
+
+    Util::waitForConditionWithLogging([webView] -> bool {
+        return [webView _didCallEndSwipeGestureForTesting];
+    }, 3, @"Timed out waiting for endSwipeGesture to be called");
+}
+
 TEST(NavigationSwipeTests, RestoreFirstResponderAfterNavigationSwipe)
 {
     poseAsClass("TestNavigationInteractiveTransition", "_UINavigationInteractiveTransitionBase");
@@ -63,8 +76,7 @@ TEST(NavigationSwipeTests, RestoreFirstResponderAfterNavigationSwipe)
     [webView synchronouslyLoadTestPageNamed:@"simple"];
     [webView synchronouslyLoadTestPageNamed:@"simple2"];
 
-    [webView _beginBackSwipeForTesting];
-    [webView _completeBackSwipeForTesting];
+    simulateBackSwipeAndWaitForGestureToEnd(webView.get());
     EXPECT_TRUE([webView _contentViewIsFirstResponder]);
 }
 
@@ -79,9 +91,10 @@ TEST(NavigationSwipeTests, DoNotBecomeFirstResponderAfterNavigationSwipeIfWebVie
     [webView synchronouslyLoadTestPageNamed:@"simple"];
     [webView synchronouslyLoadTestPageNamed:@"simple2"];
 
-    [webView _beginBackSwipeForTesting];
-    [webView removeFromSuperview];
-    [webView _completeBackSwipeForTesting];
+    simulateBackSwipeAndWaitForGestureToEnd(webView.get(), [webView] {
+        [webView removeFromSuperview];
+    });
+
     EXPECT_FALSE([webView _contentViewIsFirstResponder]);
 }
 
@@ -96,8 +109,7 @@ TEST(NavigationSwipeTests, DoNotAssertWhenSnapshottingZeroSizeView)
     [webView synchronouslyLoadTestPageNamed:@"simple"];
     [webView synchronouslyLoadTestPageNamed:@"simple2"];
 
-    [webView _beginBackSwipeForTesting];
-    [webView _completeBackSwipeForTesting];
+    simulateBackSwipeAndWaitForGestureToEnd(webView.get());
 }
 
 #endif // PLATFORM(IOS_FAMILY)

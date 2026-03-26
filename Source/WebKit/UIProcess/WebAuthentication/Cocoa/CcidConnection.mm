@@ -39,11 +39,11 @@ using namespace fido;
 
 Ref<CcidConnection> CcidConnection::create(RetainPtr<TKSmartCard>&& smartCard, CcidService& service)
 {
-    return adoptRef(*new CcidConnection(WTFMove(smartCard), service));
+    return adoptRef(*new CcidConnection(WTF::move(smartCard), service));
 }
 
 CcidConnection::CcidConnection(RetainPtr<TKSmartCard>&& smartCard, CcidService& service)
-    : m_smartCard(WTFMove(smartCard))
+    : m_smartCard(WTF::move(smartCard))
     , m_service(service)
     , m_retryTimer(RunLoop::mainSingleton(), "CcidConnection::RetryTimer"_s, this, &CcidConnection::startPolling)
 {
@@ -85,7 +85,7 @@ void CcidConnection::trySelectFidoApplet()
                 service->didConnectTag();
             return;
         }
-        protectedThis->transact(Vector(std::span { kCtapNfcAppletSelectionCommand }), [weakThis = WTFMove(weakThis)] (Vector<uint8_t>&& response) mutable {
+        protectedThis->transact(Vector(std::span { kCtapNfcAppletSelectionCommand }), [weakThis = WTF::move(weakThis)] (Vector<uint8_t>&& response) mutable {
             ASSERT(RunLoop::isMain());
             RefPtr protectedThis = weakThis.get();
             if (!protectedThis)
@@ -100,13 +100,13 @@ void CcidConnection::trySelectFidoApplet()
 
 void CcidConnection::transact(Vector<uint8_t>&& data, DataReceivedCallback&& callback) const
 {
-    [m_smartCard beginSessionWithReply:makeBlockPtr([this, protectedThis = Ref { *this }, data = WTFMove(data), callback = WTFMove(callback)] (BOOL success, NSError *error) mutable {
+    [m_smartCard beginSessionWithReply:makeBlockPtr([this, protectedThis = Ref { *this }, data = WTF::move(data), callback = WTF::move(callback)] (BOOL success, NSError *error) mutable {
         if (!success)
             return;
-        [m_smartCard transmitRequest:toNSData(data).autorelease() reply:makeBlockPtr([this, protectedThis = Ref { *this }, callback = WTFMove(callback)](NSData * _Nullable nsResponse, NSError * _Nullable error) mutable {
+        [m_smartCard transmitRequest:toNSData(data).get() reply:makeBlockPtr([this, protectedThis = Ref { *this }, callback = WTF::move(callback)](NSData * _Nullable nsResponse, NSError * _Nullable error) mutable {
             [m_smartCard endSession];
-            callOnMainRunLoop([response = makeVector(nsResponse), callback = WTFMove(callback)] () mutable {
-                callback(WTFMove(response));
+            callOnMainRunLoop([response = makeVector(nsResponse), callback = WTF::move(callback)] () mutable {
+                callback(WTF::move(response));
             });
         }).get()];
     }).get()];

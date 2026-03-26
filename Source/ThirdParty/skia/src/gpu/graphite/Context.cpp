@@ -40,6 +40,8 @@
 #include "include/private/base/SkTo.h"
 #include "src/base/SkEnumBitMask.h"
 #include "src/base/SkRectMemcpy.h"
+#include "src/capture/SkCapture.h"
+#include "src/capture/SkCaptureManager.h"
 #include "src/core/SkAutoPixmapStorage.h"
 #include "src/core/SkCPUContextImpl.h"
 #include "src/core/SkCPURecorderImpl.h"
@@ -64,6 +66,7 @@
 #include "src/gpu/graphite/RendererProvider.h"
 #include "src/gpu/graphite/ResourceProvider.h"
 #include "src/gpu/graphite/ResourceTypes.h"
+#include "src/gpu/graphite/RuntimeEffectDictionary.h"
 #include "src/gpu/graphite/SharedContext.h"
 #include "src/gpu/graphite/Surface_Graphite.h"
 #include "src/gpu/graphite/TextureProxy.h"
@@ -75,19 +78,20 @@
 #include "src/image/SkSurface_Base.h"
 #include "src/sksl/SkSLGraphiteModules.h"
 
-#include <chrono>
-#include <cstdint>
-#include <memory>
-#include <vector>
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
+#include <cstdint>
 #include <cstring>
 #include <forward_list>
 #include <functional>
+#include <memory>
+#include <optional>
 #include <string_view>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 #if defined(GPU_TEST_UTILS)
 #include "src/gpu/graphite/ContextOptionsPriv.h"
@@ -135,10 +139,16 @@ Context::Context(sk_sp<SharedContext> sharedContext,
     }
 #endif
 
-    fSharedContext->globalCache()->setPipelineCallback(options.fPipelineCallback,
-                                                       options.fPipelineCallbackContext);
+    fSharedContext->globalCache()->setPipelineCallback(options.fPipelineCallbackContext,
+                                                       options.fPipelineCachingCallback,
+                                                       options.fPipelineCallback);
 
     fCPUContext = std::make_unique<skcpu::ContextImpl>();
+    if (options.fEnableCapture) {
+        fSharedContext->setCaptureManager(sk_make_sp<SkCaptureManager>());
+    }
+
+    fPersistentPipelineStorage = options.fPersistentPipelineStorage;
 }
 
 Context::~Context() {
@@ -159,6 +169,11 @@ Context::PixelTransferResult::~PixelTransferResult() = default;
 bool Context::finishInitialization() {
     SkASSERT(!fSharedContext->rendererProvider()); // Can only initialize once
 
+    if (!fSharedContext->globalCache()->initializeDynamicSamplers(fResourceProvider.get(),
+                                                                  fSharedContext->caps())) {
+        return false;
+    }
+
     StaticBufferManager bufferManager{fResourceProvider.get(), fSharedContext->caps()};
     std::unique_ptr<RendererProvider> renderers{
             new RendererProvider(fSharedContext->caps(), &bufferManager)};
@@ -170,7 +185,7 @@ bool Context::finishInitialization() {
         return false;
     }
     if (result == StaticBufferManager::FinishResult::kSuccess &&
-        !fQueueManager->submitToGpu()) {
+        !fQueueManager->submitToGpu(/*submitInfo=*/{})) {
         SKGPU_LOG_W("Failed to submit initial command buffer for Context creation.\n");
         return false;
     } // else result was kNoWork so skip submitting to the GPU
@@ -208,30 +223,35 @@ std::unique_ptr<PrecompileContext> Context::makePrecompileContext() {
 std::unique_ptr<Recorder> Context::makeInternalRecorder() const {
     ASSERT_SINGLE_OWNER
 
-    // Unlike makeRecorder(), this Recorder is meant to be short-lived and go
-    // away before a Context public API function returns to the caller. As such
-    // it shares the Context's resource provider (no separate budget) and does
-    // not get tracked. The internal drawing performed with an internal recorder
-    // should not require a client image provider.
-    return std::unique_ptr<Recorder>(new Recorder(fSharedContext, {}, this));
+    // Unlike makeRecorder(), this Recorder is meant to be short-lived and go away before a Context
+    // public API function returns to the caller. As such it shares the Context's resource provider
+    // (no separate budget) and does not get tracked. The internal drawing performed with an
+    // internal recorder should not require a client image provider.
+    //
+    // Explicitly overrides fRequiresOrderedRecordings to false so that these Recorders do not
+    // inherit any global policy from the ContextOptions. Since they will only produce one Recording
+    // there's no need to require subsequent recordings be ordered.
+    RecorderOptions options = {};
+    options.fRequireOrderedRecordings = false;
+    return std::unique_ptr<Recorder>(new Recorder(fSharedContext, options, this));
 }
 
-bool Context::insertRecording(const InsertRecordingInfo& info) {
+InsertStatus Context::insertRecording(const InsertRecordingInfo& info) {
     ASSERT_SINGLE_OWNER
 
     return fQueueManager->addRecording(info, this);
 }
 
-bool Context::submit(SyncToCpu syncToCpu) {
+bool Context::submit(SubmitInfo submitInfo) {
     ASSERT_SINGLE_OWNER
 
-    if (syncToCpu == SyncToCpu::kYes && !fSharedContext->caps()->allowCpuSync()) {
+    if (submitInfo.fSync == SyncToCpu::kYes && !fSharedContext->caps()->allowCpuSync()) {
         SKGPU_LOG_E("SyncToCpu::kYes not supported with ContextOptions::fNeverYieldToWebGPU. "
                     "The parameter is ignored and no synchronization will occur.");
-        syncToCpu = SyncToCpu::kNo;
+        submitInfo.fSync = SyncToCpu::kNo;
     }
-    bool success = fQueueManager->submitToGpu();
-    this->checkForFinishedWork(syncToCpu);
+    bool success = fQueueManager->submitToGpu(submitInfo);
+    this->checkForFinishedWork(submitInfo.fSync);
     return success;
 }
 
@@ -367,6 +387,7 @@ void Context::asyncReadPixels(std::unique_ptr<Recorder> recorder,
             recorder = this->makeInternalRecorder();
         }
         sk_sp<SkImage> flattened = CopyAsDraw(recorder.get(),
+                                              /*drawContext=*/nullptr,
                                               params.fSrcImage,
                                               params.fSrcRect,
                                               params.fDstImageInfo.colorInfo(),
@@ -613,7 +634,7 @@ void Context::asyncReadPixelsYUV420(std::unique_ptr<Recorder> recorder,
     }
 
     this->finalizeAsyncReadPixels(std::move(recorder),
-                                  {transfers, readAlpha ? 4 : 3},
+                                  {transfers, readAlpha ? 4u : 3u},
                                   params.fCallback,
                                   params.fCallbackContext);
 }
@@ -734,7 +755,7 @@ Context::PixelTransferResult Context::transferPixels(Recorder* recorder,
     int bpp = isRGB888Format ? 3 : SkColorTypeBytesPerPixel(supportedColorType);
     size_t rowBytes = caps->getAlignedTextureDataRowBytes(bpp * srcRect.width());
     size_t size = SkAlignTo(rowBytes * srcRect.height(), caps->requiredTransferBufferAlignment());
-    sk_sp<Buffer> buffer = fResourceProvider->findOrCreateBuffer(
+    sk_sp<Buffer> buffer = fResourceProvider->findOrCreateNonShareableBuffer(
             size, BufferType::kXferGpuToCpu, AccessPattern::kHostVisible, "TransferToCpu");
     if (!buffer) {
         return {};
@@ -816,6 +837,7 @@ void Context::checkForFinishedWork(SyncToCpu syncToCpu) {
     fMappedBufferManager->process();
     // Process the return queue periodically to make sure it doesn't get too big
     fResourceProvider->forceProcessReturnedResources();
+    fSharedContext->forceProcessReturnedResources();
 }
 
 void Context::checkAsyncWorkCompletion() {
@@ -837,6 +859,7 @@ void Context::freeGpuResources() {
     this->checkAsyncWorkCompletion();
 
     fResourceProvider->freeGpuResources();
+    fSharedContext->freeGpuResources();
 }
 
 void Context::performDeferredCleanup(std::chrono::milliseconds msNotUsed) {
@@ -846,20 +869,24 @@ void Context::performDeferredCleanup(std::chrono::milliseconds msNotUsed) {
 
     auto purgeTime = skgpu::StdSteadyClock::now() - msNotUsed;
     fResourceProvider->purgeResourcesNotUsedSince(purgeTime);
+    fSharedContext->purgeResourcesNotUsedSince(purgeTime);
 }
 
 size_t Context::currentBudgetedBytes() const {
     ASSERT_SINGLE_OWNER
+    SkASSERT(fSharedContext->getResourceCacheCurrentBudgetedBytes() == 0);
     return fResourceProvider->getResourceCacheCurrentBudgetedBytes();
 }
 
 size_t Context::currentPurgeableBytes() const {
     ASSERT_SINGLE_OWNER
+    SkASSERT(fSharedContext->getResourceCacheCurrentPurgeableBytes() == 0);
     return fResourceProvider->getResourceCacheCurrentPurgeableBytes();
 }
 
 size_t Context::maxBudgetedBytes() const {
     ASSERT_SINGLE_OWNER
+    SkASSERT(fSharedContext->getResourceCacheLimit() == SharedContext::kThreadedSafeResourceBudget);
     return fResourceProvider->getResourceCacheLimit();
 }
 
@@ -871,6 +898,7 @@ void Context::setMaxBudgetedBytes(size_t bytes) {
 void Context::dumpMemoryStatistics(SkTraceMemoryDump* traceMemoryDump) const {
     ASSERT_SINGLE_OWNER
     fResourceProvider->dumpMemoryStatistics(traceMemoryDump);
+    fSharedContext->dumpMemoryStatistics(traceMemoryDump);
     // TODO: What is the graphite equivalent for the text blob cache and how do we print out its
     // used bytes here (see Ganesh implementation).
 }
@@ -889,6 +917,28 @@ bool Context::supportsProtectedContent() const {
 
 GpuStatsFlags Context::supportedGpuStats() const {
     return fSharedContext->caps()->supportedGpuStats();
+}
+
+void Context::syncPipelineData(size_t maxSize) {
+    ASSERT_SINGLE_OWNER
+
+    if (fPersistentPipelineStorage) {
+        fSharedContext->syncPipelineData(fPersistentPipelineStorage, maxSize);
+    }
+}
+
+void Context::startCapture() {
+    if (fSharedContext->captureManager()) {
+        fSharedContext->captureManager()->toggleCapture(true);
+    }
+}
+
+sk_sp<SkCapture> Context::endCapture() {
+    if (fSharedContext->captureManager()) {
+        fSharedContext->captureManager()->toggleCapture(false);
+        return fSharedContext->captureManager()->getLastCapture();
+    }
+    return nullptr;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
@@ -966,26 +1016,6 @@ bool ContextPriv::readPixels(const SkPixmap& pm,
                  pm.height());
     return true;
 }
-
-bool ContextPriv::supportsPathRendererStrategy(PathRendererStrategy strategy) {
-    AtlasProvider::PathAtlasFlagsBitMask pathAtlasFlags =
-            AtlasProvider::QueryPathAtlasSupport(this->caps());
-    switch (strategy) {
-        case PathRendererStrategy::kDefault:
-            return true;
-        case PathRendererStrategy::kComputeAnalyticAA:
-        case PathRendererStrategy::kComputeMSAA16:
-        case PathRendererStrategy::kComputeMSAA8:
-            return SkToBool(pathAtlasFlags & AtlasProvider::PathAtlasFlags::kCompute);
-        case PathRendererStrategy::kRasterAA:
-            return SkToBool(pathAtlasFlags & AtlasProvider::PathAtlasFlags::kRaster);
-        case PathRendererStrategy::kTessellation:
-            return true;
-    }
-
-    return false;
-}
-
 #endif // GPU_TEST_UTILS
 
 ///////////////////////////////////////////////////////////////////////////////////

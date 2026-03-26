@@ -5,7 +5,6 @@
 
 from . import util
 
-
 def compile_swiftshader(api, extra_tokens, swiftshader_root, ninja_root, cc, cxx, out):
   """Build SwiftShader with CMake.
 
@@ -23,11 +22,10 @@ def compile_swiftshader(api, extra_tokens, swiftshader_root, ninja_root, cc, cxx
       '-DSWIFTSHADER_WARNINGS_AS_ERRORS=OFF',
       '-DREACTOR_ENABLE_MEMORY_SANITIZER_INSTRUMENTATION=OFF',  # Way too slow.
   ]
-  cmake_bin = str(api.vars.workdir.joinpath('cmake_linux', 'bin'))
   env = {
       'CC': cc,
       'CXX': cxx,
-      'PATH': '%s:%%(PATH)s:%s' % (ninja_root, cmake_bin),
+      'PATH': api.path.pathsep.join([str(ninja_root), "%(PATH)s"]),
       # We arrange our MSAN/TSAN prebuilts a little differently than
       # SwiftShader's CMakeLists.txt expects, so we'll just keep our custom
       # setup (everything mentioning libcxx below) and point SwiftShader's
@@ -157,12 +155,15 @@ def get_compile_flags(api, checkout_root, out_dir, workdir):
       'skia_enable_fontmgr_empty':     'true',
       'skia_enable_graphite':          'true',
       'skia_enable_pdf':               'true',
-      'skia_use_cpp20':                'true',
       'skia_use_dawn':                 'true',
       'skia_use_expat':                'true',
       'skia_use_freetype':             'true',
       'skia_use_vulkan':               'true',
     })
+
+  if 'Fuzz' in extra_tokens:
+    cc, cxx = 'clang', 'clang++'
+    args['skia_build_fuzzers'] = 'true'
 
   if 'Coverage' in extra_tokens:
     # See https://clang.llvm.org/docs/SourceBasedCodeCoverage.html for
@@ -207,13 +208,11 @@ def get_compile_flags(api, checkout_root, out_dir, workdir):
     args['is_debug'] = 'false'
   if 'Dawn' in extra_tokens:
     util.set_dawn_args_and_env(args, env, api, extra_tokens, skia_dir)
-    args['skia_use_cpp20'] = 'true'
   if 'ANGLE' in extra_tokens:
     args['skia_use_angle'] = 'true'
-    args['skia_use_cpp20'] = 'true'
   if 'SwiftShader' in extra_tokens:
     swiftshader_root = skia_dir.joinpath('third_party', 'externals', 'swiftshader')
-    # Swiftshader will need to make ninja be on the path
+    # Swiftshader will need to have ninja be on the path
     ninja_root = skia_dir.joinpath('third_party', 'ninja')
     swiftshader_out = out_dir.joinpath('swiftshader_out')
     compile_swiftshader(api, extra_tokens, swiftshader_root, ninja_root, cc, cxx, swiftshader_out)
@@ -240,6 +239,8 @@ def get_compile_flags(api, checkout_root, out_dir, workdir):
     args['skia_use_rust_png_encode'] = 'true'
     args['skia_use_libpng_decode'] = 'false'
     # TODO(b/356875275) set skia_use_libpng_encode to false also
+  if 'RustBMP' in extra_tokens:
+    args['skia_use_rust_bmp_decode'] = 'true'
   if 'FreeType' in extra_tokens:
     args['skia_use_freetype'] = 'true'
     args['skia_use_system_freetype2'] = 'false'
@@ -371,7 +372,14 @@ def compile_fn(api, checkout_root, out_dir):
   args, env, ccache = get_compile_flags(api, checkout_root, out_dir, workdir)
   gn_args = finalize_gn_flags(args)
   gn = skia_dir.joinpath('bin', 'gn')
-  ninja = skia_dir.joinpath('third_party', 'ninja', 'ninja')
+  ninja_root = skia_dir.joinpath('third_party', 'ninja')
+  ninja = skia_dir.joinpath(ninja_root, 'ninja')
+
+  # Putting ninja on the path makes it easier for subcommands to find it
+  # (e.g. when building Dawn via CMake+ninja)
+  # Importantly, this needs to go *after* depot_tools, so we append it
+  existing_path = env.get('PATH', '%(PATH)s')
+  env['PATH'] = api.path.pathsep.join([existing_path, str(ninja_root)])
 
   with api.context(cwd=skia_dir):
     with api.env(env):

@@ -22,16 +22,11 @@
 #include "WebKitTestServer.h"
 #include "WebViewTest.h"
 #include <WebCore/GUniquePtrSoup.h>
-#include <WebCore/SoupVersioning.h>
 #include <glib/gstdio.h>
 
 static WebKitTestServer* kServer;
 
-#if USE(SOUP2)
-static void serverCallback(SoupServer* server, SoupMessage* message, const char* path, GHashTable*, SoupClientContext*, gpointer)
-#else
 static void serverCallback(SoupServer* server, SoupServerMessage* message, const char* path, GHashTable*, gpointer)
-#endif
 {
     if (soup_server_message_get_method(message) != SOUP_METHOD_GET) {
         soup_server_message_set_status(message, SOUP_STATUS_NOT_IMPLEMENTED, nullptr);
@@ -592,7 +587,6 @@ static void testWebsiteDataDatabases(WebsiteDataTest* test, gconstpointer)
     g_assert_null(dataList);
 }
 
-#if SOUP_CHECK_VERSION(2, 67, 91)
 static void prepopulateHstsData()
 {
     // HSTS headers will be ignored in this test because the spec forbids STS policies from being honored for hosts with
@@ -634,7 +628,6 @@ static void testWebsiteDataHsts(WebsiteDataTest* test, gconstpointer)
     test->clear(WEBKIT_WEBSITE_DATA_HSTS_CACHE, 0);
     g_assert_null(test->fetch(WEBKIT_WEBSITE_DATA_HSTS_CACHE));
 }
-#endif
 
 static void testWebsiteDataCookies(WebsiteDataTest* test, gconstpointer)
 {
@@ -733,6 +726,9 @@ static void testWebsiteDataITP(WebsiteDataTest* test, gconstpointer)
     g_unlink(itpDatabaseFile.get());
     g_rmdir(itpDirectory.get());
 
+    g_assert_false(g_file_test(itpDirectory.get(), G_FILE_TEST_IS_DIR));
+    g_assert_false(g_file_test(itpDatabaseFile.get(), G_FILE_TEST_IS_REGULAR));
+
 #if ENABLE(2022_GLIB_API)
     g_assert_false(webkit_network_session_get_itp_enabled(test->m_networkSession.get()));
 #else
@@ -741,6 +737,9 @@ static void testWebsiteDataITP(WebsiteDataTest* test, gconstpointer)
     test->loadURI(kServer->getURIForPath("/empty").data());
     test->waitUntilLoadFinished();
 
+    g_assert_false(g_file_test(itpDirectory.get(), G_FILE_TEST_IS_DIR));
+    g_assert_false(g_file_test(itpDatabaseFile.get(), G_FILE_TEST_IS_REGULAR));
+
 #if ENABLE(2022_GLIB_API)
     webkit_network_session_set_itp_enabled(test->m_networkSession.get(), TRUE);
     g_assert_true(webkit_network_session_get_itp_enabled(test->m_networkSession.get()));
@@ -748,8 +747,6 @@ static void testWebsiteDataITP(WebsiteDataTest* test, gconstpointer)
     webkit_website_data_manager_set_itp_enabled(test->m_manager, TRUE);
     g_assert_true(webkit_website_data_manager_get_itp_enabled(test->m_manager));
 #endif
-    g_assert_false(g_file_test(itpDirectory.get(), G_FILE_TEST_IS_DIR));
-    g_assert_false(g_file_test(itpDatabaseFile.get(), G_FILE_TEST_IS_REGULAR));
 
     test->loadURI(kServer->getURIForPath("/empty").data());
     test->waitUntilLoadFinished();
@@ -758,7 +755,7 @@ static void testWebsiteDataITP(WebsiteDataTest* test, gconstpointer)
     g_assert_true(g_file_test(itpDatabaseFile.get(), G_FILE_TEST_IS_REGULAR));
 
     // Give some time for the database to be updated.
-    test->wait(0.5);
+    test->wait(1);
 
     GList* dataList = test->fetch(WEBKIT_WEBSITE_DATA_ITP);
     g_assert_nonnull(dataList);
@@ -797,6 +794,7 @@ static void testWebsiteDataServiceWorkerRegistrations(WebsiteDataTest* test, gco
 
     test->loadURI(kServer->getURIForPath("/service/register.html").data());
     test->waitUntilLoadFinished();
+    test->wait(1);
 
     dataList = test->fetch(WEBKIT_WEBSITE_DATA_SERVICE_WORKER_REGISTRATIONS);
     g_assert_cmpuint(g_list_length(dataList), ==, 1);
@@ -896,9 +894,7 @@ void beforeAll()
     kServer = new WebKitTestServer();
     kServer->run(serverCallback);
 
-#if SOUP_CHECK_VERSION(2, 67, 91)
     prepopulateHstsData();
-#endif
 
     WebsiteDataTest::add("WebKitWebsiteData", "configuration", testWebsiteDataConfiguration);
     WebViewTest::add("WebKitWebsiteData", "ephemeral", testWebsiteDataEphemeral);
@@ -906,9 +902,7 @@ void beforeAll()
     WebsiteDataTest::add("WebKitWebsiteData", "storage", testWebsiteDataStorage);
     WebsiteDataTest::add("WebKitWebsiteData", "databases", testWebsiteDataDatabases);
     WebsiteDataTest::add("WebKitWebsiteData", "cookies", testWebsiteDataCookies);
-#if SOUP_CHECK_VERSION(2, 67, 91)
     WebsiteDataTest::add("WebKitWebsiteData", "hsts", testWebsiteDataHsts);
-#endif
     WebsiteDataTest::add("WebKitWebsiteData", "deviceidhashsalt", testWebsiteDataDeviceIdHashSalt);
     WebsiteDataTest::add("WebKitWebsiteData", "itp", testWebsiteDataITP);
     WebsiteDataTest::add("WebKitWebsiteData", "service-worker-registrations", testWebsiteDataServiceWorkerRegistrations);

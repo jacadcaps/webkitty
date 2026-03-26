@@ -43,6 +43,7 @@
 #include "SVGLengthContext.h"
 #include "SVGResources.h"
 #include "SVGResourcesCache.h"
+#include "Settings.h"
 #include <numbers>
 #include <wtf/MathExtras.h>
 
@@ -148,7 +149,7 @@ void SVGRenderingContext::prepareToRenderSVGContent(RenderElement& renderer, Pai
         resources = SVGResourcesCache::cachedResourcesForRenderer(*m_renderer);
 
     if (!resources) {
-        if (style.hasReferenceFilterOnly())
+        if (style.filter().isReferenceFilter())
             return;
 
         m_renderingFlags |= RenderingPrepared;
@@ -228,7 +229,7 @@ AffineTransform SVGRenderingContext::calculateTransformationToOutermostCoordinat
     }
 
     // Continue walking up the layer tree, accumulating CSS transforms.
-    RenderLayer* layer = ancestor ? ancestor->enclosingLayer() : nullptr;
+    CheckedPtr layer = ancestor ? ancestor->enclosingLayer() : nullptr;
     while (layer) {
         if (TransformationMatrix* layerTransform = layer->transform())
             absoluteTransform = layerTransform->toAffineTransform() * absoluteTransform;

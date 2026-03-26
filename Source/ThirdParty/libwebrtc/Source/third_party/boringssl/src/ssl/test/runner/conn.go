@@ -62,7 +62,8 @@ type Conn struct {
 	// opposed to the ones presented by the server.
 	verifiedChains [][]*x509.Certificate
 	// serverName contains the server name indicated by the client, if any.
-	serverName string
+	serverName    string
+	serverNameAck bool
 	// firstFinished contains the first Finished hash sent during the
 	// handshake. This is the "tls-unique" channel binding value.
 	firstFinished [12]byte
@@ -195,7 +196,7 @@ func (c *Conn) SetReadDeadline(t time.Time) error {
 	return c.conn.SetReadDeadline(t)
 }
 
-// SetWriteDeadline sets the write deadline on the underlying conneciton.
+// SetWriteDeadline sets the write deadline on the underlying connection.
 // A zero value for t means Write will not time out.
 // After a Write has timed out, the TLS state is corrupt and all future writes will return the same error.
 func (c *Conn) SetWriteDeadline(t time.Time) error {
@@ -1908,6 +1909,7 @@ func (c *Conn) ConnectionState() ConnectionState {
 		state.VerifiedChains = c.verifiedChains
 		state.OCSPResponse = c.ocspResponse
 		state.ServerName = c.serverName
+		state.ServerNameAck = c.serverNameAck
 		state.ChannelID = c.channelID
 		state.SRTPProtectionProfile = c.srtpProtectionProfile
 		state.TLSUnique = c.firstFinished[:]

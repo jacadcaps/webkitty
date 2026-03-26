@@ -40,9 +40,11 @@ constexpr bool kH264Enabled = false;
 constexpr bool kH265Enabled = false;
 
 constexpr VideoEncoderFactory::CodecSupport kSupported = {
-    /*is_supported=*/true, /*is_power_efficient=*/false};
+    .is_supported = true,
+    .is_power_efficient = false};
 constexpr VideoEncoderFactory::CodecSupport kUnsupported = {
-    /*is_supported=*/false, /*is_power_efficient=*/false};
+    .is_supported = false,
+    .is_power_efficient = false};
 
 MATCHER_P(Support, expected, "") {
   return arg.is_supported == expected.is_supported &&
@@ -113,7 +115,7 @@ TEST(InternalEncoderFactoryTest, QueryCodecSupportWithScalabilityMode) {
 TEST(InternalEncoderFactoryTest, Av1) {
   InternalEncoderFactory factory;
   EXPECT_THAT(factory.GetSupportedFormats(),
-              Contains(Field(&SdpVideoFormat::name, webrtc::kAv1CodecName)));
+              Contains(Field(&SdpVideoFormat::name, kAv1CodecName)));
   EXPECT_TRUE(
       factory.Create(CreateEnvironment(), SdpVideoFormat::AV1Profile0()));
 }

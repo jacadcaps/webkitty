@@ -91,9 +91,9 @@
     _webView = nil;
 
     id animationController = [_immediateActionRecognizer animationController];
-    if (PAL::isQuickLookUIFrameworkAvailable() && [animationController isKindOfClass:PAL::getQLPreviewMenuItemClass()]) {
-        QLPreviewMenuItem *menuItem = (QLPreviewMenuItem *)animationController;
-        menuItem.delegate = nil;
+    if (PAL::isQuickLookUIFrameworkAvailable() && [animationController isKindOfClass:PAL::getQLPreviewMenuItemClassSingleton()]) {
+        RetainPtr menuItem = (QLPreviewMenuItem *)animationController;
+        menuItem.get().delegate = nil;
     }
 
     _immediateActionRecognizer = nil;
@@ -145,12 +145,12 @@
     if (!PAL::isDataDetectorsFrameworkAvailable())
         return;
 
-    DDActionsManager *actionsManager = [PAL::getDDActionsManagerClass() sharedManager];
+    DDActionsManager *actionsManager = [PAL::getDDActionsManagerClassSingleton() sharedManager];
     [actionsManager requestBubbleClosureUnanchorOnFailure:YES];
 
     if (_currentActionContext && _hasActivatedActionContext) {
         _hasActivatedActionContext = NO;
-        [PAL::getDDActionsManagerClass() didUseActions];
+        [PAL::getDDActionsManagerClassSingleton() didUseActions];
     }
 
     _type = WebImmediateActionNone;
@@ -219,7 +219,7 @@
 
     if (_currentActionContext) {
         _hasActivatedActionContext = YES;
-        if (![PAL::getDDActionsManagerClass() shouldUseActionsWithContext:_currentActionContext.get()])
+        if (![PAL::getDDActionsManagerClassSingleton() shouldUseActionsWithContext:_currentActionContext.get()])
             [self _cancelImmediateAction];
     }
 }
@@ -429,12 +429,12 @@ static WebCore::IntRect elementBoundingBoxInWindowCoordinatesFromNode(WebCore::N
 
     if ([[_webView UIDelegate] respondsToSelector:@selector(_webView:actionContextForHitTestResult:range:)]) {
         DOMRange *customDataDetectorsRange;
-        auto actionContext = [(id)[_webView UIDelegate] _webView:_webView
+        RetainPtr actionContext = [(id)[_webView UIDelegate] _webView:_webView
             actionContextForHitTestResult:adoptNS([[WebElementDictionary alloc] initWithHitTestResult:_hitTestResult]).get()
             range:&customDataDetectorsRange];
         if (actionContext && customDataDetectorsRange) {
             detectedItem = { {
-                (WKDDActionContext *)actionContext,
+                (WKDDActionContext *)actionContext.get(),
                 { }, // FIXME: Seems like an empty rect isn't really OK.
                 makeSimpleRange(*core(customDataDetectorsRange))
             } };
@@ -450,7 +450,7 @@ static WebCore::IntRect elementBoundingBoxInWindowCoordinatesFromNode(WebCore::N
 
     [detectedItem->actionContext setAltMode:YES];
     [detectedItem->actionContext setImmediate:YES];
-    if (![[PAL::getDDActionsManagerClass() sharedManager] hasActionsForResult:[detectedItem->actionContext mainResult] actionContext:detectedItem->actionContext.get()])
+    if (![[PAL::getDDActionsManagerClassSingleton() sharedManager] hasActionsForResult:[detectedItem->actionContext mainResult] actionContext:detectedItem->actionContext.get()])
         return nil;
 
     auto indicator = WebCore::TextIndicator::createWithRange(detectedItem->range, { }, WebCore::TextIndicatorPresentationTransition::FadeIn);
@@ -465,7 +465,7 @@ static WebCore::IntRect elementBoundingBoxInWindowCoordinatesFromNode(WebCore::N
 
     [_currentActionContext setHighlightFrame:[_webView.window convertRectToScreen:detectedItem->boundingBox]];
 
-    NSArray *menuItems = [[PAL::getDDActionsManagerClass() sharedManager] menuItemsForResult:[_currentActionContext mainResult] actionContext:_currentActionContext.get()];
+    NSArray *menuItems = [[PAL::getDDActionsManagerClassSingleton() sharedManager] menuItemsForResult:[_currentActionContext mainResult] actionContext:_currentActionContext.get()];
     if (menuItems.count != 1)
         return nil;
 
@@ -498,11 +498,11 @@ static WebCore::IntRect elementBoundingBoxInWindowCoordinatesFromNode(WebCore::N
 
     [_currentActionContext setHighlightFrame:[_webView.window convertRectToScreen:elementBoundingBoxInWindowCoordinatesFromNode(_hitTestResult.URLElement())]];
 
-    NSArray *menuItems = [[PAL::getDDActionsManagerClass() sharedManager] menuItemsForTargetURL:_hitTestResult.absoluteLinkURL().string().createNSString().get() actionContext:_currentActionContext.get()];
-    if (menuItems.count != 1)
+    RetainPtr menuItems = [[PAL::getDDActionsManagerClassSingleton() sharedManager] menuItemsForTargetURL:_hitTestResult.absoluteLinkURL().string().createNSString().get() actionContext:_currentActionContext.get()];
+    if ([menuItems.get() count] != 1)
         return nil;
-    
-    return menuItems.lastObject;
+
+    return menuItems.get().lastObject;
 }
 
 #pragma mark Text action
@@ -562,7 +562,7 @@ static WebCore::IntRect elementBoundingBoxInWindowCoordinatesFromNode(WebCore::N
 
 - (id<NSImmediateActionAnimationController>)_animationControllerForText
 {
-    if (!PAL::getLULookupDefinitionModuleClass())
+    if (!PAL::getLULookupDefinitionModuleClassSingleton())
         return nil;
 
     auto node = _hitTestResult.innerNode();
@@ -577,7 +577,7 @@ static WebCore::IntRect elementBoundingBoxInWindowCoordinatesFromNode(WebCore::N
     if (!range)
         return nil;
 
-    auto dictionaryRange = WTFMove(*range);
+    auto dictionaryRange = WTF::move(*range);
     auto dictionaryPopupInfo = [WebImmediateActionController _dictionaryPopupInfoForRange:dictionaryRange inFrame:frame indicatorOptions: { } transition: WebCore::TextIndicatorPresentationTransition::FadeIn];
 #if ENABLE(LEGACY_PDFKIT_PLUGIN)
     if (!dictionaryPopupInfo.platformData.attributedString.nsAttributedString())

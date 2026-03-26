@@ -38,7 +38,6 @@
 #import <WebCore/AttributedString.h>
 #import <WebCore/CVUtilities.h>
 #import <WebCore/ColorCocoa.h>
-#import <WebCore/FontCocoa.h>
 #import <WebCore/IOSurface.h>
 #import <limits.h>
 #import <pal/spi/cf/CFNetworkSPI.h>
@@ -92,18 +91,17 @@ struct CFHolderForTesting {
 
     CFTypeRef valueAsCFType() const
     {
-        CFTypeRef result;
+        RetainPtr<CFTypeRef> result;
         WTF::switchOn(value, [&] (std::nullptr_t) {
             result = nullptr;
         }, [&](auto&& arg) {
             result = arg.get();
         });
-        return result;
+        return result.autorelease();
     }
 
     using ValueType = Variant<
         std::nullptr_t,
-        RetainPtr<CFArrayRef>,
         RetainPtr<CFBooleanRef>,
         RetainPtr<CFCharacterSetRef>,
         RetainPtr<CFDataRef>,
@@ -140,7 +138,7 @@ std::optional<CFHolderForTesting> CFHolderForTesting::decode(IPC::Decoder& decod
         return std::nullopt;
 
     return { {
-        WTFMove(*value)
+        WTF::move(*value)
     } };
 }
 
@@ -289,8 +287,6 @@ CFHolderForTesting cfHolder(CFTypeRef type)
     if (!type)
         return { nullptr };
     CFTypeID typeID = CFGetTypeID(type);
-    if (typeID == CFArrayGetTypeID())
-        return { (CFArrayRef)type };
     if (typeID == CFBooleanGetTypeID())
         return { (CFBooleanRef)type };
     if (typeID == CFCharacterSetGetTypeID())
@@ -422,13 +418,13 @@ struct ObjCHolderForTesting {
 
     id valueAsID() const
     {
-        id result;
+        RetainPtr<id> result;
         WTF::switchOn(value, [&] (std::nullptr_t) {
             result = nil;
         }, [&](auto&& arg) {
             result = arg.get();
         });
-        return result;
+        return result.autorelease();
     }
 
     typedef Variant<
@@ -440,7 +436,6 @@ struct ObjCHolderForTesting {
         RetainPtr<NSNumber>,
         RetainPtr<NSArray>,
         RetainPtr<NSDictionary>,
-        RetainPtr<WebCore::CocoaFont>,
         RetainPtr<NSError>,
         RetainPtr<NSNull>,
         RetainPtr<NSLocale>,
@@ -491,7 +486,7 @@ std::optional<ObjCHolderForTesting> ObjCHolderForTesting::decode(IPC::Decoder& d
         return std::nullopt;
 
     return { {
-        WTFMove(*value)
+        WTF::move(*value)
     } };
 }
 
@@ -649,14 +644,14 @@ inline bool operator==(const ObjCHolderForTesting& a, const ObjCHolderForTesting
         class_addMethod([NSURLProtectionSpace class], @selector(oldIsEqual:), oldIsEqual2, "v@:@");
 
 #if USE(PASSKIT)
-        class_addMethod(PAL::getPKPaymentMethodClass(), @selector(isEqual:), (IMP)wkSecureCoding_isEqual, "v@:@");
-        class_addMethod(PAL::getPKPaymentTokenClass(), @selector(isEqual:), (IMP)wkSecureCoding_isEqual, "v@:@");
-        class_addMethod(PAL::getPKDateComponentsRangeClass(), @selector(isEqual:), (IMP)wkSecureCoding_isEqual, "v@:@");
-        class_addMethod(PAL::getPKShippingMethodClass(), @selector(isEqual:), (IMP)wkSecureCoding_isEqual, "v@:@");
-        class_addMethod(PAL::getPKPaymentClass(), @selector(isEqual:), (IMP)wkSecureCoding_isEqual, "v@:@");
+        class_addMethod(PAL::getPKPaymentMethodClassSingleton(), @selector(isEqual:), (IMP)wkSecureCoding_isEqual, "v@:@");
+        class_addMethod(PAL::getPKPaymentTokenClassSingleton(), @selector(isEqual:), (IMP)wkSecureCoding_isEqual, "v@:@");
+        class_addMethod(PAL::getPKDateComponentsRangeClassSingleton(), @selector(isEqual:), (IMP)wkSecureCoding_isEqual, "v@:@");
+        class_addMethod(PAL::getPKShippingMethodClassSingleton(), @selector(isEqual:), (IMP)wkSecureCoding_isEqual, "v@:@");
+        class_addMethod(PAL::getPKPaymentClassSingleton(), @selector(isEqual:), (IMP)wkSecureCoding_isEqual, "v@:@");
 #endif
 #if ENABLE(DATA_DETECTION) && PLATFORM(MAC)
-        class_addMethod(PAL::getWKDDActionContextClass(), @selector(isEqual:), (IMP)wkDDActionContext_isEqual, "v@:@");
+        class_addMethod(PAL::getWKDDActionContextClassSingleton(), @selector(isEqual:), (IMP)wkDDActionContext_isEqual, "v@:@");
 #endif
     });
 
@@ -670,7 +665,7 @@ inline bool operator==(const ObjCHolderForTesting& a, const ObjCHolderForTesting
     EXPECT_TRUE(bObject != nil);
 
 #if USE(PASSKIT)
-    if ([aObject isKindOfClass:PAL::getCNPostalAddressClass()])
+    if ([aObject isKindOfClass:PAL::getCNPostalAddressClassSingleton()])
         return CNPostalAddressTesting_isEqual(aObject, bObject);
 #endif
 
@@ -893,7 +888,7 @@ static void destroyTempKeychain(SecKeychainRef keychainRef)
 #if USE(PASSKIT)
 static RetainPtr<CNMutablePostalAddress> postalAddressForTesting()
 {
-    RetainPtr<CNMutablePostalAddress> address = adoptNS([PAL::getCNMutablePostalAddressClass() new]);
+    RetainPtr<CNMutablePostalAddress> address = adoptNS([PAL::getCNMutablePostalAddressClassSingleton() new]);
     address.get().street = @"1 Apple Park Way";
     address.get().subLocality = @"Birdland";
     address.get().city = @"Cupertino";
@@ -908,10 +903,10 @@ static RetainPtr<CNMutablePostalAddress> postalAddressForTesting()
 
 static RetainPtr<PKContact> pkContactForTesting()
 {
-    RetainPtr<PKContact> contact = adoptNS([PAL::getPKContactClass() new]);
+    RetainPtr<PKContact> contact = adoptNS([PAL::getPKContactClassSingleton() new]);
     contact.get().name = personNameComponentsForTesting().get();
     contact.get().emailAddress = @"admin@webkit.org";
-    contact.get().phoneNumber = [PAL::getCNPhoneNumberClass() phoneNumberWithDigits:@"4085551234" countryCode:@"us"];
+    contact.get().phoneNumber = [PAL::getCNPhoneNumberClassSingleton() phoneNumberWithDigits:@"4085551234" countryCode:@"us"];
     contact.get().postalAddress = postalAddressForTesting().get();
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     contact.get().supplementarySubLocality = @"City 17";
@@ -924,7 +919,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 static void runTestNS(ObjCHolderForTesting&& holderArg)
 {
     __block bool done = false;
-    __block ObjCHolderForTesting holder = WTFMove(holderArg);
+    __block ObjCHolderForTesting holder = WTF::move(holderArg);
     auto sender = SerializationTestSender { };
     sender.sendWithAsyncReplyWithoutUsingIPCConnection(ObjCPingBackMessage(holder), ^(ObjCHolderForTesting&& result) {
         EXPECT_TRUE(holder == result);
@@ -1062,9 +1057,6 @@ TEST(IPCSerialization, Basic)
     runTestCF({ cfDictionary.get() });
     runTestNS({ bridge_cast(cfDictionary.get()) });
 
-    // NSFont/UIFont
-    runTestNS({ [WebCore::CocoaFont systemFontOfSize:[WebCore::CocoaFont systemFontSize]] });
-
     // NSError
     RetainPtr<SecCertificateRef> cert = createCertificate();
     RetainPtr<SecKeyRef> key = createPrivateKey();
@@ -1158,7 +1150,7 @@ TEST(IPCSerialization, Basic)
     // Digits must be non-null at init-time, but countryCode can be null.
     // However, Contacts will calculate a default country code if you pass in a null one,
     // so testing encode/decode of such an instance is pointless.
-    RetainPtr<CNPhoneNumber> phoneNumber = [PAL::getCNPhoneNumberClass() phoneNumberWithDigits:@"4085551234" countryCode:@"us"];
+    RetainPtr<CNPhoneNumber> phoneNumber = [PAL::getCNPhoneNumberClassSingleton() phoneNumberWithDigits:@"4085551234" countryCode:@"us"];
     runTestNS({ phoneNumber.get() });
 
     // CNPostalAddress
@@ -1240,9 +1232,9 @@ TEST(IPCSerialization, Basic)
     auto items = adoptCF(itemsPtr);
     EXPECT_GT(CFArrayGetCount(items.get()), 0);
 
-    SecKeychainItemRef keychainItemRef = (SecKeychainItemRef)CFArrayGetValueAtIndex(items.get(), 0);
-    EXPECT_NOT_NULL(keychainItemRef);
-    runTestCF({ keychainItemRef });
+    RetainPtr keychainItemRef = (SecKeychainItemRef)CFArrayGetValueAtIndex(items.get(), 0);
+    EXPECT_NOT_NULL(keychainItemRef.get());
+    runTestCF({ keychainItemRef.get() });
 
     CFRelease(certData);
 
@@ -1250,49 +1242,12 @@ TEST(IPCSerialization, Basic)
     ALLOW_DEPRECATED_DECLARATIONS_END
 #endif // HAVE(SEC_KEYCHAIN)
 
-    NSArray *nestedArray = @[
-        @YES,
-        @(5.4),
-        NSData.data,
-        NSDate.now,
-        NSNull.null,
-        url,
-        (id)sRGBColorSpace.get(),
-        (id)cgColor.get(),
-        (id)trust.get(),
-        (id)cert.get(),
-        (id)characterSet.get(),
-#if HAVE(SEC_KEYCHAIN)
-        (id)keychainItemRef,
-#endif
-        (id)accessControlRef.get(),
-        @{ @"key": NSNull.null }
-    ];
-
-    runTestCFWithExpectedResult({ (__bridge CFArrayRef)@[
-        nestedArray,
-        (id)trust.get(),
-        NSUUID.UUID, // Removed when encoding because CFUUIDRef is not a recognized type in CFArrayRef or CFDictionaryRef
-        @{
-            @"should be removed before encoding" : NSUUID.UUID,
-            NSUUID.UUID : @"should also be removed before encoding"
-        }
-    ] }, { (__bridge CFArrayRef)@[
-        nestedArray,
-        (id)trust.get(),
-        @{ }
-    ] });
-
     runTestCFWithExpectedResult({ (__bridge CFDictionaryRef) @{
-        @"key" : nestedArray,
-        @"key2" : nestedArray,
         NSNull.null : NSData.data,
         url : (id)trust.get(),
         @"should be removed before encoding" : NSUUID.UUID,
         NSUUID.UUID : @"should also be removed before encoding",
     } }, { (__bridge CFDictionaryRef) @{
-        @"key" : nestedArray,
-        @"key2" : nestedArray,
         NSNull.null : NSData.data,
         url : (id)trust.get()
     } });
@@ -1706,7 +1661,7 @@ TEST(IPCSerialization, NSURLRequest)
 #if USE(AVFOUNDATION) && PLATFORM(MAC)
 TEST(IPCSerialization, AVOutputContext)
 {
-    RetainPtr<AVOutputContext> outputContext = adoptNS([[PAL::getAVOutputContextClass() alloc] init]);
+    RetainPtr<AVOutputContext> outputContext = adoptNS([[PAL::getAVOutputContextClassSingleton() alloc] init]);
     runTestNS({ outputContext.get() });
 }
 #endif // USE(AVFOUNDATION) && PLATFORM(MAC)
@@ -1725,8 +1680,69 @@ static RetainPtr<DDScannerResult> fakeDataDetectorResultForTesting()
     if (!CFArrayGetCount(results.get()))
         return nil;
 
-    return [[PAL::getDDScannerResultClass() resultsFromCoreResults:results.get()] firstObject];
+    return [[PAL::getDDScannerResultClassSingleton() resultsFromCoreResults:results.get()] firstObject];
 }
+
+#if HAVE(WK_SECURE_CODING_DATA_DETECTORS)
+static RetainPtr<DDScannerResult> fakeDataDetectorResultWithContextualData()
+{
+    NSDictionary *plist = @{
+        @"AR": [NSValue valueWithRange:NSMakeRange(0, 10)],
+        @"MS": @"webkit.org",
+        @"T": @"Link",
+        @"P": @1,
+        @"VN": @1,
+        @"C": @{
+            @"C": @"addressBookUID-12345",
+            @"D": @"webkit.org",
+            @"U": @"uuid-67890-abcdef",
+            @"urlificationBegin": @2,
+            @"urlificationLength": @8
+        }
+    };
+
+    return adoptNS([[PAL::getDDScannerResultClassSingleton() alloc] _initWithWebKitPropertyListData:plist]);
+}
+
+TEST(IPCSerialization, DDScannerResultPlist)
+{
+    auto scannerResult = fakeDataDetectorResultWithContextualData();
+    EXPECT_NOT_NULL(scannerResult.get());
+
+    NSDictionary *originalPlist = [scannerResult _webKitPropertyListData];
+    NSDictionary *originalContextualData = originalPlist[@"C"];
+    EXPECT_NOT_NULL(originalContextualData);
+    EXPECT_TRUE([originalContextualData[@"C"] isEqualToString:@"addressBookUID-12345"]);
+    EXPECT_TRUE([originalContextualData[@"D"] isEqualToString:@"webkit.org"]);
+    EXPECT_TRUE([originalContextualData[@"U"] isEqualToString:@"uuid-67890-abcdef"]);
+    EXPECT_TRUE([originalContextualData[@"urlificationBegin"] isEqualToNumber:@2]);
+    EXPECT_TRUE([originalContextualData[@"urlificationLength"] isEqualToNumber:@8]);
+
+    __block bool done = false;
+    __block ObjCHolderForTesting holder { scannerResult.get() };
+    auto sender = SerializationTestSender { };
+    sender.sendWithAsyncReplyWithoutUsingIPCConnection(ObjCPingBackMessage(holder), ^(ObjCHolderForTesting&& result) {
+        EXPECT_TRUE(holder == result);
+
+        id resultObject = result.valueAsID();
+        EXPECT_NOT_NULL(resultObject);
+        EXPECT_TRUE([resultObject isKindOfClass:PAL::getDDScannerResultClassSingleton()]);
+
+        NSDictionary *resultPlist = [resultObject _webKitPropertyListData];
+        NSDictionary *resultContextualData = resultPlist[@"C"];
+        EXPECT_NOT_NULL(resultContextualData);
+        EXPECT_TRUE([resultContextualData[@"C"] isEqualToString:@"addressBookUID-12345"]);
+        EXPECT_TRUE([resultContextualData[@"D"] isEqualToString:@"webkit.org"]);
+        EXPECT_TRUE([resultContextualData[@"U"] isEqualToString:@"uuid-67890-abcdef"]);
+        EXPECT_TRUE([resultContextualData[@"urlificationBegin"] isEqualToNumber:@2]);
+        EXPECT_TRUE([resultContextualData[@"urlificationLength"] isEqualToNumber:@8]);
+
+        done = true;
+    });
+
+    EXPECT_TRUE(done);
+}
+#endif // HAVE(WK_SECURE_CODING_DATA_DETECTORS)
 
 @interface PKPaymentMerchantSession ()
 - (instancetype)initWithMerchantIdentifier:(NSString *)merchantIdentifier
@@ -1753,7 +1769,7 @@ static RetainPtr<DDScannerResult> fakeDataDetectorResultForTesting()
                                  signature:(NSData *)signature;
 @end
 
-TEST(IPCSerialization, SecureCoding)
+TEST(IPCSerialization, DataDetectors)
 {
     // DDScannerResult
     //   - Note: For now, there's no reasonable way to create anything but an empty DDScannerResult object
@@ -1769,10 +1785,13 @@ TEST(IPCSerialization, SecureCoding)
     [actionContext setHighlightFrame:NSMakeRect(1, 2, 3, 4)];
 
     runTestNS({ actionContext.get() });
+}
 
+TEST(IPCSerialization, SecureCoding)
+{
     // PKPaymentMerchantSession
     // This initializer doesn't exercise retryNonce or domain
-    RetainPtr<PKPaymentMerchantSession> session = adoptNS([[PAL::getPKPaymentMerchantSessionClass() alloc]
+    RetainPtr<PKPaymentMerchantSession> session = adoptNS([[PAL::getPKPaymentMerchantSessionClassSingleton() alloc]
         initWithMerchantIdentifier:@"WebKit Open Source Project"
         merchantSessionIdentifier:@"WebKitMerchantSession"
         nonce:@"WebKitNonce"
@@ -1788,7 +1807,7 @@ TEST(IPCSerialization, SecureCoding)
     runTestNS({ session.get() });
 
     // This initializer adds in domain, but retryNonce is still unexercised
-    session = adoptNS([[PAL::getPKPaymentMerchantSessionClass() alloc]
+    session = adoptNS([[PAL::getPKPaymentMerchantSessionClassSingleton() alloc]
         initWithMerchantIdentifier:@"WebKit Open Source Project"
         merchantSessionIdentifier:@"WebKitMerchantSession"
         nonce:@"WebKitNonce"
@@ -1801,11 +1820,11 @@ TEST(IPCSerialization, SecureCoding)
     runTestNS({ session.get() });
 
     RetainPtr<CNPostalAddress> address = postalAddressForTesting();
-    RetainPtr<CNLabeledValue> labeledPostalAddress = adoptNS([[PAL::getCNLabeledValueClass() alloc] initWithLabel:@"Work" value:address.get()]);
+    RetainPtr<CNLabeledValue> labeledPostalAddress = adoptNS([[PAL::getCNLabeledValueClassSingleton() alloc] initWithLabel:@"Work" value:address.get()]);
 
-    RetainPtr<CNLabeledValue> labeledEmailAddress = adoptNS([[PAL::getCNLabeledValueClass() alloc] initWithLabel:@"WorkSPAM" value:@"spam@webkit.org"]);
+    RetainPtr<CNLabeledValue> labeledEmailAddress = adoptNS([[PAL::getCNLabeledValueClassSingleton() alloc] initWithLabel:@"WorkSPAM" value:@"spam@webkit.org"]);
 
-    RetainPtr<CNMutableContact> billingContact = adoptNS([PAL::getCNMutableContactClass() new]);
+    RetainPtr<CNMutableContact> billingContact = adoptNS([PAL::getCNMutableContactClassSingleton() new]);
     billingContact.get().contactType = CNContactTypePerson;
     billingContact.get().namePrefix = @"Mrs";
     billingContact.get().givenName = @"WebKit";
@@ -1819,7 +1838,7 @@ TEST(IPCSerialization, SecureCoding)
     billingContact.get().emailAddresses = @[ labeledEmailAddress.get() ];
     runTestNS({ billingContact.get() });
 
-    RetainPtr<PKPaymentMethod> paymentMethod = adoptNS([PAL::getPKPaymentMethodClass() new]);
+    RetainPtr<PKPaymentMethod> paymentMethod = adoptNS([PAL::getPKPaymentMethodClassSingleton() new]);
     paymentMethod.get().displayName = @"WebKitPay";
     paymentMethod.get().network = @"WebKitCard";
     paymentMethod.get().type = PKPaymentMethodTypeCredit;
@@ -1827,7 +1846,7 @@ TEST(IPCSerialization, SecureCoding)
 
     runTestNS({ paymentMethod.get() });
 
-    RetainPtr<PKPaymentToken> paymentToken = adoptNS([PAL::getPKPaymentTokenClass() new]);
+    RetainPtr<PKPaymentToken> paymentToken = adoptNS([PAL::getPKPaymentTokenClassSingleton() new]);
     paymentToken.get().paymentMethod = paymentMethod.get();
     paymentToken.get().transactionIdentifier = @"WebKitTXIdentifier";
     paymentToken.get().paymentData = [NSData new];
@@ -1871,18 +1890,18 @@ TEST(IPCSerialization, SecureCoding)
 
     runTestNS({ endComponents.get() });
 
-    RetainPtr<PKDateComponentsRange> dateRange = adoptNS([[PAL::getPKDateComponentsRangeClass() alloc] initWithStartDateComponents:startComponents.get() endDateComponents:endComponents.get()]);
+    RetainPtr<PKDateComponentsRange> dateRange = adoptNS([[PAL::getPKDateComponentsRangeClassSingleton() alloc] initWithStartDateComponents:startComponents.get() endDateComponents:endComponents.get()]);
 
     runTestNS({ dateRange.get() });
 
-    RetainPtr<PKShippingMethod> shippingMethod = adoptNS([PAL::getPKShippingMethodClass() new]);
+    RetainPtr<PKShippingMethod> shippingMethod = adoptNS([PAL::getPKShippingMethodClassSingleton() new]);
     shippingMethod.get().identifier = @"WebKitPostalService";
     shippingMethod.get().detail = @"Ships in 1 to 2 bugzillas";
     shippingMethod.get().dateComponentsRange = dateRange.get();
 
     runTestNS({ shippingMethod.get() });
 
-    RetainPtr<PKPayment> payment = adoptNS([PAL::getPKPaymentClass() new]);
+    RetainPtr<PKPayment> payment = adoptNS([PAL::getPKPaymentClassSingleton() new]);
     payment.get().token = paymentToken.get();
     payment.get().billingContact = pkContactForTesting().get();
     payment.get().shippingContact = pkContactForTesting().get();
@@ -1900,35 +1919,29 @@ TEST(CoreIPCCFDictionary, InsertDifferentValueTypes)
     // Values will be all possible variants from IPC::CFType.
     auto cfDictionary = adoptCF(CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
 
-    // CFArrayRef
-    auto arrayKey = adoptCF(CFSTR("arrayKey"));
-    auto arrayValue = adoptCF(CFArrayCreate(kCFAllocatorDefault, NULL, 0, &kCFTypeArrayCallBacks));
-    CFDictionaryAddValue(cfDictionary.get(), arrayKey.get(), arrayValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 1);
-
     // CFBooleanRef
     auto booleanKey = adoptCF(CFSTR("booleanKey"));
     auto booleanValue = adoptCF(kCFBooleanFalse);
     CFDictionaryAddValue(cfDictionary.get(), booleanKey.get(), booleanValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 2);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 1);
 
     // CFCharacterSetRef
     auto charSetKey = adoptCF(CFSTR("charSetKey"));
     auto charSetValue = adoptCF(CFCharacterSetCreateWithCharactersInString(kCFAllocatorDefault, CFSTR("ABC")));
     CFDictionaryAddValue(cfDictionary.get(), charSetKey.get(), charSetValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 3);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 2);
 
     // CFDataRef
     auto dataKey = adoptCF(CFSTR("dataKey"));
     auto dataValue = adoptCF(CFDataCreate(kCFAllocatorDefault, (const UInt8 *)"Data test", strlen("Data test")));
     CFDictionaryAddValue(cfDictionary.get(), dataKey.get(), dataValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 4);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 3);
 
     // CFDateRef
     auto dateKey = adoptCF(CFSTR("dateKey"));
     auto dateValue = adoptCF(CFDateCreate(kCFAllocatorDefault, 1.23));
     CFDictionaryAddValue(cfDictionary.get(), dateKey.get(), dateValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 5);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 4);
 
     // CFDictionaryRef
     auto dictKey = adoptCF(CFSTR("dictKey"));
@@ -1937,39 +1950,39 @@ TEST(CoreIPCCFDictionary, InsertDifferentValueTypes)
     auto value1 = adoptCF(CFSTR("value1"));
     CFDictionaryAddValue(dictValue.get(), key1.get(), value1.get());
     CFDictionaryAddValue(cfDictionary.get(), dictKey.get(), dictValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 6);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 5);
 
     // CFNullRef
     auto nullKey = adoptCF(CFSTR("nullKey"));
     auto nullValue = adoptCF(kCFNull);
     CFDictionaryAddValue(cfDictionary.get(), nullKey.get(), nullValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 7);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 6);
 
     // CFNumberRef
     auto numberKey = adoptCF(CFSTR("numberKey"));
     int32_t num = 123;
     auto numberValue = adoptCF(CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, (const void*)&num));
     CFDictionaryAddValue(cfDictionary.get(), numberKey.get(), numberValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 8);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 7);
 
     // CFStringRef
     auto stringKey = adoptCF(CFSTR("stringKey"));
     auto stringValue = adoptCF(CFSTR("stringValue"));
     CFDictionaryAddValue(cfDictionary.get(), stringKey.get(), stringValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 9);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 8);
 
     // CFURLRef
     auto urlKey = adoptCF(CFSTR("urlKey"));
     auto url = adoptCF(CFSTR("localhost.com"));
     auto urlValue = adoptCF(CFURLCreateWithString(kCFAllocatorDefault, url.get(), NULL));
     CFDictionaryAddValue(cfDictionary.get(), urlKey.get(), urlValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 10);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 9);
 
     // SecCertificateRef
     auto secCertificateKey = adoptCF(CFSTR("secCertificateKey"));
     auto secCertificateValue = createCertificate();
     CFDictionaryAddValue(cfDictionary.get(), secCertificateKey.get(), secCertificateValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 11);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 10);
 
     // SecTrustRef
     auto certificate = createCertificate();
@@ -1981,19 +1994,19 @@ TEST(CoreIPCCFDictionary, InsertDifferentValueTypes)
     auto secTrustKey = adoptCF(CFSTR("secTrustKey"));
     auto secTrustValue = adoptCF(trust);
     CFDictionaryAddValue(cfDictionary.get(), secTrustKey.get(), secTrustValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 12);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 11);
 
     // CGColorSpaceRef
     auto colorSpaceKey = adoptCF(CFSTR("colorSpaceKey"));
     auto colorSpaceValue = adoptCF(CGColorSpaceCreateWithName(kCGColorSpaceSRGB));
     CFDictionaryAddValue(cfDictionary.get(), colorSpaceKey.get(), colorSpaceValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 13);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 12);
 
     // CGColorRef
     auto colorKey = adoptCF(CFSTR("colorKey"));
     auto colorValue = adoptCF(CGColorCreateSRGB(1.0, 0.0, 0.0, 1.0));
     CFDictionaryAddValue(cfDictionary.get(), colorKey.get(), colorValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 14);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 13);
 
     // SecAccessControlRef
     auto secAccessControlKey = adoptCF(CFSTR("secAccessControlKey"));
@@ -2005,23 +2018,21 @@ TEST(CoreIPCCFDictionary, InsertDifferentValueTypes)
         (id)kSecAttrAccessibleWhenUnlocked: @(YES) };
     auto secAccessControlValue = adoptCF(SecAccessControlCreateWithFlags(kCFAllocatorDefault, (CFTypeRef)protection, flags, NULL));
     CFDictionaryAddValue(cfDictionary.get(), secAccessControlKey.get(), secAccessControlValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 15);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 14);
 
     // CFSocketRef (should not be accepted by CoreIPCCFDictionary)
     auto socketKey = adoptCF(CFSTR("socketKey"));
     auto socketValue = adoptCF(CFSocketCreate(kCFAllocatorDefault, 0, 0, 0, 0, NULL, NULL));
     CFDictionaryAddValue(cfDictionary.get(), socketKey.get(), socketValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 16);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 15);
 
     WebKit::CoreIPCCFDictionary coreIpcCfDict1(cfDictionary.get());
     auto cfDictionary2 = coreIpcCfDict1.createCFDictionary();
     EXPECT_NE(CFDictionaryGetCount(cfDictionary.get()), CFDictionaryGetCount(cfDictionary2.get()));
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary2.get()), 15);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary2.get()), 14);
 
     runTestCFWithExpectedResult({ cfDictionary.get() }, { cfDictionary2.get() });
 
-    EXPECT_TRUE(CFDictionaryContainsKey(cfDictionary2.get(), arrayKey.get()));
-    EXPECT_EQ(CFGetTypeID(CFDictionaryGetValue(cfDictionary2.get(), arrayKey.get())), CFArrayGetTypeID());
     EXPECT_TRUE(CFDictionaryContainsKey(cfDictionary2.get(), booleanKey.get()));
     EXPECT_EQ(CFGetTypeID(CFDictionaryGetValue(cfDictionary2.get(), booleanKey.get())), CFBooleanGetTypeID());
     EXPECT_TRUE(CFDictionaryContainsKey(cfDictionary2.get(), charSetKey.get()));
@@ -2061,35 +2072,29 @@ TEST(CoreIPCCFDictionary, InsertDifferentKeyTypes)
     // Values will be string type (CFStringRef).
     auto cfDictionary = adoptCF(CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
 
-    // CFArrayRef
-    auto arrayKey = adoptCF(CFArrayCreate(kCFAllocatorDefault, NULL, 0, &kCFTypeArrayCallBacks));
-    auto arrayValue = adoptCF(CFSTR("arrayValue"));
-    CFDictionaryAddValue(cfDictionary.get(), arrayKey.get(), arrayValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 1);
-
     // CFBooleanRef
     auto booleanKey = adoptCF(kCFBooleanFalse);
     auto booleanValue = adoptCF(CFSTR("booleanValue"));
     CFDictionaryAddValue(cfDictionary.get(), booleanKey.get(), booleanValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 2);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 1);
 
     // CFCharacterSetRef
     auto charSetKey = adoptCF(CFCharacterSetCreateWithCharactersInString(kCFAllocatorDefault, CFSTR("ABC")));
     auto charSetValue = adoptCF(CFSTR("charSetValue"));
     CFDictionaryAddValue(cfDictionary.get(), charSetKey.get(), charSetValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 3);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 2);
 
     // CFDataRef
     auto dataKey = adoptCF(CFDataCreate(kCFAllocatorDefault, (const UInt8 *)"Data test", strlen("Data test")));
     auto dataValue = adoptCF(CFSTR("dataValue"));
     CFDictionaryAddValue(cfDictionary.get(), dataKey.get(), dataValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 4);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 3);
 
     // CFDateRef
     auto dateKey = adoptCF(CFDateCreate(kCFAllocatorDefault, 1.23));
     auto dateValue = adoptCF(CFSTR("dateValue"));
     CFDictionaryAddValue(cfDictionary.get(), dateKey.get(), dateValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 5);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 4);
 
     // CFDictionaryRef
     auto dictKey = adoptCF(CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
@@ -2098,39 +2103,39 @@ TEST(CoreIPCCFDictionary, InsertDifferentKeyTypes)
     auto value1 = adoptCF(CFSTR("value1"));
     CFDictionaryAddValue(dictKey.get(), key1.get(), value1.get());
     CFDictionaryAddValue(cfDictionary.get(), dictKey.get(), dictValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 6);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 5);
 
     // CFNullRef
     auto nullKey = adoptCF(kCFNull);
     auto nullValue = adoptCF(CFSTR("nullValue"));
     CFDictionaryAddValue(cfDictionary.get(), nullKey.get(), nullValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 7);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 6);
 
     // CFNumberRef
     int32_t num = 123;
     auto numberKey = adoptCF(CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, (const void*)&num));
     auto numberValue = adoptCF(CFSTR("numberValue"));
     CFDictionaryAddValue(cfDictionary.get(), numberKey.get(), numberValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 8);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 7);
 
     // CFStringRef
     auto stringKey = adoptCF(CFSTR("stringKey"));
     auto stringValue = adoptCF(CFSTR("stringValue"));
     CFDictionaryAddValue(cfDictionary.get(), stringKey.get(), stringValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 9);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 8);
 
     // CFURLRef
     auto url = adoptCF(CFSTR("localhost.com"));
     auto urlKey = adoptCF(CFURLCreateWithString(kCFAllocatorDefault, url.get(), NULL));
     auto urlValue = adoptCF(CFSTR("urlValue"));
     CFDictionaryAddValue(cfDictionary.get(), urlKey.get(), urlValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 10);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 9);
 
     // SecCertificateRef
     auto secCertificateKey = createCertificate();
     auto secCertificateValue = adoptCF(CFSTR("secCertificateValue"));
     CFDictionaryAddValue(cfDictionary.get(), secCertificateKey.get(), secCertificateValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 11);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 10);
 
     // SecTrustRef
     auto certificate = createCertificate();
@@ -2142,19 +2147,19 @@ TEST(CoreIPCCFDictionary, InsertDifferentKeyTypes)
     auto secTrustKey = adoptCF(trust);
     auto secTrustValue = adoptCF(CFSTR("secTrustValue"));
     CFDictionaryAddValue(cfDictionary.get(), secTrustKey.get(), secTrustValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 12);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 11);
 
     // CGColorSpaceRef
     auto colorSpaceKey = adoptCF(CGColorSpaceCreateWithName(kCGColorSpaceSRGB));
     auto colorSpaceValue = adoptCF(CFSTR("colorSpaceValue"));
     CFDictionaryAddValue(cfDictionary.get(), colorSpaceKey.get(), colorSpaceValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 13);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 12);
 
     // CGColorRef
     auto colorKey = adoptCF(CGColorCreateSRGB(1.0, 0.0, 0.0, 1.0));
     auto colorValue = adoptCF(CFSTR("colorValue"));
     CFDictionaryAddValue(cfDictionary.get(), colorKey.get(), colorValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 14);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 13);
 
     // SecAccessControlRef
     SecAccessControlCreateFlags flags = (kSecAccessControlDevicePasscode | kSecAccessControlBiometryAny | kSecAccessControlOr);
@@ -2166,23 +2171,21 @@ TEST(CoreIPCCFDictionary, InsertDifferentKeyTypes)
     auto secAccessControlKey = adoptCF(SecAccessControlCreateWithFlags(kCFAllocatorDefault, (CFTypeRef)protection, flags, NULL));
     auto secAccessControlValue = adoptCF(CFSTR("secAccessControlValue"));
     CFDictionaryAddValue(cfDictionary.get(), secAccessControlKey.get(), secAccessControlValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 15);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 14);
 
     // CFSocketRef (should not be accepted by CoreIPCCFDictionary)
     auto socketKey = adoptCF(CFSocketCreate(kCFAllocatorDefault, 0, 0, 0, 0, NULL, NULL));
     auto socketValue = adoptCF(CFSTR("socketValue"));
     CFDictionaryAddValue(cfDictionary.get(), socketKey.get(), socketValue.get());
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 16);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary.get()), 15);
 
     WebKit::CoreIPCCFDictionary coreIpcCfDict1(cfDictionary.get());
     auto cfDictionary2 = coreIpcCfDict1.createCFDictionary();
     EXPECT_NE(CFDictionaryGetCount(cfDictionary.get()), CFDictionaryGetCount(cfDictionary2.get()));
-    EXPECT_EQ(CFDictionaryGetCount(cfDictionary2.get()), 10);
+    EXPECT_EQ(CFDictionaryGetCount(cfDictionary2.get()), 9);
 
     runTestCFWithExpectedResult({ cfDictionary.get() }, { cfDictionary2.get() });
 
-    EXPECT_TRUE(CFDictionaryContainsKey(cfDictionary2.get(), arrayKey.get()));
-    EXPECT_EQ(CFGetTypeID(CFDictionaryGetValue(cfDictionary2.get(), arrayKey.get())), CFStringGetTypeID());
     EXPECT_TRUE(CFDictionaryContainsKey(cfDictionary2.get(), booleanKey.get()));
     EXPECT_EQ(CFGetTypeID(CFDictionaryGetValue(cfDictionary2.get(), booleanKey.get())), CFStringGetTypeID());
     EXPECT_TRUE(CFDictionaryContainsKey(cfDictionary2.get(), charSetKey.get()));

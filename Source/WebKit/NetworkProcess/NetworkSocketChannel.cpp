@@ -61,7 +61,7 @@ NetworkSocketChannel::NetworkSocketChannel(NetworkConnectionToWebProcess& connec
         return;
 
     m_socket = session->createWebSocketTask(webPageProxyID, frameID, pageID, *this, request, protocol, clientOrigin, hadMainFrameMainResourcePrivateRelayed, allowPrivacyProxy, advancedPrivacyProtections, storedCredentialsPolicy);
-    if (CheckedPtr socket = m_socket.get()) {
+    if (RefPtr socket = m_socket.get()) {
 #if PLATFORM(COCOA)
         session->addWebSocketTask(webPageProxyID, *socket);
 #endif
@@ -71,7 +71,7 @@ NetworkSocketChannel::NetworkSocketChannel(NetworkConnectionToWebProcess& connec
 
 NetworkSocketChannel::~NetworkSocketChannel()
 {
-    if (CheckedPtr socket = m_socket.get()) {
+    if (RefPtr socket = m_socket.get()) {
 #if PLATFORM(COCOA)
         if (RefPtr sessionSet = m_session ? socket->sessionSet() : nullptr)
             CheckedRef { *m_session }->removeWebSocketTask(*sessionSet, *socket);
@@ -87,12 +87,12 @@ Ref<NetworkConnectionToWebProcess> NetworkSocketChannel::protectedConnectionToWe
 
 void NetworkSocketChannel::sendString(std::span<const uint8_t> message, CompletionHandler<void()>&& callback)
 {
-    checkedSocket()->sendString(message, WTFMove(callback));
+    protectedSocket()->sendString(message, WTF::move(callback));
 }
 
 void NetworkSocketChannel::sendData(std::span<const uint8_t> data, CompletionHandler<void()>&& callback)
 {
-    checkedSocket()->sendData(data, WTFMove(callback));
+    protectedSocket()->sendData(data, WTF::move(callback));
 }
 
 void NetworkSocketChannel::finishClosingIfPossible()
@@ -108,7 +108,7 @@ void NetworkSocketChannel::finishClosingIfPossible()
 
 void NetworkSocketChannel::close(int32_t code, const String& reason)
 {
-    checkedSocket()->close(code, reason);
+    protectedSocket()->close(code, reason);
     finishClosingIfPossible();
 }
 
@@ -139,7 +139,7 @@ void NetworkSocketChannel::didClose(unsigned short code, const String& reason)
 
 void NetworkSocketChannel::didReceiveMessageError(String&& errorMessage)
 {
-    m_errorMessage = WTFMove(errorMessage);
+    m_errorMessage = WTF::move(errorMessage);
     m_errorTimer.startOneShot(NetworkProcess::randomClosedPortDelay());
 }
 
@@ -173,9 +173,18 @@ NetworkSession* NetworkSocketChannel::session() const
     return m_session.get();
 }
 
-CheckedPtr<WebSocketTask> NetworkSocketChannel::checkedSocket()
+RefPtr<WebSocketTask> NetworkSocketChannel::protectedSocket()
 {
     return m_socket.get();
+}
+
+std::optional<SharedPreferencesForWebProcess> NetworkSocketChannel::sharedPreferencesForWebProcess() const
+{
+    RefPtr connectionToWebProcess = m_connectionToWebProcess.get();
+    if (!connectionToWebProcess)
+        return std::nullopt;
+
+    return connectionToWebProcess->sharedPreferencesForWebProcess();
 }
 
 } // namespace WebKit

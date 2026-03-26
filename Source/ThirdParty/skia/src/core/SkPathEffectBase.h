@@ -16,7 +16,7 @@
 
 #include <optional>
 
-class SkPath;
+class SkPathBuilder;
 class SkStrokeRec;
 
 class SkPathEffectBase : public SkPathEffect {
@@ -63,7 +63,7 @@ public:
         SkPath             fFirst;      // If not empty, contains geometry for first point
         SkPath             fLast;       // If not empty, contains geometry for last point
 
-        SkSpan<SkPoint> points() { return {fPoints, fNumPoints}; }
+        SkSpan<SkPoint> points() { return {fPoints, (size_t)fNumPoints}; }
     };
 
     /**
@@ -102,7 +102,7 @@ public:
      * The output of path effects must always be in the original (input) coordinate system,
      * regardless of whether the path effect uses the CTM or not.
      */
-    virtual bool onFilterPath(SkPath*, const SkPath&, SkStrokeRec*, const SkRect*,
+    virtual bool onFilterPath(SkPathBuilder*, const SkPath&, SkStrokeRec*, const SkRect*,
                               const SkMatrix& /* ctm */) const = 0;
 
     /** Path effects *requiring* a valid CTM should override to return true. */

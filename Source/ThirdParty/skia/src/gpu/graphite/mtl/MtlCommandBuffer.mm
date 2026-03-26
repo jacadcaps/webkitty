@@ -11,6 +11,7 @@
 #include "include/gpu/graphite/mtl/MtlGraphiteTypes.h"
 #include "src/gpu/graphite/ContextUtils.h"
 #include "src/gpu/graphite/Log.h"
+#include "src/gpu/graphite/PipelineData.h"
 #include "src/gpu/graphite/RenderPassDesc.h"
 #include "src/gpu/graphite/TextureFormat.h"
 #include "src/gpu/graphite/TextureProxy.h"
@@ -174,7 +175,10 @@ bool MtlCommandBuffer::onAddRenderPass(const RenderPassDesc& renderPassDesc,
     this->updateIntrinsicUniforms(viewport);
 
     for (const auto& drawPass : drawPasses) {
-        this->addDrawPass(drawPass.get());
+        if (!this->addDrawPass(drawPass.get())) SK_UNLIKELY {
+            this->endRenderPass();
+            return false;
+        }
     }
 
     this->endRenderPass();
@@ -203,7 +207,7 @@ bool MtlCommandBuffer::onAddComputePass(DispatchGroupSpan groups) {
             SkASSERT(fActiveComputeCommandEncoder);
             for (const ComputeStep::WorkgroupBufferDesc& wgBuf : dispatch.fWorkgroupBuffers) {
                 fActiveComputeCommandEncoder->setThreadgroupMemoryLength(
-                        SkAlignTo(wgBuf.size, 16),
+                        SkAlignTo(wgBuf.size, 16u),
                         wgBuf.index);
             }
             if (const WorkgroupSize* globalSize =
@@ -320,7 +324,7 @@ bool MtlCommandBuffer::beginRenderPass(const RenderPassDesc& renderPassDesc,
     fActiveRenderCommandEncoder = MtlRenderCommandEncoder::Make(fSharedContext,
                                                                 fCommandBuffer.get(),
                                                                 descriptor.get());
-    this->trackResource(fActiveRenderCommandEncoder);
+    this->trackCommandBufferResource(fActiveRenderCommandEncoder);
 
     if (loadMSAAFromResolve) {
         // Manually load the contents of the resolve texture into the MSAA attachment as a draw,
@@ -349,17 +353,25 @@ void MtlCommandBuffer::endRenderPass() {
     fDrawIsOffscreen = false;
 }
 
-void MtlCommandBuffer::addDrawPass(const DrawPass* drawPass) {
+bool MtlCommandBuffer::addDrawPass(DrawPass* drawPass) {
     const SkIRect replayedBounds = drawPass->bounds().makeOffset(fReplayTranslation.x(),
                                                                  fReplayTranslation.y());
     if (!SkIRect::Intersects(replayedBounds, fRenderPassBounds)) {
         // The entire DrawPass is offscreen given the replay translation so skip adding any
         // commands. When the DrawPass is partially offscreen individual draw commands will be
         // culled while preserving state changing commands.
-        return;
+        return true;
     }
 
-    drawPass->addResourceRefs(this);
+    // If there is gradient data to bind, it must be done prior to draws.
+    if (drawPass->floatStorageManager()->hasData()) {
+        this->bindUniformBuffer(drawPass->floatStorageManager()->getBufferInfo(),
+                                UniformSlot::kGradient);
+    }
+
+    if (!drawPass->addResourceRefs(fResourceProvider, this)) SK_UNLIKELY {
+        return false;
+    }
 
     for (auto[type, cmdPtr] : drawPass->commands()) {
         // Skip draw commands if they'd be offscreen.
@@ -418,8 +430,11 @@ void MtlCommandBuffer::addDrawPass(const DrawPass* drawPass) {
             case DrawPassCommands::Type::kBindTexturesAndSamplers: {
                 auto bts = static_cast<DrawPassCommands::BindTexturesAndSamplers*>(cmdPtr);
                 for (int j = 0; j < bts->fNumTexSamplers; ++j) {
-                    this->bindTextureAndSampler(drawPass->getTexture(bts->fTextureIndices[j]),
-                                                drawPass->getSampler(bts->fSamplerIndices[j]),
+                    // immutable samplers don't exist in metal
+                    SkASSERT(!bts->fSamplers[j].isImmutable());
+                    this->bindTextureAndSampler(bts->fTextures[j]->texture(),
+                                                fSharedContext->globalCache()->getDynamicSampler(
+                                                        bts->fSamplers[j]),
                                                 j);
                 }
                 break;
@@ -477,6 +492,8 @@ void MtlCommandBuffer::addDrawPass(const DrawPass* drawPass) {
             }
         }
     }
+
+    return true;
 }
 
 MtlBlitCommandEncoder* MtlCommandBuffer::getBlitCommandEncoder() {
@@ -492,7 +509,7 @@ MtlBlitCommandEncoder* MtlCommandBuffer::getBlitCommandEncoder() {
 
     // We add the ref on the command buffer for the BlitCommandEncoder now so that we don't need
     // to add a ref for every copy we do.
-    this->trackResource(fActiveBlitCommandEncoder);
+    this->trackCommandBufferResource(fActiveBlitCommandEncoder);
     return fActiveBlitCommandEncoder.get();
 }
 
@@ -532,11 +549,8 @@ void MtlCommandBuffer::bindUniformBuffer(const BindBufferInfo& info, UniformSlot
 
     unsigned int bufferIndex;
     switch(slot) {
-        case UniformSlot::kRenderStep:
-            bufferIndex = MtlGraphicsPipeline::kRenderStepUniformBufferIndex;
-            break;
-        case UniformSlot::kPaint:
-            bufferIndex = MtlGraphicsPipeline::kPaintUniformBufferIndex;
+        case UniformSlot::kCombinedUniforms:
+            bufferIndex = MtlGraphicsPipeline::kCombinedUniformIndex;
             break;
         case UniformSlot::kGradient:
             bufferIndex = MtlGraphicsPipeline::kGradientBufferIndex;
@@ -624,7 +638,7 @@ void MtlCommandBuffer::updateIntrinsicUniforms(SkIRect viewport) {
             bytes.data(), bytes.size_bytes(), MtlGraphicsPipeline::kIntrinsicUniformBufferIndex);
 }
 
-void MtlCommandBuffer::setBlendConstants(float* blendConstants) {
+void MtlCommandBuffer::setBlendConstants(std::array<float, 4> blendConstants) {
     SkASSERT(fActiveRenderCommandEncoder);
 
     fActiveRenderCommandEncoder->setBlendColor(blendConstants);

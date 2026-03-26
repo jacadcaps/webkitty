@@ -46,7 +46,7 @@ namespace WebCore {
 
 NSPoint globalPoint(const NSPoint& windowPoint, NSWindow *window)
 {
-    return flipScreenPoint([window convertPointToScreen:windowPoint], screen(window));
+    return flipScreenPoint([window convertPointToScreen:windowPoint], protectedScreen(window).get());
 }
 
 NSPoint globalPointForEvent(NSEvent *event)
@@ -66,13 +66,13 @@ NSPoint globalPointForEvent(NSEvent *event)
     case NSEventTypeRightMouseDragged:
     case NSEventTypeRightMouseUp:
     case NSEventTypeScrollWheel:
-        return globalPoint([event locationInWindow], [event window]);
+        return globalPoint([event locationInWindow], retainPtr([event window]).get());
     default:
         return { 0, 0 };
     }
 }
 
-IntPoint pointForEvent(NSEvent *event, NSView *windowView)
+DoublePoint pointForEvent(NSEvent *event, NSView *windowView)
 {
     switch ([event type]) {
     case NSEventTypePressure:
@@ -94,10 +94,10 @@ IntPoint pointForEvent(NSEvent *event, NSView *windowView)
         NSPoint location = [event locationInWindow];
         if (windowView)
             location = [windowView convertPoint:location fromView:nil];
-        return IntPoint(location);
+        return location;
     }
     default:
-        return IntPoint();
+        return DoublePoint();
     }
 }
 
@@ -110,7 +110,30 @@ static MouseButton currentMouseButton()
         return MouseButton::Left;
     if (pressedMouseButtons == 1 << 1)
         return MouseButton::Right;
+    if (pressedMouseButtons == 1 << 2)
+        return MouseButton::Middle;
+    if (pressedMouseButtons == 1 << 3)
+        return MouseButton::Back;
+    if (pressedMouseButtons == 1 << 4)
+        return MouseButton::Forward;
     return MouseButton::Middle;
+}
+
+static MouseButton buttonFromButtonNumber(NSEvent *event)
+{
+    // NSEvent.buttonNumber reports 0 for non-mouse events, so it would be wrong to map 0 to the left button.
+    switch ([event buttonNumber]) {
+    case 1:
+        return MouseButton::Right;
+    case 2:
+        return MouseButton::Middle;
+    case 3:
+        return MouseButton::Back;
+    case 4:
+        return MouseButton::Forward;
+    default:
+        return MouseButton::None;
+    }
 }
 
 MouseButton mouseButtonForEvent(NSEvent *event)
@@ -127,10 +150,12 @@ MouseButton mouseButtonForEvent(NSEvent *event)
     case NSEventTypeOtherMouseDown:
     case NSEventTypeOtherMouseUp:
     case NSEventTypeOtherMouseDragged:
-        return MouseButton::Middle;
-    case NSEventTypePressure:
+        return buttonFromButtonNumber(event);
     case NSEventTypeMouseEntered:
     case NSEventTypeMouseExited:
+    case NSEventTypeMouseMoved:
+        return MouseButton::None;
+    case NSEventTypePressure:
         return currentMouseButton();
     default:
         return MouseButton::None;
@@ -264,16 +289,16 @@ String keyForKeyEvent(NSEvent *event)
     // typed with the default keyboard layout with no modifier keys except for Shift and AltGr applied.
     // See <https://www.w3.org/TR/2015/WD-uievents-20151215/#keys-guidelines>.
     bool isControlDown = ([event modifierFlags] & NSEventModifierFlagControl);
-    NSString *s = isControlDown ? [event charactersIgnoringModifiers] : [event characters];
-    auto length = [s length];
+    RetainPtr<NSString> string = isControlDown ? [event charactersIgnoringModifiers] : [event characters];
+    auto length = [string length];
     // characters / charactersIgnoringModifiers return an empty string for dead keys.
     // https://developer.apple.com/reference/appkit/nsevent/1534183-characters
     if (!length)
         return "Dead"_s;
     // High unicode codepoints are coded with a character sequence in macOS.
     if (length > 1)
-        return s;
-    return keyForCharCode([s characterAtIndex:0]);
+        return string.get();
+    return keyForCharCode([string characterAtIndex:0]);
 }
 
 // https://w3c.github.io/uievents-code/
@@ -517,12 +542,12 @@ String keyIdentifierForKeyEvent(NSEvent* event)
         }
     }
     
-    NSString *s = [event charactersIgnoringModifiers];
-    if ([s length] != 1) {
-        LOG(Events, "received an unexpected number of characters in key event: %u", [s length]);
+    RetainPtr<NSString> string = [event charactersIgnoringModifiers];
+    if ([string length] != 1) {
+        LOG(Events, "received an unexpected number of characters in key event: %zu", [string length]);
         return "Unidentified"_s;
     }
-    return keyIdentifierForCharCode([s characterAtIndex:0]);
+    return keyIdentifierForCharCode([string characterAtIndex:0]);
 }
 
 bool isKeypadEvent(NSEvent *event)
@@ -576,14 +601,14 @@ int windowsKeyCodeForKeyEvent(NSEvent* event)
     //    but see comment in windowsKeyCodeForCharCode().
     if (!isKeypadEvent(event) && ([event type] == NSEventTypeKeyDown || [event type] == NSEventTypeKeyUp)) {
         // Cmd switches Roman letters for Dvorak-QWERTY layout, so try modified characters first.
-        NSString* s = [event characters];
-        code = [s length] > 0 ? windowsKeyCodeForCharCode([s characterAtIndex:0]) : 0;
+        RetainPtr<NSString> string = [event characters];
+        code = [string length] > 0 ? windowsKeyCodeForCharCode([string characterAtIndex:0]) : 0;
         if (code)
             return code;
 
         // Ctrl+A on an AZERTY keyboard would get VK_Q keyCode if we relied on -[NSEvent keyCode] below.
-        s = [event charactersIgnoringModifiers];
-        code = [s length] > 0 ? windowsKeyCodeForCharCode([s characterAtIndex:0]) : 0;
+        string = [event charactersIgnoringModifiers];
+        code = [string length] > 0 ? windowsKeyCodeForCharCode([string characterAtIndex:0]) : 0;
         if (code)
             return code;
     }
@@ -591,43 +616,6 @@ int windowsKeyCodeForKeyEvent(NSEvent* event)
     // Map Mac virtual key code directly to Windows one for any keys not handled above.
     // E.g. the key next to Caps Lock has the same Event.keyCode on U.S. keyboard ('A') and on Russian keyboard (CYRILLIC LETTER EF).
     return windowsKeyCodeForKeyCode([event keyCode]);
-}
-
-static CFAbsoluteTime systemStartupTime;
-
-static void updateSystemStartupTimeIntervalSince1970()
-{
-    // CFAbsoluteTimeGetCurrent() provides the absolute time in seconds since 2001.
-    // mach_absolute_time() provides a relative system time since startup minus the time the computer was suspended.
-    mach_timebase_info_data_t timebase_info;
-    mach_timebase_info(&timebase_info);
-    double elapsedTimeSinceStartup = static_cast<double>(mach_absolute_time()) * timebase_info.numer / timebase_info.denom / 1e9;
-    systemStartupTime = kCFAbsoluteTimeIntervalSince1970 + CFAbsoluteTimeGetCurrent() - elapsedTimeSinceStartup;
-}
-
-static CFTimeInterval cachedStartupTimeIntervalSince1970()
-{
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        void (^updateBlock)(NSNotification *) = Block_copy(^(NSNotification *){ updateSystemStartupTimeIntervalSince1970(); });
-        [[[NSWorkspace sharedWorkspace] notificationCenter] addObserverForName:NSWorkspaceDidWakeNotification
-                                                                        object:nil
-                                                                         queue:nil
-                                                                    usingBlock:updateBlock];
-        [[NSNotificationCenter defaultCenter] addObserverForName:NSSystemClockDidChangeNotification
-                                                          object:nil
-                                                           queue:nil
-                                                      usingBlock:updateBlock];
-        Block_release(updateBlock);
-
-        updateSystemStartupTimeIntervalSince1970();
-    });
-    return systemStartupTime;
-}
-
-WallTime eventTimeStampSince1970(NSTimeInterval timestamp)
-{
-    return WallTime::fromRawSeconds(static_cast<double>(cachedStartupTimeIntervalSince1970() + timestamp));
 }
 
 bool isKeyUpEvent(NSEvent *event)
@@ -723,12 +711,12 @@ UInt8 keyCharForEvent(NSEvent *event)
     return keyChar;
 }
 
-IntPoint unadjustedMovementForEvent(NSEvent *event)
+DoublePoint unadjustedMovementForEvent(NSEvent *event)
 {
-    CGEventRef cgEvent = [event CGEvent];
-    auto dx = CGEventGetIntegerValueField(cgEvent, kCGEventUnacceleratedPointerMovementX);
-    auto dy = CGEventGetIntegerValueField(cgEvent, kCGEventUnacceleratedPointerMovementY);
-    return IntPoint(dx, dy);
+    RetainPtr cgEvent = [event CGEvent];
+    auto dx = CGEventGetDoubleValueField(cgEvent.get(), kCGEventUnacceleratedPointerMovementX);
+    auto dy = CGEventGetDoubleValueField(cgEvent.get(), kCGEventUnacceleratedPointerMovementY);
+    return DoublePoint(dx, dy);
 }
 
 class PlatformMouseEventBuilder : public PlatformMouseEvent {
@@ -751,7 +739,7 @@ public:
         }
 
         m_modifiers = modifiersForEvent(event);
-        m_timestamp = eventTimeStampSince1970(event.timestamp);
+        m_timestamp = MonotonicTime::fromRawSeconds(event.timestamp);
 
         // PlatformMouseEvent
         m_position = pointForEvent(event, windowView);
@@ -759,7 +747,7 @@ public:
         m_button = mouseButtonForEvent(event);
         m_buttons = currentlyPressedMouseButtons();
         m_clickCount = clickCountForEvent(event);
-        m_movementDelta = IntPoint(event.deltaX, event.deltaY);
+        m_movementDelta = DoublePoint(event.deltaX, event.deltaY);
         m_unadjustedMovementDelta = unadjustedMovementForEvent(event);
 
         if (!isCoalesced)
@@ -790,12 +778,12 @@ public:
         // PlatformEvent
         m_type = PlatformEvent::Type::Wheel;
         m_modifiers = modifiersForEvent(event);
-        m_timestamp = eventTimeStampSince1970(event.timestamp);
+        m_timestamp = MonotonicTime::fromRawSeconds(event.timestamp);
 
         // PlatformWheelEvent
-        m_position = pointForEvent(event, windowView);
+        m_position = IntPoint(pointForEvent(event, windowView));
         m_globalPosition = IntPoint(globalPointForEvent(event));
-        m_granularity = ScrollByPixelWheelEvent;
+        m_granularity = PlatformWheelEventGranularity::ScrollByPixelWheelEvent;
 
         BOOL continuous;
         getWheelEventDeltas(event, m_deltaX, m_deltaY, continuous);
@@ -829,7 +817,7 @@ public:
         // PlatformEvent
         m_type = isKeyUpEvent(event) ? PlatformEvent::Type::KeyUp : PlatformEvent::Type::KeyDown;
         m_modifiers = modifiersForEvent(event);
-        m_timestamp = eventTimeStampSince1970(event.timestamp);
+        m_timestamp = MonotonicTime::fromRawSeconds(event.timestamp);
 
         // PlatformKeyboardEvent
         m_text = textFromEvent(event);

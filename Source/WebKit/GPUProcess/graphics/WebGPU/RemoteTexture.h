@@ -58,7 +58,7 @@ class RemoteTexture final : public IPC::StreamMessageReceiver {
 public:
     static Ref<RemoteTexture> create(GPUConnectionToWebProcess& gpuConnectionToWebProcess, RemoteGPU& gpu, WebCore::WebGPU::Texture& texture, WebGPU::ObjectHeap& objectHeap, Ref<IPC::StreamServerConnection>&& streamConnection, WebGPUIdentifier identifier)
     {
-        return adoptRef(*new RemoteTexture(gpuConnectionToWebProcess, gpu, texture, objectHeap, WTFMove(streamConnection), identifier));
+        return adoptRef(*new RemoteTexture(gpuConnectionToWebProcess, gpu, texture, objectHeap, WTF::move(streamConnection), identifier));
     }
 
     virtual ~RemoteTexture();
@@ -79,8 +79,6 @@ private:
 
     WebCore::WebGPU::Texture& backing() { return m_backing; }
     Ref<WebCore::WebGPU::Texture> protectedBacking();
-
-    RefPtr<IPC::Connection> connection() const;
 
     void didReceiveStreamMessage(IPC::StreamServerConnection&, IPC::Decoder&) final;
 

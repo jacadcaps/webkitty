@@ -31,6 +31,10 @@
 #include "WebExtensionAPIObject.h"
 #include "WebExtensionConstants.h"
 
+#if ENABLE(DNR_ON_RULE_MATCHED_DEBUG)
+#include "WebExtensionAPIEvent.h"
+#endif
+
 namespace WebKit {
 
 class WebPage;
@@ -57,9 +61,19 @@ public:
     double maxNumberOfStaticRulesets() const { return webExtensionDeclarativeNetRequestMaximumNumberOfStaticRulesets; }
     double maxNumberOfEnabledRulesets() const { return webExtensionDeclarativeNetRequestMaximumNumberOfEnabledRulesets; }
     double maxNumberOfDynamicAndSessionRules() const { return webExtensionDeclarativeNetRequestMaximumNumberOfDynamicAndSessionRules; }
+
+#if ENABLE(DNR_ON_RULE_MATCHED_DEBUG)
+    bool isPropertyAllowed(const ASCIILiteral& propertyName, WebPage*);
+    WebExtensionAPIEvent& onRuleMatchedDebug();
+
+private:
+    RefPtr<WebExtensionAPIEvent> m_onRuleMatchedDebug;
 #endif
+#endif // PLATFORM(COCOA)
 };
 
 } // namespace WebKit
+
+SPECIALIZE_TYPE_TRAITS_WEB_EXTENSION(WebExtensionAPIDeclarativeNetRequest, declarativeNetRequest);
 
 #endif // ENABLE(WK_WEB_EXTENSIONS)

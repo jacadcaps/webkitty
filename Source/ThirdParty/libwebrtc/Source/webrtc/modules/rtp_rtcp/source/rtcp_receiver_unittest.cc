@@ -55,20 +55,19 @@
 #include "modules/rtp_rtcp/source/rtcp_packet/tmmbr.h"
 #include "modules/rtp_rtcp/source/rtcp_packet/transport_feedback.h"
 #include "modules/rtp_rtcp/source/rtp_rtcp_interface.h"
-#include "rtc_base/arraysize.h"
 #include "rtc_base/buffer.h"
 #include "rtc_base/random.h"
 #include "system_wrappers/include/clock.h"
 #include "system_wrappers/include/ntp_time.h"
-#include "test/explicit_key_value_config.h"
+#include "test/create_test_field_trials.h"
 #include "test/gmock.h"
 #include "test/gtest.h"
+#include "test/near_matcher.h"
 
 namespace webrtc {
 namespace {
 
 using rtcp::ReceiveTimeInfo;
-using test::ExplicitKeyValueConfig;
 using ::testing::_;
 using ::testing::AllOf;
 using ::testing::ElementsAre;
@@ -140,10 +139,6 @@ class MockVideoBitrateAllocationObserver
               (override));
 };
 
-MATCHER_P2(Near, value, margin, "") {
-  return value - margin <= arg && arg <= value + margin;
-}
-
 // SSRC of remote peer, that sends rtcp packet to the rtcp receiver under test.
 constexpr uint32_t kSenderSsrc = 0x10203;
 // SSRCs of local peer, that rtcp packet addressed to.
@@ -155,7 +150,6 @@ constexpr uint32_t kNotToUsSsrc = 0x654321;
 constexpr uint32_t kUnknownSenderSsrc = 0x54321;
 
 constexpr int64_t kRtcpIntervalMs = 1000;
-constexpr TimeDelta kEpsilon = TimeDelta::Millis(1);
 
 }  // namespace
 
@@ -186,11 +180,9 @@ struct ReceiverMocks {
 };
 
 RTCPReceiver Create(ReceiverMocks& mocks) {
-  return RTCPReceiver(
-      CreateEnvironment(
-          &mocks.clock,
-          std::make_unique<test::ExplicitKeyValueConfig>(mocks.field_trials)),
-      mocks.config, &mocks.rtp_rtcp_impl);
+  return RTCPReceiver(CreateEnvironment(&mocks.clock, CreateTestFieldTrialsPtr(
+                                                          mocks.field_trials)),
+                      mocks.config, &mocks.rtp_rtcp_impl);
 }
 
 TEST(RtcpReceiverTest, BrokenPacketIsIgnored) {
@@ -274,7 +266,7 @@ TEST(RtcpReceiverTest, InjectSrPacketCalculatesRTT) {
   EXPECT_CALL(mocks.network_link_rtcp_observer, OnRttUpdate);
   receiver.IncomingPacket(sr.Build());
 
-  EXPECT_THAT(receiver.LastRtt(), Near(kRtt, TimeDelta::Millis(1)));
+  EXPECT_THAT(receiver.LastRtt(), Near(kRtt));
 }
 
 TEST(RtcpReceiverTest, InjectSrPacketCalculatesNegativeRTTAsOneMs) {
@@ -828,7 +820,7 @@ TEST(RtcpReceiverTest, InjectExtendedReportsDlrrPacketWithSubBlock) {
   uint32_t compact_ntp_now = CompactNtp(mocks.clock.CurrentNtpTime());
   uint32_t rtt_ntp = compact_ntp_now - kDelay - kLastRR;
   EXPECT_THAT(receiver.GetAndResetXrRrRtt(),
-              Near(CompactNtpRttToTimeDelta(rtt_ntp), kEpsilon));
+              Near(CompactNtpRttToTimeDelta(rtt_ntp)));
   RTCPReceiver::NonSenderRttStats non_sender_rtt_stats =
       receiver.GetNonSenderRTT();
   EXPECT_GT(non_sender_rtt_stats.round_trip_time(), TimeDelta::Zero());
@@ -856,7 +848,7 @@ TEST(RtcpReceiverTest, InjectExtendedReportsDlrrPacketWithMultipleSubBlocks) {
   uint32_t compact_ntp_now = CompactNtp(mocks.clock.CurrentNtpTime());
   uint32_t rtt_ntp = compact_ntp_now - kDelay - kLastRR;
   EXPECT_THAT(receiver.GetAndResetXrRrRtt(),
-              Near(CompactNtpRttToTimeDelta(rtt_ntp), kEpsilon));
+              Near(CompactNtpRttToTimeDelta(rtt_ntp)));
   RTCPReceiver::NonSenderRttStats non_sender_rtt_stats =
       receiver.GetNonSenderRTT();
   EXPECT_GT(non_sender_rtt_stats.round_trip_time(), TimeDelta::Zero());
@@ -949,7 +941,7 @@ TEST(RtcpReceiverTest, RttCalculatedAfterExtendedReportsDlrr) {
 
   receiver.IncomingPacket(xr.Build());
 
-  EXPECT_THAT(receiver.GetAndResetXrRrRtt(), Near(kRtt, kEpsilon));
+  EXPECT_THAT(receiver.GetAndResetXrRrRtt(), Near(kRtt));
   RTCPReceiver::NonSenderRttStats non_sender_rtt_stats =
       receiver.GetNonSenderRTT();
   EXPECT_TRUE(non_sender_rtt_stats.round_trip_time().has_value());
@@ -981,7 +973,7 @@ TEST(RtcpReceiverTest, SetterEnablesReceiverRtt) {
 
   receiver.IncomingPacket(xr.Build());
 
-  EXPECT_THAT(receiver.GetAndResetXrRrRtt(), Near(kRtt, kEpsilon));
+  EXPECT_THAT(receiver.GetAndResetXrRrRtt(), Near(kRtt));
   RTCPReceiver::NonSenderRttStats non_sender_rtt_stats =
       receiver.GetNonSenderRTT();
   EXPECT_TRUE(non_sender_rtt_stats.round_trip_time().has_value());
@@ -1952,7 +1944,7 @@ TEST(RtcpReceiverTest, Nack) {
   const uint16_t kNackList1[] = {1, 2, 3, 5};
   const uint16_t kNackList23[] = {5, 7, 30, 40, 41, 58, 59, 61, 63};
   const size_t kNackListLength2 = 4;
-  const size_t kNackListLength3 = arraysize(kNackList23) - kNackListLength2;
+  const size_t kNackListLength3 = std::size(kNackList23) - kNackListLength2;
   std::set<uint16_t> nack_set;
   nack_set.insert(std::begin(kNackList1), std::end(kNackList1));
   nack_set.insert(std::begin(kNackList23), std::end(kNackList23));
@@ -1960,7 +1952,7 @@ TEST(RtcpReceiverTest, Nack) {
   auto nack1 = std::make_unique<rtcp::Nack>();
   nack1->SetSenderSsrc(kSenderSsrc);
   nack1->SetMediaSsrc(kReceiverMainSsrc);
-  nack1->SetPacketIds(kNackList1, arraysize(kNackList1));
+  nack1->SetPacketIds(kNackList1, std::size(kNackList1));
 
   EXPECT_CALL(mocks.rtp_rtcp_impl,
               OnReceivedNack(ElementsAreArray(kNackList1)));
@@ -1968,9 +1960,9 @@ TEST(RtcpReceiverTest, Nack) {
               RtcpPacketTypesCounterUpdated(
                   kReceiverMainSsrc,
                   AllOf(Field(&RtcpPacketTypeCounter::nack_requests,
-                              arraysize(kNackList1)),
+                              std::size(kNackList1)),
                         Field(&RtcpPacketTypeCounter::unique_nack_requests,
-                              arraysize(kNackList1)))));
+                              std::size(kNackList1)))));
   receiver.IncomingPacket(nack1->Build());
 
   auto nack2 = std::make_unique<rtcp::Nack>();
@@ -1993,7 +1985,7 @@ TEST(RtcpReceiverTest, Nack) {
               RtcpPacketTypesCounterUpdated(
                   kReceiverMainSsrc,
                   AllOf(Field(&RtcpPacketTypeCounter::nack_requests,
-                              arraysize(kNackList1) + arraysize(kNackList23)),
+                              std::size(kNackList1) + std::size(kNackList23)),
                         Field(&RtcpPacketTypeCounter::unique_nack_requests,
                               nack_set.size()))));
   receiver.IncomingPacket(two_nacks.Build());

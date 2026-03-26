@@ -23,8 +23,7 @@
 
 #include "ActiveDOMObject.h"
 #include "ContextDestructionObserverInlines.h"
-#include "Document.h"
-#include "DocumentInlines.h"
+#include "DocumentQuirks.h"
 #include "ExtendedDOMClientIsoSubspaces.h"
 #include "ExtendedDOMIsoSubspaces.h"
 #include "IDLTypes.h"
@@ -37,7 +36,6 @@
 #include "JSDOMGlobalObjectInlines.h"
 #include "JSDOMOperation.h"
 #include "JSDOMWrapperCache.h"
-#include "Quirks.h"
 #include "ScriptExecutionContext.h"
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/FunctionPrototype.h>
@@ -133,7 +131,7 @@ void JSTestIndexedSetterWithIdentifierPrototype::finishCreation(VM& vm)
 const ClassInfo JSTestIndexedSetterWithIdentifier::s_info = { "TestIndexedSetterWithIdentifier"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestIndexedSetterWithIdentifier) };
 
 JSTestIndexedSetterWithIdentifier::JSTestIndexedSetterWithIdentifier(Structure* structure, JSDOMGlobalObject& globalObject, Ref<TestIndexedSetterWithIdentifier>&& impl)
-    : JSDOMWrapper<TestIndexedSetterWithIdentifier>(structure, globalObject, WTFMove(impl))
+    : JSDOMWrapper<TestIndexedSetterWithIdentifier>(structure, globalObject, WTF::move(impl))
 {
 }
 
@@ -158,7 +156,7 @@ JSValue JSTestIndexedSetterWithIdentifier::getConstructor(VM& vm, const JSGlobal
 
 void JSTestIndexedSetterWithIdentifier::destroy(JSC::JSCell* cell)
 {
-    JSTestIndexedSetterWithIdentifier* thisObject = static_cast<JSTestIndexedSetterWithIdentifier*>(cell);
+    SUPPRESS_MEMORY_UNSAFE_CAST JSTestIndexedSetterWithIdentifier* thisObject = static_cast<JSTestIndexedSetterWithIdentifier*>(cell);
     thisObject->JSTestIndexedSetterWithIdentifier::~JSTestIndexedSetterWithIdentifier();
 }
 
@@ -170,7 +168,7 @@ bool JSTestIndexedSetterWithIdentifier::legacyPlatformObjectGetOwnProperty(JSObj
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     if (auto index = parseIndex(propertyName)) {
         if (auto item = thisObject->wrapped().item(index.value()); !!item) [[likely]] {
-            auto value = toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, WTFMove(item));
+            auto value = toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, IDLDOMString::extractValueFromNullable(WTF::move(item)));
             RETURN_IF_EXCEPTION(throwScope, false);
             slot.setValue(thisObject, 0, value);
             return true;
@@ -193,7 +191,7 @@ bool JSTestIndexedSetterWithIdentifier::getOwnPropertySlotByIndex(JSObject* obje
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     if (index <= MAX_ARRAY_INDEX) [[likely]] {
         if (auto item = thisObject->wrapped().item(index); !!item) [[likely]] {
-            auto value = toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, WTFMove(item));
+            auto value = toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, IDLDOMString::extractValueFromNullable(WTF::move(item)));
             RETURN_IF_EXCEPTION(throwScope, false);
             slot.setValue(thisObject, 0, value);
             return true;
@@ -202,7 +200,7 @@ bool JSTestIndexedSetterWithIdentifier::getOwnPropertySlotByIndex(JSObject* obje
     return JSObject::getOwnPropertySlotByIndex(object, lexicalGlobalObject, index, slot);
 }
 
-void JSTestIndexedSetterWithIdentifier::getOwnPropertyNames(JSObject* object, JSGlobalObject* lexicalGlobalObject, PropertyNameArray& propertyNames, DontEnumPropertiesMode mode)
+void JSTestIndexedSetterWithIdentifier::getOwnPropertyNames(JSObject* object, JSGlobalObject* lexicalGlobalObject, PropertyNameArrayBuilder& propertyNames, DontEnumPropertiesMode mode)
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto* thisObject = jsCast<JSTestIndexedSetterWithIdentifier*>(object);
@@ -372,7 +370,7 @@ bool JSTestIndexedSetterWithIdentifierOwner::isReachableFromOpaqueRoots(JSC::Han
 
 void JSTestIndexedSetterWithIdentifierOwner::finalize(JSC::Handle<JSC::Unknown> handle, void* context)
 {
-    auto* jsTestIndexedSetterWithIdentifier = static_cast<JSTestIndexedSetterWithIdentifier*>(handle.slot()->asCell());
+    SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestIndexedSetterWithIdentifier = static_cast<JSTestIndexedSetterWithIdentifier*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
     uncacheWrapper(world, jsTestIndexedSetterWithIdentifier->protectedWrapped().ptr(), jsTestIndexedSetterWithIdentifier);
 }
@@ -386,7 +384,7 @@ extern "C" { extern void (*const __identifier("??_7TestIndexedSetterWithIdentifi
 extern "C" { extern void* _ZTVN7WebCore31TestIndexedSetterWithIdentifierE[]; }
 #endif
 template<std::same_as<TestIndexedSetterWithIdentifier> T>
-static inline void verifyVTable(TestIndexedSetterWithIdentifier* ptr) 
+static inline void verifyVTable(TestIndexedSetterWithIdentifier* ptr)
 {
     if constexpr (std::is_polymorphic_v<T>) {
         const void* actualVTablePointer = getVTablePointer<T>(ptr);
@@ -406,12 +404,13 @@ static inline void verifyVTable(TestIndexedSetterWithIdentifier* ptr)
 #endif
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestIndexedSetterWithIdentifier>&& impl)
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<TestIndexedSetterWithIdentifier>&& impl)
 {
+    UNUSED_PARAM(lexicalGlobalObject);
 #if ENABLE(BINDING_INTEGRITY)
     verifyVTable<TestIndexedSetterWithIdentifier>(impl.ptr());
 #endif
-    return createWrapper<TestIndexedSetterWithIdentifier>(globalObject, WTFMove(impl));
+    return createWrapper<TestIndexedSetterWithIdentifier>(globalObject, WTF::move(impl));
 }
 
 JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestIndexedSetterWithIdentifier& impl)

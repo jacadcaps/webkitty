@@ -100,11 +100,6 @@ void TestController::setHidden(bool hidden)
     WKViewSetVisible(m_mainWebView->platformView(), !hidden);
 }
 
-WKContextRef TestController::platformContext()
-{
-    return m_context.get();
-}
-
 bool TestController::platformResetStateToConsistentValues(const TestOptions&)
 {
     return true;

@@ -24,18 +24,19 @@
  */
 
 #import "config.h"
-#import "VP9UtilitiesCocoa.h"
+#import "VP9UtilitiesCocoaInternal.h"
 
 #if ENABLE(VP9) && PLATFORM(COCOA)
 
+#import "CMUtilities.h"
 #import "FourCC.h"
 #import "LibWebRTCProvider.h"
 #import "MediaCapabilitiesInfo.h"
-#import "MediaSample.h"
 #import "PlatformScreen.h"
 #import "ScreenProperties.h"
 #import "SharedBuffer.h"
 #import "SystemBattery.h"
+#import "TrackInfo.h"
 #import "VideoConfiguration.h"
 #import "VideoDecoder.h"
 #import <JavaScriptCore/DataView.h>
@@ -59,14 +60,21 @@ VP9TestingOverrides& VP9TestingOverrides::singleton()
 
 void VP9TestingOverrides::setHardwareDecoderDisabled(std::optional<bool>&& disabled)
 {
-    m_hardwareDecoderDisabled = WTFMove(disabled);
+    m_hardwareDecoderDisabled = WTF::move(disabled);
+    if (m_configurationChangedCallback)
+        m_configurationChangedCallback(false);
+}
+
+void VP9TestingOverrides::setVP9HardwareDecoderEnabledOverride(std::optional<bool>&& disabled)
+{
+    m_vp9HardwareDecoderEnabledOverride = WTF::move(disabled);
     if (m_configurationChangedCallback)
         m_configurationChangedCallback(false);
 }
 
 void VP9TestingOverrides::setVP9DecoderDisabled(std::optional<bool>&& disabled)
 {
-    m_vp9DecoderDisabled = WTFMove(disabled);
+    m_vp9DecoderDisabled = WTF::move(disabled);
     if (m_configurationChangedCallback)
         m_configurationChangedCallback(false);
 }
@@ -79,14 +87,14 @@ void VP9TestingOverrides::setSWVPDecodersAlwaysEnabled(bool enabled)
 
 void VP9TestingOverrides::setVP9ScreenSizeAndScale(std::optional<ScreenDataOverrides>&& overrides)
 {
-    m_screenSizeAndScale = WTFMove(overrides);
+    m_screenSizeAndScale = WTF::move(overrides);
     if (m_configurationChangedCallback)
         m_configurationChangedCallback(false);
 }
 
 void VP9TestingOverrides::setConfigurationChangedCallback(std::function<void(bool)>&& callback)
 {
-    m_configurationChangedCallback = WTFMove(callback);
+    m_configurationChangedCallback = WTF::move(callback);
 }
 
 void VP9TestingOverrides::resetOverridesToDefaultValues()
@@ -141,13 +149,36 @@ void registerWebKitVP9Decoder()
     LibWebRTCProvider::registerWebKitVP9Decoder();
 }
 
+static std::optional<bool> s_vp9HardwareDecoderAvailableInProcess = { };
+void setVP9HardwareDecoderAvailableInProcess(bool value)
+{
+    ASSERT(isMainThread());
+
+    ASSERT(!s_vp9HardwareDecoderAvailableInProcess || *s_vp9HardwareDecoderAvailableInProcess == value);
+    s_vp9HardwareDecoderAvailableInProcess = value;
+}
+
+static bool internalVP9HardwareDecoderAvailableInProcess()
+{
+    ASSERT(isMainThread() || !!s_vp9HardwareDecoderAvailableInProcess);
+
+    if (!s_vp9HardwareDecoderAvailableInProcess)
+        s_vp9HardwareDecoderAvailableInProcess = canLoad_VideoToolbox_VTIsHardwareDecodeSupported() && VTIsHardwareDecodeSupported(kCMVideoCodecType_VP9);
+    return *s_vp9HardwareDecoderAvailableInProcess;
+}
+
 void registerSupplementalVP9Decoder()
 {
+    ASSERT(isMainThread());
+
     if (!VideoToolboxLibrary(true))
         return;
 
     if (canLoad_VideoToolbox_VTRegisterSupplementalVideoDecoderIfAvailable())
         softLink_VideoToolbox_VTRegisterSupplementalVideoDecoderIfAvailable(kCMVideoCodecType_VP9);
+
+    if (s_vp9HardwareDecoderAvailableInProcess && !*s_vp9HardwareDecoderAvailableInProcess)
+        s_vp9HardwareDecoderAvailableInProcess = { };
 }
 
 bool shouldEnableVP9Decoder()
@@ -186,7 +217,18 @@ bool vp9HardwareDecoderAvailable()
     if (auto disabledForTesting = VP9TestingOverrides::singleton().hardwareDecoderDisabled())
         return !*disabledForTesting;
 
-    return canLoad_VideoToolbox_VTIsHardwareDecodeSupported() && VTIsHardwareDecodeSupported(kCMVideoCodecType_VP9);
+    if (auto vp9HardwareDecoderOverride = VP9TestingOverrides::singleton().vp9HardwareDecoderEnabledOverride())
+        return *vp9HardwareDecoderOverride;
+
+    return internalVP9HardwareDecoderAvailableInProcess();
+}
+
+bool vp9HardwareDecoderAvailableInProcess()
+{
+    if (auto disabledForTesting = VP9TestingOverrides::singleton().hardwareDecoderDisabled())
+        return !*disabledForTesting;
+
+    return internalVP9HardwareDecoderAvailableInProcess();
 }
 
 static bool isVP9CodecConfigurationRecordSupported(const VPCodecConfigurationRecord& codecConfiguration)
@@ -489,14 +531,18 @@ static Ref<VideoInfo> createVideoInfoFromVPCodecConfigurationRecord(const VPCode
     // FIXME: Convert existing struct to an ISOBox and replace the writing code below
     // with a subclass of ISOFullBox.
 
-    auto videoInfo = VideoInfo::create();
-    videoInfo->size = size;
-    videoInfo->displaySize = displaySize;
-    videoInfo->atomData = SharedBuffer::create(vpcCFromVPCodecConfigurationRecord(record));
-    videoInfo->colorSpace = colorSpaceFromVPCodecConfigurationRecord(record);
-    videoInfo->codecName = record.codecName == "vp09"_s ? 'vp09' : 'vp08';
-    videoInfo->codecString = createVPCodecParametersString(record);
-    return videoInfo;
+    FourCC codecName = record.codecName == "vp09"_s ? 'vp09' : 'vp08';
+    return VideoInfo::create({
+        {
+            .codecName = codecName,
+            .codecString = createVPCodecParametersString(record)
+        }, {
+            .size = size,
+            .displaySize = displaySize,
+            .colorSpace = colorSpaceFromVPCodecConfigurationRecord(record),
+            .extensionAtoms = { 1, { computeBoxType(codecName), SharedBuffer::create(vpcCFromVPCodecConfigurationRecord(record)) } },
+        }
+    });
 }
 
 Ref<VideoInfo> createVideoInfoFromVP9HeaderParser(const vp9_parser::Vp9HeaderParser& parser, const webm::Video& video)

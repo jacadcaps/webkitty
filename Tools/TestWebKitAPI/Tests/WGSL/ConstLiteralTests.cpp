@@ -33,13 +33,13 @@
 static Expected<std::pair<WGSL::ShaderModule, WGSL::AST::Expression::Ref>, WGSL::Error> parseLCharPrimaryExpression(const String& input)
 {
     WGSL::ShaderModule shaderModule(input, { });
-    WGSL::Lexer<LChar> lexer(input);
+    WGSL::Lexer lexer(input.span<Latin1Character>());
     WGSL::Parser parser(shaderModule, lexer);
 
     auto expression = parser.parsePrimaryExpression();
     if (!expression)
         return makeUnexpected(expression.error());
-    return { std::make_pair(WTFMove(shaderModule), *expression) };
+    return { std::make_pair(WTF::move(shaderModule), *expression) };
 }
 
 template<class NumberType>

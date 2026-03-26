@@ -48,6 +48,7 @@
 #import <objc/runtime.h>
 #import <pal/avfoundation/MediaTimeAVFoundation.h>
 #import <pal/spi/cocoa/AVFoundationSPI.h>
+#import <pal/spi/cocoa/AVStreamDataParserSPI.h>
 #import <wtf/BlockObjCExceptions.h>
 #import <wtf/WeakObjCPtr.h>
 #import <wtf/cf/TypeCastsCF.h>
@@ -59,11 +60,9 @@
 #pragma mark -
 #pragma mark WebAVStreamDataParserListener
 
-#if USE(MODERN_AVCONTENTKEYSESSION)
 @interface AVContentKeySpecifier (WebCorePrivate)
 @property (readonly) NSData *initializationData;
 @end
-#endif
 
 @interface WebAVStreamDataParserListener : NSObject<AVStreamDataParserOutputHandling> {
     ThreadSafeWeakPtr<WebCore::SourceBufferParserAVFObjC> _parent;
@@ -144,7 +143,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 @end
 
-#if USE(MODERN_AVCONTENTKEYSESSION)
 @interface WebAVStreamDataParserWithKeySpecifierListener : WebAVStreamDataParserListener
 @end
 
@@ -156,7 +154,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         _parent.get()->didProvideContentKeyRequestSpecifierForTrackID(keySpecifier.initializationData, trackID);
 }
 @end
-#endif
 
 namespace WebCore {
 
@@ -189,7 +186,7 @@ private:
         if (!description)
             return emptyString();
         FourCC originalCodec = PAL::softLink_CoreMedia_CMFormatDescriptionGetMediaSubType(description);
-        CFStringRef originalFormatKey = PAL::canLoad_CoreMedia_kCMFormatDescriptionExtension_ProtectedContentOriginalFormat() ? PAL::get_CoreMedia_kCMFormatDescriptionExtension_ProtectedContentOriginalFormat() : CFSTR("CommonEncryptionOriginalFormat");
+        CFStringRef originalFormatKey = PAL::canLoad_CoreMedia_kCMFormatDescriptionExtension_ProtectedContentOriginalFormat() ? PAL::kCMFormatDescriptionExtension_ProtectedContentOriginalFormat : CFSTR("CommonEncryptionOriginalFormat");
         if (auto originalFormat = dynamic_cf_cast<CFNumberRef>(PAL::CMFormatDescriptionGetExtension(description, originalFormatKey)))
             CFNumberGetValue(originalFormat, kCFNumberSInt32Type, &originalCodec.value);
         return String::fromLatin1(originalCodec.string().data());
@@ -205,13 +202,13 @@ private:
 MediaPlayerEnums::SupportsType SourceBufferParserAVFObjC::isContentTypeSupported(const ContentType& type)
 {
     // Check that AVStreamDataParser is in a functional state.
-    if (!PAL::getAVStreamDataParserClass() || !adoptNS([PAL::allocAVStreamDataParserInstance() init]))
+    if (!PAL::getAVStreamDataParserClassSingleton() || !adoptNS([PAL::allocAVStreamDataParserInstance() init]))
         return MediaPlayerEnums::SupportsType::IsNotSupported;
 
     String extendedType = type.raw();
     String outputCodecs = type.parameter(ContentType::codecsParameter());
-    if (!outputCodecs.isEmpty() && [PAL::getAVStreamDataParserClass() respondsToSelector:@selector(outputMIMECodecParameterForInputMIMECodecParameter:)]) {
-        outputCodecs = [PAL::getAVStreamDataParserClass() outputMIMECodecParameterForInputMIMECodecParameter:outputCodecs.createNSString().get()];
+    if (!outputCodecs.isEmpty() && [PAL::getAVStreamDataParserClassSingleton() respondsToSelector:@selector(outputMIMECodecParameterForInputMIMECodecParameter:)]) {
+        outputCodecs = [PAL::getAVStreamDataParserClassSingleton() outputMIMECodecParameterForInputMIMECodecParameter:outputCodecs.createNSString().get()];
         extendedType = makeString(type.containerType(), "; codecs=\""_s, outputCodecs, "\""_s);
     }
 
@@ -222,15 +219,11 @@ SourceBufferParserAVFObjC::SourceBufferParserAVFObjC(const MediaSourceConfigurat
     : m_parser(adoptNS([PAL::allocAVStreamDataParserInstance() init]))
     , m_configuration(configuration)
 {
-#if USE(MODERN_AVCONTENTKEYSESSION)
-    if (MediaSessionManagerCocoa::shouldUseModernAVContentKeySession())
-        m_delegate = adoptNS([[WebAVStreamDataParserWithKeySpecifierListener alloc] initWithParser:m_parser.get() parent:this]);
-    else
-#endif
-        m_delegate = adoptNS([[WebAVStreamDataParserListener alloc] initWithParser:m_parser.get() parent:this]);
+    m_delegate = adoptNS([[WebAVStreamDataParserWithKeySpecifierListener alloc] initWithParser:m_parser.get() parent:this]);
+
 #if USE(MEDIAPARSERD)
     if ([m_parser.get() respondsToSelector:@selector(setPreferSandboxedParsing:)])
-        [m_parser.get() setPreferSandboxedParsing:YES];
+        [m_parser.get() setPreferSandboxedParsing:!m_configuration.demuxInProcess];
 #endif
 }
 
@@ -308,12 +301,12 @@ void SourceBufferParserAVFObjC::didParseStreamDataAsAsset(AVAsset* asset)
                 SourceBufferPrivateClient::InitializationSegment::VideoTrackInformation info;
                 info.track = VideoTrackPrivateMediaSourceAVFObjC::create(track);
                 info.description = MediaDescriptionAVFObjC::create(track);
-                segment.videoTracks.append(WTFMove(info));
+                segment.videoTracks.append(WTF::move(info));
             } else if ([mediaType isEqualToString:AVMediaTypeAudio]) {
                 SourceBufferPrivateClient::InitializationSegment::AudioTrackInformation info;
                 info.track = AudioTrackPrivateMediaSourceAVFObjC::create(track);
                 info.description = MediaDescriptionAVFObjC::create(track);
-                segment.audioTracks.append(WTFMove(info));
+                segment.audioTracks.append(WTF::move(info));
             } else if ([mediaType isEqualToString:AVMediaTypeText] && m_configuration.textTracksEnabled) {
                 SourceBufferPrivateClient::InitializationSegment::TextTrackInformation info;
                 Ref description = MediaDescriptionAVFObjC::create(track);
@@ -323,13 +316,13 @@ void SourceBufferParserAVFObjC::didParseStreamDataAsAsset(AVAsset* asset)
                     break;
                 }
                 info.track = TextTrackPrivateMediaSourceAVFObjC::create(track, InbandTextTrackPrivate::CueFormat::WebVTT);
-                segment.textTracks.append(WTFMove(info));
+                segment.textTracks.append(WTF::move(info));
             } else {
                 ALWAYS_LOG_IF_POSSIBLE(identifier, "Ignoring track of type ", String(mediaType));
             }
         }
 
-        m_didParseInitializationDataCallback(WTFMove(segment));
+        m_didParseInitializationDataCallback(WTF::move(segment));
     });
 }
 
@@ -350,34 +343,45 @@ void SourceBufferParserAVFObjC::didProvideMediaDataForTrackID(TrackID trackID, C
         auto mediaSample = MediaSampleAVFObjC::create(sampleBuffer.get(), trackID);
 
         if (mediaSample->isHomogeneous()) {
-            m_didProvideMediaDataCallback(WTFMove(mediaSample), trackID, mediaType);
+            m_didProvideMediaDataCallback(WTF::move(mediaSample), trackID, mediaType);
             return;
         }
 
         for (auto& sample : mediaSample->divideIntoHomogeneousSamples())
-            m_didProvideMediaDataCallback(WTFMove(sample), trackID, mediaType);
+            m_didProvideMediaDataCallback(WTF::move(sample), trackID, mediaType);
     });
 }
 
 void SourceBufferParserAVFObjC::willProvideContentKeyRequestInitializationDataForTrackID(uint64_t trackID)
 {
     INFO_LOG_IF_POSSIBLE(LOGIDENTIFIER, "trackID = ", trackID);
-    m_willProvideContentKeyRequestInitializationDataForTrackIDCallback(trackID);
+    m_callOnClientThreadCallback([protectedThis = Ref { *this }, trackID] {
+        protectedThis->m_willProvideContentKeyRequestInitializationDataForTrackIDCallback(trackID);
+    });
 }
 
 void SourceBufferParserAVFObjC::didProvideContentKeyRequestInitializationDataForTrackID(NSData* nsInitData, uint64_t trackID)
 {
     INFO_LOG_IF_POSSIBLE(LOGIDENTIFIER, "trackID = ", trackID);
-    m_didProvideContentKeyRequestInitializationDataForTrackIDCallback(SharedBuffer::create(nsInitData), trackID);
+    m_callOnClientThreadCallback([protectedThis = Ref { *this }, initData = SharedBuffer::create(nsInitData), trackID]() mutable {
+        protectedThis->m_didProvideContentKeyRequestInitializationDataForTrackIDCallback(WTF::move(initData), trackID);
+    });
 }
 
 void SourceBufferParserAVFObjC::didProvideContentKeyRequestSpecifierForTrackID(NSData* nsInitData, uint64_t trackID)
 {
     INFO_LOG_IF_POSSIBLE(LOGIDENTIFIER, "trackID = ", trackID);
-    m_callOnClientThreadCallback([this, protectedThis = Ref { *this }, nsInitData = retainPtr(nsInitData), trackID] {
-        m_didProvideContentKeyRequestIdentifierForTrackIDCallback(SharedBuffer::create(nsInitData.get()), trackID);
+    m_callOnClientThreadCallback([protectedThis = Ref { *this }, initData = SharedBuffer::create(nsInitData), trackID]() mutable {
+        protectedThis->m_didProvideContentKeyRequestIdentifierForTrackIDCallback(WTF::move(initData), trackID);
     });
 }
+
+#if !RELEASE_LOG_DISABLED
+WTFLogChannel& SourceBufferParserAVFObjC::logChannel() const
+{
+    return LogMedia;
+}
+#endif // !RELEASE_LOG_DISABLED
 
 }
 

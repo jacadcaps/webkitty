@@ -44,17 +44,18 @@ sk_cfp<id<MTLTexture>> MtlTexture::MakeMtlTexture(const MtlSharedContext* shared
 
     int numMipLevels = 1;
     if (info.mipmapped() == Mipmapped::kYes) {
-        numMipLevels = SkMipmap::ComputeLevelCount(dimensions.width(), dimensions.height()) + 1;
+        numMipLevels = SkMipmap::ComputeLevelCount(dimensions) + 1;
     }
 
     sk_cfp<MTLTextureDescriptor*> desc([[MTLTextureDescriptor alloc] init]);
-    (*desc).textureType = (info.numSamples() > 1) ? MTLTextureType2DMultisample : MTLTextureType2D;
+    (*desc).textureType = (info.sampleCount() > SampleCount::k1) ? MTLTextureType2DMultisample
+                                                                 : MTLTextureType2D;
     (*desc).pixelFormat = mtlInfo.fFormat;
     (*desc).width = dimensions.width();
     (*desc).height = dimensions.height();
     (*desc).depth = 1;
     (*desc).mipmapLevelCount = numMipLevels;
-    (*desc).sampleCount = info.numSamples();
+    (*desc).sampleCount = (uint8_t) info.sampleCount();
     (*desc).arrayLength = 1;
     (*desc).usage = mtlInfo.fUsage;
     (*desc).storageMode = mtlInfo.fStorageMode;

@@ -762,7 +762,7 @@ TEST_F(WKContentRuleListStoreTest, ModifyHeaders)
     [[configuration userContentController] addContentRuleList:list.get()];
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"testscheme"];
     auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSZeroRect configuration:configuration.get()]);
-    auto delegate = navigationDelegateAllowingActiveActionsOnTestHost().get();
+    auto delegate = navigationDelegateAllowingActiveActionsOnTestHost().unsafeGet();
     webView.get().navigationDelegate = delegate;
     __block bool receivedActionNotification { false };
     __block Vector<String> urls;
@@ -848,7 +848,7 @@ TEST_F(WKContentRuleListStoreTest, ModifyHeadersWithCompetingRulesWhereAppendWin
     [[configuration userContentController] addContentRuleList:list.get()];
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"testscheme"];
     auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSZeroRect configuration:configuration.get()]);
-    auto delegate = navigationDelegateAllowingActiveActionsOnTestHost().get();
+    auto delegate = navigationDelegateAllowingActiveActionsOnTestHost().unsafeGet();
     webView.get().navigationDelegate = delegate;
     __block bool receivedActionNotification { false };
     __block Vector<String> urls;
@@ -937,7 +937,7 @@ TEST_F(WKContentRuleListStoreTest, ModifyHeadersWithCompetingRulesWhereSetWins)
     [[configuration userContentController] addContentRuleList:list.get()];
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"testscheme"];
     auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSZeroRect configuration:configuration.get()]);
-    auto delegate = navigationDelegateAllowingActiveActionsOnTestHost().get();
+    auto delegate = navigationDelegateAllowingActiveActionsOnTestHost().unsafeGet();
     webView.get().navigationDelegate = delegate;
     __block bool receivedActionNotification { false };
     __block Vector<String> urls;
@@ -1003,7 +1003,7 @@ TEST_F(WKContentRuleListStoreTest, ModifyHeadersWithCompetingRulesWhereRemoveWin
     [[configuration userContentController] addContentRuleList:list.get()];
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"testscheme"];
     auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSZeroRect configuration:configuration.get()]);
-    auto delegate = navigationDelegateAllowingActiveActionsOnTestHost().get();
+    auto delegate = navigationDelegateAllowingActiveActionsOnTestHost().unsafeGet();
     webView.get().navigationDelegate = delegate;
     __block bool receivedActionNotification { false };
     __block Vector<String> urls;
@@ -1075,7 +1075,7 @@ TEST_F(WKContentRuleListStoreTest, ModifyHeadersWithMultipleRuleLists)
     [[configuration userContentController] addContentRuleList:secondList.get()];
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"testscheme"];
     auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSZeroRect configuration:configuration.get()]);
-    auto delegate = navigationDelegateAllowingActiveActionsOnTestHost().get();
+    auto delegate = navigationDelegateAllowingActiveActionsOnTestHost().unsafeGet();
     webView.get().navigationDelegate = delegate;
     __block bool receivedActionNotification { false };
     __block Vector<String> urls;
@@ -1195,7 +1195,7 @@ TEST_F(WKContentRuleListStoreTest, Redirect)
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"testscheme"];
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"othertestscheme"];
     auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSZeroRect configuration:configuration.get()]);
-    auto delegate = navigationDelegateAllowingActiveActionsOnTestHost().get();
+    auto delegate = navigationDelegateAllowingActiveActionsOnTestHost().unsafeGet();
     webView.get().navigationDelegate = delegate;
     __block bool receivedActionNotification { false };
     __block Vector<String> urlsFromCallback;
@@ -1260,6 +1260,42 @@ TEST_F(WKContentRuleListStoreTest, MainResourceCrossOriginRedirect)
     webView.get().navigationDelegate = delegate.get();
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://example.com/1.txt"]]];
     EXPECT_WK_STREQ([webView _test_waitForAlert], "loaded replacement successfully: key=value");
+}
+
+TEST_F(WKContentRuleListStoreTest, MainResourceSameOriginRedirect)
+{
+    using namespace TestWebKitAPI;
+
+    HTTPServer server({
+        { "/redirect?"_s, { "<script>addEventListener('pageshow', () => { alert('redirected successfully') });</script>"_s } }
+    }, HTTPServer::Protocol::HttpsProxy);
+
+    auto list = compileContentRuleList(R"JSON(
+        [ {
+            "action": { "type": "redirect", "redirect": { "transform": { "query-transform": { "remove-parameters": [ "ved" ] } } } },
+            "trigger": { "url-filter": "redirect" }
+        } ]
+    )JSON");
+
+    auto configuration = server.httpsProxyConfiguration();
+    [configuration.userContentController addContentRuleList:list.get()];
+    auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSZeroRect configuration:configuration]);
+
+    auto delegate = adoptNS([TestNavigationDelegate new]);
+    delegate.get().decidePolicyForNavigationActionWithPreferences = ^(WKNavigationAction *, WKWebpagePreferences *preferences, void (^decisionHandler)(WKNavigationActionPolicy, WKWebpagePreferences *)) {
+        preferences._activeContentRuleListActionPatterns = @{
+            @"testidentifier": [NSSet setWithObject:@"https://example.com/*"]
+        };
+        decisionHandler(WKNavigationActionPolicyAllow, preferences);
+    };
+    [delegate allowAnyTLSCertificate];
+    webView.get().navigationDelegate = delegate.get();
+
+    auto originalURL = [NSURL URLWithString:@"https://example.com/redirect?ved=123"];
+    [webView loadRequest:[NSURLRequest requestWithURL:originalURL]];
+
+    // Verify that the parameters were removed from the URL and the page loads.
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "redirected successfully");
 }
 
 TEST_F(WKContentRuleListStoreTest, MainResourceCrossOriginRedirectFromLoadedPageWithoutActivePatterns)

@@ -122,10 +122,10 @@ class FakePortAllocatorSession : public PortAllocatorSession {
 
   void StartGettingPorts() override {
     if (!port_) {
-      Network& network = (webrtc::HasIPv6Enabled() &&
-                          (flags() & webrtc::PORTALLOCATOR_ENABLE_IPV6))
-                             ? ipv6_network_
-                             : ipv4_network_;
+      Network& network =
+          (HasIPv6Enabled() && (flags() & PORTALLOCATOR_ENABLE_IPV6))
+              ? ipv6_network_
+              : ipv4_network_;
       port_.reset(TestUDPPort::Create({.env = env_,
                                        .network_thread = network_thread_,
                                        .socket_factory = factory_,
@@ -149,7 +149,7 @@ class FakePortAllocatorSession : public PortAllocatorSession {
   bool IsCleared() const override { return is_cleared; }
 
   void RegatherOnFailedNetworks() override {
-    SignalIceRegathering(this, IceRegatheringReason::NETWORK_FAILURE);
+    NotifyIceRegathering(this, IceRegatheringReason::NETWORK_FAILURE);
   }
 
   std::vector<PortInterface*> ReadyPorts() const override {
@@ -186,20 +186,19 @@ class FakePortAllocatorSession : public PortAllocatorSession {
   void AddPort(Port* port) {
     port->set_component(component());
     port->set_generation(generation());
-    port->SignalPortComplete.connect(this,
-                                     &FakePortAllocatorSession::OnPortComplete);
+    port->SubscribePortComplete([this](Port* port) { OnPortComplete(port); });
     port->PrepareAddress();
     ready_ports_.push_back(port);
-    SignalPortReady(this, port);
+    NotifyPortReady(this, port);
     port->KeepAliveUntilPruned();
   }
   void OnPortComplete(Port* port) {
     const std::vector<Candidate>& candidates = port->Candidates();
     candidates_.insert(candidates_.end(), candidates.begin(), candidates.end());
-    SignalCandidatesReady(this, candidates);
+    NotifyCandidatesReady(this, candidates);
 
     allocation_done_ = true;
-    SignalCandidatesAllocationDone(this);
+    NotifyCandidatesAllocationDone(this);
   }
   void OnPortDestroyed(PortInterface* /* port */) {
     // Don't want to double-delete port if it deletes itself.
@@ -220,7 +219,7 @@ class FakePortAllocatorSession : public PortAllocatorSession {
   bool is_cleared = false;
   ServerAddresses stun_servers_;
   std::vector<RelayServerConfig> turn_servers_;
-  uint32_t candidate_filter_ = webrtc::CF_ALL;
+  uint32_t candidate_filter_ = CF_ALL;
   int transport_info_update_count_ = 0;
   bool running_ = false;
 };
@@ -267,14 +266,5 @@ class FakePortAllocator : public PortAllocator {
 
 }  //  namespace webrtc
 
-// Re-export symbols from the webrtc namespace for backwards compatibility.
-// TODO(bugs.webrtc.org/4222596): Remove once all references are updated.
-#ifdef WEBRTC_ALLOW_DEPRECATED_NAMESPACES
-namespace cricket {
-using ::webrtc::FakePortAllocator;
-using ::webrtc::FakePortAllocatorSession;
-using ::webrtc::TestUDPPort;
-}  // namespace cricket
-#endif  // WEBRTC_ALLOW_DEPRECATED_NAMESPACES
 
 #endif  // P2P_TEST_FAKE_PORT_ALLOCATOR_H_

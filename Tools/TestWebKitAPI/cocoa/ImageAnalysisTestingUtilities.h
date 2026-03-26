@@ -51,7 +51,6 @@ RetainPtr<VKImageAnalyzerRequest> createRequest(CGImageRef, VKImageOrientation, 
 class RemoveBackgroundSwizzler {
 public:
     RemoveBackgroundSwizzler(CGImageRef, CGRect);
-    ~RemoveBackgroundSwizzler() = default;
 
 private:
     InstanceMethodSwizzler m_removeBackgroundRequestSwizzler;

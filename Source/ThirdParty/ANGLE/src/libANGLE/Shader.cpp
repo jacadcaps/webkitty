@@ -8,6 +8,10 @@
 // VertexShader and FragmentShader. Implements GL shader objects and related
 // functionality. [OpenGL ES 2.0.24] section 2.10 page 24 and section 3.8 page 84.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include "libANGLE/Shader.h"
 
 #include <functional>
@@ -61,6 +65,24 @@ std::string GetShaderDumpFilePath(size_t shaderHash, const char *suffix)
     return path.str();
 }
 
+void GetSourceImpl(const std::string &source, GLsizei bufSize, GLsizei *length, char *buffer)
+{
+    int index = 0;
+
+    if (bufSize > 0)
+    {
+        index = std::min(bufSize - 1, static_cast<GLsizei>(source.length()));
+        memcpy(buffer, source.c_str(), index);
+
+        buffer[index] = '\0';
+    }
+
+    if (length)
+    {
+        *length = index;
+    }
+}
+
 class CompileTask final : public angle::Closure
 {
   public:
@@ -69,7 +91,7 @@ class CompileTask final : public angle::Closure
                 ShHandle compilerHandle,
                 ShShaderOutput outputType,
                 const ShCompileOptions &options,
-                const std::string &source,
+                std::shared_ptr<const std::string> source,
                 size_t sourceHash,
                 const SharedCompiledShaderState &compiledState,
                 size_t maxComputeWorkGroupInvocations,
@@ -132,7 +154,7 @@ class CompileTask final : public angle::Closure
     ShHandle mCompilerHandle = 0;
     ShShaderOutput mOutputType;
     ShCompileOptions mOptions;
-    const std::string mSource;
+    std::shared_ptr<const std::string> mSource;
     size_t mSourceHash = 0;
     SharedCompiledShaderState mCompiledState;
 
@@ -177,7 +199,7 @@ angle::Result CompileTask::compileImpl()
         // Compiling from source
 
         // Call the translator and get the info log
-        bool result = mTranslateTask->translate(mCompilerHandle, mOptions, mSource);
+        bool result = mTranslateTask->translate(mCompilerHandle, mOptions, *mSource);
         mInfoLog    = sh::GetInfoLog(mCompilerHandle);
         if (!result)
         {
@@ -198,10 +220,9 @@ angle::Result CompileTask::compileImpl()
 
 angle::Result CompileTask::postTranslate()
 {
-    const bool isBinaryOutput = mOutputType == SH_SPIRV_VULKAN_OUTPUT;
-    mCompiledState->buildCompiledShaderState(mCompilerHandle, isBinaryOutput);
+    mCompiledState->buildCompiledShaderState(mCompilerHandle, mOutputType);
 
-    ASSERT(!mCompiledState->translatedSource.empty() || !mCompiledState->compiledBinary.empty());
+    ASSERT(!mCompiledState->translatedSource->empty() || !mCompiledState->compiledBinary.empty());
 
     // Validation checks for compute shaders
     if (mCompiledState->shaderType == ShaderType::Compute && mCompiledState->localSize.isDeclared())
@@ -234,7 +255,7 @@ angle::Result CompileTask::postTranslate()
         // To support reading/writing compiled binaries (SPIR-V representation), need more file
         // input/output facilities, and figure out the byte ordering of writing the 32-bit words to
         // disk.
-        if (isBinaryOutput)
+        if (!mCompiledState->compiledBinary.empty())
         {
             INFO() << "Can not substitute compiled binary (SPIR-V) shaders yet";
         }
@@ -245,7 +266,8 @@ angle::Result CompileTask::postTranslate()
             std::string substituteShader;
             if (angle::ReadFileToString(substituteShaderPath, &substituteShader))
             {
-                mCompiledState->translatedSource = std::move(substituteShader);
+                mCompiledState->translatedSource =
+                    std::make_shared<std::string>(std::move(substituteShader));
                 substitutedTranslatedShader      = true;
                 INFO() << "Translated shader substitute found, loading from "
                        << substituteShaderPath;
@@ -257,22 +279,20 @@ angle::Result CompileTask::postTranslate()
     // same data back to the file.
     if (mFrontendFeatures.dumpTranslatedShaders.enabled && !substitutedTranslatedShader)
     {
-        if (isBinaryOutput)
+        if (!mCompiledState->compiledBinary.empty())
         {
             INFO() << "Can not dump compiled binary (SPIR-V) shaders yet";
         }
         else
         {
             std::string dumpFile = GetShaderDumpFilePath(mSourceHash, suffix);
-
-            const std::string &translatedSource = mCompiledState->translatedSource;
-            writeFile(dumpFile.c_str(), translatedSource.c_str(), translatedSource.length());
+            writeFile(dumpFile.c_str(), *mCompiledState->translatedSource);
             INFO() << "Dumped translated source: " << dumpFile;
         }
     }
 
 #if defined(ANGLE_ENABLE_ASSERTS)
-    if (!isBinaryOutput)
+    if (!mCompiledState->compiledBinary.empty())
     {
         // Suffix the translated shader with commented out un-translated shader.
         // Useful in diagnostics tools which capture the shader source.
@@ -281,7 +301,7 @@ angle::Result CompileTask::postTranslate()
         shaderStream << "// GLSL\n";
         shaderStream << "//\n";
 
-        std::istringstream inputSourceStream(mSource);
+        std::istringstream inputSourceStream(*mSource);
         std::string line;
         while (std::getline(inputSourceStream, line))
         {
@@ -298,7 +318,8 @@ angle::Result CompileTask::postTranslate()
 
             shaderStream << std::endl;
         }
-        mCompiledState->translatedSource += shaderStream.str();
+        mCompiledState->translatedSource =
+            std::make_shared<std::string>(*mCompiledState->translatedSource + shaderStream.str());
     }
 #endif  // defined(ANGLE_ENABLE_ASSERTS)
 
@@ -398,7 +419,12 @@ struct CompileJobDone final : public CompileJob
 
 ShaderState::ShaderState(ShaderType shaderType)
     : mCompiledState(std::make_shared<CompiledShaderState>(shaderType))
-{}
+{
+    // Small optimization to avoid allocating another shared pointer to an empty string, use the one
+    // from CompiledShaderState instead since it starts initialized to an empty string.
+    mSource = mCompiledState->translatedSource;
+    ASSERT(mSource && mSource->empty());
+}
 
 ShaderState::~ShaderState() {}
 
@@ -455,50 +481,12 @@ ShaderProgramID Shader::getHandle() const
     return mHandle;
 }
 
-std::string Shader::joinShaderSources(GLsizei count, const char *const *string, const GLint *length)
-{
-    // Fast path for the most common case.
-    if (count == 1)
-    {
-        if (length == nullptr || length[0] < 0)
-            return std::string(string[0]);
-        else
-            return std::string(string[0], static_cast<size_t>(length[0]));
-    }
-
-    // Start with totalLength of 1 to reserve space for the null terminator
-    size_t totalLength = 1;
-
-    // First pass, calculate the total length of the joined string
-    for (GLsizei i = 0; i < count; ++i)
-    {
-        if (length == nullptr || length[i] < 0)
-            totalLength += std::strlen(string[i]);
-        else
-            totalLength += static_cast<size_t>(length[i]);
-    }
-
-    // Second pass, allocate the string and concatenate each shader source
-    // fragment
-    std::string joinedString;
-    joinedString.reserve(totalLength);
-    for (GLsizei i = 0; i < count; ++i)
-    {
-        if (length == nullptr || length[i] < 0)
-            joinedString.append(string[i]);
-        else
-            joinedString.append(string[i], static_cast<size_t>(length[i]));
-    }
-
-    return joinedString;
-}
-
 void Shader::setSource(const Context *context,
                        GLsizei count,
                        const char *const *string,
                        const GLint *length)
 {
-    std::string source = joinShaderSources(count, string, length);
+    std::string source = JoinShaderSources(count, string, length);
 
     // Compute the hash based on the original source before any substitutions
     size_t sourceHash = ComputeShaderHash(source);
@@ -526,11 +514,11 @@ void Shader::setSource(const Context *context,
     {
         std::string dumpFile = GetShaderDumpFilePath(sourceHash, suffix);
 
-        writeFile(dumpFile.c_str(), source.c_str(), source.length());
+        writeFile(dumpFile.c_str(), source);
         INFO() << "Dumped shader source: " << dumpFile;
     }
 
-    mState.mSource     = std::move(source);
+    mState.mSource     = std::make_shared<std::string>(std::move(source));
     mState.mSourceHash = sourceHash;
 }
 
@@ -567,19 +555,24 @@ void Shader::getInfoLog(const Context *context, GLsizei bufSize, GLsizei *length
 
 int Shader::getSourceLength() const
 {
-    return mState.mSource.empty() ? 0 : (static_cast<int>(mState.mSource.length()) + 1);
+    if (mState.mSource->empty())
+    {
+        return 0;
+    }
+
+    return static_cast<int>(mState.mSource->length()) + 1;
 }
 
 int Shader::getTranslatedSourceLength(const Context *context)
 {
     resolveCompile(context);
 
-    if (mState.mCompiledState->translatedSource.empty())
+    if (mState.mCompiledState->translatedSource->empty())
     {
         return 0;
     }
 
-    return static_cast<int>(mState.mCompiledState->translatedSource.length()) + 1;
+    return static_cast<int>(mState.mCompiledState->translatedSource->length()) + 1;
 }
 
 int Shader::getTranslatedSourceWithDebugInfoLength(const Context *context)
@@ -595,31 +588,9 @@ int Shader::getTranslatedSourceWithDebugInfoLength(const Context *context)
     return (static_cast<int>(debugInfo.length()) + 1);
 }
 
-// static
-void Shader::GetSourceImpl(const std::string &source,
-                           GLsizei bufSize,
-                           GLsizei *length,
-                           char *buffer)
-{
-    int index = 0;
-
-    if (bufSize > 0)
-    {
-        index = std::min(bufSize - 1, static_cast<GLsizei>(source.length()));
-        memcpy(buffer, source.c_str(), index);
-
-        buffer[index] = '\0';
-    }
-
-    if (length)
-    {
-        *length = index;
-    }
-}
-
 void Shader::getSource(GLsizei bufSize, GLsizei *length, char *buffer) const
 {
-    GetSourceImpl(mState.mSource, bufSize, length, buffer);
+    GetSourceImpl(*mState.mSource, bufSize, length, buffer);
 }
 
 void Shader::getTranslatedSource(const Context *context,
@@ -627,13 +598,14 @@ void Shader::getTranslatedSource(const Context *context,
                                  GLsizei *length,
                                  char *buffer)
 {
-    GetSourceImpl(getTranslatedSource(context), bufSize, length, buffer);
+    resolveCompile(context);
+    GetSourceImpl(*mState.mCompiledState->translatedSource, bufSize, length, buffer);
 }
 
 const std::string &Shader::getTranslatedSource(const Context *context)
 {
     resolveCompile(context);
-    return mState.mCompiledState->translatedSource;
+    return *mState.mCompiledState->translatedSource;
 }
 
 size_t Shader::getSourceHash() const
@@ -697,6 +669,11 @@ void Shader::compile(const Context *context, angle::JobResultExpectancy resultEx
     options.validateAST = true;
 #endif
 
+    if (context->getState().usesPassthroughShaders())
+    {
+        options.skipAllValidationAndTransforms = true;
+    }
+
     // Find a shader in Blob Cache
     Compiler *compiler = context->getCompiler();
     setShaderKey(context, options, compiler->getShaderOutputType(),
@@ -720,6 +697,12 @@ void Shader::compile(const Context *context, angle::JobResultExpectancy resultEx
             default:
                 break;
         }
+    }
+
+    if (context->getState().usesPassthroughShaders())
+    {
+        passthroughCompile(context, &options, resultExpectancy);
+        return;
     }
 
     mBoundCompiler.set(context, compiler);
@@ -943,7 +926,7 @@ bool Shader::loadBinaryImpl(const Context *context,
         stream.readEnum<ShShaderOutput>(&outputType);
 
         // Get the shader's source string.
-        mState.mSource = stream.readString();
+        mState.mSource = std::make_shared<std::string>(stream.readString());
 
         // In the absence of element-by-element serialize/deserialize functions, read
         // ShCompileOptions and ShBuiltInResources as raw binary blobs.
@@ -986,6 +969,30 @@ bool Shader::loadBinaryImpl(const Context *context,
     mCompileJob->compileEvent = std::make_unique<CompileEvent>(compileTask, compileEvent);
 
     return true;
+}
+
+void Shader::passthroughCompile(const Context *context,
+                                ShCompileOptions *compileOptions,
+                                angle::JobResultExpectancy resultExpectancy)
+{
+    mState.mCompiledState = std::make_shared<CompiledShaderState>(mState.getShaderType());
+    mState.mCompiledState->buildPassthroughCompiledShaderState(mState.mSource);
+
+    mState.mCompileStatus = CompileStatus::COMPILE_REQUESTED;
+
+    // Ask the backend to prepare the translate task
+    std::shared_ptr<rx::ShaderTranslateTask> translateTask =
+        mImplementation->compile(context, compileOptions);
+
+    std::shared_ptr<CompileTask> compileTask(new CompileTask(
+        context->getFrontendFeatures(), mState.mCompiledState, std::move(translateTask)));
+
+    const angle::JobThreadSafety threadSafety = GetTranslateTaskThreadSafety(context);
+    std::shared_ptr<angle::WaitableEvent> compileEvent =
+        context->postCompileLinkTask(compileTask, threadSafety, resultExpectancy);
+
+    mCompileJob               = std::make_shared<CompileJob>();
+    mCompileJob->compileEvent = std::make_unique<CompileEvent>(compileTask, compileEvent);
 }
 
 void Shader::setShaderKey(const Context *context,

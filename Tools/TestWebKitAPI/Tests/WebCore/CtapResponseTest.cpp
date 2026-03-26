@@ -645,15 +645,30 @@ TEST(CTAPResponseTest, TestSerializeGetInfoResponse)
     options.setIsPlatformDevice(true);
     options.setClientPinAvailability(AuthenticatorSupportedOptions::ClientPinAvailability::kSupportedButPinNotSet);
     options.setUserVerificationAvailability(AuthenticatorSupportedOptions::UserVerificationAvailability::kSupportedAndConfigured);
-    response.setOptions(WTFMove(options));
+    response.setOptions(WTF::move(options));
     response.setMaxMsgSize(1200);
-    response.setPinProtocols({ 1 });
+    response.setPinProtocols({ PINUVAuthProtocol::kPinProtocol1 });
 
     auto responseAsCBOR = encodeAsCBOR(response);
     EXPECT_EQ(responseAsCBOR.size(), sizeof(TestData::kTestGetInfoResponsePlatformDevice) - 1);
     EXPECT_TRUE(equalSpans(responseAsCBOR.span(), std::span { TestData::kTestGetInfoResponsePlatformDevice }.subspan(1)));
 }
 
+TEST(CTAPResponseTest, TestReadMakeCredentialResponseWithHmacSecret)
+{
+    // CBOR-encoded response with hmac-secret: true extension in authenticatorData
+    // This is the response format when makeCredential is called with hmac-secret extension
+    auto response = readCTAPMakeCredentialResponse(std::span { TestData::kTestMakeCredentialResponseWithHmacSecret }, AuthenticatorAttachment::CrossPlatform, { }, AttestationConveyancePreference::Direct);
+    ASSERT_TRUE(response);
+
+    // Verify extension output contains prf.enabled: true (converted from hmac-secret: true)
+    auto extensions = response->extensions();
+    ASSERT_TRUE(extensions.prf);
+    ASSERT_TRUE(extensions.prf->enabled);
+    EXPECT_TRUE(*extensions.prf->enabled);
+}
+
 } // namespace TestWebKitAPI
+
 
 #endif // ENABLE(WEB_AUTHN)

@@ -47,19 +47,19 @@ class AudioTrackPrivateAVFObjC : public AudioTrackPrivateAVF {
     WTF_MAKE_TZONE_ALLOCATED(AudioTrackPrivateAVFObjC);
     WTF_MAKE_NONCOPYABLE(AudioTrackPrivateAVFObjC)
 public:
-    static RefPtr<AudioTrackPrivateAVFObjC> create(AVPlayerItemTrack* track)
+    static Ref<AudioTrackPrivateAVFObjC> create(AVPlayerItemTrack* track)
     {
-        return adoptRef(new AudioTrackPrivateAVFObjC(track));
+        return adoptRef(*new AudioTrackPrivateAVFObjC(track));
     }
 
-    static RefPtr<AudioTrackPrivateAVFObjC> create(AVAssetTrack* track)
+    static Ref<AudioTrackPrivateAVFObjC> create(AVAssetTrack* track)
     {
-        return adoptRef(new AudioTrackPrivateAVFObjC(track));
+        return adoptRef(*new AudioTrackPrivateAVFObjC(track));
     }
 
-    static RefPtr<AudioTrackPrivateAVFObjC> create(MediaSelectionOptionAVFObjC& option)
+    static Ref<AudioTrackPrivateAVFObjC> create(MediaSelectionOptionAVFObjC& option)
     {
-        return adoptRef(new AudioTrackPrivateAVFObjC(option));
+        return adoptRef(*new AudioTrackPrivateAVFObjC(option));
     }
 
     virtual ~AudioTrackPrivateAVFObjC();
@@ -84,7 +84,7 @@ private:
     const Ref<AVTrackPrivateAVFObjCImpl> m_impl;
 
     using AudioTrackConfigurationObserver = Observer<void()>;
-    AudioTrackConfigurationObserver m_audioTrackConfigurationObserver;
+    const Ref<AudioTrackConfigurationObserver> m_audioTrackConfigurationObserver;
 };
 
 }

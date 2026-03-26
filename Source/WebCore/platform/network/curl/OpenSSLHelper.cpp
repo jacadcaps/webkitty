@@ -135,7 +135,7 @@ public:
         if (length < 0)
             return String();
 
-        return String({ data, static_cast<size_t>(length) });
+        return String({ byteCast<Latin1Character>(data), static_cast<size_t>(length) });
     }
 
     std::unique_ptr<X509, deleter<X509>> readX509()
@@ -158,7 +158,7 @@ static WebCore::CertificateInfo::CertificateChain pemDataFromCtx(StackOfX509&& c
         BIO bio(certs.item(i));
 
         if (auto certificate = bio.getDataAsVector())
-            result.append(WTFMove(*certificate));
+            result.append(WTF::move(*certificate));
         else
             return { };
     }
@@ -191,7 +191,7 @@ static String toString(const ASN1_STRING* name)
     if (length <= 0)
         return String();
 
-    String result({ data, static_cast<size_t>(length) });
+    String result({ byteCast<Latin1Character>(data), static_cast<size_t>(length) });
     OPENSSL_free(data);
     return result;
 }
@@ -296,7 +296,7 @@ static void getSubjectAltName(const X509* x509, Vector<String>& dnsNames, Vector
         if (value->type == GEN_DNS) {
             auto dnsName = toString(value->d.dNSName);
             if (!dnsName.isNull())
-                dnsNames.append(WTFMove(dnsName));
+                dnsNames.append(WTF::move(dnsName));
         } else if (value->type == GEN_IPADD) {
             auto data = value->d.iPAddress->data;
             if (value->d.iPAddress->length == 4)

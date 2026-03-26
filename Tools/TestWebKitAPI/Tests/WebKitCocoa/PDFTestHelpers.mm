@@ -26,6 +26,7 @@
 #import "config.h"
 #import "PDFTestHelpers.h"
 
+#import "TestNSBundleExtras.h"
 #import "Utilities.h"
 #import "WKWebViewConfigurationExtras.h"
 #import <Foundation/Foundation.h>

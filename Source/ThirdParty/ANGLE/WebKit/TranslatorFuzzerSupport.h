@@ -27,7 +27,7 @@
 
 #include "compiler/translator/Compiler.h"
 
-#if ANGLE_SH_VERSION != 378
+#if ANGLE_SH_VERSION != 383
 #    error Check if there are added options and update this check.
 #endif
 
@@ -107,8 +107,9 @@
     MACRO(separateCompoundStructDeclarations, 72, none, msl || wgsl)          \
     MACRO(preserveDenorms, 73, none, spirvVk)                                 \
     MACRO(removeInactiveVariables, 74, any, spirvVk || msl)                   \
-    MACRO(ensureLoopForwardProgress, 75, none, msl)
-
+    MACRO(ensureLoopForwardProgress, 75, none, msl)                           \
+    MACRO(skipAllValidationAndTransforms, 76, none, none)                     \
+    MACRO(transformFloatUniformTo16Bits, 77, none, spirvVk)
 
 void filterOptions(ShShaderOutput output, ShCompileOptions &options);
 ShShaderOutput resolveShaderOutput(ShShaderOutput output);
@@ -126,7 +127,6 @@ ShShaderOutput resolveShaderOutput(ShShaderOutput output);
     MACRO(EXT_shader_texture_lod, any)                         \
     MACRO(EXT_shader_framebuffer_fetch, !msl)                  \
     MACRO(EXT_shader_framebuffer_fetch_non_coherent, !msl)     \
-    MACRO(NV_shader_framebuffer_fetch, !msl)                   \
     MACRO(NV_shader_noperspective_interpolation, any)          \
     MACRO(ARM_shader_framebuffer_fetch, !msl)                  \
     MACRO(ARM_shader_framebuffer_fetch_depth_stencil, !msl)    \

@@ -45,13 +45,13 @@ std::unique_ptr<Context> MakeVulkan(const VulkanBackendContext& backendContext,
 namespace skgpu::graphite {
 
 VkShaderModule CreateVulkanShaderModule(const VulkanSharedContext* context,
-                                        const std::string& spirv,
+                                        const SkSL::NativeShader& spirv,
                                         VkShaderStageFlagBits stage) {
     TRACE_EVENT0("skia.shaders", "InstallVkShaderModule");
     VkShaderModuleCreateInfo moduleCreateInfo = {};
     moduleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    moduleCreateInfo.codeSize = spirv.size();
-    moduleCreateInfo.pCode = (const uint32_t*)spirv.c_str();
+    moduleCreateInfo.codeSize = spirv.fBinary.size() * sizeof(uint32_t);
+    moduleCreateInfo.pCode = spirv.fBinary.data();
 
     VkShaderModule shaderModule;
     VkResult result;
@@ -149,6 +149,7 @@ VkDescriptorType DsTypeEnumToVkDs(DescriptorType type) {
     M(TextureFormat::kRGBA16F,        VK_FORMAT_R16G16B16A16_SFLOAT)                       \
     M(TextureFormat::kRGBA32F,        VK_FORMAT_R32G32B32A32_SFLOAT)                       \
     M(TextureFormat::kRGB10_A2,       VK_FORMAT_A2B10G10R10_UNORM_PACK32)                  \
+    M(TextureFormat::kRGBA10x6,       VK_FORMAT_R10X6G10X6B10X6A10X6_UNORM_4PACK16)        \
     M(TextureFormat::kRGBA8_sRGB,     VK_FORMAT_R8G8B8A8_SRGB)                             \
     M(TextureFormat::kBGRA8,          VK_FORMAT_B8G8R8A8_UNORM)                            \
     M(TextureFormat::kBGR10_A2,       VK_FORMAT_A2R10G10B10_UNORM_PACK32)                  \
@@ -195,6 +196,23 @@ VkFormat TextureFormatToVkFormat(TextureFormat format) {
 #undef M
 }
 
+VkImageAspectFlags GetVkImageAspectFlags(TextureFormat format) {
+    switch (format) {
+        case TextureFormat::kS8:
+            return VK_IMAGE_ASPECT_STENCIL_BIT;
+        case TextureFormat::kD16:
+            [[fallthrough]];
+        case TextureFormat::kD32F:
+            return VK_IMAGE_ASPECT_DEPTH_BIT;
+        case TextureFormat::kD24_S8:
+            [[fallthrough]];
+        case TextureFormat::kD32F_S8:
+            return VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+        default:
+            return VK_IMAGE_ASPECT_COLOR_BIT;
+    }
+}
+
 VkShaderStageFlags PipelineStageFlagsToVkShaderStageFlags(
         SkEnumBitMask<PipelineStageFlags> stageFlags) {
     VkShaderStageFlags vkStageFlags = 0;
@@ -213,6 +231,36 @@ VkShaderStageFlags PipelineStageFlagsToVkShaderStageFlags(
 bool RenderPassDescWillLoadMSAAFromResolve(const RenderPassDesc& renderPassDesc) {
     return renderPassDesc.fColorResolveAttachment.fFormat != TextureFormat::kUnsupported &&
            renderPassDesc.fColorResolveAttachment.fLoadOp == LoadOp::kLoad;
+}
+
+bool RenderPassDescWillImplicitlyLoadMSAA(const RenderPassDesc& renderPassDesc) {
+    SkASSERT(renderPassDesc.fColorAttachment.fFormat != TextureFormat::kUnsupported);
+    SkASSERT(renderPassDesc.fColorAttachment.fSampleCount > SampleCount::k1 ||
+             renderPassDesc.fColorResolveAttachment.fFormat == TextureFormat::kUnsupported);
+
+    return renderPassDesc.fColorAttachment.fSampleCount == SampleCount::k1 &&
+           renderPassDesc.fSampleCount > SampleCount::k1;
+}
+
+RenderPassDesc MakePipelineCompatibleRenderPass(const RenderPassDesc& renderPassDesc) {
+    RenderPassDesc compatible = renderPassDesc;
+
+    // Reset all load/store ops on the attachments since those do not affect compatibility.
+    // Choose a combination that is most likely to be used later by the real render pass.
+    const bool hasResolve =
+            renderPassDesc.fColorResolveAttachment.fFormat != TextureFormat::kUnsupported;
+    const bool needLoadMSAAFromResolveSubpass =
+            RenderPassDescWillLoadMSAAFromResolve(renderPassDesc);
+    compatible.fColorAttachment.fLoadOp =
+            needLoadMSAAFromResolveSubpass ? LoadOp::kDiscard : LoadOp::kClear;
+    compatible.fColorAttachment.fStoreOp = hasResolve ? StoreOp::kDiscard : StoreOp::kStore;
+    compatible.fColorResolveAttachment.fLoadOp =
+            needLoadMSAAFromResolveSubpass ? LoadOp::kLoad : LoadOp::kDiscard;
+    compatible.fColorResolveAttachment.fStoreOp = hasResolve ? StoreOp::kStore : StoreOp::kDiscard;
+    compatible.fDepthStencilAttachment.fLoadOp = LoadOp::kClear;
+    compatible.fDepthStencilAttachment.fStoreOp = StoreOp::kDiscard;
+
+    return compatible;
 }
 
 } // namespace skgpu::graphite

@@ -40,13 +40,13 @@ class RtpReceiverObserverInterface {
   // In the future, it's likely that an RtpReceiver will only call
   // OnFirstPacketReceived when a packet is received specifically for its
   // SSRC/mid.
-  virtual void OnFirstPacketReceived(webrtc::MediaType media_type) = 0;
+  virtual void OnFirstPacketReceived(MediaType media_type) = 0;
 
  protected:
   virtual ~RtpReceiverObserverInterface() {}
 };
 
-class RTC_EXPORT RtpReceiverInterface : public webrtc::RefCountInterface,
+class RTC_EXPORT RtpReceiverInterface : public RefCountInterface,
                                         public FrameTransformerHost {
  public:
   virtual scoped_refptr<MediaStreamTrackInterface> track() const = 0;
@@ -68,7 +68,7 @@ class RTC_EXPORT RtpReceiverInterface : public webrtc::RefCountInterface,
   virtual std::vector<scoped_refptr<MediaStreamInterface>> streams() const;
 
   // Audio or video receiver?
-  virtual webrtc::MediaType media_type() const = 0;
+  virtual MediaType media_type() const = 0;
 
   // Not to be confused with "mid", this is a field we can temporarily use
   // to uniquely identify a receiver until we implement Unified Plan SDP.
@@ -116,9 +116,8 @@ class RTC_EXPORT RtpReceiverInterface : public webrtc::RefCountInterface,
   // Sets a frame transformer between the depacketizer and the decoder to enable
   // client code to transform received frames according to their own processing
   // logic.
-  // TODO: bugs.webrtc.org/15929 - add [[deprecated("Use SetFrameTransformer")]]
-  // when usage in Chrome is removed
-  virtual void SetDepacketizerToDecoderFrameTransformer(
+  [[deprecated("Use SetFrameTransformer")]] virtual void
+  SetDepacketizerToDecoderFrameTransformer(
       scoped_refptr<FrameTransformerInterface> frame_transformer) {
     SetFrameTransformer(std::move(frame_transformer));
   }

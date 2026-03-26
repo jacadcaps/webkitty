@@ -67,9 +67,6 @@ public:
     void markEndOfStream(EndOfStreamStatus) override;
     void unmarkEndOfStream() override;
 
-    MediaPlayer::ReadyState mediaPlayerReadyState() const override;
-    void setMediaPlayerReadyState(MediaPlayer::ReadyState) override;
-
     void notifyActiveSourceBuffersChanged() final;
 
     void startPlaybackIfHasAllTracks();
@@ -105,6 +102,8 @@ public:
     RegisteredTrack registerTrack(TrackID, StreamType);
     void unregisterTrack(TrackID);
 
+    void willSeek();
+
 #if !RELEASE_LOG_DISABLED
     const Logger& logger() const final { return m_logger; }
     ASCIILiteral logClassName() const override { return "MediaSourcePrivateGStreamer"_s; }
@@ -123,9 +122,8 @@ private:
 #if !RELEASE_LOG_DISABLED
     const Ref<const Logger> m_logger;
     const uint64_t m_logIdentifier;
-#endif
-
     uint64_t m_nextSourceBufferID { 0 };
+#endif
 
     // Stores info on known tracks, so we can:
     // 1) Work around collision in track ID between multiple source buffers.

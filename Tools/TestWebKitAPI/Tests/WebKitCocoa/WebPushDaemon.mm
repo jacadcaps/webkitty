@@ -62,7 +62,9 @@
 #import <wtf/UUID.h>
 #import <wtf/UniqueRef.h>
 #import <wtf/cocoa/SpanCocoa.h>
+#import <wtf/darwin/DispatchExtras.h>
 #import <wtf/darwin/XPCExtras.h>
+#import <wtf/darwin/XPCObjectPtr.h>
 #import <wtf/text/Base64.h>
 #import <wtf/text/MakeString.h>
 
@@ -281,7 +283,7 @@ template<> struct TestArgumentCoder<String> {
         if (!is8Bit)
             return std::nullopt;
         if (*is8Bit)
-            return decodeStringText<LChar>(decoder, *length);
+            return decodeStringText<Latin1Character>(decoder, *length);
         return decodeStringText<char16_t>(decoder, *length);
     }
 };
@@ -301,7 +303,7 @@ template<> struct TestArgumentCoder<URL> {
         auto string = decoder.template decode<String>();
         if (!string)
             return std::nullopt;
-        return { URL(WTFMove(*string)) };
+        return { URL(WTF::move(*string)) };
     }
 };
 
@@ -316,7 +318,7 @@ public:
     Vector<uint8_t> takeBytes() { return std::exchange(m_bytes, { }); }
     template<typename T> TestEncoder& operator<<(T&& t)
     {
-        TestArgumentCoder<std::remove_cvref_t<T>, void>::encode(*this, std::forward<T>(t));
+        TestArgumentCoder<std::remove_cvref_t<T>>::encode(*this, std::forward<T>(t));
         return *this;
     }
     template<typename T, size_t Extent> void encodeSpan(std::span<T, Extent> span)
@@ -346,7 +348,7 @@ public:
         RELEASE_ASSERT(decode<IPC::MessageName>() == T::asyncMessageReplyName());
         decode<uint64_t>();
     }
-    template<typename T> std::optional<T> decode() { return TestArgumentCoder<std::remove_cvref_t<T>, void>::decode(*this); }
+    template<typename T> std::optional<T> decode() { return TestArgumentCoder<std::remove_cvref_t<T>>::decode(*this); }
     template<typename T> std::optional<T> decodeInteger()
     {
         while (m_bufferPosition != m_buffer.end() && bufferOffset() % alignof(T))
@@ -425,15 +427,16 @@ public:
     void sendWithAsyncReplyWithoutUsingIPCConnection(M&&, CH&&) const;
 
 private:
-    OSObjectPtr<xpc_object_t> messageDictionaryFromEncoder(TestEncoder&&) const;
+    XPCObjectPtr<xpc_object_t> messageDictionaryFromEncoder(TestEncoder&&) const;
 
-    OSObjectPtr<xpc_connection_t> m_connection;
+    XPCObjectPtr<xpc_connection_t> m_connection;
     bool m_shouldIncrementProtocolVersionForTesting { false };
 };
 
-OSObjectPtr<xpc_object_t> WebPushXPCConnectionMessageSender::messageDictionaryFromEncoder(TestEncoder&& encoder) const
+XPCObjectPtr<xpc_object_t> WebPushXPCConnectionMessageSender::messageDictionaryFromEncoder(TestEncoder&& encoder) const
 {
-    auto dictionary = adoptOSObject(xpc_dictionary_create(nullptr, nullptr, 0));
+    // FIXME: This is a false positive. <rdar://164843889>
+    SUPPRESS_RETAINPTR_CTOR_ADOPT auto dictionary = adoptXPCObject(xpc_dictionary_create(nullptr, nullptr, 0));
 
     uint64_t protocolVersion = WebKit::WebPushD::protocolVersionValue;
     if (m_shouldIncrementProtocolVersionForTesting)
@@ -442,10 +445,11 @@ OSObjectPtr<xpc_object_t> WebPushXPCConnectionMessageSender::messageDictionaryFr
 
     __block auto blockBytes = encoder.takeBytes();
     auto buffer = blockBytes.span();
-    auto dispatchData = adoptNS(dispatch_data_create(buffer.data(), buffer.size(), dispatch_get_main_queue(), ^{
+    auto dispatchData = adoptOSObject(dispatch_data_create(buffer.data(), buffer.size(), mainDispatchQueueSingleton(), ^{
         blockBytes.clear();
     }));
-    auto encoderData = adoptOSObject(xpc_data_create_with_dispatch_data(dispatchData.get()));
+    // FIXME: This is a false positive. <rdar://164843889>
+    SUPPRESS_RETAINPTR_CTOR_ADOPT auto encoderData = adoptXPCObject(xpc_data_create_with_dispatch_data(dispatchData.get()));
 
     xpc_dictionary_set_value(dictionary.get(), WebKit::WebPushD::protocolEncodedMessageKey, encoderData.get());
 
@@ -458,7 +462,7 @@ void WebPushXPCConnectionMessageSender::sendWithoutUsingIPCConnection(M&& messag
     TestEncoder encoder;
     encoder.encodeHeader<M>();
     message.encode(encoder);
-    auto dictionary = messageDictionaryFromEncoder(WTFMove(encoder));
+    auto dictionary = messageDictionaryFromEncoder(WTF::move(encoder));
     xpc_connection_send_message(m_connection.get(), dictionary.get());
 }
 
@@ -468,12 +472,12 @@ void WebPushXPCConnectionMessageSender::sendWithAsyncReplyWithoutUsingIPCConnect
     TestEncoder encoder;
     encoder.encodeHeader<M>();
     message.encode(encoder);
-    auto dictionary = messageDictionaryFromEncoder(WTFMove(encoder));
-    xpc_connection_send_message_with_reply(m_connection.get(), dictionary.get(), dispatch_get_main_queue(), makeBlockPtr([this, completionHandler = WTFMove(completionHandler)] (xpc_object_t reply) mutable {
+    auto dictionary = messageDictionaryFromEncoder(WTF::move(encoder));
+    xpc_connection_send_message_with_reply(m_connection.get(), dictionary.get(), mainDispatchQueueSingleton(), makeBlockPtr([this, completionHandler = WTF::move(completionHandler)] (xpc_object_t reply) mutable {
         if (xpc_get_type(reply) == XPC_TYPE_ERROR) {
             // We only expect an error if we were purposefully testing the wrong protocol version.
             RELEASE_ASSERT(m_shouldIncrementProtocolVersionForTesting);
-            return IPC::cancelReplyWithoutUsingConnection<M>(WTFMove(completionHandler));
+            return IPC::cancelReplyWithoutUsingConnection<M>(WTF::move(completionHandler));
         }
 
         if (xpc_get_type(reply) != XPC_TYPE_DICTIONARY)
@@ -484,7 +488,7 @@ void WebPushXPCConnectionMessageSender::sendWithAsyncReplyWithoutUsingIPCConnect
         auto data = xpcDictionaryGetData(reply, WebKit::WebPushD::protocolEncodedMessageKey);
         TestDecoder decoder(data);
         decoder.ignoreHeader<M>();
-        IPC::callReplyWithoutUsingConnection<M>(decoder, WTFMove(completionHandler));
+        IPC::callReplyWithoutUsingConnection<M>(decoder, WTF::move(completionHandler));
     }).get());
 }
 
@@ -503,13 +507,14 @@ static WebKit::WebPushD::WebPushDaemonConnectionConfiguration defaultWebPushDaem
     memcpySpan(auditToken.mutableSpan(), asByteSpan(token));
 
     IGNORE_CLANG_WARNINGS_BEGIN("missing-designated-field-initializers")
-    return { .hostAppAuditTokenData = WTFMove(auditToken) };
+    return { .hostAppAuditTokenData = WTF::move(auditToken) };
     IGNORE_CLANG_WARNINGS_END
 }
 
-RetainPtr<xpc_connection_t> createAndConfigureConnectionToService(const char* serviceName, std::optional<WebKit::WebPushD::WebPushDaemonConnectionConfiguration> configuration = std::nullopt)
+XPCObjectPtr<xpc_connection_t> createAndConfigureConnectionToService(const char* serviceName, std::optional<WebKit::WebPushD::WebPushDaemonConnectionConfiguration> configuration = std::nullopt)
 {
-    auto connection = adoptNS(xpc_connection_create_mach_service(serviceName, dispatch_get_main_queue(), 0));
+    // FIXME: This is a false positive. <rdar://164843889>
+    SUPPRESS_RETAINPTR_CTOR_ADOPT auto connection = adoptXPCObject(xpc_connection_create_mach_service(serviceName, mainDispatchQueueSingleton(), 0));
     xpc_connection_set_event_handler(connection.get(), ^(xpc_object_t) { });
     xpc_connection_activate(connection.get());
     auto sender = WebPushXPCConnectionMessageSender { connection.get() };
@@ -518,14 +523,15 @@ RetainPtr<xpc_connection_t> createAndConfigureConnectionToService(const char* se
         configuration = defaultWebPushDaemonConfiguration();
     sender.sendWithoutUsingIPCConnection(Messages::PushClientConnection::InitializeConnection(configuration.value()));
 
-    return WTFMove(connection);
+    return connection;
 }
 
 TEST(WebPushD, BasicCommunication)
 {
     NSURL *tempDir = setUpTestWebPushD();
 
-    auto connection = adoptNS(xpc_connection_create_mach_service("org.webkit.webpushtestdaemon.service", dispatch_get_main_queue(), 0));
+    // FIXME: This is a false positive. <rdar://164843889>
+    SUPPRESS_RETAINPTR_CTOR_ADOPT auto connection = adoptXPCObject(xpc_connection_create_mach_service("org.webkit.webpushtestdaemon.service", mainDispatchQueueSingleton(), 0));
 
     __block bool done = false;
     __block bool interrupted = false;
@@ -909,10 +915,10 @@ public:
             ready = true;
         }];
 
-        m_server.reset(new TestWebKitAPI::HTTPServer({
+        m_server = makeUnique<TestWebKitAPI::HTTPServer>(std::initializer_list<std::pair<String, TestWebKitAPI::HTTPResponse>> {
             { "/"_s, { html } },
             { "/sw.js"_s, { { { "Content-Type"_s, "application/javascript"_s } }, serviceWorkerScriptSource } }
-        }, TestWebKitAPI::HTTPServer::Protocol::HttpsProxy));
+        }, TestWebKitAPI::HTTPServer::Protocol::HttpsProxy);
 
         auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
         // This step is required early to make sure the first NetworkProcess access has the correct
@@ -1179,12 +1185,12 @@ public:
 
     _WKNotificationData *mostRecentNotification()
     {
-        return m_delegate.get().mostRecentNotification.get();
+        return m_delegate.get().mostRecentNotification.unsafeGet();
     }
 
     NSURL *mostRecentActionURL()
     {
-        return m_delegate.get().mostRecentActionURL.get();
+        return m_delegate.get().mostRecentActionURL.unsafeGet();
     }
 
     std::optional<uint64_t> mostRecentAppBadge()
@@ -1206,7 +1212,7 @@ public:
             @"userInfo": apsUserInfo
         };
 
-        String message { span([NSJSONSerialization dataWithJSONObject:obj options:0 error:nullptr]) };
+        String message { byteCast<Latin1Character>(span([NSJSONSerialization dataWithJSONObject:obj options:0 error:nullptr])) };
 
         auto utilityConnection = createAndConfigureConnectionToService("org.webkit.webpushtestdaemon.service");
         auto sender = WebPushXPCConnectionMessageSender { utilityConnection.get() };
@@ -1375,19 +1381,19 @@ public:
         m_notificationProvider = makeUnique<TestWebKitAPI::TestNotificationProvider>(Vector<WKNotificationManagerRef> { [processPool _notificationManagerForTesting], WKNotificationManagerGetSharedServiceWorkerNotificationManager() });
 
         auto webView = makeUniqueRef<WebPushDTestWebView>(emptyString(), std::nullopt, processPool.get(), *m_notificationProvider, m_html, m_installDataStoreDelegate, m_builtInNotificationsEnabled);
-        m_webViews.append(WTFMove(webView));
+        m_webViews.append(WTF::move(webView));
 
         auto webViewWithIdentifier1 = makeUniqueRef<WebPushDTestWebView>(emptyString(), WTF::UUID::parse("0bf5053b-164c-4b7d-8179-832e6bf158df"_s), processPool.get(), *m_notificationProvider, m_html, m_installDataStoreDelegate, m_builtInNotificationsEnabled);
-        m_webViews.append(WTFMove(webViewWithIdentifier1));
+        m_webViews.append(WTF::move(webViewWithIdentifier1));
 
         auto webViewWithIdentifier2 = makeUniqueRef<WebPushDTestWebView>(emptyString(), WTF::UUID::parse("940e7729-738e-439f-a366-1a8719e23b2d"_s), processPool.get(), *m_notificationProvider, m_html, m_installDataStoreDelegate, m_builtInNotificationsEnabled);
-        m_webViews.append(WTFMove(webViewWithIdentifier2));
+        m_webViews.append(WTF::move(webViewWithIdentifier2));
 
         auto webViewWithPartition = makeUniqueRef<WebPushDTestWebView>("testPartition"_s, std::nullopt, processPool.get(), *m_notificationProvider, m_html, m_installDataStoreDelegate, m_builtInNotificationsEnabled);
-        m_webViews.append(WTFMove(webViewWithPartition));
+        m_webViews.append(WTF::move(webViewWithPartition));
 
         auto webViewWithPartitionAndIdentifier = makeUniqueRef<WebPushDTestWebView>("testPartition"_s, WTF::UUID::parse("940e7729-738e-439f-a366-1a8719e23b2d"_s), processPool.get(), *m_notificationProvider, m_html, m_installDataStoreDelegate, m_builtInNotificationsEnabled);
-        m_webViews.append(WTFMove(webViewWithPartitionAndIdentifier));
+        m_webViews.append(WTF::move(webViewWithPartitionAndIdentifier));
     }
 
     ~WebPushDTest()
@@ -1411,7 +1417,7 @@ public:
         });
         TestWebKitAPI::Util::run(&done);
 
-        return std::make_pair(WTFMove(enabledTopics), WTFMove(ignoredTopics));
+        return std::make_pair(WTF::move(enabledTopics), WTF::move(ignoredTopics));
     }
 
     size_t subscribedTopicsCount() { return getPushTopics().first.size(); }
@@ -1863,7 +1869,7 @@ TEST_F(WebPushDBuiltInTest, ShowAndGetNotifications)
     auto configuration = defaultWebPushDaemonConfiguration();
     configuration.pushPartitionString = dataStore.get()._webPushPartition;
     configuration.dataStoreIdentifier = WTF::UUID::fromNSUUID(dataStore.get()._identifier);
-    auto utilityConnection = createAndConfigureConnectionToService("org.webkit.webpushtestdaemon.service", WTFMove(configuration));
+    auto utilityConnection = createAndConfigureConnectionToService("org.webkit.webpushtestdaemon.service", WTF::move(configuration));
     auto sender = WebPushXPCConnectionMessageSender { utilityConnection.get() };
 
     WebKit::WebPushD::PushMessageForTesting message;
@@ -2437,9 +2443,9 @@ static constexpr ASCIILiteral json35 = R"JSONRESOURCE(
     "web_push": 8030,
     "notification": {
         "navigate": "https://example.com/",
-        "title": "Hello world!",
-        "mutable": 39
-    }
+        "title": "Hello world!"
+    },
+    "mutable": 39
 }
 )JSONRESOURCE"_s;
 static constexpr ASCIILiteral json36 = R"JSONRESOURCE(
@@ -2447,9 +2453,9 @@ static constexpr ASCIILiteral json36 = R"JSONRESOURCE(
     "web_push": 8030,
     "notification": {
         "navigate": "https://example.com/",
-        "title": "Hello world!",
-        "mutable": { }
-    }
+        "title": "Hello world!"
+    },
+    "mutable": { }
 }
 )JSONRESOURCE"_s;
 static constexpr ASCIILiteral json37 = R"JSONRESOURCE(
@@ -2457,9 +2463,9 @@ static constexpr ASCIILiteral json37 = R"JSONRESOURCE(
     "web_push": 8030,
     "notification": {
         "navigate": "https://example.com/",
-        "title": "Hello world!",
-        "mutable": "true"
-    }
+        "title": "Hello world!"
+    },
+    "mutable": "true"
 }
 )JSONRESOURCE"_s;
 static constexpr ASCIILiteral json38 = R"JSONRESOURCE(
@@ -2468,8 +2474,8 @@ static constexpr ASCIILiteral json38 = R"JSONRESOURCE(
     "notification": {
         "navigate": "https://example.com/",
         "title": "Hello world!",
-        "mutable": true
-    }
+    },
+    "mutable": true
 }
 )JSONRESOURCE"_s;
 static constexpr ASCIILiteral json39 = R"JSONRESOURCE(
@@ -2478,9 +2484,9 @@ static constexpr ASCIILiteral json39 = R"JSONRESOURCE(
     "app_badge": "12",
     "notification": {
         "navigate": "https://example.com/",
-        "title": "Hello world!",
-        "mutable": true
-    }
+        "title": "Hello world!"
+    },
+    "mutable": true
 }
 )JSONRESOURCE"_s;
 static constexpr ASCIILiteral json40 = R"JSONRESOURCE(
@@ -2490,9 +2496,9 @@ static constexpr ASCIILiteral json40 = R"JSONRESOURCE(
     "notification": {
         "navigate": "https://example.com/",
         "title": "Hello world!",
-        "mutable": true,
         "tag": "title Gotcha!"
-    }
+    },
+    "mutable": true
 }
 )JSONRESOURCE"_s;
 static constexpr ASCIILiteral json41 = R"JSONRESOURCE(
@@ -2502,9 +2508,9 @@ static constexpr ASCIILiteral json41 = R"JSONRESOURCE(
     "notification": {
         "navigate": "https://example.com/",
         "title": "Hello world!",
-        "mutable": true,
         "tag": "badge 1024"
-    }
+    },
+    "mutable": true
 }
 )JSONRESOURCE"_s;
 static constexpr ASCIILiteral json42 = R"JSONRESOURCE(
@@ -2514,9 +2520,9 @@ static constexpr ASCIILiteral json42 = R"JSONRESOURCE(
     "notification": {
         "navigate": "https://example.com/",
         "title": "Hello world!",
-        "mutable": true,
         "tag": "titleandbadge ThisRules 4096"
-    }
+    },
+    "mutable": true
 }
 )JSONRESOURCE"_s;
 static constexpr ASCIILiteral json43 = R"JSONRESOURCE(
@@ -2526,10 +2532,10 @@ static constexpr ASCIILiteral json43 = R"JSONRESOURCE(
     "notification": {
         "navigate": "https://example.com/",
         "title": "Test the data object",
-        "mutable": true,
         "tag": "datatotitle",
         "data": "Raw string"
-    }
+    },
+    "mutable": true
 }
 )JSONRESOURCE"_s;
 static constexpr ASCIILiteral json44 = R"JSONRESOURCE(
@@ -2539,10 +2545,10 @@ static constexpr ASCIILiteral json44 = R"JSONRESOURCE(
     "notification": {
         "navigate": "https://example.com/",
         "title": "Test the data object",
-        "mutable": true,
         "tag": "datatotitle",
         "data": { "key": "value" }
-    }
+    },
+    "mutable": true
 }
 )JSONRESOURCE"_s;
 static constexpr ASCIILiteral json45 = R"JSONRESOURCE(
@@ -2552,11 +2558,12 @@ static constexpr ASCIILiteral json45 = R"JSONRESOURCE(
     "notification": {
         "navigate": "https://example.com/",
         "title": "Test a default action URL override",
-        "mutable": true,
         "tag": "defaultactionurl https://webkit.org/"
-    }
+    },
+    "mutable": true
 }
 )JSONRESOURCE"_s;
+// Intentionally keep mutable as a child of notification here until we fix webkit.org/b/297389.
 static constexpr ASCIILiteral json46 = R"JSONRESOURCE(
 {
     "web_push": 8030,

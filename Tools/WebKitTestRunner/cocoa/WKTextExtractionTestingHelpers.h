@@ -29,10 +29,9 @@
 #import <WebKit/_WKTextExtraction.h>
 
 @class WKTextExtractionItem;
-@class WKTextExtractionResult;
 
 @interface WKWebView (TextExtractionTesting)
-- (void)_requestTextExtraction:(_WKTextExtractionConfiguration *)configuration completionHandler:(void(^)(WKTextExtractionResult *))completionHandler;
+- (void)_requestTextExtraction:(_WKTextExtractionConfiguration *)configuration completionHandler:(void(^)(WKTextExtractionItem *))completionHandler;
 @end
 
 namespace WTR {

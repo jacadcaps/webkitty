@@ -27,13 +27,13 @@
 #include "Frame.h"
 
 #include "ContainerNodeInlines.h"
-#include "FrameInlines.h"
 #include "FrameLoader.h"
 #include "FrameLoaderClient.h"
 #include "HTMLFrameOwnerElement.h"
 #include "HTMLIFrameElement.h"
 #include "LocalDOMWindow.h"
 #include "NavigationScheduler.h"
+#include "NodeDocument.h"
 #include "OwnerPermissionsPolicyData.h"
 #include "Page.h"
 #include "RemoteFrame.h"
@@ -42,6 +42,7 @@
 #include "ScrollingCoordinator.h"
 #include "Settings.h"
 #include "WindowProxy.h"
+#include <wtf/Assertions.h>
 #include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
@@ -118,7 +119,7 @@ Frame::Frame(Page& page, FrameIdentifier frameID, FrameType frameType, HTMLFrame
     , m_frameType(frameType)
     , m_navigationScheduler(makeUniqueRefWithoutRefCountedCheck<NavigationScheduler>(*this))
     , m_opener(opener)
-    , m_frameTreeSyncData(WTFMove(frameTreeSyncData))
+    , m_frameTreeSyncData(WTF::move(frameTreeSyncData))
 {
     relaxAdoptionRequirement();
     if (parent && addToFrameTree == AddToFrameTree::Yes)
@@ -137,8 +138,8 @@ Frame::Frame(Page& page, FrameIdentifier frameID, FrameType frameType, HTMLFrame
 
 Frame::~Frame()
 {
-    m_windowProxy->detachFromFrame();
-    m_navigationScheduler->cancel();
+    protectedWindowProxy()->detachFromFrame();
+    protectedNavigationScheduler()->cancel();
 
 #if ASSERT_ENABLED
     FrameLifetimeVerifier::singleton().frameDestroyed(*this);
@@ -153,9 +154,9 @@ void Frame::resetWindowProxy()
 void Frame::detachFromPage()
 {
     if (isRootFrame()) {
-        if (m_page) {
-            m_page->removeRootFrame(downcast<LocalFrame>(*this));
-            if (RefPtr scrollingCoordinator = m_page->scrollingCoordinator())
+        if (RefPtr page = m_page.get()) {
+            page->removeRootFrame(downcast<LocalFrame>(*this));
+            if (RefPtr scrollingCoordinator = page->scrollingCoordinator())
                 scrollingCoordinator->rootFrameWasRemoved(frameID());
         }
     }
@@ -164,8 +165,8 @@ void Frame::detachFromPage()
 
 void Frame::disconnectOwnerElement()
 {
-    if (m_ownerElement) {
-        m_ownerElement->clearContentFrame();
+    if (RefPtr ownerElement = m_ownerElement.get()) {
+        ownerElement->clearContentFrame();
         m_ownerElement = nullptr;
     }
 
@@ -176,21 +177,22 @@ void Frame::takeWindowProxyAndOpenerFrom(Frame& frame)
 {
     ASSERT(is<LocalDOMWindow>(window()) != is<LocalDOMWindow>(frame.window()) || page() != frame.page());
     ASSERT(m_windowProxy->frame() == this);
-    m_windowProxy->detachFromFrame();
+    protectedWindowProxy()->detachFromFrame();
     m_windowProxy = frame.windowProxy();
     frame.resetWindowProxy();
-    m_windowProxy->replaceFrame(*this);
+    protectedWindowProxy()->replaceFrame(*this);
 
     ASSERT(!m_opener);
     m_opener = frame.m_opener;
     if (m_opener)
         m_opener->m_openedFrames.add(*this);
 
-    for (auto& opened : frame.m_openedFrames) {
-        ASSERT(opened.m_opener.get() == &frame);
-        opened.m_opener = *this;
+    for (Ref opened : frame.m_openedFrames) {
+        ASSERT(opened->m_opener.get() == &frame);
+        opened->m_opener = *this;
         m_openedFrames.add(opened);
     }
+    frame.m_openedFrames.clear();
 }
 
 Ref<WindowProxy> Frame::protectedWindowProxy() const
@@ -206,6 +208,35 @@ RefPtr<DOMWindow> Frame::protectedWindow() const
 Ref<NavigationScheduler> Frame::protectedNavigationScheduler() const
 {
     return m_navigationScheduler.get();
+}
+
+std::optional<uint64_t> Frame::indexInFrameTreeSiblings() const
+{
+    if (!tree().parent())
+        return std::nullopt;
+
+    for (uint64_t i = 0; i < tree().parent()->tree().childCount(); i++) {
+        if (RefPtr child = tree().parent()->tree().child(i); child->frameID() == this->frameID())
+            return i;
+    }
+
+    ASSERT_NOT_REACHED("This frame should be in its own tree");
+    return std::nullopt;
+}
+
+Vector<uint64_t> Frame::pathToFrame() const
+{
+    Vector<uint64_t> path;
+    RefPtr current = this;
+
+    while (current) {
+        if (auto index = current->indexInFrameTreeSiblings())
+            path.append(*index);
+        current = current->tree().parent();
+    }
+
+    path.reverse();
+    return path;
 }
 
 RenderWidget* Frame::ownerRenderer() const
@@ -235,7 +266,7 @@ bool Frame::isRootFrameIdentifier(FrameIdentifier identifier)
 void Frame::updateOpener(Frame& newOpener, NotifyUIProcess notifyUIProcess)
 {
     if (notifyUIProcess == NotifyUIProcess::Yes)
-        loaderClient().updateOpener(newOpener);
+        loaderClient().updateOpener(newOpener.frameID());
     if (m_opener)
         m_opener->m_openedFrames.remove(*this);
     newOpener.m_openedFrames.add(*this);
@@ -246,10 +277,14 @@ void Frame::updateOpener(Frame& newOpener, NotifyUIProcess notifyUIProcess)
     reinitializeDocumentSecurityContext();
 }
 
-void Frame::disownOpener()
+void Frame::disownOpener(NotifyUIProcess notifyUIProcess)
 {
-    if (m_opener)
+    if (m_opener) {
+        if (notifyUIProcess == NotifyUIProcess::Yes)
+            loaderClient().updateOpener(std::nullopt);
         m_opener->m_openedFrames.remove(*this);
+    }
+
     m_opener = nullptr;
 
     reinitializeDocumentSecurityContext();
@@ -266,8 +301,8 @@ void Frame::setOpenerForWebKitLegacy(Frame* frame)
 
 void Frame::detachFromAllOpenedFrames()
 {
-    for (auto& frame : std::exchange(m_openedFrames, { }))
-        frame.m_opener = nullptr;
+    for (Ref frame : std::exchange(m_openedFrames, { }))
+        frame->m_opener = nullptr;
 }
 
 bool Frame::hasOpenedFrames() const
@@ -287,24 +322,24 @@ void Frame::setOwnerElement(HTMLFrameOwnerElement* element)
 
 void Frame::setOwnerPermissionsPolicy(OwnerPermissionsPolicyData&& ownerPermissionsPolicy)
 {
-    m_ownerPermisssionsPolicyOverride = makeUnique<OwnerPermissionsPolicyData>(WTFMove(ownerPermissionsPolicy));
+    m_ownerPermissionsPolicyOverride = makeUnique<OwnerPermissionsPolicyData>(WTF::move(ownerPermissionsPolicy));
 }
 
 std::optional<OwnerPermissionsPolicyData> Frame::ownerPermissionsPolicy() const
 {
-    if (m_ownerPermisssionsPolicyOverride)
-        return *m_ownerPermisssionsPolicyOverride;
+    if (m_ownerPermissionsPolicyOverride)
+        return *m_ownerPermissionsPolicyOverride;
 
     RefPtr owner = ownerElement();
     if (!owner)
         return std::nullopt;
 
-    auto documentOrigin = owner->document().securityOrigin().data();
-    auto documentPolicy = owner->document().permissionsPolicy();
+    auto documentOrigin = owner->protectedDocument()->securityOrigin().data();
+    auto documentPolicy = owner->protectedDocument()->permissionsPolicy();
 
     RefPtr iframe = dynamicDowncast<HTMLIFrameElement>(owner);
     auto containerPolicy = iframe ? PermissionsPolicy::processPermissionsPolicyAttribute(*iframe) : PermissionsPolicy::PolicyDirective { };
-    return OwnerPermissionsPolicyData { WTFMove(documentOrigin), WTFMove(documentPolicy), WTFMove(containerPolicy) };
+    return OwnerPermissionsPolicyData { WTF::move(documentOrigin), WTF::move(documentPolicy), WTF::move(containerPolicy) };
 }
 
 void Frame::updateSandboxFlags(SandboxFlags flags, NotifyUIProcess notifyUIProcess)
@@ -325,7 +360,12 @@ void Frame::stopForBackForwardCache()
 
 void Frame::updateFrameTreeSyncData(Ref<FrameTreeSyncData>&& data)
 {
-    m_frameTreeSyncData = WTFMove(data);
+    m_frameTreeSyncData = WTF::move(data);
+}
+
+void Frame::updateFrameTreeSyncData(const FrameTreeSyncSerializationData& data)
+{
+    protectedFrameTreeSyncData()->update(data);
 }
 
 bool Frame::frameCanCreatePaymentSession() const
@@ -333,6 +373,18 @@ bool Frame::frameCanCreatePaymentSession() const
     // Prefer the LocalFrame code path when site isolation is disabled.
     ASSERT(m_settings->siteIsolationEnabled());
     return m_frameTreeSyncData->frameCanCreatePaymentSession;
+}
+
+bool Frame::isPrinting() const
+{
+    return m_isPrinting;
+}
+
+void Frame::setPrinting(bool printing, FloatSize pageSize, FloatSize originalPageSize, float maximumShrinkRatio, AdjustViewSize shouldAdjustViewSize, NotifyUIProcess notifyUIProcess)
+{
+    m_isPrinting = printing;
+    if (notifyUIProcess == NotifyUIProcess::Yes && m_settings->siteIsolationEnabled())
+        loaderClient().setPrinting(printing, pageSize, originalPageSize, maximumShrinkRatio, shouldAdjustViewSize);
 }
 
 } // namespace WebCore

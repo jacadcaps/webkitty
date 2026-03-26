@@ -25,6 +25,8 @@
 
 #pragma once
 
+#include <stdint.h>
+
 enum {
     kXTScopeNone    = 0,
     kXTScopeProcess = 1UL << 0,
@@ -36,3 +38,9 @@ enum {
 };
 
 typedef uint32_t XTScope;
+
+enum {
+    kXTOptionsDoNotSortResults          = 1 << 4,
+};
+
+typedef uint32_t XTOptions;

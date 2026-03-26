@@ -37,6 +37,8 @@
 #include <Security/SecIdentity.h>
 #include <Security/SecItem.h>
 #include <WebCore/CertificateInfo.h>
+#include <wtf/NeverDestroyed.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/cf/VectorCF.h>
 
 #if HAVE(SEC_KEYCHAIN)
@@ -47,6 +49,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 #endif
 
 namespace WebKit {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SecItemShimProxy);
 
 #define MESSAGE_CHECK_COMPLETION(assertion, connection, completion) MESSAGE_CHECK_COMPLETION_BASE(assertion, connection, completion)
 
@@ -67,12 +71,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 SecItemShimProxy& SecItemShimProxy::singleton()
 {
-    static SecItemShimProxy* proxy;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        proxy = new SecItemShimProxy;
-    });
-    return *proxy;
+    static NeverDestroyed<UniqueRef<SecItemShimProxy>> proxy = makeUniqueRefWithoutRefCountedCheck<SecItemShimProxy>();
+    return proxy.get();
 }
 
 SecItemShimProxy::SecItemShimProxy()
@@ -92,8 +92,8 @@ void SecItemShimProxy::initializeConnection(IPC::Connection& connection)
 
 void SecItemShimProxy::secItemRequest(IPC::Connection& connection, const SecItemRequestData& request, CompletionHandler<void(std::optional<SecItemResponseData>&&)>&& response)
 {
-    MESSAGE_CHECK_COMPLETION(!dictionaryContainsInMemoryObject(request.query()), connection, response(SecItemResponseData { errSecParam, nullptr }));
-    MESSAGE_CHECK_COMPLETION(!dictionaryContainsInMemoryObject(request.attributesToMatch()), connection, response(SecItemResponseData { errSecParam, nullptr }));
+    MESSAGE_CHECK_COMPLETION(!dictionaryContainsInMemoryObject(request.protectedQuery().get()), connection, response(SecItemResponseData { errSecParam, nullptr }));
+    MESSAGE_CHECK_COMPLETION(!dictionaryContainsInMemoryObject(request.protectedAttributesToMatch().get()), connection, response(SecItemResponseData { errSecParam, nullptr }));
 
     switch (request.type()) {
     case SecItemRequestData::Type::Invalid:
@@ -103,7 +103,7 @@ void SecItemShimProxy::secItemRequest(IPC::Connection& connection, const SecItem
 
     case SecItemRequestData::Type::CopyMatching: {
         CFTypeRef resultRawObject = nullptr;
-        OSStatus resultCode = SecItemCopyMatching(request.query(), &resultRawObject);
+        OSStatus resultCode = SecItemCopyMatching(request.protectedQuery().get(), &resultRawObject);
         auto result = adoptCF(resultRawObject);
 
         SecItemResponseData::Result resultData;
@@ -111,7 +111,7 @@ void SecItemShimProxy::secItemRequest(IPC::Connection& connection, const SecItem
             auto resultType = CFGetTypeID(result.get());
             CFArrayRef resultArray = (CFArrayRef)result.get();
             if (resultType == CFArrayGetTypeID() && CFArrayGetCount(resultArray)) {
-                auto containedType = CFGetTypeID(CFArrayGetValueAtIndex(resultArray, 0));
+                auto containedType = CFGetTypeID(RetainPtr { CFArrayGetValueAtIndex(resultArray, 0) }.get());
                 if (containedType == SecCertificateGetTypeID()) {
                     resultData = Vector<RetainPtr<SecCertificateRef>>(makeVector(resultArray, [] (SecCertificateRef element) {
                         return std::optional(RetainPtr<SecCertificateRef> { element });
@@ -125,30 +125,30 @@ void SecItemShimProxy::secItemRequest(IPC::Connection& connection, const SecItem
                     ALLOW_DEPRECATED_DECLARATIONS_END
 #endif
                 } else
-                    resultData = WTFMove(result);
+                    resultData = WTF::move(result);
             } else
-                resultData = WTFMove(result);
+                resultData = WTF::move(result);
         }
-        response(SecItemResponseData { resultCode, WTFMove(resultData) });
+        response(SecItemResponseData { resultCode, WTF::move(resultData) });
         break;
     }
 
     case SecItemRequestData::Type::Add: {
         // Return value of SecItemAdd is often ignored. Even if it isn't, we don't have the ability to
         // serialize SecKeychainItemRef.
-        OSStatus resultCode = SecItemAdd(request.query(), nullptr);
+        OSStatus resultCode = SecItemAdd(request.protectedQuery().get(), nullptr);
         response(SecItemResponseData { resultCode, nullptr });
         break;
     }
 
     case SecItemRequestData::Type::Update: {
-        OSStatus resultCode = SecItemUpdate(request.query(), request.attributesToMatch());
+        OSStatus resultCode = SecItemUpdate(request.protectedQuery().get(), request.protectedAttributesToMatch().get());
         response(SecItemResponseData { resultCode, nullptr });
         break;
     }
 
     case SecItemRequestData::Type::Delete: {
-        OSStatus resultCode = SecItemDelete(request.query());
+        OSStatus resultCode = SecItemDelete(request.protectedQuery().get());
         response(SecItemResponseData { resultCode, nullptr });
         break;
     }
@@ -157,7 +157,7 @@ void SecItemShimProxy::secItemRequest(IPC::Connection& connection, const SecItem
 
 void SecItemShimProxy::secItemRequestSync(IPC::Connection& connection, const SecItemRequestData& data, CompletionHandler<void(std::optional<SecItemResponseData>&&)>&& completionHandler)
 {
-    secItemRequest(connection, data, WTFMove(completionHandler));
+    secItemRequest(connection, data, WTF::move(completionHandler));
 }
 
 #undef MESSAGE_CHECK_COMPLETION

@@ -32,11 +32,11 @@ TEST(WTF_Observer, Basic)
 {
     bool testValue = false;
 
-    Observer<void(bool)> observer([&] (bool value) {
+    Ref observer = Observer<void(bool)>::create([&] (bool value) {
         testValue = value;
     });
 
-    observer(true);
+    observer.get()(true);
 
     EXPECT_TRUE(testValue);
 }
@@ -45,11 +45,11 @@ TEST(WTF_Observer, Weak)
 {
     bool testValue = false;
 
-    auto uniqueObserver = WTF::makeUnique<Observer<void(bool)>>([&] (bool value) {
+    RefPtr observer = Observer<void(bool)>::create([&] (bool value) {
         testValue = value;
     });
 
-    WeakPtr weakObserver = uniqueObserver.get();
+    WeakPtr weakObserver = observer.get();
 
     ASSERT_TRUE(static_cast<bool>(weakObserver));
 
@@ -57,7 +57,7 @@ TEST(WTF_Observer, Weak)
 
     EXPECT_TRUE(testValue);
 
-    uniqueObserver = nullptr;
+    observer = nullptr;
 
     EXPECT_FALSE(static_cast<bool>(weakObserver));
 }

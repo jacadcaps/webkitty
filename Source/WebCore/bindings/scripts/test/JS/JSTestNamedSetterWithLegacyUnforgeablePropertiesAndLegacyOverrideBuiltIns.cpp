@@ -23,8 +23,7 @@
 
 #include "ActiveDOMObject.h"
 #include "ContextDestructionObserverInlines.h"
-#include "Document.h"
-#include "DocumentInlines.h"
+#include "DocumentQuirks.h"
 #include "ExtendedDOMClientIsoSubspaces.h"
 #include "ExtendedDOMIsoSubspaces.h"
 #include "IDLTypes.h"
@@ -38,7 +37,6 @@
 #include "JSDOMGlobalObjectInlines.h"
 #include "JSDOMOperation.h"
 #include "JSDOMWrapperCache.h"
-#include "Quirks.h"
 #include "ScriptExecutionContext.h"
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/FunctionPrototype.h>
@@ -149,7 +147,7 @@ void JSTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltInsPr
 const ClassInfo JSTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns::s_info = { "TestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns"_s, &Base::s_info, &JSTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltInsTable, nullptr, CREATE_METHOD_TABLE(JSTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns) };
 
 JSTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns::JSTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns(Structure* structure, JSDOMGlobalObject& globalObject, Ref<TestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns>&& impl)
-    : JSDOMWrapper<TestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns>(structure, globalObject, WTFMove(impl))
+    : JSDOMWrapper<TestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns>(structure, globalObject, WTF::move(impl))
 {
 }
 
@@ -174,7 +172,7 @@ JSValue JSTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIn
 
 void JSTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns::destroy(JSC::JSCell* cell)
 {
-    JSTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns* thisObject = static_cast<JSTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns*>(cell);
+    SUPPRESS_MEMORY_UNSAFE_CAST JSTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns* thisObject = static_cast<JSTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns*>(cell);
     thisObject->JSTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns::~JSTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns();
 }
 
@@ -189,7 +187,7 @@ bool JSTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns::
             return thisObject.wrapped().namedItem(propertyNameToAtomString(propertyName));
         });
         if (auto namedProperty = accessVisibleNamedProperty<LegacyOverrideBuiltIns::Yes>(*lexicalGlobalObject, *thisObject, propertyName, getterFunctor)) {
-            auto value = toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, WTFMove(namedProperty.value()));
+            auto value = toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, WTF::move(namedProperty.value()));
             RETURN_IF_EXCEPTION(throwScope, false);
             slot.setValue(thisObject, 0, value);
             return true;
@@ -216,7 +214,7 @@ bool JSTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns::
         return thisObject.wrapped().namedItem(propertyNameToAtomString(propertyName));
     });
     if (auto namedProperty = accessVisibleNamedProperty<LegacyOverrideBuiltIns::Yes>(*lexicalGlobalObject, *thisObject, propertyName, getterFunctor)) {
-        auto value = toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, WTFMove(namedProperty.value()));
+        auto value = toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, WTF::move(namedProperty.value()));
         RETURN_IF_EXCEPTION(throwScope, false);
         slot.setValue(thisObject, 0, value);
         return true;
@@ -224,7 +222,7 @@ bool JSTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns::
     return JSObject::getOwnPropertySlotByIndex(object, lexicalGlobalObject, index, slot);
 }
 
-void JSTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns::getOwnPropertyNames(JSObject* object, JSGlobalObject* lexicalGlobalObject, PropertyNameArray& propertyNames, DontEnumPropertiesMode mode)
+void JSTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns::getOwnPropertyNames(JSObject* object, JSGlobalObject* lexicalGlobalObject, PropertyNameArrayBuilder& propertyNames, DontEnumPropertiesMode mode)
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto* thisObject = jsCast<JSTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns*>(object);
@@ -261,7 +259,7 @@ bool JSTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns::
         ownDescriptor.setPropertySlot(lexicalGlobalObject, propertyName, slot);
         RETURN_IF_EXCEPTION(throwScope, false);
     }
-    RELEASE_AND_RETURN(throwScope, ordinarySetWithOwnDescriptor(lexicalGlobalObject, thisObject, propertyName, value, putPropertySlot.thisValue(), WTFMove(ownDescriptor), putPropertySlot.isStrictMode()));
+    RELEASE_AND_RETURN(throwScope, ordinarySetWithOwnDescriptor(lexicalGlobalObject, thisObject, propertyName, value, putPropertySlot.thisValue(), WTF::move(ownDescriptor), putPropertySlot.isStrictMode()));
 }
 
 bool JSTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns::putByIndex(JSCell* cell, JSGlobalObject* lexicalGlobalObject, unsigned index, JSValue value, bool)
@@ -417,7 +415,7 @@ bool JSTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltInsOw
 
 void JSTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltInsOwner::finalize(JSC::Handle<JSC::Unknown> handle, void* context)
 {
-    auto* jsTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns = static_cast<JSTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns*>(handle.slot()->asCell());
+    SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns = static_cast<JSTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
     uncacheWrapper(world, jsTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns->protectedWrapped().ptr(), jsTestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns);
 }
@@ -431,7 +429,7 @@ extern "C" { extern void (*const __identifier("??_7TestNamedSetterWithLegacyUnfo
 extern "C" { extern void* _ZTVN7WebCore71TestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltInsE[]; }
 #endif
 template<std::same_as<TestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns> T>
-static inline void verifyVTable(TestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns* ptr) 
+static inline void verifyVTable(TestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns* ptr)
 {
     if constexpr (std::is_polymorphic_v<T>) {
         const void* actualVTablePointer = getVTablePointer<T>(ptr);
@@ -451,12 +449,13 @@ static inline void verifyVTable(TestNamedSetterWithLegacyUnforgeablePropertiesAn
 #endif
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns>&& impl)
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<TestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns>&& impl)
 {
+    UNUSED_PARAM(lexicalGlobalObject);
 #if ENABLE(BINDING_INTEGRITY)
     verifyVTable<TestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns>(impl.ptr());
 #endif
-    return createWrapper<TestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns>(globalObject, WTFMove(impl));
+    return createWrapper<TestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns>(globalObject, WTF::move(impl));
 }
 
 JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestNamedSetterWithLegacyUnforgeablePropertiesAndLegacyOverrideBuiltIns& impl)

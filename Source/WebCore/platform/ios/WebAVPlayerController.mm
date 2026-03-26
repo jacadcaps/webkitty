@@ -141,13 +141,13 @@ static double WebAVPlayerControllerLiveStreamSeekableTimeRangeMinimumDuration = 
 
 @end
 
-static Class createWebAVPlayerControllerForwarderClass()
+static Class createWebAVPlayerControllerForwarderClassSingleton()
 {
     // Re-parent WebAVPlayerControllerForwarder methods under a subclass of AVPlayerController,
     // so that the resulting type can be safely cast to AVPlayerController via Swift's `as!`,
     // which strictly requires the castee to derive from the destination type.
 
-    Class superClass = getAVPlayerControllerClass();
+    Class superClass = getAVPlayerControllerClassSingleton();
     Class implClass = [WebAVPlayerControllerForwarder class];
     Class newClass = objc_allocateClassPair(superClass, "WebAVPlayerControllerForwarder_AVKitCompatible", 0);
     objc_registerClassPair(newClass);
@@ -174,15 +174,15 @@ static Class createWebAVPlayerControllerForwarderClass()
 
 RetainPtr<WebAVPlayerController> createWebAVPlayerController()
 {
-    return adoptNS((WebAVPlayerController *)[[webAVPlayerControllerClass() alloc] init]);
+    return adoptNS((WebAVPlayerController *)[[webAVPlayerControllerClassSingleton() alloc] init]);
 }
 
-Class webAVPlayerControllerClass()
+Class webAVPlayerControllerClassSingleton()
 {
     ASSERT(isMainThread());
     static Class webAVPlayerControllerForwarderClass;
     if (!webAVPlayerControllerForwarderClass)
-        webAVPlayerControllerForwarderClass = createWebAVPlayerControllerForwarderClass();
+        webAVPlayerControllerForwarderClass = createWebAVPlayerControllerForwarderClassSingleton();
     return webAVPlayerControllerForwarderClass;
 }
 
@@ -197,14 +197,14 @@ Class webAVPlayerControllerClass()
     BOOL _pictureInPictureInterrupted;
     BOOL _muted;
     NSTimeInterval _seekToTime;
-    WebAVMediaSelectionOption *_currentAudioMediaSelectionOption;
-    WebAVMediaSelectionOption *_currentLegibleMediaSelectionOption;
+    RetainPtr<WebAVMediaSelectionOption> _currentAudioMediaSelectionOption;
+    RetainPtr<WebAVMediaSelectionOption> _currentLegibleMediaSelectionOption;
     RetainPtr<AVPlayer> _player;
 }
 
 - (instancetype)init
 {
-    if (!getAVPlayerControllerClass()) {
+    if (!getAVPlayerControllerClassSingleton()) {
         [self release];
         return nil;
     }
@@ -215,7 +215,7 @@ Class webAVPlayerControllerClass()
 #if PLATFORM(APPLETV)
     // FIXME (116592344): Create a phony AVPlayer to satisfy AVPlayerViewController's requirements on tvOS.
     // This can be removed once AVPlayerController API is available on tvOS.
-    AVAsset *asset = [PAL::getAVAssetClass() assetWithURL:[NSURL URLWithString:@"about:blank"]];
+    AVAsset *asset = [PAL::getAVAssetClassSingleton() assetWithURL:[NSURL URLWithString:@"about:blank"]];
     RetainPtr playerItem = adoptNS([PAL::allocAVPlayerItemInstance() initWithAsset:asset]);
     _player = adoptNS([PAL::allocAVPlayerInstance() initWithPlayerItem:playerItem.get()]);
 #endif
@@ -243,8 +243,6 @@ Class webAVPlayerControllerClass()
     [_timing release];
     [_audioMediaSelectionOptions release];
     [_legibleMediaSelectionOptions release];
-    [_currentAudioMediaSelectionOption release];
-    [_currentLegibleMediaSelectionOption release];
     [_externalPlaybackAirPlayDeviceLocalizedName release];
     [_minTiming release];
     [_maxTiming release];
@@ -694,7 +692,7 @@ Class webAVPlayerControllerClass()
 
 - (WebAVMediaSelectionOption *)currentAudioMediaSelectionOption
 {
-    return _currentAudioMediaSelectionOption;
+    return _currentAudioMediaSelectionOption.get();
 }
 
 - (void)setCurrentAudioMediaSelectionOption:(WebAVMediaSelectionOption *)option
@@ -702,8 +700,7 @@ Class webAVPlayerControllerClass()
     if (option == _currentAudioMediaSelectionOption)
         return;
 
-    [_currentAudioMediaSelectionOption release];
-    _currentAudioMediaSelectionOption = [option retain];
+    _currentAudioMediaSelectionOption = option;
 
     if (!self.delegate)
         return;
@@ -721,7 +718,7 @@ Class webAVPlayerControllerClass()
 
 - (WebAVMediaSelectionOption *)currentLegibleMediaSelectionOption
 {
-    return _currentLegibleMediaSelectionOption;
+    return _currentLegibleMediaSelectionOption.get();
 }
 
 - (void)setCurrentLegibleMediaSelectionOption:(WebAVMediaSelectionOption *)option
@@ -729,8 +726,7 @@ Class webAVPlayerControllerClass()
     if (option == _currentLegibleMediaSelectionOption)
         return;
 
-    [_currentLegibleMediaSelectionOption release];
-    _currentLegibleMediaSelectionOption = [option retain];
+    _currentLegibleMediaSelectionOption = option;
 
     if (!self.delegate)
         return;
@@ -883,8 +879,8 @@ Class webAVPlayerControllerClass()
             }
 
             if (minTimingNeedsUpdate || maxTimingNeedsUpdate) {
-                newMinTiming = [getAVValueTimingClass() valueTimingWithAnchorValue:newMinTime anchorTimeStamp:[getAVValueTimingClass() currentTimeStamp] rate:newMinTimingRate];
-                newMaxTiming = [getAVValueTimingClass() valueTimingWithAnchorValue:newMaxTime anchorTimeStamp:[getAVValueTimingClass() currentTimeStamp] rate:1.0];
+                newMinTiming = [getAVValueTimingClassSingleton() valueTimingWithAnchorValue:newMinTime anchorTimeStamp:[getAVValueTimingClassSingleton() currentTimeStamp] rate:newMinTimingRate];
+                newMaxTiming = [getAVValueTimingClassSingleton() valueTimingWithAnchorValue:newMaxTime anchorTimeStamp:[getAVValueTimingClassSingleton() currentTimeStamp] rate:1.0];
             } else {
                 newMinTiming = [self minTiming];
                 newMaxTiming = [self maxTiming];
@@ -893,10 +889,10 @@ Class webAVPlayerControllerClass()
     }
 
     if (!newMinTiming)
-        newMinTiming = [getAVValueTimingClass() valueTimingWithAnchorValue:[self minTime] anchorTimeStamp:NAN rate:0.0];
+        newMinTiming = [getAVValueTimingClassSingleton() valueTimingWithAnchorValue:[self minTime] anchorTimeStamp:NAN rate:0.0];
 
     if (!newMaxTiming)
-        newMaxTiming = [getAVValueTimingClass() valueTimingWithAnchorValue:[self maxTime] anchorTimeStamp:NAN rate:0.0];
+        newMaxTiming = [getAVValueTimingClassSingleton() valueTimingWithAnchorValue:[self maxTime] anchorTimeStamp:NAN rate:0.0];
 
     [self setMinTiming:newMinTiming];
     [self setMaxTiming:newMaxTiming];
@@ -907,7 +903,7 @@ Class webAVPlayerControllerClass()
     BOOL hasSeekableLiveStreamingContent = NO;
 
     if ([self hasLiveStreamingContent] && [self minTiming] && [self maxTiming] && isfinite([self liveUpdateInterval]) && [self liveUpdateInterval] > WebAVPlayerControllerLiveStreamMinimumTargetDuration && ([self seekableTimeRangesLastModifiedTime] != 0.0)) {
-        NSTimeInterval timeStamp = [getAVValueTimingClass() currentTimeStamp];
+        NSTimeInterval timeStamp = [getAVValueTimingClassSingleton() currentTimeStamp];
         NSTimeInterval minTime = [[self minTiming] valueForTimeStamp:timeStamp];
         NSTimeInterval maxTime = [[self maxTiming] valueForTimeStamp:timeStamp];
         hasSeekableLiveStreamingContent = ((maxTime - minTime) > WebAVPlayerControllerLiveStreamSeekableTimeRangeMinimumDuration);
@@ -1142,6 +1138,7 @@ Class webAVPlayerControllerClass()
 
 @implementation WebAVMediaSelectionOption {
     RetainPtr<NSString> _localizedDisplayName;
+    RetainPtr<AVMediaType> _mediaType;
 }
 
 - (instancetype)initWithMediaType:(AVMediaType)mediaType displayName:(NSString *)displayName
@@ -1159,7 +1156,7 @@ Class webAVPlayerControllerClass()
 - (id)copyWithZone:(NSZone *)zone
 {
     RetainPtr displayName = adoptNS([_localizedDisplayName copyWithZone:zone]);
-    return [[WebAVMediaSelectionOption allocWithZone:zone] initWithMediaType:_mediaType displayName:displayName.get()];
+    SUPPRESS_RETAINPTR_CTOR_ADOPT return [[WebAVMediaSelectionOption allocWithZone:zone] initWithMediaType:_mediaType.get() displayName:displayName.get()];
 }
 
 - (NSString *)displayName
@@ -1170,6 +1167,11 @@ Class webAVPlayerControllerClass()
 - (NSString *)localizedDisplayName
 {
     return _localizedDisplayName.get();
+}
+
+- (AVMediaType)mediaType
+{
+    return _mediaType.get();
 }
 
 - (NSArray<NSNumber *> *)mediaSubTypes

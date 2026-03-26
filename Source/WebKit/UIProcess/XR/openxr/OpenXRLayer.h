@@ -55,10 +55,17 @@ public:
 
 protected:
     OpenXRLayer(UniqueRef<OpenXRSwapchain>&&);
+#if OS(ANDROID)
+    std::optional<PlatformXR::FrameData::ExternalTexture> exportOpenXRTextureAndroid(WebCore::GLDisplay&, PlatformGLObject);
+    void blitTexture() const;
+    inline bool needsBlitTexture() const { return true; }
+#else
     std::optional<PlatformXR::FrameData::ExternalTexture> exportOpenXRTextureDMABuf(WebCore::GLDisplay&, WebCore::GLContext&, PlatformGLObject);
+#endif
 #if USE(GBM)
     std::optional<PlatformXR::FrameData::ExternalTexture> exportOpenXRTextureGBM(WebCore::GLDisplay&, PlatformGLObject);
     void blitTexture() const;
+    inline bool needsBlitTexture() const { return m_gbmDevice; }
 #endif
     std::optional<PlatformXR::FrameData::ExternalTexture> exportOpenXRTexture(PlatformGLObject);
 
@@ -68,10 +75,13 @@ protected:
     using ReusableTextureIndex = uint64_t;
     HashMap<PlatformGLObject, ReusableTextureIndex> m_exportedTextures;
     ReusableTextureIndex m_nextReusableTextureIndex { 0 };
+
+#if USE(GBM) || OS(ANDROID)
+    HashMap<PlatformGLObject, PlatformGLObject> m_exportedTexturesMap;
+    std::array<PlatformGLObject, 2> m_fbosForBlitting { 0, 0 };
+#endif
 #if USE(GBM)
     RefPtr<WebCore::GBMDevice> m_gbmDevice;
-    HashMap<PlatformGLObject, PlatformGLObject> m_exportedTexturesMap;
-    PlatformGLObject m_fbosForBlitting[2] { 0, 0 };
 #endif
 };
 

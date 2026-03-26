@@ -204,6 +204,7 @@ inline CapabilityLevel canCompile(Node* node)
     case TailCallForwardVarargsInlinedCaller:
     case ConstructForwardVarargs:
     case CallWasm:
+    case TailCallInlinedCallerWasm:
     case CallCustomAccessorGetter:
     case CallCustomAccessorSetter:
     case VarargsLength:
@@ -250,7 +251,8 @@ inline CapabilityLevel canCompile(Node* node)
     case MakeRope:
     case MakeAtomString:
     case NewArrayWithSize:
-    case NewArrayWithConstantSize:
+    case NewArrayWithButterfly:
+    case NewButterflyWithSize:
     case NewArrayWithSpecies:
     case NewArrayWithSizeAndStructure:
     case TryGetById:
@@ -343,7 +345,8 @@ inline CapabilityLevel canCompile(Node* node)
     case EnumeratorPutByVal:
     case BottomValue:
     case PhantomNewObject:
-    case PhantomNewArrayWithConstantSize:
+    case PhantomNewArrayWithButterfly:
+    case PhantomNewButterflyWithSize:
     case PhantomNewFunction:
     case PhantomNewGeneratorFunction:
     case PhantomNewAsyncGeneratorFunction:
@@ -354,7 +357,7 @@ inline CapabilityLevel canCompile(Node* node)
     case PutHint:
     case CheckStructureImmediate:
     case MaterializeNewObject:
-    case MaterializeNewArrayWithConstantSize:
+    case MaterializeNewArrayWithButterfly:
     case MaterializeCreateActivation:
     case MaterializeNewInternalFieldObject:
     case PhantomDirectArguments:
@@ -461,7 +464,7 @@ inline CapabilityLevel canCompile(Node* node)
     case MultiGetByVal:
     case MultiPutByVal:
     case PutByVal:
-    case PutByValAlias:
+    case PutByValDirectResolved:
     case PutByValMegamorphic:
     case PutByValDirect:
     case PutByValWithThis:
@@ -491,6 +494,12 @@ inline CapabilityLevel canCompile(Node* node)
     case DateGetInt32OrNaN:
     case DateGetTime:
     case DateSetTime:
+    case ResolvePromiseFirstResolving:
+    case RejectPromiseFirstResolving:
+    case FulfillPromiseFirstResolving:
+    case PromiseResolve:
+    case PromiseReject:
+    case PromiseThen:
         // These are OK.
         break;
 
@@ -558,6 +567,7 @@ CapabilityLevel canCompile(Graph& graph)
                 case KnownBooleanUse:
                 case CellUse:
                 case KnownCellUse:
+                case KnownStorageUse:
                 case CellOrOtherUse:
                 case ObjectUse:
                 case ArrayUse:

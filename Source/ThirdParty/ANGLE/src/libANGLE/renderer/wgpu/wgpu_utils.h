@@ -329,6 +329,8 @@ enum class RenderPassClosureReason
     VertexArrayStreaming,
     VertexArrayLineLoop,
     CopyBufferToTexture,
+    CopyTextureToTexture,
+    CopyImage,
 
     InvalidEnum,
     EnumCount = InvalidEnum,

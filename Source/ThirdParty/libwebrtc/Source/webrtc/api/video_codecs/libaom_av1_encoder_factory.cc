@@ -80,7 +80,13 @@ constexpr std::array<VideoFrameBuffer::Type, 2> kSupportedInputFormats = {
     VideoFrameBuffer::Type::kI420, VideoFrameBuffer::Type::kNV12};
 
 constexpr std::array<Rational, 7> kSupportedScalingFactors = {
-    {{8, 1}, {4, 1}, {2, 1}, {1, 1}, {1, 2}, {1, 4}, {1, 8}}};
+    {{.numerator = 8, .denominator = 1},
+     {.numerator = 4, .denominator = 1},
+     {.numerator = 2, .denominator = 1},
+     {.numerator = 1, .denominator = 1},
+     {.numerator = 1, .denominator = 2},
+     {.numerator = 1, .denominator = 4},
+     {.numerator = 1, .denominator = 8}}};
 
 std::optional<Rational> GetScalingFactor(const Resolution& from,
                                          const Resolution& to) {
@@ -561,7 +567,8 @@ aom_svc_params_t GetSvcParams(
   for (const VideoEncoderInterface::FrameEncodeSettings& settings :
        frame_settings) {
     std::optional<Rational> scaling_factor = GetScalingFactor(
-        {frame_buffer.width(), frame_buffer.height()}, settings.resolution);
+        {.width = frame_buffer.width(), .height = frame_buffer.height()},
+        settings.resolution);
     RTC_CHECK(scaling_factor);
     svc_params.scaling_factor_num[settings.spatial_id] =
         scaling_factor->numerator;
@@ -781,7 +788,7 @@ void LibaomAv1Encoder::Encode(scoped_refptr<VideoFrameBuffer> frame_buffer,
                aom_codec_get_cx_data(&ctx_, &iter)) {
       if (pkt->kind == AOM_CODEC_CX_FRAME_PKT && pkt->data.frame.sz > 0) {
         SET_OR_RETURN(AOME_GET_LAST_QUANTIZER_64, &result.encoded_qp);
-        result.frame_type = pkt->data.frame.flags & AOM_EFLAG_FORCE_KF
+        result.frame_type = pkt->data.frame.flags & AOM_FRAME_IS_KEY
                                 ? FrameType::kKeyframe
                                 : FrameType::kDeltaFrame;
         ArrayView<uint8_t> output_buffer =

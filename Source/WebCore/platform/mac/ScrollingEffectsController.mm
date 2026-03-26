@@ -78,6 +78,9 @@ void ScrollingEffectsController::stopAllTimers()
         m_client.didStopScrollSnapAnimation();
     }
 
+    if (m_discreteScrollendTimer)
+        m_discreteScrollendTimer->stop();
+
 #if ASSERT_ENABLED
     m_timersWereStopped = true;
 #endif
@@ -190,7 +193,7 @@ bool ScrollingEffectsController::handleWheelEvent(const PlatformWheelEvent& whee
 
 #if HAVE(OS_SIGNPOST)
     if (momentumPhase == PlatformWheelEventPhase::Began)
-        os_signpost_interval_begin(WTFSignpostLogHandle(), OS_SIGNPOST_ID_EXCLUSIVE, "Momentum scroll", "isAnimation=YES");
+        SUPPRESS_UNRETAINED_ARG os_signpost_interval_begin(WTFSignpostLogHandle(), OS_SIGNPOST_ID_EXCLUSIVE, "Momentum scroll", "isAnimation=YES");
 #endif
 
     if (!m_momentumScrollInProgress && (momentumPhase == PlatformWheelEventPhase::Began || momentumPhase == PlatformWheelEventPhase::Changed))
@@ -231,12 +234,14 @@ bool ScrollingEffectsController::handleWheelEvent(const PlatformWheelEvent& whee
         } else {
             delta.scale(scrollWheelMultiplier());
             m_client.immediateScrollBy(delta);
+            if (wheelEvent.phase() == PlatformWheelEventPhase::None && wheelEvent.momentumPhase() == PlatformWheelEventPhase::None)
+                scheduleScrollendTimer();
         }
     }
 
     if (m_momentumScrollInProgress && momentumPhase == PlatformWheelEventPhase::Ended) {
 #if HAVE(OS_SIGNPOST)
-        os_signpost_interval_end(WTFSignpostLogHandle(), OS_SIGNPOST_ID_EXCLUSIVE, "Momentum scroll");
+        SUPPRESS_UNRETAINED_ARG os_signpost_interval_end(WTFSignpostLogHandle(), OS_SIGNPOST_ID_EXCLUSIVE, "Momentum scroll");
 #endif
         m_momentumScrollInProgress = false;
         m_ignoreMomentumScrolls = false;
@@ -455,7 +460,7 @@ void ScrollingEffectsController::didStopRubberBandAnimation()
 
 void ScrollingEffectsController::startRubberBandAnimationIfNecessary()
 {
-    auto timeDelta = WallTime::now() - m_lastMomentumScrollTimestamp;
+    auto timeDelta = MonotonicTime::now() - m_lastMomentumScrollTimestamp;
     if (m_lastMomentumScrollTimestamp && timeDelta >= scrollVelocityZeroingTimeout)
         m_momentumVelocity = { };
 
@@ -635,6 +640,18 @@ void ScrollingEffectsController::scheduleDiscreteScrollSnap(const FloatSize& del
     startDeferringWheelEventTestCompletion(WheelEventTestMonitor::DeferReason::ScrollSnapInProgress);
 }
 
+void ScrollingEffectsController::scheduleScrollendTimer()
+{
+    static const Seconds discreteScrollDelay = 100_ms;
+
+    if (!m_discreteScrollendTimer) {
+        m_discreteScrollendTimer = m_client.createTimer([this] {
+            scrollendTimerFired();
+        });
+    }
+    m_discreteScrollendTimer->startOneShot(discreteScrollDelay);
+}
+
 void ScrollingEffectsController::discreteSnapTransitionTimerFired()
 {
     auto recentDiscreteWheelDeltas = std::exchange(m_recentDiscreteWheelDeltas, { });
@@ -666,6 +683,11 @@ void ScrollingEffectsController::discreteSnapTransitionTimerFired()
         stopDeferringWheelEventTestCompletion(WheelEventTestMonitor::DeferReason::ScrollSnapInProgress);
         m_client.didStopScrollSnapAnimation();
     }
+}
+
+void ScrollingEffectsController::scrollendTimerFired()
+{
+    m_client.didStopWheelEventScroll();
 }
 
 bool ScrollingEffectsController::processWheelEventForScrollSnap(const PlatformWheelEvent& wheelEvent)

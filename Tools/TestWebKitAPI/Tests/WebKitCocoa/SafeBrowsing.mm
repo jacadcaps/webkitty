@@ -41,12 +41,19 @@
 #import <WebKit/WKPreferencesPrivate.h>
 #import <WebKit/WKUIDelegatePrivate.h>
 #import <WebKit/WKWebViewPrivate.h>
+#import <WebKit/_WKFeature.h>
 #import <WebKit/_WKResourceLoadDelegate.h>
 #import <WebKit/_WKResourceLoadInfo.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/RunLoop.h>
+#import <wtf/SoftLinking.h>
 #import <wtf/URL.h>
 #import <wtf/Vector.h>
+
+SOFT_LINK_PRIVATE_FRAMEWORK(SafariSafeBrowsing);
+SOFT_LINK_CLASS(SafariSafeBrowsing, SSBLookupContext);
+SOFT_LINK_CLASS(SafariSafeBrowsing, SSBLookupResult);
+SOFT_LINK_CLASS(SafariSafeBrowsing, SSBServiceLookupResult);
 
 static bool committedNavigation;
 static bool warningShown;
@@ -90,7 +97,7 @@ static bool didCloseCalled;
     if (!result)
         return nil;
 
-    result->_provider = WTFMove(provider);
+    result->_provider = WTF::move(provider);
     result->_isPhishing = phishing;
     result->_isMalware = malware;
     result->_isUnwantedSoftware = unwantedSoftware;
@@ -153,7 +160,7 @@ static bool didCloseCalled;
     if (!result)
         return nil;
     
-    result->_results = WTFMove(results);
+    result->_results = WTF::move(results);
     
     return result.autorelease();
 }
@@ -190,7 +197,7 @@ static NSURL *resourceURL(NSString *resource)
 
 TEST(SafeBrowsing, Preference)
 {
-    ClassMethodSwizzler swizzler(objc_getClass("SSBLookupContext"), @selector(sharedLookupContext), [TestLookupContext methodForSelector:@selector(sharedLookupContext)]);
+    ClassMethodSwizzler swizzler(getSSBLookupContextClassSingleton(), @selector(sharedLookupContext), [TestLookupContext methodForSelector:@selector(sharedLookupContext)]);
 
     __block bool done = false;
     auto delegate = adoptNS([TestNavigationDelegate new]);
@@ -215,7 +222,7 @@ TEST(SafeBrowsing, Preference)
 
 static RetainPtr<WKWebView> safeBrowsingView()
 {
-    ClassMethodSwizzler swizzler(objc_getClass("SSBLookupContext"), @selector(sharedLookupContext), [TestLookupContext methodForSelector:@selector(sharedLookupContext)]);
+    ClassMethodSwizzler swizzler(getSSBLookupContextClassSingleton(), @selector(sharedLookupContext), [TestLookupContext methodForSelector:@selector(sharedLookupContext)]);
 
     static auto delegate = adoptNS([SafeBrowsingNavigationDelegate new]);
     auto webView = adoptNS([WKWebView new]);
@@ -275,7 +282,7 @@ TEST(SafeBrowsing, GoBackAfterRestoreFromSessionState)
     [webView1 _test_waitForDidFinishNavigation];
     _WKSessionState *state = [webView1 _sessionState];
 
-    ClassMethodSwizzler swizzler(objc_getClass("SSBLookupContext"), @selector(sharedLookupContext), [TestLookupContext methodForSelector:@selector(sharedLookupContext)]);
+    ClassMethodSwizzler swizzler(getSSBLookupContextClassSingleton(), @selector(sharedLookupContext), [TestLookupContext methodForSelector:@selector(sharedLookupContext)]);
 
     auto delegate = adoptNS([SafeBrowsingNavigationDelegate new]);
     auto webView2 = adoptNS([WKWebView new]);
@@ -373,7 +380,7 @@ static Vector<URL> urls;
 
 TEST(SafeBrowsing, URLObservation)
 {
-    ClassMethodSwizzler swizzler(objc_getClass("SSBLookupContext"), @selector(sharedLookupContext), [TestLookupContext methodForSelector:@selector(sharedLookupContext)]);
+    ClassMethodSwizzler swizzler(getSSBLookupContextClassSingleton(), @selector(sharedLookupContext), [TestLookupContext methodForSelector:@selector(sharedLookupContext)]);
 
     RetainPtr<NSURL> simpleURL = [NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"];
     RetainPtr<NSURL> simple2URL = [NSBundle.test_resourcesBundle URLForResource:@"simple2" withExtension:@"html"];
@@ -479,7 +486,7 @@ static bool navigationFinished;
 TEST(SafeBrowsing, WKWebViewGoBack)
 {
     phishingResourceName = @"simple3";
-    ClassMethodSwizzler swizzler(objc_getClass("SSBLookupContext"), @selector(sharedLookupContext), [SimpleLookupContext methodForSelector:@selector(sharedLookupContext)]);
+    ClassMethodSwizzler swizzler(getSSBLookupContextClassSingleton(), @selector(sharedLookupContext), [SimpleLookupContext methodForSelector:@selector(sharedLookupContext)]);
     
     auto delegate = adoptNS([WKWebViewGoBackNavigationDelegate new]);
     auto webView = adoptNS([WKWebView new]);
@@ -504,7 +511,7 @@ TEST(SafeBrowsing, WKWebViewGoBack)
 TEST(SafeBrowsing, WKWebViewGoBackIFrame)
 {
     phishingResourceName = @"simple";
-    ClassMethodSwizzler swizzler(objc_getClass("SSBLookupContext"), @selector(sharedLookupContext), [SimpleLookupContext methodForSelector:@selector(sharedLookupContext)]);
+    ClassMethodSwizzler swizzler(getSSBLookupContextClassSingleton(), @selector(sharedLookupContext), [SimpleLookupContext methodForSelector:@selector(sharedLookupContext)]);
     
     auto delegate = adoptNS([TestNavigationDelegate new]);
     auto webView = adoptNS([WKWebView new]);
@@ -516,8 +523,10 @@ TEST(SafeBrowsing, WKWebViewGoBackIFrame)
         EXPECT_NOT_NULL(error);
         auto failingURL = (NSURL *)[error.userInfo valueForKey:NSURLErrorFailingURLErrorKey];
         EXPECT_TRUE([failingURL.lastPathComponent isEqualToString:@"simple.html"]);
-        auto failingURLString = (NSString *)[error.userInfo valueForKey:@"NSErrorFailingURLStringKey"];
+#if USE(NSURL_ERROR_FAILING_URL_STRING_KEY)
+        auto failingURLString = (NSString *)[error.userInfo valueForKey:NSURLErrorFailingURLStringErrorKey];
         EXPECT_TRUE([failingURLString hasSuffix:@"/simple.html"]);
+#endif
         navigationFailed = true;
     };
     delegate.get().didFinishNavigation = ^(WKWebView *, WKNavigation *navigation) {
@@ -547,7 +556,7 @@ TEST(SafeBrowsing, WKWebViewGoBackIFrame)
 
 TEST(SafeBrowsing, MissingFramework)
 {
-    ClassMethodSwizzler swizzler(objc_getClass("SSBLookupContext"), @selector(sharedLookupContext), [NullLookupContext methodForSelector:@selector(sharedLookupContext)]);
+    ClassMethodSwizzler swizzler(getSSBLookupContextClassSingleton(), @selector(sharedLookupContext), [NullLookupContext methodForSelector:@selector(sharedLookupContext)]);
     auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600)]);
     [webView synchronouslyLoadTestPageNamed:@"simple"];
 }
@@ -583,7 +592,7 @@ TEST(SafeBrowsing, HangTimeout)
     }, TestWebKitAPI::HTTPServer::Protocol::HttpsProxy);
     auto configuration = server.httpsProxyConfiguration();
 
-    ClassMethodSwizzler swizzler(objc_getClass("SSBLookupContext"), @selector(sharedLookupContext), [DelayedLookupContext methodForSelector:@selector(sharedLookupContext)]);
+    ClassMethodSwizzler swizzler(getSSBLookupContextClassSingleton(), @selector(sharedLookupContext), [DelayedLookupContext methodForSelector:@selector(sharedLookupContext)]);
 
     auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration]);
     [webView configuration].preferences.fraudulentWebsiteWarningEnabled = YES;
@@ -604,7 +613,7 @@ TEST(SafeBrowsing, PostResponse)
     }, TestWebKitAPI::HTTPServer::Protocol::HttpsProxy);
     auto configuration = server.httpsProxyConfiguration();
 
-    ClassMethodSwizzler swizzler(objc_getClass("SSBLookupContext"), @selector(sharedLookupContext), [DelayedLookupContext methodForSelector:@selector(sharedLookupContext)]);
+    ClassMethodSwizzler swizzler(getSSBLookupContextClassSingleton(), @selector(sharedLookupContext), [DelayedLookupContext methodForSelector:@selector(sharedLookupContext)]);
 
     auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration]);
     [webView configuration].preferences.fraudulentWebsiteWarningEnabled = YES;
@@ -621,7 +630,7 @@ TEST(SafeBrowsing, PostResponse)
 TEST(SafeBrowsing, PostResponseIframe)
 {
     delayDuration = 25_ms;
-    ClassMethodSwizzler swizzler(objc_getClass("SSBLookupContext"), @selector(sharedLookupContext), [DelayedLookupContext methodForSelector:@selector(sharedLookupContext)]);
+    ClassMethodSwizzler swizzler(getSSBLookupContextClassSingleton(), @selector(sharedLookupContext), [DelayedLookupContext methodForSelector:@selector(sharedLookupContext)]);
 
     auto delegate = adoptNS([TestNavigationDelegate new]);
     auto webView = adoptNS([WKWebView new]);
@@ -633,8 +642,10 @@ TEST(SafeBrowsing, PostResponseIframe)
         EXPECT_NOT_NULL(error);
         auto failingURL = (NSURL *)[error.userInfo valueForKey:NSURLErrorFailingURLErrorKey];
         EXPECT_TRUE([failingURL.lastPathComponent isEqualToString:@"simple.html"]);
-        auto failingURLString = (NSString *)[error.userInfo valueForKey:@"NSErrorFailingURLStringKey"];
+#if USE(NSURL_ERROR_FAILING_URL_STRING_KEY)
+        auto failingURLString = (NSString *)[error.userInfo valueForKey:NSURLErrorFailingURLStringErrorKey];
         EXPECT_TRUE([failingURLString hasSuffix:@"/simple.html"]);
+#endif
         navigationFailed = true;
     };
     delegate.get().didFinishNavigation = ^(WKWebView *, WKNavigation *navigation) {
@@ -650,7 +661,7 @@ TEST(SafeBrowsing, PostResponseIframe)
 static const char* mainResource = "";
 TEST(SafeBrowsing, PreresponseSafeBrowsingWarning)
 {
-    ClassMethodSwizzler swizzler(objc_getClass("SSBLookupContext"), @selector(sharedLookupContext), [TestLookupContext methodForSelector:@selector(sharedLookupContext)]);
+    ClassMethodSwizzler swizzler(getSSBLookupContextClassSingleton(), @selector(sharedLookupContext), [TestLookupContext methodForSelector:@selector(sharedLookupContext)]);
 
     auto delegate = adoptNS([TestNavigationDelegate new]);
     [delegate allowAnyTLSCertificate];
@@ -685,7 +696,7 @@ TEST(SafeBrowsing, PostResponseServerSideRedirect)
     }, TestWebKitAPI::HTTPServer::Protocol::HttpsProxy);
     auto configuration = server.httpsProxyConfiguration();
 
-    ClassMethodSwizzler swizzler(objc_getClass("SSBLookupContext"), @selector(sharedLookupContext), [DelayedLookupContext methodForSelector:@selector(sharedLookupContext)]);
+    ClassMethodSwizzler swizzler(getSSBLookupContextClassSingleton(), @selector(sharedLookupContext), [DelayedLookupContext methodForSelector:@selector(sharedLookupContext)]);
 
     auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration]);
     [webView configuration].preferences.fraudulentWebsiteWarningEnabled = YES;
@@ -709,7 +720,7 @@ TEST(SafeBrowsing, MultipleRedirectsFirstPhishing)
     }, TestWebKitAPI::HTTPServer::Protocol::HttpsProxy);
     auto configuration = server.httpsProxyConfiguration();
 
-    ClassMethodSwizzler swizzler(objc_getClass("SSBLookupContext"), @selector(sharedLookupContext), [SimpleLookupContext methodForSelector:@selector(sharedLookupContext)]);
+    ClassMethodSwizzler swizzler(getSSBLookupContextClassSingleton(), @selector(sharedLookupContext), [SimpleLookupContext methodForSelector:@selector(sharedLookupContext)]);
 
     auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration]);
     [webView configuration].preferences.fraudulentWebsiteWarningEnabled = YES;
@@ -733,7 +744,7 @@ TEST(SafeBrowsing, MultipleRedirectsMiddlePhishing)
     }, TestWebKitAPI::HTTPServer::Protocol::HttpsProxy);
     auto configuration = server.httpsProxyConfiguration();
 
-    ClassMethodSwizzler swizzler(objc_getClass("SSBLookupContext"), @selector(sharedLookupContext), [SimpleLookupContext methodForSelector:@selector(sharedLookupContext)]);
+    ClassMethodSwizzler swizzler(getSSBLookupContextClassSingleton(), @selector(sharedLookupContext), [SimpleLookupContext methodForSelector:@selector(sharedLookupContext)]);
 
     auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration]);
     [webView configuration].preferences.fraudulentWebsiteWarningEnabled = YES;
@@ -757,7 +768,7 @@ TEST(SafeBrowsing, MultipleRedirectsLastPhishing)
     }, TestWebKitAPI::HTTPServer::Protocol::HttpsProxy);
     auto configuration = server.httpsProxyConfiguration();
 
-    ClassMethodSwizzler swizzler(objc_getClass("SSBLookupContext"), @selector(sharedLookupContext), [SimpleLookupContext methodForSelector:@selector(sharedLookupContext)]);
+    ClassMethodSwizzler swizzler(getSSBLookupContextClassSingleton(), @selector(sharedLookupContext), [SimpleLookupContext methodForSelector:@selector(sharedLookupContext)]);
 
     auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration]);
     [webView configuration].preferences.fraudulentWebsiteWarningEnabled = YES;
@@ -779,7 +790,7 @@ TEST(SafeBrowsing, PostResponseInjectedBundleSkipsDecidePolicyForResponse)
     });
     WKWebViewConfiguration *configuration = [WKWebViewConfiguration _test_configurationWithTestPlugInClassName:@"SkipDecidePolicyForResponsePlugIn"];
 
-    ClassMethodSwizzler swizzler(objc_getClass("SSBLookupContext"), @selector(sharedLookupContext), [DelayedLookupContext methodForSelector:@selector(sharedLookupContext)]);
+    ClassMethodSwizzler swizzler(getSSBLookupContextClassSingleton(), @selector(sharedLookupContext), [DelayedLookupContext methodForSelector:@selector(sharedLookupContext)]);
 
     auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration]);
     [webView configuration].preferences.fraudulentWebsiteWarningEnabled = YES;
@@ -801,7 +812,7 @@ TEST(SafeBrowsing, PostTimeout)
     }, TestWebKitAPI::HTTPServer::Protocol::HttpsProxy);
     auto configuration = server.httpsProxyConfiguration();
 
-    ClassMethodSwizzler swizzler(objc_getClass("SSBLookupContext"), @selector(sharedLookupContext), [DelayedLookupContext methodForSelector:@selector(sharedLookupContext)]);
+    ClassMethodSwizzler swizzler(getSSBLookupContextClassSingleton(), @selector(sharedLookupContext), [DelayedLookupContext methodForSelector:@selector(sharedLookupContext)]);
 
     auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration]);
     [webView configuration].preferences.fraudulentWebsiteWarningEnabled = YES;
@@ -815,5 +826,48 @@ TEST(SafeBrowsing, PostTimeout)
     while (![webView _safeBrowsingWarning])
         TestWebKitAPI::Util::spinRunLoop();
 }
+
+TEST(SafeBrowsing, PhishingInFrame)
+{
+    phishingResourceName = @"simple";
+    ClassMethodSwizzler swizzler(getSSBLookupContextClassSingleton(), @selector(sharedLookupContext), [SimpleLookupContext methodForSelector:@selector(sharedLookupContext)]);
+
+    auto delegate = adoptNS([TestNavigationDelegate new]);
+    auto webView = adoptNS([WKWebView new]);
+    auto configuration = webView.get().configuration;
+    auto preferences = configuration.preferences;
+    preferences._safeBrowsingEnabled = YES;
+
+    for (_WKFeature *feature in [WKPreferences _features]) {
+        if ([feature.key isEqualToString:@"SiteIsolationEnabled"]) {
+            [preferences _setEnabled:YES forFeature:feature];
+            break;
+        }
+    }
+
+    __block bool navigationFailed = false;
+    __block bool navigationFinished = false;
+    delegate.get().didFailProvisionalLoadInSubframeWithError = ^(WKWebView *, WKFrameInfo *frame, NSError *error) {
+        EXPECT_NOT_NULL(error);
+        auto failingURL = (NSURL *)[error.userInfo valueForKey:NSURLErrorFailingURLErrorKey];
+        EXPECT_TRUE([failingURL.lastPathComponent isEqualToString:@"simple.html"]);
+#if USE(NSURL_ERROR_FAILING_URL_STRING_KEY)
+        auto failingURLString = (NSString *)[error.userInfo valueForKey:NSURLErrorFailingURLStringErrorKey];
+        EXPECT_TRUE([failingURLString hasSuffix:@"/simple.html"]);
+#endif
+        navigationFailed = true;
+    };
+    delegate.get().didFinishNavigation = ^(WKWebView *, WKNavigation *navigation) {
+        navigationFinished = true;
+    };
+
+    [webView setNavigationDelegate:delegate.get()];
+    [webView loadRequest:[NSURLRequest requestWithURL:resourceURL(@"simple-iframe")]];
+    TestWebKitAPI::Util::run(&navigationFinished);
+    TestWebKitAPI::Util::run(&navigationFailed);
+    EXPECT_TRUE(navigationFailed);
+    EXPECT_TRUE(navigationFinished);
+}
+
 
 #endif // HAVE(SAFE_BROWSING)

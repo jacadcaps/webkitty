@@ -60,6 +60,9 @@ public:
     void removeAllRecords();
     void close();
 
+    Vector<CacheStorageRecordInformation> findRecords(const WebCore::RetrieveRecordsOptions&);
+    void retrieveRecords(const Vector<CacheStorageRecordInformation>&, WebCore::RetrieveRecordsOptions&&, WebCore::DOMCacheEngine::CrossThreadRecordsCallback&&);
+
 private:
     CacheStorageCache(CacheStorageManager&, const String& name, const String& uniqueName, const String& path, Ref<WorkQueue>&&);
     CacheStorageRecordInformation* findExistingRecord(const WebCore::ResourceRequest&, std::optional<uint64_t> = std::nullopt);

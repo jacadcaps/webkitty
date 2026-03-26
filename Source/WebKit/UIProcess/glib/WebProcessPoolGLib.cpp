@@ -141,10 +141,9 @@ static void seatDevicesChangedCallback(GdkSeat* seat, GdkDevice*, WebProcessPool
 }
 #endif
 
+IGNORE_CLANG_WARNINGS_BEGIN("unsafe-buffer-usage-in-libc-call")
 void WebProcessPool::platformInitialize(NeedsGlobalStaticInitialization)
 {
-    m_alwaysUsesComplexTextCodePath = true;
-
     if (const char* forceComplexText = getenv("WEBKIT_FORCE_COMPLEX_TEXT"))
         m_alwaysUsesComplexTextCodePath = !strcmp(forceComplexText, "1");
 
@@ -176,6 +175,7 @@ void WebProcessPool::platformInitialize(NeedsGlobalStaticInitialization)
     }
 #endif
 }
+IGNORE_CLANG_WARNINGS_END
 
 void WebProcessPool::platformInitializeWebProcess(const WebProcessProxy& process, WebProcessCreationParameters& parameters)
 {
@@ -202,11 +202,14 @@ void WebProcessPool::platformInitializeWebProcess(const WebProcessProxy& process
         if (!parameters.drmDevice.isNull())
             parameters.rendererBufferTransportMode.add(RendererBufferTransportMode::Hardware);
 #endif
+#if OS(ANDROID)
+        parameters.rendererBufferTransportMode.add(RendererBufferTransportMode::Hardware);
+#endif
         parameters.rendererBufferTransportMode.add(RendererBufferTransportMode::SharedMemory);
     }
 #endif
 
-#if PLATFORM(WPE)
+#if PLATFORM(WPE) && USE(WPE_RENDERER)
     parameters.isServiceWorkerProcess = process.isRunningServiceWorkers();
 
     if (!parameters.isServiceWorkerProcess && parameters.rendererBufferTransportMode.isEmpty()) {
@@ -313,10 +316,12 @@ void WebProcessPool::setSandboxEnabled(bool enabled)
     WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 #endif
 
+IGNORE_CLANG_WARNINGS_BEGIN("unsafe-buffer-usage-in-libc-call")
     if (const char* disableSandbox = getenv("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS")) {
         if (strcmp(disableSandbox, "0"))
             return;
     }
+IGNORE_CLANG_WARNINGS_END
 
     m_sandboxEnabled = true;
 #if USE(ATSPI)
@@ -365,14 +370,6 @@ const String& WebProcessPool::accessibilityBusAddress() const
         m_accessibilityBusAddress = String::fromUTF8(addressEnv);
         return m_accessibilityBusAddress.value();
     }
-
-#if PLATFORM(GTK)
-    auto address = Display::singleton().accessibilityBusAddress();
-    if (!address.isEmpty()) {
-        m_accessibilityBusAddress = WTFMove(address);
-        return m_accessibilityBusAddress.value();
-    }
-#endif
 
     m_accessibilityBusAddress = queryAccessibilityBusAddress();
     return m_accessibilityBusAddress.value();

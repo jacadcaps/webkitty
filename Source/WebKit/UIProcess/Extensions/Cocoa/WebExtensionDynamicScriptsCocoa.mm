@@ -89,14 +89,14 @@ static NSArray *getFrames(_WKFrameTreeNode *currentNode, const WebExtensionScrip
 
 std::optional<SourcePair> sourcePairForResource(const String& path, WebExtensionContext& extensionContext)
 {
-    RefPtr<API::Error> error;
     Ref extension = extensionContext.extension();
-    auto scriptString = extension->resourceStringForPath(path, error, WebExtension::CacheResult::Yes);
-    if (!scriptString || error) {
-        extensionContext.recordError(wrapper(error));
+    auto scriptStringResult = extension->resourceStringForPath(path, WebExtension::CacheResult::Yes);
+    if (!scriptStringResult) {
+        extensionContext.recordErrorIfNeeded(scriptStringResult.error());
         return std::nullopt;
     }
 
+    auto scriptString = scriptStringResult.value();
     scriptString = extensionContext.localizedResourceString(scriptString, extension->resourceMIMETypeForPath(path));
 
     return SourcePair { scriptString, { extensionContext.baseURL(), path } };
@@ -132,8 +132,8 @@ public:
 void executeScript(const SourcePairs& scriptPairs, WKWebView *webView, API::ContentWorld& executionWorld, WebExtensionTab& tab, const WebExtensionScriptInjectionParameters& parameters, WebExtensionContext& context, CompletionHandler<void(InjectionResults&&)>&& completionHandler)
 {
     auto injectionResults = InjectionResultHolder::create();
-    auto aggregator = MainRunLoopCallbackAggregator::create([injectionResults, completionHandler = WTFMove(completionHandler)]() mutable {
-        completionHandler(WTFMove(injectionResults->results));
+    auto aggregator = MainRunLoopCallbackAggregator::create([injectionResults, completionHandler = WTF::move(completionHandler)]() mutable {
+        completionHandler(WTF::move(injectionResults->results));
     });
 
     [webView _frames:makeBlockPtr([webView = RetainPtr { webView }, tab = Ref { tab }, context = Ref { context }, scriptPairs, executionWorld = Ref { executionWorld }, injectionResults, aggregator, parameters](_WKFrameTreeNode *mainFrame) mutable {

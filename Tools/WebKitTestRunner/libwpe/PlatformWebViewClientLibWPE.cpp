@@ -26,6 +26,7 @@
 #include "config.h"
 #include "PlatformWebViewClientLibWPE.h"
 
+#if USE(LIBWPE)
 #include <WPEToolingBackends/HeadlessViewBackend.h>
 #include <wtf/RunLoop.h>
 
@@ -41,9 +42,7 @@ PlatformWebViewClientLibWPE::PlatformWebViewClientLibWPE(WKPageConfigurationRef 
 #endif
 }
 
-PlatformWebViewClientLibWPE::~PlatformWebViewClientLibWPE()
-{
-}
+PlatformWebViewClientLibWPE::~PlatformWebViewClientLibWPE() = default;
 
 void PlatformWebViewClientLibWPE::addToWindow()
 {
@@ -53,6 +52,15 @@ void PlatformWebViewClientLibWPE::addToWindow()
 void PlatformWebViewClientLibWPE::removeFromWindow()
 {
     m_backend->removeActivityState(wpe_view_activity_state_in_window);
+}
+
+WKSize PlatformWebViewClientLibWPE::size()
+{
+    return { 800, 600 };
+}
+
+void PlatformWebViewClientLibWPE::resize(WKSize)
+{
 }
 
 PlatformImage PlatformWebViewClientLibWPE::snapshot()
@@ -78,3 +86,5 @@ PlatformImage PlatformWebViewClientLibWPE::snapshot()
 }
 
 } // namespace WTR
+
+#endif // USE(LIBWPE)

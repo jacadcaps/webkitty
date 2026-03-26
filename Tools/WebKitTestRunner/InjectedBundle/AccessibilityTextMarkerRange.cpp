@@ -24,8 +24,7 @@
  */
 
 #include "config.h"
-
-#include "AccessibilityTextMarker.h"
+#include "AccessibilityTextMarkerRange.h"
 
 #include "AccessibilityUIElement.h"
 #include "JSAccessibilityTextMarkerRange.h"
@@ -53,9 +52,7 @@ AccessibilityTextMarkerRange::AccessibilityTextMarkerRange(const AccessibilityTe
 {
 }
 
-AccessibilityTextMarkerRange::~AccessibilityTextMarkerRange()
-{
-}
+AccessibilityTextMarkerRange::~AccessibilityTextMarkerRange() = default;
 
 JSClassRef AccessibilityTextMarkerRange::wrapperClass()
 {

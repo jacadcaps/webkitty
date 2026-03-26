@@ -32,6 +32,10 @@
 #import "TestWebExtensionsDelegate.h"
 #import "WebExtensionUtilities.h"
 
+#if USE(APPKIT)
+#import "AppKitSPI.h"
+#endif
+
 namespace TestWebKitAPI {
 
 static auto *actionPopupManifest = @{
@@ -899,6 +903,81 @@ TEST(WKWebExtensionAPIAction, SetIconWithBadDataURL)
     [manager run];
 }
 
+TEST(WKWebExtensionAPIAction, SetIconWithNullPath)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"await browser.action.setIcon({ path: null })",
+        @"browser.test.sendMessage('Icon Set')",
+    ]);
+
+    auto *largeToolbarIcon = Util::makePNGData(CGSizeMake(32, 32), @selector(blueColor));
+
+    auto *resources = @{
+        @"background.js": backgroundScript,
+        @"toolbar-32.png": largeToolbarIcon,
+        @"popup.html": @"Hello world!",
+    };
+
+    auto manager = Util::loadExtension(actionPopupManifest, resources);
+
+    [manager runUntilTestMessage:@"Icon Set"];
+
+    auto *action = [manager.get().context actionForTab:nil];
+    auto *icon = [action iconForSize:CGSizeMake(32, 32)];
+    EXPECT_NOT_NULL(icon);
+    EXPECT_TRUE(CGSizeEqualToSize(icon.size, CGSizeMake(32, 32)));
+}
+
+TEST(WKWebExtensionAPIAction, SetIconWithNullImageData)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"await browser.action.setIcon({ imageData: null })",
+        @"browser.test.sendMessage('Icon Set')",
+    ]);
+
+    auto *largeToolbarIcon = Util::makePNGData(CGSizeMake(32, 32), @selector(blueColor));
+
+    auto *resources = @{
+        @"background.js": backgroundScript,
+        @"toolbar-32.png": largeToolbarIcon,
+        @"popup.html": @"Hello world!",
+    };
+
+    auto manager = Util::loadExtension(actionPopupManifest, resources);
+
+    [manager runUntilTestMessage:@"Icon Set"];
+
+    auto *action = [manager.get().context actionForTab:nil];
+    auto *icon = [action iconForSize:CGSizeMake(32, 32)];
+    EXPECT_NOT_NULL(icon);
+    EXPECT_TRUE(CGSizeEqualToSize(icon.size, CGSizeMake(32, 32)));
+}
+
+TEST(WKWebExtensionAPIAction, SetIconWithNullVariants)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"await browser.action.setIcon({ variants: null })",
+        @"browser.test.sendMessage('Icon Set')",
+    ]);
+
+    auto *largeToolbarIcon = Util::makePNGData(CGSizeMake(32, 32), @selector(blueColor));
+
+    auto *resources = @{
+        @"background.js": backgroundScript,
+        @"toolbar-32.png": largeToolbarIcon,
+        @"popup.html": @"Hello world!",
+    };
+
+    auto manager = Util::loadExtension(actionPopupManifest, resources);
+
+    [manager runUntilTestMessage:@"Icon Set"];
+
+    auto *action = [manager.get().context actionForTab:nil];
+    auto *icon = [action iconForSize:CGSizeMake(32, 32)];
+    EXPECT_NOT_NULL(icon);
+    EXPECT_TRUE(CGSizeEqualToSize(icon.size, CGSizeMake(32, 32)));
+}
+
 TEST(WKWebExtensionAPIAction, SetIconWithMultipleDataURLs)
 {
     auto *backgroundScript = Util::constructScript(@[
@@ -947,14 +1026,62 @@ TEST(WKWebExtensionAPIAction, SetIconWithMultipleDataURLs)
     [manager run];
 }
 
+TEST(WKWebExtensionAPIAction, SetIconSymbolSinglePath)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"await browser.action.setIcon({ path: 'symbol:star' })",
+    ]);
+
+    auto manager = Util::loadExtension(actionPopupManifest, @{ @"background.js": backgroundScript, @"popup.html": @"Hello world!" });
+
+    manager.get().internalDelegate.didUpdateAction = ^(WKWebExtensionAction *action) {
+        auto *icon = [action iconForSize:CGSizeMake(16, 16)];
+        EXPECT_NOT_NULL(icon);
+#if PLATFORM(MAC)
+        EXPECT_TRUE([icon isKindOfClass:NSImage.class]);
+        EXPECT_TRUE(icon._isSymbolImage);
+#else
+        EXPECT_TRUE([icon isKindOfClass:UIImage.class]);
+        EXPECT_TRUE(icon.isSymbolImage);
+#endif
+        [manager done];
+    };
+
+    [manager run];
+}
+
+TEST(WKWebExtensionAPIAction, SetIconSymbolIconsDictionary)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"await browser.action.setIcon({ path: { '16': 'symbol:heart.fill' } })",
+    ]);
+
+    auto manager = Util::loadExtension(actionPopupManifest, @{ @"background.js": backgroundScript, @"popup.html": @"Hello world!" });
+
+    manager.get().internalDelegate.didUpdateAction = ^(WKWebExtensionAction *action) {
+        auto *icon = [action iconForSize:CGSizeMake(16, 16)];
+        EXPECT_NOT_NULL(icon);
+#if PLATFORM(MAC)
+        EXPECT_TRUE([icon isKindOfClass:NSImage.class]);
+        EXPECT_TRUE(icon._isSymbolImage);
+#else
+        EXPECT_TRUE([icon isKindOfClass:UIImage.class]);
+        EXPECT_TRUE(icon.isSymbolImage);
+#endif
+        [manager done];
+    };
+
+    [manager run];
+}
+
 #if ENABLE(WK_WEB_EXTENSIONS_ICON_VARIANTS)
 TEST(WKWebExtensionAPIAction, SetIconWithVariants)
 {
     auto *backgroundScript = Util::constructScript(@[
         @"await browser.test.assertSafeResolve(() => browser.action.setIcon({",
         @"    variants: [",
-        @"        { 32: 'action-dark-32.png', 64: 'action-dark-64.png', 'color_schemes': [ 'dark' ] },",
-        @"        { 32: 'action-light-32.png', 64: 'action-light-64.png', 'color_schemes': [ 'light' ] }",
+        @"        { 32: 'action-dark-32.png', 64: 'action-dark-64.png', 'colorSchemes': [ 'dark' ] },",
+        @"        { 32: 'action-light-32.png', 64: 'action-light-64.png', 'colorSchemes': [ 'light' ] }",
         @"    ]",
         @"}))",
     ]);
@@ -1018,8 +1145,8 @@ TEST(WKWebExtensionAPIAction, SetIconWithImageDataAndVariants)
 
         @"await browser.test.assertSafeResolve(() => browser.action.setIcon({",
         @"    variants: [",
-        @"        { 32: imageDataDark32, 64: imageDataDark64, 'color_schemes': [ 'dark' ] },",
-        @"        { 32: imageDataLight32, 64: imageDataLight64, 'color_schemes': [ 'light' ] }",
+        @"        { 32: imageDataDark32, 64: imageDataDark64, 'colorSchemes': [ 'dark' ] },",
+        @"        { 32: imageDataLight32, 64: imageDataLight64, 'colorSchemes': [ 'light' ] }",
         @"    ]",
         @"}))",
     ]);
@@ -1071,12 +1198,12 @@ TEST(WKWebExtensionAPIAction, SetIconThrowsWithNoValidVariants)
         @"const invalidImageData = createImageData(32, 'white')",
 
         @"await browser.test.assertThrows(() => browser.action.setIcon({",
-        @"    variants: [ { 'thirtytwo': invalidImageData, 'color_schemes': [ 'light' ] } ]",
+        @"    variants: [ { 'thirtytwo': invalidImageData, 'colorSchemes': [ 'light' ] } ]",
         @"}), /'variants\\[0\\]' value is invalid, because 'thirtytwo' is not a valid dimension/s)",
 
         @"await browser.test.assertThrows(() => browser.action.setIcon({",
-        @"    variants: [ { 32: invalidImageData, 'color_schemes': [ 'bad' ] } ]",
-        @"}), /'variants\\[0\\]\\['color_schemes'\\]' value is invalid, because it must specify either 'light' or 'dark'/s)",
+        @"    variants: [ { 32: invalidImageData, 'colorSchemes': [ 'bad' ] } ]",
+        @"}), /'variants\\[0\\]\\['colorSchemes'\\]' value is invalid, because it must specify either 'light' or 'dark'/s)",
 
         @"browser.test.notifyPass()"
     ]);
@@ -1105,8 +1232,8 @@ TEST(WKWebExtensionAPIAction, SetIconWithMixedValidAndInvalidVariants)
 
         @"await browser.test.assertSafeResolve(() => browser.action.setIcon({",
         @"    variants: [",
-        @"        { '32': imageDataLight32, 'color_schemes': ['light'] },",
-        @"        { '32.5': invalidImageData, 'color_schemes': ['dark'] }",
+        @"        { '32': imageDataLight32, 'colorSchemes': ['light'] },",
+        @"        { '32.5': invalidImageData, 'colorSchemes': ['dark'] }",
         @"    ]",
         @"}))",
     ]);
@@ -1153,8 +1280,8 @@ TEST(WKWebExtensionAPIAction, SetIconWithAnySizeVariantAndSVGDataURL)
 
         @"await browser.test.assertSafeResolve(() => browser.action.setIcon({",
         @"    variants: [",
-        @"        { any: whiteSVGData, 'color_schemes': [ 'dark' ] },",
-        @"        { any: blackSVGData, 'color_schemes': [ 'light' ] }",
+        @"        { any: whiteSVGData, 'colorSchemes': [ 'dark' ] },",
+        @"        { any: blackSVGData, 'colorSchemes': [ 'light' ] }",
         @"    ]",
         @"}))",
     ]);
@@ -1180,6 +1307,34 @@ TEST(WKWebExtensionAPIAction, SetIconWithAnySizeVariantAndSVGDataURL)
             EXPECT_TRUE(Util::compareColors(Util::pixelColor(iconAnySize), [CocoaColor blackColor]));
         });
 
+        [manager done];
+    };
+
+    [manager run];
+}
+
+TEST(WKWebExtensionAPIAction, SetIconWithSymbolVariants)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"await browser.test.assertSafeResolve(() => browser.action.setIcon({",
+        @"    variants: [",
+        @"        { any: 'symbol:star' }",
+        @"    ]",
+        @"}))",
+    ]);
+
+    auto manager = Util::loadExtension(actionPopupManifest, @{ @"background.js": backgroundScript, @"popup.html": @"Hello world!" });
+
+    manager.get().internalDelegate.didUpdateAction = ^(WKWebExtensionAction *action) {
+        auto *icon = [action iconForSize:CGSizeMake(32, 32)];
+        EXPECT_NOT_NULL(icon);
+#if PLATFORM(MAC)
+        EXPECT_TRUE([icon isKindOfClass:NSImage.class]);
+        EXPECT_TRUE(icon._isSymbolImage);
+#elif PLATFORM(IOS_FAMILY)
+        EXPECT_TRUE([icon isKindOfClass:UIImage.class]);
+        EXPECT_TRUE(icon.isSymbolImage);
+#endif
         [manager done];
     };
 

@@ -38,7 +38,7 @@ mock_linter = None
 class TestExporterTest(testing.PathTestCase):
     maxDiff = None
     BUGZILLA_URL = 'https://bugs.example.com'
-    basepath = 'mock/repository/WebKitBuild/w3c-tests/web-platform-tests'
+    basepath = 'mock/repository/wpt'
 
     def setUp(self):
         super().setUp()
@@ -104,6 +104,9 @@ class TestExporterTest(testing.PathTestCase):
         ), patch('webkitbugspy.Tracker._trackers', [bugzilla.Tracker(self.BUGZILLA_URL)]):
             host = TestExporterTest.MyMockHost()
             host.filesystem.maybe_make_directory(self.path)
+            host.filesystem.write_binary_file(f'{self.path}/resources/testharness.js', '')
+            host.filesystem.write_binary_file(f'{self.path}/wpt', '')
+
             host.web.responses.append({'status_code': 200, 'body': '{"login": "USER"}'})
             options = parse_args(['test_exporter.py', '-g', '1@main', '-b', '1', '-c', '-n', 'USER', '-t', 'TOKEN', '-d', self.path])
             exporter = WebPlatformTestExporter(host, options, TestExporterTest.MockBugzilla, TestExporterTest.MockWPTLinter, 1)
@@ -117,12 +120,13 @@ class TestExporterTest(testing.PathTestCase):
 
         self.assertEqual(
             captured.stdout.getvalue(),
-            "Created 'PR 1 | WebKit export of https://bugs.example.com/show_bug.cgi?id=1'!\n"
+            f"Created 'PR 1 | WebKit export of https://bugs.example.com/show_bug.cgi?id=1'!\n",
         )
         self.assertEqual(captured.stderr.getvalue(), '')
         log = captured.root.log.getvalue().splitlines()
         self.assertEqual(
             [line for line in log if 'Mock process' not in line], [
+                f'Using the WPT repository found at `{self.path}`',
                 'Fetching web-platform-tests repository',
                 'Cleaning web-platform-tests master branch',
                 'Applying patch to web-platform-tests branch wpt-export-for-webkit-1',
@@ -146,6 +150,8 @@ class TestExporterTest(testing.PathTestCase):
         ), patch('webkitbugspy.Tracker._trackers', [bugzilla.Tracker(self.BUGZILLA_URL)]):
             host = TestExporterTest.MyMockHost()
             host.filesystem.maybe_make_directory(self.path)
+            host.filesystem.write_binary_file(f'{self.path}/resources/testharness.js', '')
+            host.filesystem.write_binary_file(f'{self.path}/wpt', '')
             host.web.responses.append({'status_code': 200, 'body': '{"login": "USER"}'})
             options = parse_args(['test_exporter.py', '-g', 'HEAD', '-b', '1', '-c', '-n', 'USER', '-t', 'TOKEN', '-bn', 'wpt-export-branch', '-d', self.path])
             exporter = WebPlatformTestExporter(host, options, TestExporterTest.MockBugzilla, TestExporterTest.MockWPTLinter, 1)
@@ -158,12 +164,13 @@ class TestExporterTest(testing.PathTestCase):
 
         self.assertEqual(
             captured.stdout.getvalue(),
-            "Created 'PR 1 | WebKit export of https://bugs.example.com/show_bug.cgi?id=1'!\n"
+            f"Created 'PR 1 | WebKit export of https://bugs.example.com/show_bug.cgi?id=1'!\n",
         )
         self.assertEqual(captured.stderr.getvalue(), '')
         log = captured.root.log.getvalue().splitlines()
         self.assertEqual(
             [line for line in log if 'Mock process' not in line], [
+                f'Using the WPT repository found at `{self.path}`',
                 'Fetching web-platform-tests repository',
                 'Cleaning web-platform-tests master branch',
                 'Applying patch to web-platform-tests branch wpt-export-for-webkit-1',
@@ -187,6 +194,8 @@ class TestExporterTest(testing.PathTestCase):
         ), patch('webkitbugspy.Tracker._trackers', [bugzilla.Tracker(self.BUGZILLA_URL)]):
             host = TestExporterTest.MyMockHost()
             host.filesystem.maybe_make_directory(self.path)
+            host.filesystem.write_binary_file(f'{self.path}/resources/testharness.js', '')
+            host.filesystem.write_binary_file(f'{self.path}/wpt', '')
             host.web.responses.append({'status_code': 200, 'body': '{"login": "USER"}'})
             options = parse_args(['test_exporter.py', '-g', 'HEAD', '-b', '1', '-c', '-n', 'USER', '-t', 'TOKEN', '--no-clean', '-d', self.path])
             exporter = WebPlatformTestExporter(host, options, TestExporterTest.MockBugzilla, TestExporterTest.MockWPTLinter, 1)
@@ -199,12 +208,13 @@ class TestExporterTest(testing.PathTestCase):
 
         self.assertEqual(
             captured.stdout.getvalue(),
-            "Created 'PR 1 | WebKit export of https://bugs.example.com/show_bug.cgi?id=1'!\n"
+            f"Created 'PR 1 | WebKit export of https://bugs.example.com/show_bug.cgi?id=1'!\n",
         )
         self.assertEqual(captured.stderr.getvalue(), '')
         log = captured.root.log.getvalue().splitlines()
         self.assertEqual(
             [line for line in log if 'Mock process' not in line], [
+                f'Using the WPT repository found at `{self.path}`',
                 'Fetching web-platform-tests repository',
                 'Cleaning web-platform-tests master branch',
                 'Applying patch to web-platform-tests branch wpt-export-for-webkit-1',
@@ -290,17 +300,21 @@ class TestExporterTest(testing.PathTestCase):
         host.filesystem.maybe_make_directory(self.path)
         host._mockSCM.mock_format_patch_result = b"""
 Subversion Revision: 231920
+diff --git a/LayoutTests/imported/w3c/web-platform-tests/css/css-counter-styles/counter-style-at-rule/empty-string-symbol-expected.xht b/LayoutTests/imported/w3c/web-platform-tests/css/css-counter-styles/counter-style-at-rule/empty-string-symbol-expected.xht
+
++change to expected
+
 diff --git a/LayoutTests/imported/w3c/web-platform-tests/fetch/api/headers/header-values-expected.txt b/LayoutTests/imported/w3c/web-platform-tests/fetch/api/headers/header-values-expected.txt
 
 +change to expected
 
 diff --git a/LayoutTests/imported/w3c/web-platform-tests/fetch/api/headers/header-values.any.serviceworker.html b/LayoutTests/imported/w3c/web-platform-tests/fetch/api/headers/header-values.any.serviceworker.html
 
-+change to expected
++change to any.serviceworker
 
 diff --git a/LayoutTests/imported/w3c/web-platform-tests/fetch/api/headers/header-values.any.sharedworker.html b/LayoutTests/imported/w3c/web-platform-tests/fetch/api/headers/header-values.any.sharedworker.html
 
-+change to expected
++change to any.sharedworker
 """
         options = parse_args(['test_exporter.py', '-g', 'HEAD', '-b', '1', '-c', '-n', 'USER', '-t', 'TOKEN', '-d', self.path])
         with mocks.local.Git(self.path) as repo:

@@ -27,10 +27,11 @@
 
 #if ENABLE(WEB_AUDIO) && USE(MEDIATOOLBOX)
 
-#include "AudioSourceProvider.h"
+#include <WebCore/AudioSourceProvider.h>
 #include <wtf/MediaTime.h>
 #include <wtf/RetainPtr.h>
-#include <wtf/ThreadSafeRefCounted.h>
+#include <wtf/SystemFree.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/TypeCasts.h>
 #include <wtf/UniqueRef.h>
 #include <wtf/WeakPtr.h>
@@ -53,7 +54,7 @@ class CAAudioStreamDescription;
 class CARingBuffer;
 class PlatformAudioData;
 
-class AudioSourceProviderAVFObjC : public ThreadSafeRefCounted<AudioSourceProviderAVFObjC>, public AudioSourceProvider {
+class AudioSourceProviderAVFObjC : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<AudioSourceProviderAVFObjC>, public AudioSourceProvider {
 public:
     using WeakValueType = AudioSourceProviderAVFObjC;
     static RefPtr<AudioSourceProviderAVFObjC> create(AVPlayerItem*);
@@ -95,7 +96,7 @@ private:
     RetainPtr<AVMutableAudioMix> m_avAudioMix;
     RetainPtr<MTAudioProcessingTapRef> m_tap;
     RetainPtr<AudioConverterRef> m_converter;
-    std::unique_ptr<AudioBufferList> m_list;
+    std::unique_ptr<AudioBufferList, WTF::SystemFree<AudioBufferList>> m_list;
     std::unique_ptr<AudioStreamBasicDescription> m_tapDescription;
     std::unique_ptr<AudioStreamBasicDescription> m_outputDescription;
     std::unique_ptr<CARingBuffer> m_ringBuffer;

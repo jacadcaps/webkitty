@@ -3,6 +3,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
+
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include "anglebase/numerics/safe_conversions.h"
 #include "common/mathutil.h"
 #include "test_utils/ANGLETest.h"
@@ -350,7 +355,7 @@ class VertexAttributeTest : public ANGLETest<>
             "void main(void)\n"
             "{\n"
             "    gl_Position = position;\n"
-            "    vec4 threshold = max(abs(expected) * 0.01, 1.0 / 64.0);\n"
+            "    vec4 threshold = max(abs(expected) * 0.01, vec4(1.0 / 64.0));\n"
             "    color = vec4(lessThanEqual(abs(test - expected), threshold));\n"
             "}\n";
 
@@ -1838,7 +1843,7 @@ TEST_P(VertexAttributeTest, DrawArraysWithDisabledAttribute)
         "void main(void)\n"
         "{\n"
         "    gl_Position = position;\n"
-        "    vec4 threshold = max(abs(expected + disabled) * 0.005, 1.0 / 64.0);\n"
+        "    vec4 threshold = max(abs(expected + disabled) * 0.005, vec4(1.0 / 64.0));\n"
         "    color = vec4(lessThanEqual(abs(test - expected), threshold));\n"
         "}\n";
 
@@ -2569,7 +2574,7 @@ void main() {
                            reinterpret_cast<const void *>(0));
 
     glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glEnableVertexAttribArray(1);
+    glEnableVertexAttribArray(colorLocation);
 
     drawQuad(program, "a_position", 0.5f);
 
@@ -5574,6 +5579,8 @@ ANGLE_INSTANTIATE_TEST_ES2_AND_ES3_AND(
     ES2_VULKAN_SWIFTSHADER().enable(Feature::ForceFallbackFormat),
     ES3_VULKAN().enable(Feature::ForceFallbackFormat),
     ES3_VULKAN_SWIFTSHADER().enable(Feature::ForceFallbackFormat),
+    ES3_VULKAN().disable(Feature::ForceSizePointerForBoundVertexBuffers),
+    ES3_VULKAN_SWIFTSHADER().disable(Feature::ForceSizePointerForBoundVertexBuffers),
     ES3_METAL().disable(Feature::HasExplicitMemBarrier).disable(Feature::HasCheapRenderPass),
     ES3_METAL().disable(Feature::HasExplicitMemBarrier).enable(Feature::HasCheapRenderPass),
     ES2_OPENGL().enable(Feature::ForceMinimumMaxVertexAttributes),
@@ -5600,15 +5607,18 @@ ANGLE_INSTANTIATE_TEST_ES3_AND(
     ES3_METAL().disable(Feature::HasExplicitMemBarrier).enable(Feature::HasCheapRenderPass),
     ES3_VULKAN()
         .disable(Feature::UseVertexInputBindingStrideDynamicState)
-        .disable(Feature::SupportsGraphicsPipelineLibrary));
+        .disable(Feature::SupportsGraphicsPipelineLibrary),
+    ES3_VULKAN().disable(Feature::ForceSizePointerForBoundVertexBuffers));
 
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(VertexAttributeTestES31);
-ANGLE_INSTANTIATE_TEST_ES31_AND(VertexAttributeTestES31,
-                                ES31_VULKAN().enable(Feature::ForceFallbackFormat),
-                                ES31_VULKAN_SWIFTSHADER().enable(Feature::ForceFallbackFormat),
-                                ES31_VULKAN()
-                                    .disable(Feature::UseVertexInputBindingStrideDynamicState)
-                                    .disable(Feature::SupportsGraphicsPipelineLibrary));
+ANGLE_INSTANTIATE_TEST_ES31_AND(
+    VertexAttributeTestES31,
+    ES31_VULKAN().enable(Feature::ForceFallbackFormat),
+    ES31_VULKAN_SWIFTSHADER().enable(Feature::ForceFallbackFormat),
+    ES31_VULKAN()
+        .disable(Feature::UseVertexInputBindingStrideDynamicState)
+        .disable(Feature::SupportsGraphicsPipelineLibrary),
+    ES31_VULKAN().disable(Feature::ForceSizePointerForBoundVertexBuffers));
 
 ANGLE_INSTANTIATE_TEST_ES2_AND_ES3_AND(
     VertexAttributeCachingTest,

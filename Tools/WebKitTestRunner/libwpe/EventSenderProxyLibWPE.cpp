@@ -26,10 +26,15 @@
 #include "config.h"
 #include "EventSenderProxy.h"
 
-#include "EventSenderProxyClientLibWPE.h"
+#include "PlatformWebView.h"
 #include "TestController.h"
 #include <WebCore/NotImplemented.h>
+#include <WebKit/WKPagePrivate.h>
 #include <wtf/MonotonicTime.h>
+
+#if USE(LIBWPE)
+#include "EventSenderProxyClientLibWPE.h"
+#endif
 
 #if PLATFORM(WPE) && ENABLE(WPE_PLATFORM)
 #include "EventSenderProxyClientWPE.h"
@@ -47,19 +52,18 @@ EventSenderProxy::EventSenderProxy(TestController* testController)
     , m_clickTime(0)
     , m_clickButton(kWKEventMouseButtonNoButton)
 {
-#if PLATFORM(WPE) && ENABLE(WPE_PLATFORM)
-    if (testController->useWPELegacyAPI())
-        m_client = makeUnique<EventSenderProxyClientLibWPE>(*testController);
-    else
+#if ENABLE(WPE_PLATFORM)
+    if (!testController->useWPELegacyAPI()) {
         m_client = makeUnique<EventSenderProxyClientWPE>(*testController);
-#else
+        return;
+    }
+#endif
+#if USE(LIBWPE)
     m_client = makeUnique<EventSenderProxyClientLibWPE>(*testController);
 #endif
 }
 
-EventSenderProxy::~EventSenderProxy()
-{
-}
+EventSenderProxy::~EventSenderProxy() = default;
 
 void EventSenderProxy::updateClickCountForButton(int button)
 {
@@ -123,12 +127,14 @@ void EventSenderProxy::keyDown(WKStringRef keyRef, WKEventModifiers wkModifiers,
     m_client->keyDown(keyRef, m_time, wkModifiers, location);
 }
 
-void EventSenderProxy::rawKeyDown(WKStringRef key, WKEventModifiers modifiers, unsigned keyLocation)
+void EventSenderProxy::rawKeyDown(WKStringRef keyRef, WKEventModifiers wkModifiers, unsigned location)
 {
+    m_client->rawKeyDown(keyRef, wkModifiers, location);
 }
 
-void EventSenderProxy::rawKeyUp(WKStringRef key, WKEventModifiers modifiers, unsigned keyLocation)
+void EventSenderProxy::rawKeyUp(WKStringRef keyRef, WKEventModifiers wkModifiers, unsigned location)
 {
+    m_client->rawKeyUp(keyRef, wkModifiers, location);
 }
 
 #if ENABLE(TOUCH_EVENTS)
@@ -190,8 +196,30 @@ void EventSenderProxy::cancelTouchPoint(int index)
 
 #endif // ENABLE(TOUCH_EVENTS)
 
+struct DoAfterProcessingAllPendingMouseEventsCallbackContext {
+    bool done { false };
+    bool timedOut { false };
+};
+
+static void doAfterProcessingAllPendingMouseEventsCallback(void* userData)
+{
+    auto* context = static_cast<DoAfterProcessingAllPendingMouseEventsCallbackContext*>(userData);
+    if (context->timedOut) {
+        delete context;
+        return;
+    }
+    context->done = true;
+}
+
 void EventSenderProxy::waitForPendingMouseEvents()
 {
+    auto* context = new DoAfterProcessingAllPendingMouseEventsCallbackContext;
+    WKPageDoAfterProcessingAllPendingMouseEvents(m_testController->mainWebView()->page(), context, doAfterProcessingAllPendingMouseEventsCallback);
+    m_testController->runUntil(context->done, 100_ms);
+    if (context->done)
+        delete context;
+    else
+        context->timedOut = true;
 }
 
 } // namespace WTR

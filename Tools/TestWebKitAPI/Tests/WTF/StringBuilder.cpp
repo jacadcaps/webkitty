@@ -45,7 +45,7 @@ static String builderContent(const StringBuilder& builder)
     // Not using builder.toString() or builder.toStringPreserveCapacity() because they all
     // change internal state of builder.
     if (builder.is8Bit())
-        return builder.span<LChar>();
+        return builder.span<Latin1Character>();
     return builder.span<char16_t>();
 }
 
@@ -69,7 +69,7 @@ TEST(StringBuilderTest, Append)
     EXPECT_EQ("0123456789"_s, builderContent(builder));
     builder.append("abcd"_s);
     EXPECT_EQ("0123456789abcd"_s, builderContent(builder));
-    builder.append(std::span { reinterpret_cast<const LChar*>("efgh"), 3 });
+    builder.append(std::span { reinterpret_cast<const Latin1Character*>("efgh"), 3 });
     EXPECT_EQ("0123456789abcdefg"_s, builderContent(builder));
     builder.append(""_s);
     EXPECT_EQ("0123456789abcdefg"_s, builderContent(builder));
@@ -80,15 +80,15 @@ TEST(StringBuilderTest, Append)
     StringBuilder builder1;
     builder.append(""_span);
     EXPECT_EQ("0123456789abcdefg#"_s, builderContent(builder));
-    builder1.append(builder.span<LChar>());
+    builder1.append(builder.span<Latin1Character>());
     builder1.append("XYZ"_s);
-    builder.append(builder1.span<LChar>());
+    builder.append(builder1.span<Latin1Character>());
     EXPECT_EQ("0123456789abcdefg#0123456789abcdefg#XYZ"_s, builderContent(builder));
 
     StringBuilder builder2;
     builder2.reserveCapacity(100);
     builder2.append("xyz"_s);
-    const LChar* characters = builder2.span8().data();
+    const Latin1Character* characters = builder2.span8().data();
     builder2.append("0123456789"_s);
     EXPECT_EQ(characters, builder2.span8().data());
     builder2.toStringPreserveCapacity(); // Test after reifyString with buffer preserved.
@@ -96,14 +96,14 @@ TEST(StringBuilderTest, Append)
     EXPECT_EQ(characters, builder2.span8().data());
 
     // Test appending char32_t characters to StringBuilder.
-    StringBuilder builderForUChar32Append;
+    StringBuilder builderForUTF32Append;
     char32_t frakturAChar = 0x1D504;
-    builderForUChar32Append.append(frakturAChar); // The fraktur A is not in the BMP, so it's two UTF-16 code units long.
-    EXPECT_EQ(2U, builderForUChar32Append.length());
-    builderForUChar32Append.append(U'A');
-    EXPECT_EQ(3U, builderForUChar32Append.length());
+    builderForUTF32Append.append(frakturAChar); // The fraktur A is not in the BMP, so it's two UTF-16 code units long.
+    EXPECT_EQ(2U, builderForUTF32Append.length());
+    builderForUTF32Append.append(U'A');
+    EXPECT_EQ(3U, builderForUTF32Append.length());
     const char16_t resultArray[] = { U16_LEAD(frakturAChar), U16_TRAIL(frakturAChar), 'A' };
-    EXPECT_EQ(String({ resultArray, std::size(resultArray) }), builderContent(builderForUChar32Append));
+    EXPECT_EQ(String({ resultArray, std::size(resultArray) }), builderContent(builderForUTF32Append));
     {
         StringBuilder builder;
         StringBuilder builder2;
@@ -118,6 +118,12 @@ TEST(StringBuilderTest, Append)
         EXPECT_EQ(4U, builder.length());
         const char16_t resultArray[] = { U16_LEAD(frakturAChar), U16_TRAIL(frakturAChar), U16_LEAD(frakturAChar), U16_TRAIL(frakturAChar) };
         EXPECT_EQ(String({ resultArray, std::size(resultArray) }), builderContent(builder));
+    }
+
+    {
+        StringBuilder builder;
+        builder.append(u8"Water🍉Melon"_span);
+        EXPECT_EQ(builder.toString(), u8"Water🍉Melon"_span);
     }
 }
 
@@ -397,7 +403,7 @@ TEST(StringBuilderTest, Equal)
     StringBuilder builder1;
     StringBuilder builder2;
     EXPECT_TRUE(builder1 == builder2);
-    EXPECT_TRUE(equal(builder1, std::span<const LChar>()));
+    EXPECT_TRUE(equal(builder1, std::span<const Latin1Character>()));
     EXPECT_TRUE(builder1 == String());
     EXPECT_TRUE(String() == builder1);
     EXPECT_TRUE(builder1 != String("abc"_s));

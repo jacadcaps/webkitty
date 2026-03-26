@@ -118,7 +118,7 @@ private:
 
     float m_scale;
 
-    using TileMap = HashMap<TileIndex, RefPtr<LegacyTileGridTile>>;
+    using TileMap = HashMap<TileIndex, Ref<LegacyTileGridTile>>;
     TileMap m_tiles;
 
     IntRect m_validBounds;

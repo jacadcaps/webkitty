@@ -25,9 +25,10 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
 #if USE(AUDIO_SESSION) && PLATFORM(IOS_FAMILY)
 
-#include "AudioSessionCocoa.h"
+#include <WebCore/AudioSessionCocoa.h>
 #include <wtf/TZoneMalloc.h>
 
 OBJC_CLASS WebInterruptionObserverHelper;
@@ -49,6 +50,8 @@ public:
 
     using CategoryChangedObserver = WTF::Observer<void(AudioSession&, CategoryType)>;
     WEBCORE_EXPORT static void addAudioSessionCategoryChangedObserver(const CategoryChangedObserver&);
+
+    void sessionMediaServicesWereReset();
 
 private:
     AudioSessionIOS();
@@ -76,6 +79,8 @@ private:
 
     void setSoundStageSize(SoundStageSize) final;
     SoundStageSize soundStageSize() const final { return m_soundStageSize; }
+
+    mutable std::optional<size_t> m_preferredBufferSize;
 
     String m_lastSetPreferredMicrophoneID;
     const RetainPtr<WebInterruptionObserverHelper> m_interruptionObserverHelper;

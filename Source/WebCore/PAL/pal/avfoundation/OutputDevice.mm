@@ -35,7 +35,7 @@
 namespace PAL {
 
 OutputDevice::OutputDevice(RetainPtr<AVOutputDevice>&& device)
-    : m_device(WTFMove(device))
+    : m_device(WTF::move(device))
 {
 }
 
@@ -57,13 +57,6 @@ uint8_t OutputDevice::deviceFeatures() const
     if (avDeviceFeatures & AVOutputDeviceFeatureVideo)
         deviceFeatures |= (uint8_t)DeviceFeatures::Video;
     return deviceFeatures;
-}
-
-bool OutputDevice::supportsSpatialAudio() const
-{
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    return [m_device supportsHeadTrackedSpatialAudio] && [m_device allowsHeadTrackedSpatialAudio];
-    ALLOW_DEPRECATED_DECLARATIONS_END
 }
 
 }

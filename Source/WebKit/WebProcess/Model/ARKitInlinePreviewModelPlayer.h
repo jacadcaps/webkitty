@@ -47,16 +47,12 @@ protected:
     WebCore::ModelPlayerClient* client() { return m_client.get(); }
 
     virtual std::optional<ModelIdentifier> modelIdentifier() = 0;
-#if ENABLE(MODEL_PROCESS)
     WebCore::ModelPlayerIdentifier identifier() const final;
-#endif
 
 private:
     // WebCore::ModelPlayer overrides.
     void load(WebCore::Model&, WebCore::LayoutSize) override;
     void sizeDidChange(WebCore::LayoutSize) override;
-    PlatformLayer* layer() override;
-    std::optional<WebCore::LayerHostingContextIdentifier> layerHostingContextIdentifier() override;
     void enterFullscreen() override;
     void getCamera(CompletionHandler<void(std::optional<WebCore::HTMLModelElementCamera>&&)>&&) override;
     void setCamera(WebCore::HTMLModelElementCamera, CompletionHandler<void(bool success)>&&) override;
@@ -70,13 +66,11 @@ private:
     void hasAudio(CompletionHandler<void(std::optional<bool>&&)>&&) override;
     void isMuted(CompletionHandler<void(std::optional<bool>&&)>&&) override;
     void setIsMuted(bool, CompletionHandler<void(bool success)>&&) override;
-    Vector<RetainPtr<id>> accessibilityChildren() override;
+    WebCore::ModelPlayerAccessibilityChildren accessibilityChildren() override;
 
     WeakPtr<WebPage> m_page;
     WeakPtr<WebCore::ModelPlayerClient> m_client;
-#if ENABLE(MODEL_PROCESS)
     WebCore::ModelPlayerIdentifier m_id;
-#endif
 };
 
 }

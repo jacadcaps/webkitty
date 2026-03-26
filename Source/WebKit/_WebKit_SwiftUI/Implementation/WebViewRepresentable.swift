@@ -21,15 +21,16 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-internal import SwiftUI
-@_spi(CrossImportOverlay) import WebKit
+#if ENABLE_SWIFTUI
 
-#if !USE_APPLE_INTERNAL_SDK
-// Stubs for behavior not implemented in open source.
-extension WebPageWebView {
-    public func configureScrollInputBehavior(_ behavior: Any, for input: Any) { }
+internal import SwiftUI
+internal import os
+@_spi(CrossImportOverlay) import WebKit
+internal import WebKit_Private.WKPreferencesPrivate
+
+extension Logger {
+    fileprivate static let webView = Logger(subsystem: "com.apple.WebKit", category: "SwiftUIWebView")
 }
-#endif
 
 @MainActor
 struct WebViewRepresentable {
@@ -78,9 +79,23 @@ struct WebViewRepresentable {
         }
         #endif
 
+        #if os(visionOS)
         if let scrollInputBehavior = environment.webViewScrollInputBehaviorContext {
-            webView.configureScrollInputBehavior(scrollInputBehavior.behavior, for: scrollInputBehavior.input)
+            if scrollInputBehavior.input == .look {
+                webView.configuration.preferences._overlayRegionsEnabled = scrollInputBehavior.behavior != .disabled
+            } else {
+                Logger.webView.error("Only the `.look` ScrollInputKind is supported.")
+            }
         }
+        #endif
+
+        #if os(macOS)
+        if let scrollEdgeEffectStyle = environment.webViewScrollEdgeEffectStyleContext {
+            webView._usesAutomaticContentInsetBackgroundFill = scrollEdgeEffectStyle.style != .hard
+            webView.obscuredContentInsets = .init(top: 0, left: 0, bottom: 0, right: 0)
+            webView._automaticallyAdjustsContentInsets = true
+        }
+        #endif
 
         if EquatableScrollBounceBehavior(environment.verticalScrollBounceBehavior) == .always
             || EquatableScrollBounceBehavior(environment.verticalScrollBounceBehavior) == .automatic
@@ -277,6 +292,11 @@ struct EquatableScrollBounceBehavior: Equatable {
     let behavior: ScrollBounceBehavior
 
     static func == (lhs: EquatableScrollBounceBehavior, rhs: EquatableScrollBounceBehavior) -> Bool {
-        unsafeBitCast(lhs.behavior, to: Int8.self) == unsafeBitCast(rhs.behavior, to: Int8.self)
+        // Safety: ScrollBounceBehavior is opaque, but stores data, so is guaranteed
+        // to be at least 1 byte long. We will compare just that first byte.
+        // This is a temporary workaround for rdar://145030632.
+        unsafe unsafeBitCast(lhs.behavior, to: Int8.self) == unsafeBitCast(rhs.behavior, to: Int8.self)
     }
 }
+
+#endif

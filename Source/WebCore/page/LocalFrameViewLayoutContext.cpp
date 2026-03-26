@@ -47,7 +47,7 @@
 #include "RenderLayoutState.h"
 #include "RenderObjectInlines.h"
 #include "RenderStyle.h"
-#include "RenderStyleInlines.h"
+#include "RenderStyle+GettersInlines.h"
 #include "RenderView.h"
 #include "ScriptDisallowedScope.h"
 #include "Settings.h"
@@ -110,9 +110,22 @@ private:
 };
 #endif
 
-class LayoutScope {
+RepaintBlocker::RepaintBlocker(Document& document)
+    : m_document(document)
+{
+    if (CheckedPtr view = m_document->view())
+        view->layoutContext().blockRepaints();
+}
+
+RepaintBlocker::~RepaintBlocker()
+{
+    if (CheckedPtr view = m_document->view())
+        view->layoutContext().allowRepaints();
+}
+
+class LayoutFrameScope {
 public:
-    LayoutScope(LocalFrameViewLayoutContext& layoutContext)
+    LayoutFrameScope(LocalFrameViewLayoutContext& layoutContext)
         : m_view(layoutContext.view())
         , m_nestedState(layoutContext.m_layoutNestedState, layoutContext.m_layoutNestedState == LocalFrameViewLayoutContext::LayoutNestedState::NotInLayout ? LocalFrameViewLayoutContext::LayoutNestedState::NotNested : LocalFrameViewLayoutContext::LayoutNestedState::Nested)
         , m_schedulingIsEnabled(layoutContext.m_layoutSchedulingIsEnabled, false)
@@ -121,7 +134,7 @@ public:
         m_view->setCurrentScrollType(ScrollType::Programmatic);
     }
         
-    ~LayoutScope()
+    ~LayoutFrameScope()
     {
         m_view->setCurrentScrollType(m_previousScrollType);
     }
@@ -201,7 +214,7 @@ void LocalFrameViewLayoutContext::performLayout(bool canDeferUpdateLayerPosition
         return;
     }
 
-    LayoutScope layoutScope(*this);
+    LayoutFrameScope layoutFrameScope(*this);
     TraceScope tracingScope(PerformLayoutStart, PerformLayoutEnd);
     ScriptDisallowedScope::InMainThread scriptDisallowedScope;
     InspectorInstrumentation::willLayout(frame);
@@ -364,14 +377,14 @@ void LocalFrameViewLayoutContext::flushUpdateLayerPositions()
     if (!view)
         return;
 
-    auto repaintRectEnvironment = RepaintRectEnvironment { view->page().deviceScaleFactor(), document()->printing(), protectedView()->useFixedLayout() };
+    auto repaintRectEnvironment = RepaintRectEnvironment { view->page().deviceScaleFactor(), protectedDocument()->printing(), protectedView()->useFixedLayout() };
     bool environmentChanged = repaintRectEnvironment != m_lastRepaintRectEnvironment;
 
     auto updateLayerPositions = *std::exchange(m_pendingUpdateLayerPositions, std::nullopt);
     view->layer()->updateLayerPositionsAfterLayout(updateLayerPositions.needsFullRepaint, environmentChanged);
 
     m_renderLayerPositionUpdateCount++;
-    m_lastRepaintRectEnvironment = WTFMove(repaintRectEnvironment);
+    m_lastRepaintRectEnvironment = WTF::move(repaintRectEnvironment);
 }
 
 bool LocalFrameViewLayoutContext::updateCompositingLayersAfterStyleChange()
@@ -384,12 +397,12 @@ bool LocalFrameViewLayoutContext::updateCompositingLayersAfterStyleChange()
     if (needsLayout() || isInLayout())
         return false;
 
-    auto repaintRectEnvironment = RepaintRectEnvironment { view->page().deviceScaleFactor(), document()->printing(), protectedView()->useFixedLayout() };
+    auto repaintRectEnvironment = RepaintRectEnvironment { view->page().deviceScaleFactor(), protectedDocument()->printing(), protectedView()->useFixedLayout() };
     bool environmentChanged = repaintRectEnvironment != m_lastRepaintRectEnvironment;
 
     view->layer()->updateLayerPositionsAfterStyleChange(environmentChanged);
 
-    m_lastRepaintRectEnvironment = WTFMove(repaintRectEnvironment);
+    m_lastRepaintRectEnvironment = WTF::move(repaintRectEnvironment);
 
     return view->compositor().didRecalcStyleWithNoPendingLayout();
 }
@@ -814,6 +827,64 @@ void LocalFrameViewLayoutContext::checkLayoutState()
     ASSERT(!m_paintOffsetCacheDisableCount);
 }
 #endif
+
+const AnchorScrollAdjuster* LocalFrameViewLayoutContext::anchorScrollAdjusterFor(const RenderBox& anchored) const
+{
+    auto index = m_anchorScrollAdjusters.findIf([&](auto& item) {
+        return item.anchored() == &anchored;
+    });
+    if (index == WTF::notFound)
+        return { };
+    return &m_anchorScrollAdjusters[index];
+}
+
+AnchorScrollAdjuster::Diff LocalFrameViewLayoutContext::registerAnchorScrollAdjuster(AnchorScrollAdjuster&& scrollAdjuster)
+{
+    auto index = m_anchorScrollAdjusters.findIf([&](auto& item) {
+        return item.anchored() == scrollAdjuster.anchored();
+    });
+
+    bool recaptureDiffers = false;
+    if (WTF::notFound == index) {
+        m_anchorScrollAdjusters.append(WTF::move(scrollAdjuster));
+        return AnchorScrollAdjuster::New;
+    }
+
+    recaptureDiffers = m_anchorScrollAdjusters[index].recaptureDiffers(scrollAdjuster);
+    m_anchorScrollAdjusters[index] = WTF::move(scrollAdjuster);
+    return recaptureDiffers ? AnchorScrollAdjuster::SnapshotsDiffer : AnchorScrollAdjuster::SnapshotsMatch;
+}
+
+void LocalFrameViewLayoutContext::unregisterAnchorScrollAdjusterFor(const RenderBox& anchored)
+{
+    m_anchorScrollAdjusters.removeFirstMatching([&](auto& item) {
+        return item.anchored() == &anchored;
+    });
+    ASSERT(!m_anchorScrollAdjusters.containsIf([&](auto& item) {
+        return item.anchored() == &anchored;
+    }));
+
+    if (anchored.layer())
+        anchored.layer()->clearAnchorScrollAdjustment();
+}
+
+void LocalFrameViewLayoutContext::invalidateAnchorDependenciesForScroller(const RenderBox& scroller)
+{
+    for (auto& adjuster : m_anchorScrollAdjusters)
+        adjuster.invalidateForScroller(scroller);
+}
+
+void LocalFrameViewLayoutContext::removeScrollerFromAnchorScrollAdjusters(const RenderBox& scroller)
+{
+    if (!renderView() || renderView()->renderTreeBeingDestroyed())
+        m_anchorScrollAdjusters.clear();
+    else {
+        for (auto& adjuster : m_anchorScrollAdjusters) {
+            if (adjuster.invalidateForScroller(scroller))
+                unregisterAnchorScrollAdjusterFor(*adjuster.anchored());
+        }
+    }
+}
 
 LocalFrame& LocalFrameViewLayoutContext::frame() const
 {

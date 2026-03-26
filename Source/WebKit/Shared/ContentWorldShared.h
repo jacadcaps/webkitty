@@ -25,17 +25,19 @@
 
 #pragma once
 
+#include <WebCore/ProcessQualified.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/ObjectIdentifier.h>
 
 namespace WebKit {
 
 struct ContentWorldIdentifierType;
-using ContentWorldIdentifier = ObjectIdentifier<ContentWorldIdentifierType>;
+using NonProcessQualifiedContentWorldIdentifier = ObjectIdentifier<ContentWorldIdentifierType>;
+using ContentWorldIdentifier = WebCore::ProcessQualified<NonProcessQualifiedContentWorldIdentifier>;
 
 inline ContentWorldIdentifier pageContentWorldIdentifier()
 {
-    static NeverDestroyed<ContentWorldIdentifier> identifier(ObjectIdentifier<ContentWorldIdentifierType>(1));
+    static NeverDestroyed<ContentWorldIdentifier> identifier(ObjectIdentifier<ContentWorldIdentifierType>(1), WebCore::ProcessIdentifier(1));
     return identifier;
 }
 
@@ -44,7 +46,9 @@ enum class ContentWorldOption : uint8_t {
     AllowAutofill = 1 << 1,
     AllowElementUserInfo = 1 << 2,
     DisableLegacyBuiltinOverrides = 1 << 3,
-    AllowNodeInfo = 1 << 4,
+    AllowJSHandleCreation = 1 << 4,
+    AllowNodeSerialization = 1 << 5,
+    Inspectable = 1 << 6,
 };
 
 } // namespace WebKit

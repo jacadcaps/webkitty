@@ -70,6 +70,7 @@
 #import <wtf/Vector.h>
 #import <wtf/cocoa/SpanCocoa.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
+#import <wtf/darwin/DispatchExtras.h>
 #import <wtf/text/MakeString.h>
 #import <wtf/text/StringHash.h>
 #import <wtf/text/WTFString.h>
@@ -179,7 +180,7 @@ static bool navigationFailed = false;
 {
     int64_t deferredWaitTime = 100 * NSEC_PER_MSEC;
     dispatch_time_t when = dispatch_time(DISPATCH_TIME_NOW, deferredWaitTime);
-    dispatch_after(when, dispatch_get_main_queue(), ^{
+    dispatch_after(when, mainDispatchQueueSingleton(), ^{
         decisionHandler(shouldAccept ? WKNavigationResponsePolicyAllow : WKNavigationResponsePolicyCancel);
     });
 }
@@ -2498,6 +2499,50 @@ TEST(WebKit, ServiceWorkerDatabaseWithRecordsTableButUnexpectedSchema)
     readyToContinue = false;
 }
 
+TEST(ServiceWorkers, V2DatabaseUpgrade)
+{
+    // Start with a clean slate data store
+    [[WKWebsiteDataStore defaultDataStore] removeDataOfTypes:[WKWebsiteDataStore allWebsiteDataTypes] modifiedSince:[NSDate distantPast] completionHandler:^() {
+        done = true;
+    }];
+    TestWebKitAPI::Util::run(&done);
+    done = false;
+
+    NSURL *swPath = [NSURL fileURLWithPath:[@"~/Library/Caches/com.apple.WebKit.TestWebKitAPI/WebKit/ServiceWorkers/" stringByExpandingTildeInPath]];
+    [[NSFileManager defaultManager] removeItemAtURL:swPath error:nil];
+    EXPECT_FALSE([[NSFileManager defaultManager] fileExistsAtPath:swPath.path]);
+
+    NSURL *scriptDirectoyPath = [NSURL fileURLWithPath:[@"~/Library/Caches/com.apple.WebKit.TestWebKitAPI/WebKit/ServiceWorkers/Scripts/V1/xPAvXL4WjRQdGV0mpfwak2b5_1GqLUx4U9UZRpYn2Jw/wc4tzUMAvirBHXPD6rEkc5sG5oyRXMuxJl04TscgvKI/" stringByExpandingTildeInPath]];
+    [[NSFileManager defaultManager] createDirectoryAtURL:scriptDirectoyPath withIntermediateDirectories:YES attributes:nil error:nil];
+
+    // Copy the baked database files to the database directory
+    NSURL *registrationDatabaseResource = [NSBundle.test_resourcesBundle URLForResource:@"ServiceWorkerRegistrationsVersion1" withExtension:@"sqlite3"];
+    [[NSFileManager defaultManager] copyItemAtURL:registrationDatabaseResource toURL:[swPath URLByAppendingPathComponent:serviceWorkerRegistrationFilename] error:nil];
+
+    // Copy the salt file to have fixed hashed script filenames.
+    NSURL *saltResource = [NSBundle.test_resourcesBundle URLForResource:@"ServiceWorkerRegistrationsVersion1Salt" withExtension:@"bin"];
+    NSURL *saltPath = [NSURL fileURLWithPath:[@"~/Library/Caches/com.apple.WebKit.TestWebKitAPI/WebKit/ServiceWorkers/Scripts/V1/salt" stringByExpandingTildeInPath]];
+    [[NSFileManager defaultManager] copyItemAtURL:saltResource toURL:saltPath error:nil];
+
+    // Copy a fake script so that registration import is successful.
+    NSURL *scriptPath = [NSURL fileURLWithPath:[@"~/Library/Caches/com.apple.WebKit.TestWebKitAPI/WebKit/ServiceWorkers/Scripts/V1/xPAvXL4WjRQdGV0mpfwak2b5_1GqLUx4U9UZRpYn2Jw/wc4tzUMAvirBHXPD6rEkc5sG5oyRXMuxJl04TscgvKI/bNUYH4V9T2WYLnx37jHP2cE6FjNkL078xwiNeE465Bs" stringByExpandingTildeInPath]];
+    [[NSFileManager defaultManager] copyItemAtURL:saltResource toURL:scriptPath error:nil];
+
+    auto websiteDataStoreConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] init]);
+    websiteDataStoreConfiguration.get()._serviceWorkerRegistrationDirectory = swPath;
+    auto dataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:websiteDataStoreConfiguration.get()]);
+
+    // Fetch SW records
+    auto websiteDataTypes = adoptNS([[NSSet alloc] initWithArray:@[WKWebsiteDataTypeServiceWorkerRegistrations]]);
+    static bool readyToContinue;
+    [dataStore fetchDataRecordsOfTypes:websiteDataTypes.get() completionHandler:^(NSArray<WKWebsiteDataRecord *> *dataRecords) {
+        EXPECT_EQ(1U, dataRecords.count);
+        readyToContinue = true;
+    }];
+    TestWebKitAPI::Util::run(&readyToContinue);
+    readyToContinue = false;
+}
+
 TEST(ServiceWorkers, ProcessPerSession)
 {
     [WKWebsiteDataStore _allowWebsiteDataRecordsForAllOrigins];
@@ -3048,12 +3093,11 @@ static bool didStartURLSchemeTaskForImportedScript = false;
     auto response = adoptNS([[NSHTTPURLResponse alloc] initWithURL:finalURL statusCode:200 HTTPVersion:@"HTTP/1.1" headerFields:headerDictionary]);
     [task didReceiveResponse:response.get()];
 
-    if (auto data = _dataMappings.get([finalURL absoluteString]))
+    if (RetainPtr data = _dataMappings.get([finalURL absoluteString]))
         [task didReceiveData:data.get()];
-    else if (_bytes) {
-        RetainPtr data = toNSDataNoCopy(unsafeSpan8(_bytes), FreeWhenDone::No);
-        [task didReceiveData:data.get()];
-    } else
+    else if (_bytes)
+        [task didReceiveData:toNSData(byteCast<uint8_t>(unsafeSpan(_bytes))).get()];
+    else
         [task didReceiveData:[@"Hello" dataUsingEncoding:NSUTF8StringEncoding]];
 
     [task didFinish];
@@ -3659,8 +3703,10 @@ TEST(ServiceWorker, ServiceWorkerWindowClientFocus)
 #if PLATFORM(MAC)
     EXPECT_TRUE([webView1 hostWindow].isVisible);
     EXPECT_FALSE([webView2 hostWindow].isVisible);
-    EXPECT_FALSE([webView1 hostWindow].isMiniaturized);
-    EXPECT_TRUE([webView2 hostWindow].isMiniaturized);
+    while ([webView1 hostWindow].isMiniaturized)
+        TestWebKitAPI::Util::spinRunLoop(1);
+    while (![webView2 hostWindow].isMiniaturized)
+        TestWebKitAPI::Util::spinRunLoop(1);
 
     // FIXME: We should be able to run these tests in iOS once pages are actually visible.
     done = false;
@@ -4395,7 +4441,7 @@ TEST(ServiceWorkers, ServiceWorkerStorageTiming)
     HashMap<String, String> sourceHeaders;
     sourceHeaders.add("Cache-Control"_s, "no-cache"_s);
     sourceHeaders.add("Content-Type"_s, "application/javascript"_s);
-    server.setResponse("/sw.js"_s, TestWebKitAPI::HTTPResponse { WTFMove(sourceHeaders), serviceWorkerStorageTimingScriptBytesV2 });
+    server.setResponse("/sw.js"_s, TestWebKitAPI::HTTPResponse { WTF::move(sourceHeaders), serviceWorkerStorageTimingScriptBytesV2 });
 
     done = false;
     expectedMessage = "Message from worker: V1"_s;
@@ -4916,7 +4962,7 @@ TEST(ServiceWorker, ServiceWorkerReadableStreamDownloadCancel)
     navigationDownloadDelegate.get().navigationResponseDidBecomeDownload = ^(WKWebView *, WKNavigationResponse *, WKDownload *download) {
         int64_t deferredWaitTime = 500 * NSEC_PER_MSEC;
         dispatch_time_t when = dispatch_time(DISPATCH_TIME_NOW, deferredWaitTime);
-        dispatch_after(when, dispatch_get_main_queue(), ^{
+        dispatch_after(when, mainDispatchQueueSingleton(), ^{
             [download cancel:^(NSData*) { }];
         });
     };

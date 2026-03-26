@@ -26,10 +26,11 @@
 #ifndef MediaPlaybackTargetPickerMac_h
 #define MediaPlaybackTargetPickerMac_h
 
+#include <wtf/Platform.h>
 #if ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(IOS_FAMILY)
 
 #include "AVPlaybackTargetPicker.h"
-#include "MediaPlaybackTargetPicker.h"
+#include <WebCore/MediaPlaybackTargetPicker.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/TZoneMalloc.h>
 
@@ -48,6 +49,13 @@ public:
     void stopMonitoringPlaybackTargets() final;
     void invalidatePlaybackTargets() final;
 
+    // AVPlaybackTargetPickerClient.
+    uint32_t checkedPtrCount() const final { return MediaPlaybackTargetPicker::checkedPtrCount(); }
+    uint32_t checkedPtrCountWithoutThreadCheck() const final { return MediaPlaybackTargetPicker::checkedPtrCountWithoutThreadCheck(); }
+    void incrementCheckedPtrCount() const final { MediaPlaybackTargetPicker::incrementCheckedPtrCount(); }
+    void decrementCheckedPtrCount() const final { MediaPlaybackTargetPicker::decrementCheckedPtrCount(); }
+    void setDidBeginCheckedPtrDeletion() final { MediaPlaybackTargetPicker::setDidBeginCheckedPtrDeletion(); }
+
 private:
     bool externalOutputDeviceAvailable() final;
     Ref<MediaPlaybackTarget> playbackTarget() final;
@@ -57,7 +65,7 @@ private:
     void availableDevicesChanged() final;
     void currentDeviceChanged() final;
 
-    AVPlaybackTargetPicker& routePicker();
+    CheckedRef<AVPlaybackTargetPicker> routePicker();
 
     std::unique_ptr<AVPlaybackTargetPicker> m_routePicker;
 };

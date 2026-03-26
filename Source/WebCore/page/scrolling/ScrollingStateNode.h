@@ -27,9 +27,9 @@
 
 #if ENABLE(ASYNC_SCROLLING)
 
-#include "GraphicsLayer.h"
-#include "ScrollingCoordinator.h"
-#include "ScrollingPlatformLayer.h"
+#include <WebCore/GraphicsLayer.h>
+#include <WebCore/ScrollingCoordinator.h>
+#include <WebCore/ScrollingPlatformLayer.h>
 #include <stdint.h>
 #include <wtf/CheckedPtr.h>
 #include <wtf/TZoneMalloc.h>
@@ -225,9 +225,13 @@ enum class ScrollingStateNodeProperty : uint64_t {
     MouseActivityState                          = ContentAreaHoverState << 1,
     ScrollbarHoverState                         = MouseActivityState << 1,
     ScrollbarEnabledState                       = ScrollbarHoverState << 1,
-    ScrollbarLayoutDirection                    = ScrollbarEnabledState << 1,
+    ScrollbarColor                              = ScrollbarEnabledState << 1,
+    ScrollbarLayoutDirection                    = ScrollbarColor << 1,
     ScrollbarWidth                              = ScrollbarLayoutDirection << 1,
     UseDarkAppearanceForScrollbars              = ScrollbarWidth << 1,
+#if USE(COORDINATED_GRAPHICS_ASYNC_SCROLLBAR)
+    ScrollbarOpacity                            = 1LLU << 51, // Not serialized
+#endif
     // ScrollingStateFrameScrollingNode
     KeyboardScrollData                          = UseDarkAppearanceForScrollbars << 1,
     FrameScaleFactor                            = KeyboardScrollData << 1,
@@ -247,7 +251,8 @@ enum class ScrollingStateNodeProperty : uint64_t {
     WheelEventGesturesBecomeNonBlocking         = AsyncFrameOrOverflowScrollingEnabled << 1,
     ScrollingPerformanceTestingEnabled          = WheelEventGesturesBecomeNonBlocking << 1,
     LayoutViewport                              = ScrollingPerformanceTestingEnabled << 1,
-    MinLayoutViewportOrigin                     = LayoutViewport << 1,
+    SizeForVisibleContent                       = LayoutViewport << 1,
+    MinLayoutViewportOrigin                     = SizeForVisibleContent << 1,
     MaxLayoutViewportOrigin                     = MinLayoutViewportOrigin << 1,
     OverrideVisualViewportSize                  = MaxLayoutViewportOrigin << 1,
     OverlayScrollbarsEnabled                    = OverrideVisualViewportSize << 1,

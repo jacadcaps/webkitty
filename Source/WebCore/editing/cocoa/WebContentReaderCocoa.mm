@@ -29,12 +29,14 @@
 #import "ArchiveResource.h"
 #import "Blob.h"
 #import "BlobURL.h"
-#import "CachedResourceLoader.h"
 #import "DOMURL.h"
 #import "DeprecatedGlobalSettings.h"
-#import "Document.h"
 #import "DocumentFragment.h"
 #import "DocumentLoader.h"
+#import "DocumentPage.h"
+#import "DocumentQuirks.h"
+#import "DocumentResourceLoader.h"
+#import "DocumentView.h"
 #import "Editor.h"
 #import "EditorClient.h"
 #import "ElementInlines.h"
@@ -51,10 +53,9 @@
 #import "HTMLPictureElement.h"
 #import "HTMLSourceElement.h"
 #import "LegacyWebArchive.h"
-#import "LocalFrame.h"
+#import "LocalFrameInlines.h"
 #import "LocalFrameLoaderClient.h"
 #import "MIMETypeRegistry.h"
-#import "Page.h"
 #import "PublicURLManager.h"
 #import "Quirks.h"
 #import "Range.h"
@@ -147,14 +148,14 @@ static FragmentAndResources createFragmentInternal(LocalFrame& frame, NSAttribut
 #endif
 
     NSArray *subresources = nil;
-    NSString *fragmentString = [string _htmlDocumentFragmentString:NSMakeRange(0, [string length]) documentAttributes:attributesForAttributedStringConversion(!fragmentCreationOptions.contains(FragmentCreationOptions::NoInterchangeNewlines)) subresources:&subresources];
+    RetainPtr<NSString> fragmentString = [string _htmlDocumentFragmentString:NSMakeRange(0, [string length]) documentAttributes:attributesForAttributedStringConversion(!fragmentCreationOptions.contains(FragmentCreationOptions::NoInterchangeNewlines)) subresources:&subresources];
 
     Ref fragment = DocumentFragment::create(document.get());
     Ref dummyBodyToForceInBodyInsertionMode = HTMLBodyElement::create(document.get());
-    auto markup = fragmentCreationOptions.contains(FragmentCreationOptions::SanitizeMarkup) ? sanitizeMarkup(fragmentString) : String(fragmentString);
+    auto markup = fragmentCreationOptions.contains(FragmentCreationOptions::SanitizeMarkup) ? sanitizeMarkup(fragmentString.get(), document.ptr()) : String(fragmentString.get());
     fragment->parseHTML(markup, dummyBodyToForceInBodyInsertionMode, { });
 
-    result.fragment = WTFMove(fragment);
+    result.fragment = WTF::move(fragment);
     for (WebArchiveResourceFromNSAttributedString *resource in subresources)
         result.resources.append(*resource->resource);
 
@@ -263,19 +264,19 @@ static Ref<DocumentFragment> createFragmentForImageAttachment(LocalFrame& frame,
         if (contentTypeIsSuitableForInlineImageRepresentation(contentType)) {
             auto image = HTMLImageElement::create(document);
             image->setAttributeWithoutSynchronization(HTMLNames::srcAttr, AtomString { DOMURL::createObjectURL(document, Blob::create(&document, buffer->extractData(), contentType)) });
-            image->setAttachmentElement(WTFMove(attachment));
+            image->setAttachmentElement(WTF::move(attachment));
             if (preferredSize.width)
                 image->setAttributeWithoutSynchronization(HTMLNames::widthAttr, AtomString::number(*preferredSize.width));
             if (preferredSize.height)
                 image->setAttributeWithoutSynchronization(HTMLNames::heightAttr, AtomString::number(*preferredSize.height));
-            fragment->appendChild(WTFMove(image));
+            fragment->appendChild(WTF::move(image));
         } else {
             attachment->updateAttributes(buffer->size(), AtomString { contentType }, defaultImageAttachmentName);
-            fragment->appendChild(WTFMove(attachment));
+            fragment->appendChild(WTF::move(attachment));
         }
     } else {
         attachment->setFile(File::create(&document, Blob::create(&document, buffer->extractData(), contentType), defaultImageAttachmentName), HTMLAttachmentElement::UpdateDisplayAttributes::Yes);
-        fragment->appendChild(WTFMove(attachment));
+        fragment->appendChild(WTF::move(attachment));
     }
     return fragment;
 #else
@@ -318,7 +319,7 @@ static void replaceRichContentWithAttachments(LocalFrame& frame, DocumentFragmen
     }
 
     if (!serializedAttachmentData.isEmpty())
-        frame.editor().registerAttachments(WTFMove(serializedAttachmentData));
+        frame.editor().registerAttachments(WTF::move(serializedAttachmentData));
 
     Vector<Ref<Element>> elementsToRemove;
     Vector<AttachmentInsertionInfo> attachmentInsertionInfo;
@@ -337,7 +338,7 @@ static void replaceRichContentWithAttachments(LocalFrame& frame, DocumentFragmen
         if (name.isEmpty())
             name = "media"_s;
 
-        attachmentInsertionInfo.append({ WTFMove(name), resource->value->mimeType(), resource->value->data().makeContiguous(), image.get() });
+        attachmentInsertionInfo.append({ WTF::move(name), resource->value->mimeType(), resource->value->data().makeContiguous(), image.get() });
     }
 
     for (Ref object : descendantsOfType<HTMLObjectElement>(fragment)) {
@@ -355,7 +356,7 @@ static void replaceRichContentWithAttachments(LocalFrame& frame, DocumentFragmen
         if (name.isEmpty())
             name = "file"_s;
 
-        attachmentInsertionInfo.append({ WTFMove(name), resource->value->mimeType(), resource->value->data().makeContiguous(), object });
+        attachmentInsertionInfo.append({ WTF::move(name), resource->value->mimeType(), resource->value->data().makeContiguous(), object });
     }
 
     for (Ref source : descendantsOfType<HTMLSourceElement>(fragment)) {
@@ -373,11 +374,11 @@ static void replaceRichContentWithAttachments(LocalFrame& frame, DocumentFragmen
         if (name.isEmpty())
             name = "media"_s;
 
-        attachmentInsertionInfo.append({ WTFMove(name), resource->value->mimeType(), resource->value->data().makeContiguous(), source });
+        attachmentInsertionInfo.append({ WTF::move(name), resource->value->mimeType(), resource->value->data().makeContiguous(), source });
     }
 
     for (auto& info : attachmentInsertionInfo) {
-        auto originalElement = WTFMove(info.originalElement);
+        auto originalElement = WTF::move(info.originalElement);
         RefPtr parent { originalElement->parentNode() };
         if (!parent)
             continue;
@@ -386,8 +387,8 @@ static void replaceRichContentWithAttachments(LocalFrame& frame, DocumentFragmen
         // See `HTMLConverter.mm` for more details.
         if (info.fileName.startsWith(WebContentReader::placeholderAttachmentFilenamePrefix)) {
             RefPtr document = frame.document();
-            if (RefPtr existingAttachment = document->attachmentForIdentifier({ info.data->span() })) {
-                parent->replaceChild(*existingAttachment.get(), WTFMove(originalElement));
+            if (RefPtr existingAttachment = document->attachmentForIdentifier({ byteCast<Latin1Character>(info.data->span()) })) {
+                parent->replaceChild(*existingAttachment.get(), WTF::move(originalElement));
                 continue;
             }
         }
@@ -406,14 +407,14 @@ static void replaceRichContentWithAttachments(LocalFrame& frame, DocumentFragmen
                 source->setAttachmentElement(attachment.copyRef());
             } else {
                 attachment->updateAttributes(info.data->size(), AtomString { info.contentType }, AtomString { info.fileName });
-                parent->replaceChild(attachment, WTFMove(originalElement));
+                parent->replaceChild(attachment, WTF::move(originalElement));
             }
-            frame.editor().registerAttachmentIdentifier(attachment->ensureUniqueIdentifier(), WTFMove(info.contentType), WTFMove(info.fileName), WTFMove(info.data));
+            frame.editor().registerAttachmentIdentifier(attachment->ensureUniqueIdentifier(), WTF::move(info.contentType), WTF::move(info.fileName), WTF::move(info.data));
         } else {
             RefPtr document = frame.document();
             Ref data = info.data;
-            attachment->setFile(File::create(document.get(), Blob::create(document.get(), data->copyData(), WTFMove(info.contentType)), WTFMove(info.fileName)), HTMLAttachmentElement::UpdateDisplayAttributes::Yes);
-            parent->replaceChild(WTFMove(attachment), WTFMove(originalElement));
+            attachment->setFile(File::create(document.get(), Blob::create(document.get(), data->copyData(), WTF::move(info.contentType)), WTF::move(info.fileName)), HTMLAttachmentElement::UpdateDisplayAttributes::Yes);
+            parent->replaceChild(WTF::move(attachment), WTF::move(originalElement));
         }
     }
 
@@ -450,7 +451,7 @@ static void simplifyFragmentForSingleTextAttachment(NSAttributedString *string, 
     RefPtr pictureOrImage = [&] -> RefPtr<HTMLElement> {
         for (Ref element : descendantsOfType<HTMLElement>(fragment)) {
             if (is<HTMLPictureElement>(element) || is<HTMLImageElement>(element))
-                return WTFMove(element);
+                return WTF::move(element);
         }
         return { };
     }();
@@ -487,12 +488,12 @@ RefPtr<DocumentFragment> createFragment(LocalFrame& frame, NSAttributedString *s
             for (auto& resource : fragmentAndResources.resources)
                 loader->addArchiveResource(resource.copyRef());
         }
-        return WTFMove(fragmentAndResources.fragment);
+        return WTF::move(fragmentAndResources.fragment);
     }
 
     if (shouldReplaceRichContentWithAttachments()) {
         replaceRichContentWithAttachments(frame, *fragmentAndResources.fragment, fragmentAndResources.resources);
-        return WTFMove(fragmentAndResources.fragment);
+        return WTF::move(fragmentAndResources.fragment);
     }
 
     HashMap<AtomString, AtomString> blobURLMap;
@@ -503,9 +504,9 @@ RefPtr<DocumentFragment> createFragment(LocalFrame& frame, NSAttributedString *s
         blobURLMap.set(AtomString { subresource->url().string() }, AtomString { blobURL });
     }
 
-    replaceSubresourceURLs(*fragmentAndResources.fragment, WTFMove(blobURLMap));
+    replaceSubresourceURLs(*fragmentAndResources.fragment, WTF::move(blobURLMap));
     simplifyFragmentForSingleTextAttachment(string, *fragmentAndResources.fragment);
-    return WTFMove(fragmentAndResources.fragment);
+    return WTF::move(fragmentAndResources.fragment);
 }
 
 struct MarkupAndArchive {
@@ -533,7 +534,7 @@ static std::optional<MarkupAndArchive> extractMarkupAndArchive(SharedBuffer& buf
 
 static String sanitizeMarkupWithArchive(LocalFrame& frame, Document& destinationDocument, MarkupAndArchive& markupAndArchive, MSOListQuirks msoListQuirks, const std::function<bool(const String)>& canShowMIMETypeAsHTML)
 {
-    Ref page = createPageForSanitizingWebContent();
+    Ref page = createPageForSanitizingWebContent(&destinationDocument);
     RefPtr stagingDocument = page->localTopDocument();
     if (!stagingDocument)
         return String();
@@ -542,7 +543,7 @@ static String sanitizeMarkupWithArchive(LocalFrame& frame, Document& destination
 
     if (shouldReplaceRichContentWithAttachments()) {
         replaceRichContentWithAttachments(frame, fragment, markupAndArchive.archive->subresources());
-        return sanitizedMarkupForFragmentInDocument(WTFMove(fragment), *stagingDocument, msoListQuirks, markupAndArchive.markup);
+        return sanitizedMarkupForFragmentInDocument(WTF::move(fragment), *stagingDocument, msoListQuirks, markupAndArchive.markup);
     }
 
     HashMap<AtomString, AtomString> blobURLMap;
@@ -580,9 +581,9 @@ static String sanitizeMarkupWithArchive(LocalFrame& frame, Document& destination
         blobURLMap.set(AtomString { subframeURL.string() }, AtomString { subframeBlobURL });
     }
 
-    replaceSubresourceURLs(fragment.get(), WTFMove(blobURLMap));
+    replaceSubresourceURLs(fragment.get(), WTF::move(blobURLMap));
 
-    return sanitizedMarkupForFragmentInDocument(WTFMove(fragment), *stagingDocument, msoListQuirks, markupAndArchive.markup);
+    return sanitizedMarkupForFragmentInDocument(WTF::move(fragment), *stagingDocument, msoListQuirks, markupAndArchive.markup);
 }
 
 bool WebContentReader::readWebArchive(SharedBuffer& buffer)
@@ -670,7 +671,7 @@ bool WebContentReader::readHTML(const String& string)
 
     String markup;
     if (DeprecatedGlobalSettings::customPasteboardDataEnabled() && shouldSanitize()) {
-        markup = sanitizeMarkup(stringOmittingMicrosoftPrefix, msoListQuirksForMarkup(), WTF::Function<void (DocumentFragment&)> { [] (DocumentFragment& fragment) {
+        markup = sanitizeMarkup(stringOmittingMicrosoftPrefix, document.ptr(), msoListQuirksForMarkup(), WTF::Function<void (DocumentFragment&)> { [] (DocumentFragment& fragment) {
             removeSubresourceURLAttributes(fragment, [](auto& url) {
                 return url.protocolIsFile();
             });
@@ -689,7 +690,7 @@ bool WebContentMarkupReader::readHTML(const String& string)
 
     String rawHTML = stripMicrosoftPrefix(string);
     if (shouldSanitize()) {
-        m_markup = sanitizeMarkup(rawHTML, msoListQuirksForMarkup(), WTF::Function<void (DocumentFragment&)> { [] (DocumentFragment& fragment) {
+        m_markup = sanitizeMarkup(rawHTML, frame().document(), msoListQuirksForMarkup(), WTF::Function<void (DocumentFragment&)> { [] (DocumentFragment& fragment) {
             removeSubresourceURLAttributes(fragment, [](auto& url) {
                 return url.protocolIsFile();
             });
@@ -777,11 +778,8 @@ bool WebContentReader::readImage(Ref<FragmentedSharedBuffer>&& buffer, const Str
     ASSERT(frame().document());
     Ref frame = this->frame();
     Ref document = *frame->document();
-    if (document->quirks().shouldAvoidPastingImagesAsWebContent())
-        return false;
-
     if (shouldReplaceRichContentWithAttachments())
-        addFragment(createFragmentForImageAttachment(frame, document, WTFMove(buffer), type, preferredPresentationSize));
+        addFragment(createFragmentForImageAttachment(frame, document, WTF::move(buffer), type, preferredPresentationSize));
     else
         addFragment(createFragmentForImageAndURL(document, DOMURL::createObjectURL(document, Blob::create(document.ptr(), buffer->extractData(), type)), preferredPresentationSize));
 
@@ -832,7 +830,7 @@ static Ref<HTMLElement> attachmentForFilePath(LocalFrame& frame, const String& p
     else if (contentTypeIsSuitableForInlineImageRepresentation(contentType)) {
         auto image = HTMLImageElement::create(document);
         image->setAttributeWithoutSynchronization(HTMLNames::srcAttr, AtomString { DOMURL::createObjectURL(document, File::create(document.ptr(), path)) });
-        image->setAttachmentElement(WTFMove(attachment));
+        image->setAttachmentElement(WTF::move(attachment));
         if (preferredSize.width)
             image->setAttributeWithoutSynchronization(HTMLNames::widthAttr, AtomString::number(*preferredSize.width));
         if (preferredSize.height)
@@ -840,7 +838,7 @@ static Ref<HTMLElement> attachmentForFilePath(LocalFrame& frame, const String& p
         return image;
     }
 
-    attachment->updateAttributes(WTFMove(fileSizeForDisplay), AtomString { contentType }, AtomString { FileSystem::pathFileName(path) });
+    attachment->updateAttributes(WTF::move(fileSizeForDisplay), AtomString { contentType }, AtomString { FileSystem::pathFileName(path) });
     return attachment;
 }
 
@@ -860,7 +858,7 @@ static Ref<HTMLElement> attachmentForData(LocalFrame& frame, FragmentedSharedBuf
         fileName = name;
 
     if (!supportsClientSideAttachmentData(frame)) {
-        attachment->setFile(File::create(document.ptr(), Blob::create(document.ptr(), buffer.copyData(), WTFMove(attachmentType)), fileName));
+        attachment->setFile(File::create(document.ptr(), Blob::create(document.ptr(), buffer.copyData(), WTF::move(attachmentType)), fileName));
         return attachment;
     }
 
@@ -868,8 +866,8 @@ static Ref<HTMLElement> attachmentForData(LocalFrame& frame, FragmentedSharedBuf
 
     if (contentTypeIsSuitableForInlineImageRepresentation(attachmentType)) {
         auto image = HTMLImageElement::create(document);
-        image->setAttributeWithoutSynchronization(HTMLNames::srcAttr, AtomString { DOMURL::createObjectURL(document, File::create(document.ptr(), Blob::create(document.ptr(), buffer.copyData(), WTFMove(attachmentType)), WTFMove(fileName))) });
-        image->setAttachmentElement(WTFMove(attachment));
+        image->setAttributeWithoutSynchronization(HTMLNames::srcAttr, AtomString { DOMURL::createObjectURL(document, File::create(document.ptr(), Blob::create(document.ptr(), buffer.copyData(), WTF::move(attachmentType)), WTF::move(fileName))) });
+        image->setAttachmentElement(WTF::move(attachment));
         if (preferredSize.width)
             image->setAttributeWithoutSynchronization(HTMLNames::widthAttr, AtomString::number(*preferredSize.width));
         if (preferredSize.height)
@@ -877,7 +875,7 @@ static Ref<HTMLElement> attachmentForData(LocalFrame& frame, FragmentedSharedBuf
         return image;
     }
 
-    attachment->updateAttributes({ buffer.size() }, AtomString { attachmentType }, WTFMove(fileName));
+    attachment->updateAttributes({ buffer.size() }, AtomString { attachmentType }, WTF::move(fileName));
     return attachment;
 }
 
@@ -935,7 +933,7 @@ bool WebContentReader::readURL(const URL& url, const String& title)
     if (m_fragment)
         newFragment->appendChild(HTMLBRElement::create(document.get()));
     newFragment->appendChild(anchor);
-    addFragment(WTFMove(newFragment));
+    addFragment(WTF::move(newFragment));
     return true;
 }
 

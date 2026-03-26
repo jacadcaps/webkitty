@@ -97,7 +97,7 @@
     didChangeConnectionState:(RTCIceConnectionState)state {
   RTCLog(@"ICE state changed: %ld", (long)state);
   __weak ARDVideoCallViewController *weakSelf = self;
-  dispatch_async(dispatch_get_main_queue(), ^{
+  dispatch_async(mainDispatchQueueSingleton(), ^{
     ARDVideoCallViewController *strongSelf = weakSelf;
     strongSelf.videoCallView.statusLabel.text =
         [strongSelf statusTextForState:state];
@@ -136,7 +136,7 @@
         (RTC_OBJC_TYPE(RTCVideoTrack) *)remoteVideoTrack {
   self.remoteVideoTrack = remoteVideoTrack;
   __weak ARDVideoCallViewController *weakSelf = self;
-  dispatch_async(dispatch_get_main_queue(), ^{
+  dispatch_async(mainDispatchQueueSingleton(), ^{
     ARDVideoCallViewController *strongSelf = weakSelf;
     strongSelf.videoCallView.statusLabel.hidden = YES;
   });

@@ -41,6 +41,7 @@ public:
     void appendInt(const char* owner, const char* name, int value);
     void appendFloat(const char* owner, const char* name, float value);
     void appendName(const char* owner, const char* attrName, const char* value);
+    void appendTextString(const char* owner, const char* attrName, const char* value);
     void appendFloatArray(const char* owner,
                           const char* name,
                           const std::vector<float>& value);
@@ -83,7 +84,7 @@ struct DateTime {
     void toISO8601(SkString* dst) const;
 };
 
-using DecodeJpegCallback = std::unique_ptr<SkCodec> (*)(sk_sp<SkData>);
+using DecodeJpegCallback = std::unique_ptr<SkCodec> (*)(sk_sp<const SkData>);
 using EncodeJpegCallback = bool (*)(SkWStream* dst, const SkPixmap& src, int quality);
 
 /** Optional metadata to be passed into the PDF factory function.

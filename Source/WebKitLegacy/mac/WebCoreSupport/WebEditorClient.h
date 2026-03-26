@@ -48,6 +48,7 @@
 
 class WebEditorClient final : public WebCore::EditorClient, public WebCore::TextCheckerClient {
     WTF_MAKE_TZONE_ALLOCATED(WebEditorClient);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WebEditorClient);
 public:
     WebEditorClient(WebView *);
     virtual ~WebEditorClient();
@@ -106,6 +107,8 @@ private:
     void toggleAutomaticTextReplacement() final;
     bool isAutomaticSpellingCorrectionEnabled() final;
     void toggleAutomaticSpellingCorrection() final;
+    bool isSmartListsEnabled() final;
+    void toggleSmartLists() final;
 #endif
 
     TextCheckerClient* textChecker() final { return this; }
@@ -170,6 +173,7 @@ private:
 
     void setInputMethodState(WebCore::Element*) final;
     void requestCheckingOfString(WebCore::TextCheckingRequest&, const WebCore::VisibleSelection& currentSelection) final;
+    void requestExtendedCheckingOfString(WebCore::TextCheckingRequest&, const WebCore::VisibleSelection& currentSelection) final;
 
 #if PLATFORM(MAC)
     void requestCandidatesForSelection(const WebCore::VisibleSelection&) final;

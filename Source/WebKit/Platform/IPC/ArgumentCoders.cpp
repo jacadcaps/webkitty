@@ -67,7 +67,7 @@ static inline std::optional<String> decodeStringText(Decoder& decoder, unsigned 
 }
 
 template<typename Decoder>
-WARN_UNUSED_RETURN std::optional<String> ArgumentCoder<String>::decode(Decoder& decoder)
+[[nodiscard]] std::optional<String> ArgumentCoder<String>::decode(Decoder& decoder)
 {
     auto length = decoder.template decode<unsigned>();
     if (!length)
@@ -83,7 +83,7 @@ WARN_UNUSED_RETURN std::optional<String> ArgumentCoder<String>::decode(Decoder& 
         return std::nullopt;
     
     if (*is8Bit)
-        return decodeStringText<LChar>(decoder, *length);
+        return decodeStringText<Latin1Character>(decoder, *length);
     return decodeStringText<char16_t>(decoder, *length);
 }
 template

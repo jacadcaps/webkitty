@@ -47,16 +47,16 @@
 #import <pal/cocoa/WebPrivacySoftLink.h>
 
 @interface WKWebsiteDataStore (ScriptTrackingPrivacyTests)
-- (void)deleteAllCookies;
+- (void)deleteAllCookiesAndLocalStorage;
 @property (nonatomic, readonly) NSArray<NSHTTPCookie *> *allCookies;
 @end
 
 @implementation WKWebsiteDataStore (ScriptTrackingPrivacyTests)
 
-- (void)deleteAllCookies
+- (void)deleteAllCookiesAndLocalStorage
 {
     __block bool done = false;
-    [self removeDataOfTypes:[NSSet setWithObject:WKWebsiteDataTypeCookies] modifiedSince:NSDate.distantPast completionHandler:^{
+    [self removeDataOfTypes:[NSSet setWithObjects:WKWebsiteDataTypeCookies, WKWebsiteDataTypeLocalStorage, nil] modifiedSince:NSDate.distantPast completionHandler:^{
         done = true;
     }];
     TestWebKitAPI::Util::run(&done);
@@ -111,8 +111,8 @@ namespace TestWebKitAPI {
 
 static IMP makeFingerprintingScriptsRequestHandler(NSArray<NSString *> *hostNames, Vector<WPScriptAccessCategories>&& allowedCategories)
 {
-    return imp_implementationWithBlock([hostNames = RetainPtr { hostNames }, allowedCategories = WTFMove(allowedCategories)](WPResources *, WPResourceRequestOptions *, void(^completion)(NSArray<WPFingerprintingScript *> *, NSError *)) mutable {
-        RunLoop::mainSingleton().dispatch([hostNames = WTFMove(hostNames), allowedCategories = WTFMove(allowedCategories), completion = makeBlockPtr(completion)] mutable {
+    return imp_implementationWithBlock([hostNames = RetainPtr { hostNames }, allowedCategories = WTF::move(allowedCategories)](WPResources *, WPResourceRequestOptions *, void(^completion)(NSArray<WPFingerprintingScript *> *, NSError *)) mutable {
+        RunLoop::mainSingleton().dispatch([hostNames = WTF::move(hostNames), allowedCategories = WTF::move(allowedCategories), completion = makeBlockPtr(completion)] mutable {
             RetainPtr scripts = [NSMutableArray arrayWithCapacity:[hostNames count]];
             size_t index = 0;
             for (NSString *host in hostNames.get()) {
@@ -136,9 +136,9 @@ public:
     FingerprintingScriptsRequestSwizzler(NSArray<NSString *> *hosts, Vector<WPScriptAccessCategories>&& allowedCategories = { })
     {
         m_swizzler = makeUnique<InstanceMethodSwizzler>(
-            PAL::getWPResourcesClass(),
+            PAL::getWPResourcesClassSingleton(),
             @selector(requestFingerprintingScripts:completionHandler:),
-            makeFingerprintingScriptsRequestHandler(hosts, WTFMove(allowedCategories))
+            makeFingerprintingScriptsRequestHandler(hosts, WTF::move(allowedCategories))
         );
     }
 
@@ -149,7 +149,7 @@ private:
 static bool supportsFingerprintingScriptRequests()
 {
     return PAL::isWebPrivacyFrameworkAvailable()
-        && [PAL::getWPResourcesClass() instancesRespondToSelector:@selector(requestFingerprintingScripts:completionHandler:)];
+        && [PAL::getWPResourcesClassSingleton() instancesRespondToSelector:@selector(requestFingerprintingScripts:completionHandler:)];
 }
 
 static RetainPtr<TestWKWebView> setUpWebViewForFingerprintingTests(NSString *pageURLString, id<WKUIDelegate> uiDelegate, NSDictionary<NSString *, NSString *> *responseData,
@@ -426,10 +426,10 @@ TEST(ScriptTrackingPrivacyTests, ScriptWrittenCookies)
     RetainPtr webView = setUpWebViewForFingerprintingTests(nil, @{
         @"test://pure.com/script.js" : makeScriptSource(@"pure"),
         @"test://tainted.net/script.js" : makeScriptSource(@"tainted"),
-    });
+    }, nil, _WKWebsiteNetworkConnectionIntegrityPolicyEnabled);
 
     RetainPtr dataStore = [[webView configuration] websiteDataStore];
-    [dataStore deleteAllCookies];
+    [dataStore deleteAllCookiesAndLocalStorage];
 
     RetainPtr request = [NSURLRequest requestWithURL:[NSURL URLWithString:@"http://webkit.org"]];
     [webView synchronouslyLoadSimulatedRequest:request.get() responseHTMLString:simpleIndexHTML.createNSString().autorelease()];
@@ -476,7 +476,11 @@ TEST(ScriptTrackingPrivacyTests, LocalStorage)
     RetainPtr webView = setUpWebViewForFingerprintingTests(nil, @{
         @"test://pure.com/script.js" : makeScriptSource(@"pure"),
         @"test://tainted.net/script.js" : makeScriptSource(@"tainted"),
-    });
+    }, nil, _WKWebsiteNetworkConnectionIntegrityPolicyEnabled);
+
+    RetainPtr dataStore = [[webView configuration] websiteDataStore];
+    [dataStore deleteAllCookiesAndLocalStorage];
+
     RetainPtr request = [NSURLRequest requestWithURL:[NSURL URLWithString:@"http://webkit.org"]];
     [webView synchronouslyLoadSimulatedRequest:request.get() responseHTMLString:simpleIndexHTML.createNSString().autorelease()];
 
@@ -543,6 +547,24 @@ TEST(ScriptTrackingPrivacyTests, DirectFormFieldAccess)
 
     FingerprintingScriptsRequestSwizzler swizzler { @[ @"tainted.net" ] };
 
+    const auto expectedPureValue = [](const auto& field) {
+        if (field == "dateField"_s)
+            return "1999-12-31"_str;
+        if (field == "monthField"_s)
+            return "1999-12"_str;
+        if (field == "timeField"_s)
+            return "00:00:00"_str;
+        if (field == "textAreaField"_s)
+            return "Text Area"_str;
+        if (field == "textAreaInput"_s)
+            return "text value"_str;
+        if (field == "selectField"_s)
+            return "Primary"_str;
+        if (field == "fileField"_s)
+            return emptyString();
+        return makeString(field, "Value"_s);
+    };
+
     auto makeScriptSource = ^(NSString *pureOrTainted) {
         return [NSString stringWithFormat:@"var %@InputElements = document.querySelectorAll(\"input\");"
             "var %@InputElementsValues = [];"
@@ -553,7 +575,15 @@ TEST(ScriptTrackingPrivacyTests, DirectFormFieldAccess)
             "var %@DateInputGetElementByIdValue = document.getElementById(\"dateField\")?.value;"
             "var %@TextAreaGetElementByIdValue = document.getElementById(\"textAreaField\")?.value;"
             "var %@SelectGetElementByIdValue = document.getElementById(\"selectField\")?.value;"
-            , pureOrTainted, pureOrTainted, pureOrTainted, pureOrTainted, pureOrTainted, pureOrTainted, pureOrTainted, pureOrTainted, pureOrTainted, pureOrTainted];
+            "var %@TextAreaInput = document.createElement(\"textarea\");"
+            "%@TextAreaInput.id = \"%@TextAreaInput\";"
+            "%@TextAreaInput.value = \"%s\";"
+            "document.body.appendChild(%@TextAreaInput);"
+            "var %@TextAreaInputValue = %@TextAreaInput.value;"
+            "function %@GetElementValueById(id) { return document.getElementById(id)?.value; }"
+            , pureOrTainted, pureOrTainted, pureOrTainted, pureOrTainted, pureOrTainted, pureOrTainted, pureOrTainted, pureOrTainted, pureOrTainted
+            , pureOrTainted, pureOrTainted, pureOrTainted, pureOrTainted, pureOrTainted, expectedPureValue("textAreaInput"_s).utf8().data()
+            , pureOrTainted, pureOrTainted, pureOrTainted, pureOrTainted];
     };
 
     RetainPtr webView = setUpWebViewForFingerprintingTests(@"test://top-domain.org/index.html", @{
@@ -577,22 +607,6 @@ TEST(ScriptTrackingPrivacyTests, DirectFormFieldAccess)
         , "textAreaField"_s
         , "selectField"_s } };
 
-    const auto expectedPureValue = [](const auto& field) {
-        if (field == "dateField"_s)
-            return "1999-12-31"_str;
-        if (field == "monthField"_s)
-            return "1999-12"_str;
-        if (field == "timeField"_s)
-            return "00:00:00"_str;
-        if (field == "textAreaField"_s)
-            return "Text Area"_str;
-        if (field == "selectField"_s)
-            return "Primary"_str;
-        if (field == "fileField"_s)
-            return emptyString();
-        return makeString(field, "Value"_s);
-    };
-
     auto pureNumberInputElements = [[webView objectByEvaluatingJavaScript:@"pureInputElementsValues.length"] unsignedIntValue];
     EXPECT_EQ(pureNumberInputElements, 11u);
     for (size_t i = 0; i < pureNumberInputElements; ++i) {
@@ -612,6 +626,10 @@ TEST(ScriptTrackingPrivacyTests, DirectFormFieldAccess)
     EXPECT_WK_STREQ(pureTextAreaGetElementById, expectedPureValue("textAreaField"_s));
     auto pureSelectGetElementById = [webView stringByEvaluatingJavaScript:@"pureSelectGetElementByIdValue"];
     EXPECT_WK_STREQ(pureSelectGetElementById, expectedPureValue("selectField"_s));
+    auto pureTextAreaInputValue = [webView stringByEvaluatingJavaScript:@"pureTextAreaInputValue"];
+    EXPECT_WK_STREQ(pureTextAreaInputValue, expectedPureValue("textAreaInput"_s));
+    auto pureFunctionTextAreaInputValue = [webView stringByEvaluatingJavaScript:@"pureGetElementValueById(\"pureTextAreaInput\")"];
+    EXPECT_WK_STREQ(pureFunctionTextAreaInputValue, expectedPureValue("textAreaInput"_s));
 
     auto taintedNumberInputElements = [[webView objectByEvaluatingJavaScript:@"taintedInputElements.length"] unsignedIntValue];
     EXPECT_EQ(taintedNumberInputElements, 11u);
@@ -633,6 +651,22 @@ TEST(ScriptTrackingPrivacyTests, DirectFormFieldAccess)
     EXPECT_WK_STREQ(taintedTextAreaGetElementById, emptyString());
     auto taintedSelectGetElementById = [webView stringByEvaluatingJavaScript:@"taintedSelectGetElementByIdValue"];
     EXPECT_WK_STREQ(taintedSelectGetElementById, emptyString());
+
+    auto taintedTextAreaInputValue = [webView stringByEvaluatingJavaScript:@"taintedTextAreaInputValue"];
+    EXPECT_WK_STREQ(taintedTextAreaInputValue, expectedPureValue("textAreaInput"_s));
+    auto taintedFunctionTaintedTextAreaInputValue = [webView stringByEvaluatingJavaScript:@"taintedGetElementValueById(\"taintedTextAreaInput\")"];
+    EXPECT_WK_STREQ(taintedFunctionTaintedTextAreaInputValue, expectedPureValue("textAreaInput"_s));
+    auto taintedFunctionPureTextAreaInputValue = [webView stringByEvaluatingJavaScript:@"taintedGetElementValueById(\"pureTextAreaInput\")"];
+    EXPECT_WK_STREQ(taintedFunctionPureTextAreaInputValue, emptyString());
+
+    [webView objectByEvaluatingJavaScript:@"document.getElementById(\"taintedTextAreaInput\").focus()"];
+    [webView _synchronouslyExecuteEditCommand:@"InsertText" argument:@"user input"];
+
+    taintedFunctionTaintedTextAreaInputValue = [webView stringByEvaluatingJavaScript:@"taintedGetElementValueById(\"taintedTextAreaInput\")"];
+    EXPECT_WK_STREQ(taintedFunctionTaintedTextAreaInputValue, emptyString());
+
+    auto pureFunctionTaintedTextAreaInputValue = [webView stringByEvaluatingJavaScript:@"pureGetElementValueById(\"taintedTextAreaInput\")"];
+    EXPECT_WK_STREQ(pureFunctionTaintedTextAreaInputValue, "text valueuser input"_s);
 }
 
 TEST(ScriptTrackingPrivacyTests, ScriptAccessCategories)

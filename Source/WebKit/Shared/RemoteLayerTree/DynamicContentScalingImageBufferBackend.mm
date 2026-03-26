@@ -69,13 +69,13 @@ public:
     bool canUseShadowBlur() const final { return false; }
 };
 
-WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(DynamicContentScalingImageBufferBackend);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(DynamicContentScalingImageBufferBackend);
 
 size_t DynamicContentScalingImageBufferBackend::calculateMemoryCost(const Parameters& parameters)
 {
     // FIXME: This is fairly meaningless, because we don't actually have a bitmap, and
     // should really be based on the encoded data size.
-    return WebCore::ImageBufferBackend::calculateMemoryCost(parameters.backendSize, calculateBytesPerRow(parameters.backendSize));
+    return WebCore::ImageBufferBackend::calculateMemoryCost(parameters.backendSize, calculateBytesPerRow(parameters.backendSize, parameters.bufferFormat.pixelFormat));
 }
 
 std::unique_ptr<DynamicContentScalingImageBufferBackend> DynamicContentScalingImageBufferBackend::create(const Parameters& parameters, const WebCore::ImageBufferCreationContext& creationContext)
@@ -102,7 +102,7 @@ DynamicContentScalingImageBufferBackend::~DynamicContentScalingImageBufferBacken
 std::optional<ImageBufferBackendHandle> DynamicContentScalingImageBufferBackend::createBackendHandle(WebCore::SharedMemory::Protection) const
 {
     if (auto list = displayList())
-        return WTFMove(*list);
+        return WTF::move(*list);
     return std::nullopt;
 }
 
@@ -132,7 +132,7 @@ std::optional<DynamicContentScalingDisplayList> DynamicContentScalingImageBuffer
         });
     }
 
-    return WebCore::DynamicContentScalingDisplayList { WebCore::SharedBuffer::create(data.get()), WTFMove(sendRights) };
+    return WebCore::DynamicContentScalingDisplayList { WebCore::SharedBuffer::create(data.get()), WTF::move(sendRights) };
 }
 
 WebCore::GraphicsContext& DynamicContentScalingImageBufferBackend::context()
@@ -146,7 +146,7 @@ WebCore::GraphicsContext& DynamicContentScalingImageBufferBackend::context()
 
 unsigned DynamicContentScalingImageBufferBackend::bytesPerRow() const
 {
-    return calculateBytesPerRow(m_parameters.backendSize);
+    return calculateBytesPerRow(m_parameters.backendSize, m_parameters.bufferFormat.pixelFormat);
 }
 
 void DynamicContentScalingImageBufferBackend::releaseGraphicsContext()

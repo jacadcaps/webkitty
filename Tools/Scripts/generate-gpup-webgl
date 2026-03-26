@@ -93,7 +93,7 @@ context_functions_impl_template = (
 
 #if ENABLE(GPU_PROCESS) && ENABLE(WEBGL)
 
-#define MESSAGE_CHECK(assertion) MESSAGE_CHECK_BASE(assertion, m_streamConnection);
+#define MESSAGE_CHECK(assertion) MESSAGE_CHECK_BASE(assertion, m_connection);
 
 namespace WebKit {{
 using namespace WebCore;
@@ -131,9 +131,9 @@ messages -> RemoteGraphicsContextGL Stream {{
 #if !PLATFORM(COCOA) && !USE(GRAPHICS_LAYER_WC) && !USE(GBM)
     void PrepareForDisplay() -> () Synchronous
 #endif
-    void EnsureExtensionEnabled(String extension)
+    void EnsureExtensionEnabled(WebCore::GCGLExtension extension)
     void GetErrors() -> (GCGLErrorCodeSet returnValue) Synchronous
-    void DrawSurfaceBufferToImageBuffer(enum:bool WebCore::GraphicsContextGLSurfaceBuffer buffer, WebCore::RenderingResourceIdentifier imageBuffer) -> () Synchronous
+    void copyNativeImageYFlipped(enum:bool WebCore::GraphicsContextGLSurfaceBuffer buffer, WebCore::RenderingResourceIdentifier nativeImageIdentifier)
 #if ENABLE(MEDIA_STREAM) || ENABLE(WEB_CODECS)
     void SurfaceBufferToVideoFrame(enum:bool WebCore::GraphicsContextGLSurfaceBuffer buffer) -> (struct std::optional<WebKit::RemoteVideoFrameProxyProperties> properties) Synchronous
 #endif
@@ -160,6 +160,7 @@ messages -> RemoteGraphicsContextGL Stream {{
 #if ENABLE(WEBXR)
     [EnabledBy=WebXREnabled] void FramebufferDiscard(uint32_t target, std::span<const uint32_t> attachments)
 #endif
+    void SetDrawingBufferColorSpace(WebCore::DestinationColorSpace colorSpace)
 {}
 }}
 
@@ -441,7 +442,7 @@ def cpp_array_reinterpret_cast_conversion(expr: cpp_expr, type: cpp_type_contain
 
 
 def cpp_move_expr(expr: cpp_expr) -> cpp_expr:
-    return cpp_expr(expr.type.get_rvalue_type(), f"WTFMove({str(expr)})")
+    return cpp_expr(expr.type.get_rvalue_type(), f"WTF::move({str(expr)})")
 
 
 cpp_types: Dict[str, cpp_type] = {}
@@ -808,7 +809,7 @@ class webkit_ipc_cpp_proxy_impl(object):
                 e = cpp_expr(v.type, v.name)
                 self.out_exprs += [e]
                 self.post_call_stmts += [
-                    f"{o.name} = WTFMove({v.name});",
+                    f"{o.name} = WTF::move({v.name});",
                 ]
             elif o.type.is_span():
                 webkit_ipc_type = webkit_ipc_types[o.type]
@@ -1224,12 +1225,8 @@ def main():
 
     size_t_cpp_type = get_cpp_type("size_t")
     webkit_ipc_types[size_t_cpp_type] = get_cpp_type("uint64_t")
-
-    # TODO: namespacing issues.
-    ai_type = get_cpp_type("ActiveInfo&")
-    ai_transfer_type = get_cpp_type("WebCore::GraphicsContextGL::ActiveInfo")
-    webkit_ipc_types[ai_type] = ai_transfer_type
-    for builtin_type in webkit_ipc_builtin_types:
+    active_info_types = set(["WebCore::GCGLAttribActiveInfo", "WebCore::GCGLUniformActiveInfo", "WebCore::GCGLTransformFeedbackActiveInfo"])
+    for builtin_type in webkit_ipc_builtin_types | active_info_types:
         cpp_type = get_cpp_type(builtin_type)
         webkit_ipc_types[cpp_type] = cpp_type
 

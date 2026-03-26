@@ -37,6 +37,7 @@
 #import <wtf/RetainPtr.h>
 #import <wtf/cf/TypeCastsCF.h>
 #import <wtf/cocoa/Entitlements.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
 #import <wtf/spi/cocoa/CFXPCBridgeSPI.h>
 #import <wtf/spi/cocoa/SecuritySPI.h>
 #import <wtf/spi/darwin/XPCSPI.h>
@@ -99,22 +100,22 @@ void RemoteInspectorXPCConnection::closeOnQueue()
     m_queue = nullptr;
 }
 
-NSDictionary *RemoteInspectorXPCConnection::deserializeMessage(xpc_object_t object)
+RetainPtr<NSDictionary> RemoteInspectorXPCConnection::deserializeMessage(xpc_object_t object)
 {
     if (xpc_get_type(object) != XPC_TYPE_DICTIONARY)
         return nil;
 
-    xpc_object_t xpcDictionary = xpc_dictionary_get_value(object, RemoteInspectorXPCConnectionSerializedMessageKey);
-    if (!xpcDictionary || xpc_get_type(xpcDictionary) != XPC_TYPE_DICTIONARY) {
+    XPCObjectPtr<xpc_object_t> xpcDictionary = xpc_dictionary_get_value(object, RemoteInspectorXPCConnectionSerializedMessageKey);
+    if (!xpcDictionary || xpc_get_type(xpcDictionary.get()) != XPC_TYPE_DICTIONARY) {
         Locker locker { m_mutex };
         if (m_client)
             m_client->xpcConnectionUnhandledMessage(this, object);
         return nil;
     }
 
-    auto dictionary = dynamic_cf_cast<CFDictionaryRef>(adoptCF(_CFXPCCreateCFObjectFromXPCMessage(xpcDictionary)));
+    RetainPtr dictionary = dynamic_cf_cast<CFDictionaryRef>(adoptCF(_CFXPCCreateCFObjectFromXPCMessage(xpcDictionary.get())));
     ASSERT_WITH_MESSAGE(dictionary, "Unable to deserialize xpc message");
-    return dictionary.bridgingAutorelease();
+    return bridge_cast(WTF::move(dictionary));
 }
 
 void RemoteInspectorXPCConnection::handleEvent(xpc_object_t object)
@@ -152,15 +153,15 @@ void RemoteInspectorXPCConnection::handleEvent(xpc_object_t object)
     }
 #endif
 
-    NSDictionary *dictionary = deserializeMessage(object);
+    RetainPtr dictionary = deserializeMessage(object);
     if (![dictionary isKindOfClass:[NSDictionary class]])
         return;
 
-    NSString *message = dictionary[RemoteInspectorXPCConnectionMessageNameKey];
+    NSString *message = dictionary.get()[RemoteInspectorXPCConnectionMessageNameKey];
     if (![message isKindOfClass:[NSString class]])
         return;
 
-    NSDictionary *userInfo = dictionary[RemoteInspectorXPCConnectionUserInfoKey];
+    NSDictionary *userInfo = dictionary.get()[RemoteInspectorXPCConnectionUserInfoKey];
     if (userInfo && ![userInfo isKindOfClass:[NSDictionary class]])
         return;
 
@@ -185,7 +186,8 @@ void RemoteInspectorXPCConnection::sendMessage(NSString *messageName, NSDictiona
     if (!xpcDictionary)
         return;
 
-    auto msg = adoptOSObject(xpc_dictionary_create(nullptr, nullptr, 0));
+    // FIXME: This is a false positive. <rdar://164843889>
+    SUPPRESS_RETAINPTR_CTOR_ADOPT auto msg = adoptXPCObject(xpc_dictionary_create(nullptr, nullptr, 0));
     xpc_dictionary_set_value(msg.get(), RemoteInspectorXPCConnectionSerializedMessageKey, xpcDictionary.get());
     xpc_connection_send_message(m_connection.get(), msg.get());
 }

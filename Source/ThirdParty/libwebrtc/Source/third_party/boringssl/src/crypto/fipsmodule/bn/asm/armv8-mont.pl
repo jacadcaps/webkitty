@@ -60,7 +60,7 @@ open OUT,"| \"$^X\" \"$xlate\" $flavour \"$output\"";
  $lo1,$hi1,$nj,$m1,$nlo,$nhi,
  $ovf, $i,$j,$tp,$tj) = map("x$_",6..17,19..24);
 
-# void bn_mul_mont(
+# void bn_mul_mont_words(
 $rp="x0";	# BN_ULONG *rp,
 $ap="x1";	# const BN_ULONG *ap,
 $bp="x2";	# const BN_ULONG *bp,
@@ -71,10 +71,10 @@ $num="x5";	# size_t num);
 $code.=<<___;
 .text
 
-.globl	bn_mul_mont
-.type	bn_mul_mont,%function
+.globl	bn_mul_mont_words
+.type	bn_mul_mont_words,%function
 .align	5
-bn_mul_mont:
+bn_mul_mont_words:
 	AARCH64_SIGN_LINK_REGISTER
 	tst	$num,#7
 	b.eq	__bn_sqr8x_mont
@@ -275,7 +275,7 @@ bn_mul_mont:
 	ldr	x29,[sp],#64
 	AARCH64_VALIDATE_LINK_REGISTER
 	ret
-.size	bn_mul_mont,.-bn_mul_mont
+.size	bn_mul_mont_words,.-bn_mul_mont_words
 ___
 {
 ########################################################################
@@ -292,7 +292,7 @@ $code.=<<___;
 .align	5
 __bn_sqr8x_mont:
 	// Not adding AARCH64_SIGN_LINK_REGISTER here because __bn_sqr8x_mont is jumped to
-	// only from bn_mul_mont which has already signed the return address.
+	// only from bn_mul_mont_words which has already signed the return address.
 	cmp	$ap,$bp
 	b.ne	__bn_mul4x_mont
 .Lsqr8x_mont:
@@ -504,7 +504,7 @@ __bn_sqr8x_mont:
 	adc	$acc5,$acc5,$t1
 
 	adds	$acc5,$acc5,$t2
-	sub	$t0,$ap_end,$num	// rewinded ap
+	sub	$t0,$ap_end,$num	// rewound ap
 	adc	$acc6,xzr,xzr		// t[14]
 	add	$acc6,$acc6,$t3
 
@@ -854,7 +854,7 @@ $code.=<<___;
 					// to be zero at this point
 	ldp	$a0,$a1,[$tp,#8*0]
 	sub	$cnt,$np_end,$np	// done yet?
-	sub	$t2,$np_end,$num	// rewinded np
+	sub	$t2,$np_end,$num	// rewound np
 	ldp	$a2,$a3,[$tp,#8*2]
 	ldp	$a4,$a5,[$tp,#8*4]
 	ldp	$a6,$a7,[$tp,#8*6]
@@ -1075,7 +1075,7 @@ $code.=<<___;
 .align	5
 __bn_mul4x_mont:
 	// Not adding AARCH64_SIGN_LINK_REGISTER here because __bn_mul4x_mont is jumped to
-	// only from bn_mul_mont or __bn_mul8x_mont which have already signed the
+	// only from bn_mul_mont_words or __bn_mul8x_mont which have already signed the
 	// return address.
 	stp	x29,x30,[sp,#-128]!
 	add	x29,sp,#0
@@ -1212,7 +1212,7 @@ __bn_mul4x_mont:
 	//adc	$carry,$carry,xzr
 	cbnz	$cnt,.Loop_mul4x_1st_tail
 
-	sub	$t1,$ap_end,$num	// rewinded $ap
+	sub	$t1,$ap_end,$num	// rewound $ap
 	cbz	$t0,.Lmul4x_proceed
 
 	ldp	$a0,$a1,[$ap,#8*0]
@@ -1354,7 +1354,7 @@ __bn_mul4x_mont:
 	//adc	$carry,$carry,xzr
 	cbnz	$cnt,.Loop_mul4x_tail
 
-	sub	$t1,$np,$num		// rewinded np?
+	sub	$t1,$np,$num		// rewound np?
 	adc	$carry,$carry,xzr
 	cbz	$t0,.Loop_mul4x_break
 

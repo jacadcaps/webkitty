@@ -75,7 +75,7 @@ void VideoLayerManagerObjC::setVideoLayer(PlatformLayer *videoLayer, FloatSize c
     [m_videoInlineLayer setName:@"WebVideoContainerLayer"];
     [m_videoInlineLayer setFrame:CGRectMake(0, 0, contentSize.width(), contentSize.height())];
     [m_videoInlineLayer setContentsGravity:kCAGravityResizeAspect];
-    if (PAL::isAVFoundationFrameworkAvailable() && [videoLayer isKindOfClass:PAL::getAVPlayerLayerClass()])
+    if (PAL::isAVFoundationFrameworkAvailable() && [videoLayer isKindOfClass:PAL::getAVPlayerLayerClassSingleton()])
         [m_videoInlineLayer setPlayerLayer:(AVPlayerLayer *)videoLayer];
 
 #if ENABLE(VIDEO_PRESENTATION_MODE)
@@ -88,6 +88,11 @@ void VideoLayerManagerObjC::setVideoLayer(PlatformLayer *videoLayer, FloatSize c
         [m_videoLayer setFrame:m_videoInlineLayer.get().bounds];
         [m_videoInlineLayer insertSublayer:m_videoLayer.get() atIndex:0];
     }
+}
+
+void VideoLayerManagerObjC::setPresentationSize(FloatSize contentSize)
+{
+    [m_videoInlineLayer setFrame:CGRectMake(0, 0, contentSize.width(), contentSize.height())];
 }
 
 void VideoLayerManagerObjC::didDestroyVideoLayer()
@@ -125,7 +130,7 @@ void VideoLayerManagerObjC::setVideoFullscreenLayer(PlatformLayer *videoFullscre
     [CATransaction setDisableActions:YES];
 
     if (m_videoLayer) {
-        CAContext *oldContext = [m_videoLayer context];
+        RetainPtr<CAContext> oldContext = [m_videoLayer context];
 
         if (m_videoInlineLayer && currentImage)
             [m_videoInlineLayer setContents:(__bridge id)currentImage.get()];
@@ -139,18 +144,18 @@ void VideoLayerManagerObjC::setVideoFullscreenLayer(PlatformLayer *videoFullscre
         } else
             [m_videoLayer removeFromSuperlayer];
 
-        CAContext *newContext = [m_videoLayer context];
+        RetainPtr<CAContext> newContext = [m_videoLayer context];
         if (oldContext && newContext && oldContext != newContext) {
 #if PLATFORM(MAC)
-            oldContext.commitPriority = 0;
-            newContext.commitPriority = 1;
+            oldContext.get().commitPriority = 0;
+            newContext.get().commitPriority = 1;
 #endif
             auto fencePort = MachSendRight::adopt([oldContext createFencePort]);
             [newContext setFencePort:fencePort.sendRight()];
         }
     }
 
-    [CATransaction setCompletionBlock:makeBlockPtr([completionHandler = WTFMove(completionHandler)] {
+    [CATransaction setCompletionBlock:makeBlockPtr([completionHandler = WTF::move(completionHandler)] {
         completionHandler();
     }).get()];
 

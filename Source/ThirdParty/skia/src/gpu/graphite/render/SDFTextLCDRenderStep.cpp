@@ -47,8 +47,9 @@ constexpr int kNumSDFAtlasTextures = 4;
 
 }  // namespace
 
-SDFTextLCDRenderStep::SDFTextLCDRenderStep()
-        : RenderStep(RenderStepID::kSDFTextLCD,
+SDFTextLCDRenderStep::SDFTextLCDRenderStep(Layout layout)
+        : RenderStep(layout,
+                     RenderStepID::kSDFTextLCD,
                      Flags::kPerformsShading | Flags::kHasTextures | Flags::kEmitsCoverage |
                      Flags::kLCDCoverage | Flags::kAppendInstances,
                      /*uniforms=*/{{"subRunDeviceMatrix", SkSLType::kFloat4x4},
@@ -57,20 +58,20 @@ SDFTextLCDRenderStep::SDFTextLCDRenderStep()
                                    {"pixelGeometryDelta", SkSLType::kHalf2},
                                    {"gammaParams", SkSLType::kHalf4}},
                      PrimitiveType::kTriangleStrip,
-                     kDirectDepthGEqualPass,
+                     kDirectDepthLEqualPass,
                      /*staticAttrs=*/ {},
                      /*appendAttrs=*/
-                     {{"size", VertexAttribType::kUShort2, SkSLType::kUShort2},
+                     {{{"size", VertexAttribType::kUShort2, SkSLType::kUShort2},
                       {"uvPos", VertexAttribType::kUShort2, SkSLType::kUShort2},
                       {"xyPos", VertexAttribType::kFloat2, SkSLType::kFloat2},
                       {"indexAndFlags", VertexAttribType::kUShort2, SkSLType::kUShort2},
                       {"strikeToSourceScale", VertexAttribType::kFloat, SkSLType::kFloat},
                       {"depth", VertexAttribType::kFloat, SkSLType::kFloat},
-                      {"ssboIndices", VertexAttribType::kUInt2, SkSLType::kUInt2}},
+                      {"ssboIndex", VertexAttribType::kUInt, SkSLType::kUInt}}},
                      /*varyings=*/
-                     {{"unormTexCoords", SkSLType::kFloat2},
+                     {{{"unormTexCoords", SkSLType::kFloat2},
                       {"textureCoords", SkSLType::kFloat2},
-                      {"texIndex", SkSLType::kFloat}}) {}
+                      {"texIndex", SkSLType::kFloat}}}) {}
 
 SDFTextLCDRenderStep::~SDFTextLCDRenderStep() {}
 
@@ -127,19 +128,20 @@ const char* SDFTextLCDRenderStep::fragmentCoverageSkSL() const {
 
 void SDFTextLCDRenderStep::writeVertices(DrawWriter* dw,
                                          const DrawParams& params,
-                                         skvx::uint2 ssboIndices) const {
+                                         uint32_t ssboIndex) const {
     const SubRunData& subRunData = params.geometry().subRunData();
     subRunData.subRun()->vertexFiller().fillInstanceData(dw,
                                                          subRunData.startGlyphIndex(),
                                                          subRunData.glyphCount(),
                                                          subRunData.subRun()->instanceFlags(),
-                                                         ssboIndices,
+                                                         ssboIndex,
                                                          subRunData.subRun()->glyphs(),
                                                          params.order().depthAsFloat());
 }
 
 void SDFTextLCDRenderStep::writeUniformsAndTextures(const DrawParams& params,
                                                     PipelineDataGatherer* gatherer) const {
+    SkDEBUGCODE(gatherer->checkRewind());
     SkDEBUGCODE(UniformExpectationsValidator uev(gatherer, this->uniforms());)
 
     const SubRunData& subRunData = params.geometry().subRunData();

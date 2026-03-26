@@ -26,10 +26,10 @@
 #include "config.h"
 #include "Display.h"
 
+#include "GtkVersioning.h"
 #include "SystemSettingsManagerProxy.h"
 #include <WebCore/GLContext.h>
 #include <WebCore/GLDisplay.h>
-#include <WebCore/GtkVersioning.h>
 #include <epoxy/egl.h>
 #include <gtk/gtk.h>
 #include <mutex>
@@ -94,24 +94,6 @@ GLDisplay* Display::glDisplay() const
 #endif
 
     return nullptr;
-}
-
-String Display::accessibilityBusAddress() const
-{
-    if (!m_gdkDisplay)
-        return { };
-
-#if USE(GTK4)
-    if (const char* atspiBusAddress = static_cast<const char*>(g_object_get_data(G_OBJECT(m_gdkDisplay.get()), "-gtk-atspi-bus-address")))
-        return String::fromUTF8(atspiBusAddress);
-#endif
-
-#if PLATFORM(X11)
-    if (isX11())
-        return accessibilityBusAddressX11();
-#endif
-
-    return { };
 }
 
 #if !PLATFORM(X11)

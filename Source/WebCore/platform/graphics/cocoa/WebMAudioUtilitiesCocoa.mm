@@ -30,10 +30,10 @@
 
 #import "CAAudioStreamDescription.h"
 #import "Logging.h"
-#import "MediaSample.h"
 #import "MediaUtilities.h"
 #import "PlatformMediaSessionManager.h"
 #import "SharedBuffer.h"
+#import "TrackInfo.h"
 #import <AudioToolbox/AudioCodec.h>
 #import <AudioToolbox/AudioComponent.h>
 #import <AudioToolbox/AudioFormat.h>
@@ -50,6 +50,22 @@
 #import <pal/cf/AudioToolboxSoftLink.h>
 
 namespace WebCore {
+
+namespace WebMAudioUtilities {
+#if ENABLE(OPUS)
+static std::optional<bool> s_hasOpusDecoder;
+#endif
+#if ENABLE(VORBIS)
+static std::optional<bool> s_hasVorbisDecoder;
+#endif
+}
+
+#if ENABLE(OPUS)
+void setHasOpusDecoder(bool hasDecoder) { WebMAudioUtilities::s_hasOpusDecoder = hasDecoder; }
+#endif
+#if ENABLE(VORBIS)
+void setHasVorbisDecoder(bool hasDecoder) { WebMAudioUtilities::s_hasVorbisDecoder = hasDecoder; }
+#endif
 
 #if ENABLE(VORBIS) || ENABLE(OPUS)
 static bool registerDecoderFactory(ASCIILiteral decoderName, OSType decoderType)
@@ -92,14 +108,17 @@ static RefPtr<AudioInfo> createAudioInfoForFormat(OSType formatID, Vector<uint8_
         return nullptr;
     }
 
-    auto audioInfo = AudioInfo::create();
-    audioInfo->codecName = formatID;
-    audioInfo->rate = asbd.mSampleRate;
-    audioInfo->channels = asbd.mChannelsPerFrame;
-    audioInfo->framesPerPacket = asbd.mFramesPerPacket;
-    audioInfo->bitDepth = 16;
-    audioInfo->cookieData = SharedBuffer::create(WTFMove(magicCookie));
-    return audioInfo;
+    return AudioInfo::create({
+        {
+            .codecName = formatID
+        }, {
+            .rate = static_cast<uint32_t>(asbd.mSampleRate),
+            .channels = asbd.mChannelsPerFrame,
+            .framesPerPacket = asbd.mFramesPerPacket,
+            .bitDepth = 16,
+            .cookieData = SharedBuffer::create(WTF::move(magicCookie))
+        }
+    });
 }
 
 #endif // ENABLE(VORBIS) || ENABLE(OPUS)
@@ -368,7 +387,9 @@ static Vector<uint8_t> cookieFromOpusCookieContents(const OpusCookieContents& co
 bool isOpusDecoderAvailable()
 {
 #if ENABLE(OPUS)
-    return registerOpusDecoderIfNeeded();
+    if (registerOpusDecoderIfNeeded())
+        return true;
+    return WebMAudioUtilities::s_hasOpusDecoder.value_or(false);
 #else
     return false;
 #endif
@@ -377,13 +398,7 @@ bool isOpusDecoderAvailable()
 bool registerOpusDecoderIfNeeded()
 {
 #if ENABLE(OPUS)
-    static bool available;
-
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        available = registerDecoderFactory("ACOpusDecoderFactory"_s, kAudioFormatOpus);
-    });
-
+    static bool available = registerDecoderFactory("ACOpusDecoderFactory"_s, kAudioFormatOpus);
     return available;
 #else
     return false;
@@ -400,7 +415,7 @@ RefPtr<AudioInfo> createOpusAudioInfo(const OpusCookieContents& cookieContents)
     if (!cookieData.size())
         return nullptr;
 
-    return createAudioInfoForFormat(kAudioFormatOpus, WTFMove(cookieData));
+    return createAudioInfoForFormat(kAudioFormatOpus, WTF::move(cookieData));
 #else
     UNUSED_PARAM(cookieContents);
     return nullptr;
@@ -493,7 +508,9 @@ static Vector<uint8_t> cookieFromVorbisCodecPrivate(std::span<const uint8_t> cod
 bool isVorbisDecoderAvailable()
 {
 #if ENABLE(VORBIS)
-    return registerVorbisDecoderIfNeeded();
+    if (registerVorbisDecoderIfNeeded())
+        return true;
+    return WebMAudioUtilities::s_hasVorbisDecoder.value_or(false);
 #else
     return false;
 #endif
@@ -502,13 +519,7 @@ bool isVorbisDecoderAvailable()
 bool registerVorbisDecoderIfNeeded()
 {
 #if ENABLE(VORBIS)
-    static bool available;
-
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        available = registerDecoderFactory("ACVorbisDecoderFactory"_s, kAudioFormatVorbis);
-    });
-
+    static bool available = registerDecoderFactory("ACVorbisDecoderFactory"_s, kAudioFormatVorbis);
     return available;
 #else
     return false;
@@ -525,7 +536,7 @@ RefPtr<AudioInfo> createVorbisAudioInfo(std::span<const uint8_t> privateData)
     if (!cookieData.size())
         return nullptr;
 
-    return createAudioInfoForFormat(kAudioFormatVorbis, WTFMove(cookieData));
+    return createAudioInfoForFormat(kAudioFormatVorbis, WTF::move(cookieData));
 #else
     UNUSED_PARAM(privateData);
     return nullptr;

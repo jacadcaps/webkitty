@@ -23,8 +23,7 @@
 
 #include "ActiveDOMObject.h"
 #include "ContextDestructionObserverInlines.h"
-#include "Document.h"
-#include "DocumentInlines.h"
+#include "DocumentQuirks.h"
 #include "ExtendedDOMClientIsoSubspaces.h"
 #include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMAbstractOperations.h"
@@ -38,7 +37,6 @@
 #include "JSDOMOperation.h"
 #include "JSDOMWrapperCache.h"
 #include "JSNode.h"
-#include "Quirks.h"
 #include "ScriptExecutionContext.h"
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/FunctionPrototype.h>
@@ -133,7 +131,7 @@ void JSTestLegacyOverrideBuiltInsPrototype::finishCreation(VM& vm)
 const ClassInfo JSTestLegacyOverrideBuiltIns::s_info = { "TestLegacyOverrideBuiltIns"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestLegacyOverrideBuiltIns) };
 
 JSTestLegacyOverrideBuiltIns::JSTestLegacyOverrideBuiltIns(Structure* structure, JSDOMGlobalObject& globalObject, Ref<TestLegacyOverrideBuiltIns>&& impl)
-    : JSDOMWrapper<TestLegacyOverrideBuiltIns>(structure, globalObject, WTFMove(impl))
+    : JSDOMWrapper<TestLegacyOverrideBuiltIns>(structure, globalObject, WTF::move(impl))
 {
 }
 
@@ -158,7 +156,7 @@ JSValue JSTestLegacyOverrideBuiltIns::getConstructor(VM& vm, const JSGlobalObjec
 
 void JSTestLegacyOverrideBuiltIns::destroy(JSC::JSCell* cell)
 {
-    JSTestLegacyOverrideBuiltIns* thisObject = static_cast<JSTestLegacyOverrideBuiltIns*>(cell);
+    SUPPRESS_MEMORY_UNSAFE_CAST JSTestLegacyOverrideBuiltIns* thisObject = static_cast<JSTestLegacyOverrideBuiltIns*>(cell);
     thisObject->JSTestLegacyOverrideBuiltIns::~JSTestLegacyOverrideBuiltIns();
 }
 
@@ -173,7 +171,7 @@ bool JSTestLegacyOverrideBuiltIns::legacyPlatformObjectGetOwnProperty(JSObject* 
             return thisObject.wrapped().namedItem(propertyNameToAtomString(propertyName));
         });
         if (auto namedProperty = accessVisibleNamedProperty<LegacyOverrideBuiltIns::Yes>(*lexicalGlobalObject, *thisObject, propertyName, getterFunctor)) {
-            auto value = toJS<IDLInterface<Node>>(*lexicalGlobalObject, *thisObject->globalObject(), throwScope, WTFMove(namedProperty.value()));
+            auto value = toJS<IDLInterface<Node>>(*lexicalGlobalObject, *thisObject->globalObject(), throwScope, WTF::move(namedProperty.value()));
             RETURN_IF_EXCEPTION(throwScope, false);
             slot.setValue(thisObject, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly), value);
             return true;
@@ -200,7 +198,7 @@ bool JSTestLegacyOverrideBuiltIns::getOwnPropertySlotByIndex(JSObject* object, J
         return thisObject.wrapped().namedItem(propertyNameToAtomString(propertyName));
     });
     if (auto namedProperty = accessVisibleNamedProperty<LegacyOverrideBuiltIns::Yes>(*lexicalGlobalObject, *thisObject, propertyName, getterFunctor)) {
-        auto value = toJS<IDLInterface<Node>>(*lexicalGlobalObject, *thisObject->globalObject(), throwScope, WTFMove(namedProperty.value()));
+        auto value = toJS<IDLInterface<Node>>(*lexicalGlobalObject, *thisObject->globalObject(), throwScope, WTF::move(namedProperty.value()));
         RETURN_IF_EXCEPTION(throwScope, false);
         slot.setValue(thisObject, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly), value);
         return true;
@@ -208,7 +206,7 @@ bool JSTestLegacyOverrideBuiltIns::getOwnPropertySlotByIndex(JSObject* object, J
     return JSObject::getOwnPropertySlotByIndex(object, lexicalGlobalObject, index, slot);
 }
 
-void JSTestLegacyOverrideBuiltIns::getOwnPropertyNames(JSObject* object, JSGlobalObject* lexicalGlobalObject, PropertyNameArray& propertyNames, DontEnumPropertiesMode mode)
+void JSTestLegacyOverrideBuiltIns::getOwnPropertyNames(JSObject* object, JSGlobalObject* lexicalGlobalObject, PropertyNameArrayBuilder& propertyNames, DontEnumPropertiesMode mode)
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto* thisObject = jsCast<JSTestLegacyOverrideBuiltIns*>(object);
@@ -244,7 +242,7 @@ bool JSTestLegacyOverrideBuiltIns::put(JSCell* cell, JSGlobalObject* lexicalGlob
         ownDescriptor.setPropertySlot(lexicalGlobalObject, propertyName, slot);
         RETURN_IF_EXCEPTION(throwScope, false);
     }
-    RELEASE_AND_RETURN(throwScope, ordinarySetWithOwnDescriptor(lexicalGlobalObject, thisObject, propertyName, value, putPropertySlot.thisValue(), WTFMove(ownDescriptor), putPropertySlot.isStrictMode()));
+    RELEASE_AND_RETURN(throwScope, ordinarySetWithOwnDescriptor(lexicalGlobalObject, thisObject, propertyName, value, putPropertySlot.thisValue(), WTF::move(ownDescriptor), putPropertySlot.isStrictMode()));
 }
 
 bool JSTestLegacyOverrideBuiltIns::putByIndex(JSCell* cell, JSGlobalObject* lexicalGlobalObject, unsigned index, JSValue value, bool shouldThrow)
@@ -386,7 +384,7 @@ bool JSTestLegacyOverrideBuiltInsOwner::isReachableFromOpaqueRoots(JSC::Handle<J
 
 void JSTestLegacyOverrideBuiltInsOwner::finalize(JSC::Handle<JSC::Unknown> handle, void* context)
 {
-    auto* jsTestLegacyOverrideBuiltIns = static_cast<JSTestLegacyOverrideBuiltIns*>(handle.slot()->asCell());
+    SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestLegacyOverrideBuiltIns = static_cast<JSTestLegacyOverrideBuiltIns*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
     uncacheWrapper(world, jsTestLegacyOverrideBuiltIns->protectedWrapped().ptr(), jsTestLegacyOverrideBuiltIns);
 }
@@ -400,7 +398,7 @@ extern "C" { extern void (*const __identifier("??_7TestLegacyOverrideBuiltIns@We
 extern "C" { extern void* _ZTVN7WebCore26TestLegacyOverrideBuiltInsE[]; }
 #endif
 template<std::same_as<TestLegacyOverrideBuiltIns> T>
-static inline void verifyVTable(TestLegacyOverrideBuiltIns* ptr) 
+static inline void verifyVTable(TestLegacyOverrideBuiltIns* ptr)
 {
     if constexpr (std::is_polymorphic_v<T>) {
         const void* actualVTablePointer = getVTablePointer<T>(ptr);
@@ -420,12 +418,13 @@ static inline void verifyVTable(TestLegacyOverrideBuiltIns* ptr)
 #endif
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestLegacyOverrideBuiltIns>&& impl)
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<TestLegacyOverrideBuiltIns>&& impl)
 {
+    UNUSED_PARAM(lexicalGlobalObject);
 #if ENABLE(BINDING_INTEGRITY)
     verifyVTable<TestLegacyOverrideBuiltIns>(impl.ptr());
 #endif
-    return createWrapper<TestLegacyOverrideBuiltIns>(globalObject, WTFMove(impl));
+    return createWrapper<TestLegacyOverrideBuiltIns>(globalObject, WTF::move(impl));
 }
 
 JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestLegacyOverrideBuiltIns& impl)

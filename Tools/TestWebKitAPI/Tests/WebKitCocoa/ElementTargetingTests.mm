@@ -300,10 +300,10 @@ static std::pair<RetainPtr<TestWKWebView>, RetainPtr<Util::PlatformWindow>> setU
     RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:frame configuration:configuration.get() addToWindow:NO]);
     RetainPtr window = adoptNS([[UIWindow alloc] initWithFrame:frame]);
     [window addSubview:webView.get()];
-    return { WTFMove(webView), WTFMove(window) };
+    return { WTF::move(webView), WTF::move(window) };
 #else
     RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:frame]);
-    return { WTFMove(webView), { [webView window] } };
+    return { WTF::move(webView), { [webView window] } };
 #endif
 }
 
@@ -646,6 +646,14 @@ TEST(ElementTargeting, RequestTargetedElementsBySearchableText)
 
     [webView adjustVisibilityForTargets:@[ targetFromSearchText.get() ]];
     EXPECT_TRUE([targetFromSearchText isSameElement:[[webView targetedElementInfoWithText:searchableText] firstObject]]);
+}
+
+TEST(ElementTargeting, TargetedElementWithInvalidURLShouldNotCrash)
+{
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600)]);
+    [webView synchronouslyLoadTestPageNamed:@"element-targeting-13"];
+    RetainPtr targetFromHitTest = [[webView targetedElementInfoAt:CGPointMake(100, 100)] firstObject];
+    EXPECT_EQ([[targetFromHitTest mediaAndLinkURLs] count], 0U);
 }
 
 TEST(ElementTargeting, AdjustVisibilityAfterRecreatingElement)

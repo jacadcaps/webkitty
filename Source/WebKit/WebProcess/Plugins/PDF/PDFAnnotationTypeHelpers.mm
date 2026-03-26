@@ -40,14 +40,14 @@ static std::optional<WidgetType> widgetType(PDFAnnotation *annotation)
     if (!annotationIsOfType(annotation, AnnotationType::Widget))
         return { };
 
-    RetainPtr type = [annotation valueForAnnotationKey:RetainPtr { get_PDFKit_PDFAnnotationKeyWidgetFieldType() }.get()];
-    if ([type.get() isEqualToString:RetainPtr { get_PDFKit_PDFAnnotationWidgetSubtypeButton() }.get()])
+    RetainPtr type = [annotation valueForAnnotationKey:get_PDFKit_PDFAnnotationKeyWidgetFieldTypeSingleton()];
+    if ([type.get() isEqualToString:get_PDFKit_PDFAnnotationWidgetSubtypeButtonSingleton()])
         return WidgetType::Button;
-    if ([type.get() isEqualToString:RetainPtr { get_PDFKit_PDFAnnotationWidgetSubtypeChoice() }.get()])
+    if ([type.get() isEqualToString:get_PDFKit_PDFAnnotationWidgetSubtypeChoiceSingleton()])
         return WidgetType::Choice;
-    if ([type.get() isEqualToString:RetainPtr { get_PDFKit_PDFAnnotationWidgetSubtypeSignature() }.get()])
+    if ([type.get() isEqualToString:get_PDFKit_PDFAnnotationWidgetSubtypeSignatureSingleton()])
         return WidgetType::Signature;
-    if ([type.get() isEqualToString:RetainPtr { get_PDFKit_PDFAnnotationWidgetSubtypeText() }.get()])
+    if ([type.get() isEqualToString:get_PDFKit_PDFAnnotationWidgetSubtypeTextSingleton()])
         return WidgetType::Text;
 
     ASSERT_NOT_REACHED();
@@ -56,14 +56,14 @@ static std::optional<WidgetType> widgetType(PDFAnnotation *annotation)
 
 static std::optional<AnnotationType> annotationType(PDFAnnotation *annotation)
 {
-    RetainPtr type = [annotation valueForAnnotationKey:RetainPtr { get_PDFKit_PDFAnnotationKeySubtype() }.get()];
-    if ([type.get() isEqualToString:RetainPtr { get_PDFKit_PDFAnnotationSubtypeLink() }.get()])
+    RetainPtr type = [annotation valueForAnnotationKey:get_PDFKit_PDFAnnotationKeySubtypeSingleton()];
+    if ([type.get() isEqualToString:get_PDFKit_PDFAnnotationSubtypeLinkSingleton()])
         return AnnotationType::Link;
-    if ([type.get() isEqualToString:RetainPtr { get_PDFKit_PDFAnnotationSubtypePopup() }.get()])
+    if ([type.get() isEqualToString:get_PDFKit_PDFAnnotationSubtypePopupSingleton()])
         return AnnotationType::Popup;
-    if ([type.get() isEqualToString:RetainPtr { get_PDFKit_PDFAnnotationSubtypeText() }.get()])
+    if ([type.get() isEqualToString:get_PDFKit_PDFAnnotationSubtypeTextSingleton()])
         return AnnotationType::Text;
-    if ([type.get() isEqualToString:RetainPtr { get_PDFKit_PDFAnnotationSubtypeWidget() }.get()])
+    if ([type.get() isEqualToString:get_PDFKit_PDFAnnotationSubtypeWidgetSingleton()])
         return AnnotationType::Widget;
 
     ASSERT_NOT_REACHED();
@@ -84,11 +84,11 @@ bool annotationCheckerInternal(PDFAnnotation *annotation, Type type, AnnotationT
 template <typename Type>
 bool annotationCheckerInternal(PDFAnnotation *annotation, std::initializer_list<Type>&& types, AnnotationToTypeConverter<Type> converter)
 {
-    auto checker = [annotation = RetainPtr { annotation }, converter = WTFMove(converter)](auto&& type) {
-        return annotationCheckerInternal(annotation.get(), std::forward<decltype(type)>(type), WTFMove(converter));
+    auto checker = [annotation = RetainPtr { annotation }, converter = WTF::move(converter)](auto&& type) {
+        return annotationCheckerInternal(annotation.get(), std::forward<decltype(type)>(type), converter);
     };
     ASSERT(std::ranges::count_if(types, checker) <= 1);
-    return std::ranges::any_of(WTFMove(types), WTFMove(checker));
+    return std::ranges::any_of(WTF::move(types), WTF::move(checker));
 }
 
 bool annotationIsOfType(PDFAnnotation *annotation, AnnotationType type)
@@ -98,7 +98,7 @@ bool annotationIsOfType(PDFAnnotation *annotation, AnnotationType type)
 
 bool annotationIsOfType(PDFAnnotation *annotation, std::initializer_list<AnnotationType>&& types)
 {
-    return annotationCheckerInternal(annotation, WTFMove(types), annotationType);
+    return annotationCheckerInternal(annotation, WTF::move(types), annotationType);
 }
 
 bool annotationIsWidgetOfType(PDFAnnotation *annotation, WidgetType type)
@@ -108,7 +108,7 @@ bool annotationIsWidgetOfType(PDFAnnotation *annotation, WidgetType type)
 
 bool annotationIsWidgetOfType(PDFAnnotation *annotation, std::initializer_list<WidgetType>&& types)
 {
-    return annotationCheckerInternal(annotation, WTFMove(types), widgetType);
+    return annotationCheckerInternal(annotation, WTF::move(types), widgetType);
 }
 
 } // namespace WebKit::PDFAnnotationTypeHelpers

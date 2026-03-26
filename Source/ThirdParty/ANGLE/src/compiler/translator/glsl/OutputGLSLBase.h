@@ -105,9 +105,11 @@ class TOutputGLSLBase : public TIntermTraverser
 
     TInfoSinkBase &mObjSink;
     bool mDeclaringVariable;
+    bool mSkippedDeclaringAnonymousStruct;
 
     // name hashing.
     ShHashFunction64 mHashFunction;
+    char mUserVariablePrefix;
     NameMap &mNameMap;
 
     sh::GLenum mShaderType;

@@ -42,7 +42,7 @@ static void initializeAudioCapturerDebugCategory()
 }
 
 GStreamerAudioCapturer::GStreamerAudioCapturer(GStreamerCaptureDevice&& device)
-    : GStreamerCapturer(WTFMove(device), adoptGRef(gst_caps_new_empty_simple("audio/x-raw")))
+    : GStreamerCapturer(WTF::move(device), adoptGRef(gst_caps_new_empty_simple("audio/x-raw")))
 {
     initializeAudioCapturerDebugCategory();
 }
@@ -53,16 +53,28 @@ GStreamerAudioCapturer::GStreamerAudioCapturer(const PipeWireCaptureDevice& devi
     initializeAudioCapturerDebugCategory();
 }
 
+void GStreamerAudioCapturer::handleSample(GRefPtr<GstSample>&& sample)
+{
+    auto presentationTime = fromGstClockTime(GST_BUFFER_PTS(gst_sample_get_buffer(sample.get())));
+    m_sinkAudioDataCallback.second(WTF::move(sample), WTF::move(presentationTime));
+}
+
 void GStreamerAudioCapturer::setSinkAudioCallback(SinkAudioDataCallback&& callback)
 {
-    if (m_sinkAudioDataCallback.first)
-        g_signal_handler_disconnect(sink(), m_sinkAudioDataCallback.first);
+    if (m_sinkAudioDataCallback.first.newSampleSignalId) {
+        g_signal_handler_disconnect(sink(), m_sinkAudioDataCallback.first.newSampleSignalId);
+        g_signal_handler_disconnect(sink(), m_sinkAudioDataCallback.first.prerollSignalId);
+    }
 
-    m_sinkAudioDataCallback.second = WTFMove(callback);
-    m_sinkAudioDataCallback.first = g_signal_connect_swapped(sink(), "new-sample", G_CALLBACK(+[](GStreamerAudioCapturer* capturer, GstElement* sink) -> GstFlowReturn {
-        auto gstSample = adoptGRef(gst_app_sink_pull_sample(GST_APP_SINK(sink)));
-        auto presentationTime = fromGstClockTime(GST_BUFFER_PTS(gst_sample_get_buffer(gstSample.get())));
-        capturer->m_sinkAudioDataCallback.second(WTFMove(gstSample), WTFMove(presentationTime));
+    m_sinkAudioDataCallback.second = WTF::move(callback);
+    m_sinkAudioDataCallback.first.newSampleSignalId = g_signal_connect_swapped(sink(), "new-sample", G_CALLBACK(+[](GStreamerAudioCapturer* capturer, GstElement* sink) -> GstFlowReturn {
+        auto sample = adoptGRef(gst_app_sink_pull_sample(GST_APP_SINK(sink)));
+        capturer->handleSample(WTF::move(sample));
+        return GST_FLOW_OK;
+    }), this);
+    m_sinkAudioDataCallback.first.prerollSignalId = g_signal_connect_swapped(sink(), "new-preroll", G_CALLBACK(+[](GStreamerAudioCapturer* capturer, GstElement* sink) -> GstFlowReturn {
+        auto sample = adoptGRef(gst_app_sink_pull_preroll(GST_APP_SINK(sink)));
+        capturer->handleSample(WTF::move(sample));
         return GST_FLOW_OK;
     }), this);
 }

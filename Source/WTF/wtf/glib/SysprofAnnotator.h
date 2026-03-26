@@ -42,6 +42,11 @@ public:
         return s_annotator;
     }
 
+    static int64_t currentContinuousTime(Seconds timeDelta)
+    {
+        return SYSPROF_CAPTURE_CURRENT_TIME + timeDelta.microsecondsAs<int64_t>();
+    }
+
     void instantMark(std::span<const char> name, const char* description, ...) WTF_ATTRIBUTE_PRINTF(3, 4)
     {
         va_list args;
@@ -50,11 +55,11 @@ public:
         va_end(args);
     }
 
-    void mark(Seconds timeDelta, std::span<const char> name, const char* description, ...) WTF_ATTRIBUTE_PRINTF(4, 5)
+    void mark(int64_t time, std::span<const char> name, const char* description, ...) WTF_ATTRIBUTE_PRINTF(4, 5)
     {
         va_list args;
         va_start(args, description);
-        sysprof_collector_mark_vprintf(SYSPROF_CAPTURE_CURRENT_TIME, timeDelta.microsecondsAs<int64_t>(), m_processName, name.data(), description, args);
+        sysprof_collector_mark_vprintf(time, 0, m_processName, name.data(), description, args);
         va_end(args);
     }
 
@@ -62,13 +67,15 @@ public:
     {
         auto key = std::make_pair(pointer, static_cast<const void*>(name.data()));
 
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
         Vector<char> buffer(1024);
         va_list args;
         va_start(args, description);
         vsnprintf(buffer.mutableSpan().data(), buffer.size(), description, args);
         va_end(args);
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-        auto value = std::make_pair(SYSPROF_CAPTURE_CURRENT_TIME, WTFMove(buffer));
+        auto value = std::make_pair(SYSPROF_CAPTURE_CURRENT_TIME, WTF::move(buffer));
 
         Locker locker { m_lock };
         m_ongoingMarks.set(key, value);
@@ -84,7 +91,7 @@ public:
 
             TimestampAndString v = m_ongoingMarks.take(key);
             if (v.first)
-                value = WTFMove(v);
+                value = WTF::move(v);
         }
 
         if (value) {
@@ -138,8 +145,7 @@ public:
         case BuildTransactionStart:
         case WaitForCompositionCompletionStart:
         case RenderLayerTreeStart:
-        case FlushPendingLayerChangesStart:
-        case LayerFlushStart:
+        case LayerTreeHostRenderingUpdateStart:
         case SyncMessageStart:
         case SyncTouchEventStart:
         case InitializeWebProcessStart:
@@ -159,6 +165,10 @@ public:
         case WebXRCPFrameStartSubmissionStart:
         case WebXRCPFrameEndSubmissionStart:
         case WakeUpAndApplyDisplayListStart:
+        case ThreadTimersStart:
+        case TimerFiredStart:
+        case CoreImageRenderStart:
+        case TextExtractionStart:
             beginMark(nullptr, tracePointCodeName(code).spanIncludingNullTerminator(), "%s", "");
             break;
 
@@ -200,8 +210,7 @@ public:
         case BackingStoreFlushEnd:
         case WaitForCompositionCompletionEnd:
         case RenderLayerTreeEnd:
-        case FlushPendingLayerChangesEnd:
-        case LayerFlushEnd:
+        case LayerTreeHostRenderingUpdateEnd:
         case BuildTransactionEnd:
         case SyncMessageEnd:
         case SyncTouchEventEnd:
@@ -222,6 +231,10 @@ public:
         case WebXRCPFrameStartSubmissionEnd:
         case WebXRCPFrameEndSubmissionEnd:
         case WakeUpAndApplyDisplayListEnd:
+        case ThreadTimersEnd:
+        case TimerFiredEnd:
+        case CoreImageRenderEnd:
+        case TextExtractionEnd:
             endMark(nullptr, tracePointCodeName(code).spanIncludingNullTerminator(), "%s", "");
             break;
 
@@ -257,6 +270,12 @@ public:
             sysprof_collector_set_counters(&id.value(), &counterValue, 1);
         } else {
             unsigned newId = sysprof_collector_request_counters(1);
+
+            // Temporary workaround for libsysprof-capture providing conflicting IDs to threads.
+            static unsigned maxId = 0;
+            if (newId <= maxId)
+                newId = sysprof_collector_request_counters(maxId - newId + 1) + maxId - newId;
+            maxId = newId;
 
             m_counters.add(static_cast<const void*>(name.data()), newId);
 
@@ -397,6 +416,15 @@ private:
         case FixedContainerEdgeSamplingStart:
         case FixedContainerEdgeSamplingEnd:
             return "FixedContainerEdgeSampling"_s;
+        case ThreadTimersStart:
+        case ThreadTimersEnd:
+            return "WebCoreThreadTimers"_s;
+        case TimerFiredStart:
+        case TimerFiredEnd:
+            return "WebCoreTimerExecution"_s;
+        case CoreImageRenderStart:
+        case CoreImageRenderEnd:
+            return "CoreImageRender"_s;
 
         case WebHTMLViewPaintStart:
         case WebHTMLViewPaintEnd:
@@ -474,18 +502,20 @@ private:
         case WakeUpAndApplyDisplayListEnd:
             return "WakeUpAndApplyDisplayList"_s;
 
-        case FlushPendingLayerChangesStart:
-        case FlushPendingLayerChangesEnd:
-            return "FlushPendingLayerChanges"_s;
+        case LayerTreeHostRenderingUpdateStart:
+        case LayerTreeHostRenderingUpdateEnd:
+            return "LayerTreeHostRenderingUpdate"_s;
         case WaitForCompositionCompletionStart:
         case WaitForCompositionCompletionEnd:
             return "WaitForCompositionCompletion"_s;
+
+        case TextExtractionStart:
+        case TextExtractionEnd:
+            return "TextExtraction"_s;
+
         case RenderLayerTreeStart:
         case RenderLayerTreeEnd:
             return "RenderLayerTree"_s;
-        case LayerFlushStart:
-        case LayerFlushEnd:
-            return "LayerFlush"_s;
 
         case WTFRange:
         case JavaScriptRange:

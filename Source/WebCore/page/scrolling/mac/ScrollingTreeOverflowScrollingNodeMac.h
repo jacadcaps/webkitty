@@ -25,9 +25,10 @@
 
 #pragma once
 
-#if ENABLE(ASYNC_SCROLLING) && PLATFORM(MAC)
+#include <wtf/Platform.h>
+#if PLATFORM(MAC)
 
-#include "ScrollingTreeOverflowScrollingNode.h"
+#include <WebCore/ScrollingTreeOverflowScrollingNode.h>
 
 OBJC_CLASS CALayer;
 
@@ -61,4 +62,4 @@ private:
 
 } // namespace WebKit
 
-#endif // ENABLE(ASYNC_SCROLLING) && PLATFORM(MAC)
+#endif // PLATFORM(MAC)

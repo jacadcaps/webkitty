@@ -37,6 +37,7 @@
 #import <WebCore/LegacyWebArchive.h>
 #import <WebCore/ThreadCheck.h>
 #import <WebCore/WebCoreJITOperations.h>
+#import <WebCore/WebCoreMainThread.h>
 #import <WebCore/WebCoreObjCExtras.h>
 #import <wtf/MainThread.h>
 #import <wtf/RunLoop.h>
@@ -68,11 +69,7 @@ static NSString * const WebSubframeArchivesKey = @"WebSubframeArchives";
 
 + (void)initialize
 {
-#if !PLATFORM(IOS_FAMILY)
-    JSC::initialize();
-    WTF::initializeMainThread();
-    WebCore::populateJITOperations();
-#endif
+    WebCore::initializeMainThreadIfNeeded();
 }
 
 - (instancetype)init
@@ -80,7 +77,6 @@ static NSString * const WebSubframeArchivesKey = @"WebSubframeArchives";
     self = [super init];
     if (!self)
         return nil;
-    coreArchive = LegacyWebArchive::create();
     return self;
 }
 
@@ -91,7 +87,7 @@ static NSString * const WebSubframeArchivesKey = @"WebSubframeArchives";
         [self release];
         return nil;
     }
-    coreArchive = WTFMove(_coreArchive);
+    coreArchive = WTF::move(_coreArchive);
     return self;
 }
 
@@ -102,8 +98,7 @@ static NSString * const WebSubframeArchivesKey = @"WebSubframeArchives";
 
 - (void)setCoreArchive:(Ref<LegacyWebArchive>&&)newCoreArchive
 {
-    ASSERT(coreArchive);
-    coreArchive = WTFMove(newCoreArchive);
+    coreArchive = WTF::move(newCoreArchive);
 }
 
 - (void)dealloc
@@ -179,7 +174,7 @@ static BOOL isArrayOfClass(id object, Class elementClass)
     for (WebArchive *subframeArchive in subframeArchives)
         coreArchives.append(*[subframeArchive->_private coreArchive]);
 
-    [_private setCoreArchive:LegacyWebArchive::create([mainResource _coreResource].get(), WTFMove(coreResources), WTFMove(coreArchives))];
+    [_private setCoreArchive:LegacyWebArchive::create([mainResource _coreResource].get(), WTF::move(coreResources), WTF::move(coreArchives), std::nullopt)];
     return self;
 }
 
@@ -214,11 +209,11 @@ static BOOL isArrayOfClass(id object, Class elementClass)
 }
 
 - (instancetype)initWithCoder:(NSCoder *)decoder
-{    
-    WebResource *mainResource = nil;
-    NSArray *subresources = nil;
-    NSArray *subframeArchives = nil;
-    
+{
+    RetainPtr<WebResource> mainResource;
+    RetainPtr<NSArray> subresources;
+    RetainPtr<NSArray> subframeArchives;
+
     @try {
         id object = [decoder decodeObjectForKey:WebMainResourceKey];
         if ([object isKindOfClass:[WebResource class]])
@@ -234,7 +229,7 @@ static BOOL isArrayOfClass(id object, Class elementClass)
         return nil;
     }
 
-    return [self initWithMainResource:mainResource subresources:subresources subframeArchives:subframeArchives];
+    return [self initWithMainResource:mainResource.get() subresources:subresources.get() subframeArchives:subframeArchives.get()];
 }
 
 - (void)encodeWithCoder:(NSCoder *)encoder
@@ -349,7 +344,7 @@ static BOOL isArrayOfClass(id object, Class elementClass)
     if (!self)
         return nil;
     
-    _private = [[WebArchivePrivate alloc] initWithCoreArchive:WTFMove(coreLegacyWebArchive)];
+    _private = [[WebArchivePrivate alloc] initWithCoreArchive:WTF::move(coreLegacyWebArchive)];
     if (!_private) {
         [self release];
         return nil;

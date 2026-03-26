@@ -67,6 +67,28 @@ class LayoutTestFinder(object):
         tests = self.find_tests_by_path(paths, device_type=device_type, with_expectations=with_expectations)
         return (paths, tests)
 
+    def find_tests_for_specified_files(self, options, args):
+        """Find tests for explicitly specified individual test files only.
+
+        This filters out directories and unexpanded glob patterns (containing *, ?, [, ]).
+        Use this when you want to find tests that were explicitly specified by the user
+        as individual files (either typed directly or expanded by the shell).
+        """
+        paths = self._strip_test_dir_prefixes(args)
+        if options and options.test_list:
+            paths += self._strip_test_dir_prefixes(self._read_test_names_from_file(options.test_list, self._port.TEST_PATH_SEPARATOR))
+
+        layout_tests_dir = self._port.layout_tests_dir()
+        paths = [p for p in paths
+                 if not any(c in p for c in ['*', '?', '[', ']'])
+                 and not self._filesystem.isdir(self._filesystem.join(layout_tests_dir, p))]
+
+        if not paths:
+            return ([], [])
+
+        tests = self.find_tests_by_path(paths)
+        return (paths, tests)
+
     def find_tests_by_path(self, paths, device_type=None, with_expectations=False):
         """Return the list of tests found. Both generic and platform-specific tests matching paths should be returned."""
         finder = LayoutTestFinder_New(

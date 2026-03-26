@@ -48,7 +48,7 @@ class MouseEventTestHarness {
 public:
     MouseEventTestHarness(TestWKWebView *);
 
-    MouseEventTestHarness() = delete;
+    ~MouseEventTestHarness();
 
     void mouseMove(CGFloat x, CGFloat y);
 

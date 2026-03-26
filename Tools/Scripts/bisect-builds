@@ -88,17 +88,17 @@ class QueueDescriptor(object):
             architectures_and_configuration = descriptor_string[platform_name_end_index + 1:]
         architectures_end_index = architectures_and_configuration.find('-')
         if architectures_end_index == -1:
-            self.architectures = set(architectures_and_configuration.split(' '))
+            self.architectures = set(architectures_and_configuration.split('-'))
             return
         configuration_start_index = architectures_end_index + 1
-        self.architectures = set(architectures_and_configuration[:architectures_end_index].split(' '))
+        self.architectures = set(architectures_and_configuration[:architectures_end_index].split('-'))
         self.configuration = architectures_and_configuration[configuration_start_index:]
 
     def pretty_string(self):
         result = self.platform_name
         if self.version:
             result += '-' + self.version
-        result += ' (' + ' '.join(self.architectures)
+        result += ' (' + '/'.join(self.architectures)
         result += ', ' + self.configuration + ')'
         return result
 

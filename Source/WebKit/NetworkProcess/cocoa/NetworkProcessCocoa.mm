@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,6 +27,7 @@
 #import "NetworkProcess.h"
 
 #import "ArgumentCodersCocoa.h"
+#import "CodeSigning.h"
 #import "CookieStorageUtilsCF.h"
 #import "Logging.h"
 #import "NetworkCache.h"
@@ -48,7 +49,10 @@
 #import <wtf/ProcessPrivilege.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/RuntimeApplicationChecks.h>
+#import <wtf/cocoa/AuditToken.h>
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
+#import <wtf/darwin/DispatchExtras.h>
+#import <wtf/spi/darwin/SandboxSPI.h>
 
 #if ENABLE(CONTENT_FILTERING)
 #import <pal/spi/cocoa/NEFilterSourceSPI.h>
@@ -58,6 +62,8 @@
 #import "ExtensionKitSPI.h"
 #import "WKProcessExtension.h"
 #endif
+
+#import <pal/spi/cocoa/NetworkSPI.h>
 
 namespace WebKit {
 
@@ -116,6 +122,41 @@ void NetworkProcess::platformInitializeNetworkProcessCocoa(const NetworkProcessC
         [NEFilterSource setDelegation:&auditToken.value()];
 #endif
     m_enableModernDownloadProgress = parameters.enableModernDownloadProgress;
+
+#if ENABLE(DNS_SERVER_FOR_TESTING_IN_NETWORKING_PROCESS)
+    // See TestController::cocoaPlatformInitialize for supporting a local DNS resolver when !ENABLE(TEST_DNS_SERVER_IN_NETWORKING_PROCESS).
+    auto webPlatformTestDomain = "web-platform.test"_s;
+    if (parameters.localhostAliasesForTesting.contains(webPlatformTestDomain)) {
+        m_resolverConfig = adoptOSObject(nw_resolver_config_create());
+        if (auto resolverConfig = m_resolverConfig) {
+            nw_resolver_config_set_protocol(resolverConfig.get(), nw_resolver_protocol_dns53);
+            nw_resolver_config_set_class(resolverConfig.get(), nw_resolver_class_designated_direct);
+            nw_resolver_config_add_name_server(resolverConfig.get(), "127.0.0.1:8053");
+            nw_resolver_config_add_match_domain(resolverConfig.get(), webPlatformTestDomain.characters());
+            nw_privacy_context_require_encrypted_name_resolution(NW_DEFAULT_PRIVACY_CONTEXT, true, m_resolverConfig.get());
+        }
+    }
+#endif // ENABLE(DNS_SERVER_FOR_TESTING_IN_NETWORKING_PROCESS)
+
+#if ENABLE(INHERITANCE_OF_NETWORK_ACCESS_FROM_UI_PROCESS)
+    if (auto auditToken = protectedParentProcessConnection()->getAuditToken()) {
+        bool isNetworkAccessBlockedInUIProcess = (1 == sandbox_check_by_audit_token(*auditToken, "network-outbound", SANDBOX_FILTER_PATH, "/private/var/run/mDNSResponder"));
+
+        auto xpcConnection = protectedParentProcessConnection()->xpcConnection();
+        auto [signingIdentifier, isPlatformBinary] = codeSigningIdentifierAndPlatformBinaryStatus(xpcConnection);
+        if (!isPlatformBinary && isNetworkAccessBlockedInUIProcess) {
+            RELEASE_LOG(Process, "Setting sandbox state flag to block network access");
+            if (auto auditTokenForSelf = WTF::auditTokenForSelf()) {
+                if (!sandbox_enable_state_flag("BlockNetworkAccess", *auditTokenForSelf))
+                    RELEASE_LOG_ERROR(Process, "Unable to set sandbox state flag to block network access");
+            } else
+                RELEASE_LOG_FAULT(Process, "Unable to get audit token to block network access");
+        }
+    } else
+        RELEASE_LOG_FAULT(Process, "Unable to get audit token for UI process to block network access");
+#endif
+
+    increaseFileDescriptorLimit();
 }
 
 RetainPtr<CFDataRef> NetworkProcess::sourceApplicationAuditData() const
@@ -172,8 +213,8 @@ void NetworkProcess::clearDiskCache(WallTime modifiedSince, CompletionHandler<vo
         m_clearCacheDispatchGroup = adoptOSObject(dispatch_group_create());
 
     RetainPtr group = m_clearCacheDispatchGroup.get();
-    dispatch_group_async(group.get(), RetainPtr { dispatch_get_main_queue() }.get(), makeBlockPtr([this, protectedThis = Ref { *this }, modifiedSince, completionHandler = WTFMove(completionHandler)] () mutable {
-        auto aggregator = CallbackAggregator::create(WTFMove(completionHandler));
+    dispatch_group_async(group.get(), mainDispatchQueueSingleton(), makeBlockPtr([this, protectedThis = Ref { *this }, modifiedSince, completionHandler = WTF::move(completionHandler)] () mutable {
+        auto aggregator = CallbackAggregator::create(WTF::move(completionHandler));
         forEachNetworkSession([modifiedSince, &aggregator](NetworkSession& session) {
             if (RefPtr cache = session.cache())
                 cache->clear(modifiedSince, [aggregator] () { });
@@ -191,16 +232,16 @@ void NetworkProcess::setSharedHTTPCookieStorage(const Vector<uint8_t>& identifie
 
 void NetworkProcess::flushCookies(PAL::SessionID sessionID, CompletionHandler<void()>&& completionHandler)
 {
-    platformFlushCookies(sessionID, WTFMove(completionHandler));
+    platformFlushCookies(sessionID, WTF::move(completionHandler));
 }
 
 void saveCookies(NSHTTPCookieStorage *cookieStorage, CompletionHandler<void()>&& completionHandler)
 {
     ASSERT(RunLoop::isMain());
     ASSERT(cookieStorage);
-    [cookieStorage _saveCookies:makeBlockPtr([completionHandler = WTFMove(completionHandler)]() mutable {
+    [cookieStorage _saveCookies:makeBlockPtr([completionHandler = WTF::move(completionHandler)]() mutable {
         // CFNetwork may call the completion block on a background queue, so we need to redispatch to the main thread.
-        RunLoop::mainSingleton().dispatch(WTFMove(completionHandler));
+        RunLoop::mainSingleton().dispatch(WTF::move(completionHandler));
     }).get()];
 }
 
@@ -212,7 +253,7 @@ void NetworkProcess::platformFlushCookies(PAL::SessionID sessionID, CompletionHa
         return completionHandler();
 
     RetainPtr cookieStorage = networkStorageSession->nsCookieStorage();
-    saveCookies(cookieStorage.get(), WTFMove(completionHandler));
+    saveCookies(cookieStorage.get(), WTF::move(completionHandler));
 }
 
 const String& NetworkProcess::uiProcessBundleIdentifier() const
@@ -226,7 +267,7 @@ const String& NetworkProcess::uiProcessBundleIdentifier() const
 #if PLATFORM(IOS_FAMILY)
 void NetworkProcess::setBackupExclusionPeriodForTesting(PAL::SessionID sessionID, Seconds period, CompletionHandler<void()>&& completionHandler)
 {
-    auto callbackAggregator = CallbackAggregator::create(WTFMove(completionHandler));
+    auto callbackAggregator = CallbackAggregator::create(WTF::move(completionHandler));
     if (CheckedPtr session = networkSession(sessionID))
         session->storageManager().setBackupExclusionPeriodForTesting(period, [callbackAggregator] { });
 }
@@ -248,7 +289,7 @@ void NetworkProcess::setProxyConfigData(PAL::SessionID sessionID, Vector<std::pa
     if (!session)
         return;
 
-    session->setProxyConfigData(WTFMove(proxyConfigurations));
+    session->setProxyConfigData(WTF::move(proxyConfigurations));
 }
 #endif // HAVE(NW_PROXY_CONFIG)
 

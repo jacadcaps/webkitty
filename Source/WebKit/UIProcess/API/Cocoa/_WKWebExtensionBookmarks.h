@@ -74,6 +74,13 @@ WK_SWIFT_UI_ACTOR
  */
 - (NSInteger)indexForWebExtensionContext:(WKWebExtensionContext * _Nonnull)context NS_SWIFT_NAME(index(for:));
 
+/*!
+ @abstract Called when the date the bookmark was added is needed.
+ @param context The context in which the web extension is running.
+ @return The date the bookmark was added. Should be `nil` for folders or separators.
+ */
+- (nullable NSDate *)dateAddedForWebExtensionContext:(WKWebExtensionContext * _Nonnull)context NS_SWIFT_NAME(dateAdded(for:));
+
 @end
 
 WK_HEADER_AUDIT_END(nullability, sendability)

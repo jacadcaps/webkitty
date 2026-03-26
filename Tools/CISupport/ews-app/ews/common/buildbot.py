@@ -46,6 +46,7 @@ class Buildbot():
         'ios-wk2': 'ios-sim',
         'ios-wk2-wpt': 'ios-sim',
         'api-mac': 'mac',
+        'api-mac-debug': 'mac',
         'mac-wk1': 'mac',
         'mac-wk2': 'mac',
         'mac-intel-wk2': 'mac',

@@ -23,8 +23,8 @@
 
 #if ENABLE(MEDIA_STREAM)
 
-// rdar://140690546 - Can currently be dispatchedFrom UI & GPU
 [
+    DispatchedFrom=GPU,
     DispatchedTo=WebContent
 ]
 messages -> UserMediaCaptureManager {

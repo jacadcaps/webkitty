@@ -87,7 +87,7 @@ OPENSSL_EXPORT const EC_POINT *EC_KEY_get0_public_key(const EC_KEY *key);
 // EC_KEY_set_public_key sets the public key of |key| to |pub|, by copying it.
 // It returns one on success and zero otherwise. |key| must already have had a
 // group configured (see |EC_KEY_set_group| and |EC_KEY_new_by_curve_name|), and
-// |pub| must also belong to that group.
+// |pub| must also belong to that group, and must not be the point at infinity.
 OPENSSL_EXPORT int EC_KEY_set_public_key(EC_KEY *key, const EC_POINT *pub);
 
 #define EC_PKEY_NO_PARAMETERS 0x001
@@ -130,12 +130,12 @@ OPENSSL_EXPORT int EC_KEY_set_public_key_affine_coordinates(EC_KEY *key,
 // EC_KEY_oct2key decodes |len| bytes from |in| as an EC public key in X9.62
 // form. |key| must already have a group configured. On success, it sets the
 // public key in |key| to the result and returns one. Otherwise, it returns
-// zero.
+// zero. |ctx| may be NULL.
 OPENSSL_EXPORT int EC_KEY_oct2key(EC_KEY *key, const uint8_t *in, size_t len,
                                   BN_CTX *ctx);
 
 // EC_KEY_key2buf behaves like |EC_POINT_point2buf|, except it encodes the
-// public key in |key|.
+// public key in |key|. |ctx| is ignored and may be NULL.
 OPENSSL_EXPORT size_t EC_KEY_key2buf(const EC_KEY *key,
                                      point_conversion_form_t form,
                                      uint8_t **out_buf, BN_CTX *ctx);

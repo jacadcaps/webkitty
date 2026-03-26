@@ -32,6 +32,7 @@
 #include <fcntl.h>
 #include <wtf/glib/GRefPtr.h>
 #include <wtf/glib/WTFGType.h>
+#include <xf86drm.h>
 
 /**
  * WPEScreenDRM:
@@ -41,6 +42,10 @@ struct _WPEScreenDRMPrivate {
     std::unique_ptr<WPE::DRM::Crtc> crtc;
     drmModeModeInfo mode;
     GRefPtr<WPEScreenSyncObserver> syncObserver;
+    struct {
+        uint32_t bufferID;
+        uint32_t frameBufferID;
+    } dumb;
 };
 WEBKIT_DEFINE_FINAL_TYPE(WPEScreenDRM, wpe_screen_drm, WPE_TYPE_SCREEN, WPEScreen)
 
@@ -60,7 +65,7 @@ static WPEScreenSyncObserver* wpeScreenDRMGetSyncObserver(WPEScreen* screen)
         if (auto* device = wpeDisplayDRMGetDisplayDevice(WPE_DISPLAY_DRM(wpe_display_get_primary()))) {
             const char* filename = wpe_drm_device_get_primary_node(device);
             if (auto fd = UnixFileDescriptor(open(filename, O_RDWR | O_CLOEXEC), UnixFileDescriptor::Adopt)) {
-                priv->syncObserver = adoptGRef(wpeScreenSyncObserverDRMCreate(WTFMove(fd), priv->crtc->index()));
+                priv->syncObserver = adoptGRef(wpeScreenSyncObserverDRMCreate(WTF::move(fd), priv->crtc->index()));
                 if (priv->syncObserver)
                     g_debug("WPEScreenDRM: Created WPEScreenSyncObserverDRM for device %s with CRTC index %u", filename, priv->crtc->index());
                 else
@@ -92,7 +97,7 @@ WPEScreen* wpeScreenDRMCreate(std::unique_ptr<WPE::DRM::Crtc>&& crtc, const WPE:
 {
     auto* screen = WPE_SCREEN(g_object_new(WPE_TYPE_SCREEN_DRM, "id", crtc->id(), nullptr));
     auto* priv = WPE_SCREEN_DRM(screen)->priv;
-    priv->crtc = WTFMove(crtc);
+    priv->crtc = WTF::move(crtc);
 
     wpe_screen_set_physical_size(screen, connector.widthMM(), connector.heightMM());
 
@@ -135,7 +140,7 @@ drmModeModeInfo* wpeScreenDRMGetMode(WPEScreenDRM* screen)
     return &screen->priv->mode;
 }
 
-const WPE::DRM::Crtc wpeScreenDRMGetCrtc(WPEScreenDRM* screen)
+WPE::DRM::Crtc& wpeScreenDRMGetCrtc(WPEScreenDRM* screen)
 {
     return *screen->priv->crtc;
 }
@@ -180,4 +185,54 @@ double wpeScreenDRMGuessScale(WPEScreenDRM* screen)
         return 1.0;
 
     return 2.0;
+}
+
+void wpeScreenDRMCreateDumbBufferIfNeeded(WPEScreenDRM* screen, int fd, uint32_t connectorID)
+{
+    auto* priv = screen->priv;
+    if (priv->crtc->bufferID())
+        return;
+
+    // We need to ensure the CRTC has a buffer for the vblank monitor to work.
+    constexpr uint32_t bitsPerPixel = 32;
+    constexpr uint8_t depth = 24;
+    uint32_t handle, pitch;
+    uint64_t size;
+    auto ret = drmModeCreateDumbBuffer(fd, priv->mode.hdisplay, priv->mode.vdisplay, bitsPerPixel, 0, &handle, &pitch, &size);
+    if (ret) {
+        drmError(ret, "drmModeCreateDumbBuffer");
+        return;
+    }
+
+    uint32_t frameBufferID;
+    ret = drmModeAddFB(fd, priv->mode.hdisplay, priv->mode.vdisplay, depth, bitsPerPixel, pitch, handle, &frameBufferID);
+    if (ret) {
+        drmError(ret, "drmModeAddFB");
+        drmModeDestroyDumbBuffer(fd, handle);
+    }
+
+    ret = drmModeSetCrtc(fd, priv->crtc->id(), frameBufferID, 0, 0, &connectorID, 1, &priv->mode);
+    if (ret) {
+        drmError(ret, "drmModeSetCrtc");
+        drmModeRmFB(fd, frameBufferID);
+        drmModeDestroyDumbBuffer(fd, handle);
+        return;
+    }
+
+    priv->crtc->setCurrentMode(&priv->mode);
+
+    priv->dumb.bufferID = handle;
+    priv->dumb.frameBufferID = frameBufferID;
+}
+
+void wpeScreenDRMDestroyDumbBufferIfNeeded(WPEScreenDRM* screen, int fd)
+{
+    auto* priv = screen->priv;
+    if (!priv->dumb.bufferID)
+        return;
+
+    drmModeRmFB(fd, priv->dumb.frameBufferID);
+    drmModeDestroyDumbBuffer(fd, priv->dumb.bufferID);
+    priv->dumb.bufferID = 0;
+    priv->dumb.frameBufferID = 0;
 }

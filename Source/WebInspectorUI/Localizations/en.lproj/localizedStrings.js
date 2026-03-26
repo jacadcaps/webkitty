@@ -470,8 +470,8 @@ localizedStrings["Convert to sRGB"] = "Convert to sRGB";
 localizedStrings["Cookies"] = "Cookies";
 localizedStrings["Copy"] = "Copy";
 localizedStrings["Copy Action"] = "Copy Action";
-localizedStrings["Copy HTTP Request"] = "Copy HTTP Request";
-localizedStrings["Copy HTTP Response"] = "Copy HTTP Response";
+localizedStrings["Copy HTTP Request Headers"] = "Copy HTTP Request Headers";
+localizedStrings["Copy HTTP Response Headers"] = "Copy HTTP Response Headers";
 localizedStrings["Copy Link"] = "Copy Link";
 localizedStrings["Copy Path to Property"] = "Copy Path to Property";
 localizedStrings["Copy Row"] = "Copy Row";
@@ -794,6 +794,7 @@ localizedStrings["Filter Full URL"] = "Filter Full URL";
 localizedStrings["Filter:"] = "Filter:";
 localizedStrings["Find Next (%s)"] = "Find Next (%s)";
 localizedStrings["Find Previous (%s)"] = "Find Previous (%s)";
+localizedStrings["First Contentful Paint"] = "First Contentful Paint";
 /* Flexbox layout section name */
 localizedStrings["Flexbox @ Elements details sidebar"] = "Flexbox";
 localizedStrings["Flows"] = "Flows";
@@ -827,6 +828,7 @@ localizedStrings["Format: Short Hex with Alpha"] = "Format: Short Hex with Alpha
 localizedStrings["Forward (%s)"] = "Forward (%s)";
 localizedStrings["Fragment"] = "Fragment";
 localizedStrings["Fragment Shader"] = "Fragment Shader";
+localizedStrings["Frame"] = "Frame";
 localizedStrings["Frame %d"] = "Frame %d";
 localizedStrings["Frame %d \u2014 %s"] = "Frame %d \u2014 %s";
 localizedStrings["Frames"] = "Frames";
@@ -879,6 +881,7 @@ localizedStrings["HAR Export (%s)"] = "HAR Export (%s)";
 localizedStrings["HAR Import"] = "HAR Import";
 localizedStrings["HAR Import Error: %s"] = "HAR Import Error: %s";
 localizedStrings["HTML"] = "HTML";
+localizedStrings["HTML (Formatted)"] = "HTML (Formatted)";
 localizedStrings["HTML Attributes"] = "HTML Attributes";
 /* Placeholder text in an editable field for the name of a HTTP header */
 localizedStrings["Header @ Local Override Popover New Headers Data Grid Item"] = "Header";
@@ -988,10 +991,12 @@ localizedStrings["Key Path"] = "Key Path";
 /* Label indicating that network activity is being simulated with LTE connectivity */
 localizedStrings["LTE"] = "LTE";
 localizedStrings["Label"] = "Label";
+localizedStrings["Largest Contentful Paint"] = "Largest Contentful Paint";
 localizedStrings["Latency"] = "Latency";
 localizedStrings["Layer Count: %d"] = "Layer Count: %d";
 localizedStrings["Layer Info"] = "Layer Info";
 localizedStrings["Layers"] = "Layers";
+localizedStrings["Layers:"] = "Layers:";
 /* Name of Layers Tab */
 localizedStrings["Layers Tab Name"] = "Layers";
 localizedStrings["Layout & Rendering"] = "Layout & Rendering";
@@ -1229,7 +1234,7 @@ localizedStrings["Option-click to show source"] = "Option-click to show source";
 /* Tooltip with instructions on how to show all hidden CSS variables */
 localizedStrings["Option-click to show unused CSS variables from all rules @ Styles Sidebar Panel Tooltip"] = "Option-click to show unused CSS variables from all rules";
 localizedStrings["Options"] = "Options";
-/* Label for option to toggle the order numbers setting for CSS flex overlays */
+/* Label for option to toggle the order numbers setting for CSS grid and flex overlays */
 localizedStrings["Order Numbers @ Layout Panel Overlay Options"] = "Order Numbers";
 /* Property value for `font-variant-numeric: ordinal`. */
 localizedStrings["Ordinal Letter Forms @ Font Details Sidebar Property Value"] = "Ordinal Letter Forms";
@@ -1335,6 +1340,8 @@ localizedStrings["Property"] = "Property";
 localizedStrings["Proportional Numerals @ Font Details Sidebar Property Value"] = "Proportional Numerals";
 /* Property value for `font-variant-alternates: proportional-width`. */
 localizedStrings["Proportional-Width Variants @ Font Details Sidebar Property Value"] = "Proportional-Width Variants";
+/* Title for Protected row in Media Sidebar */
+localizedStrings["Protected @ Media Sidebar"] = "Protected";
 localizedStrings["Protocol"] = "Protocol";
 /* Label for button that shows controls for toggling CSS pseudo-classes on the selected element. */
 localizedStrings["Pseudo @ Styles details sidebar panel"] = "Pseudo";
@@ -1516,6 +1523,7 @@ localizedStrings["Search Resource Content"] = "Search Resource Content";
 localizedStrings["Search Tab Name"] = "Search";
 /* Title of Search Tab with keyboard shortcut */
 localizedStrings["Search Tab Title"] = "Search (%s)";
+localizedStrings["Search:"] = "Search:";
 /* Settings tab label for search related settings */
 localizedStrings["Search: @ Settings"] = "Search:";
 localizedStrings["Searching %s"] = "Searching %s";
@@ -1571,7 +1579,7 @@ localizedStrings["Show All"] = "Show All";
 localizedStrings["Show All (%d More)"] = "Show All (%d More)";
 localizedStrings["Show All Nodes (%d More)"] = "Show All Nodes (%d More)";
 localizedStrings["Show Console"] = "Show Console";
-localizedStrings["Show Console tab"] = "Show Console tab";
+localizedStrings["Show Console Tab"] = "Show Console Tab";
 localizedStrings["Show Elements"] = "Show Elements";
 localizedStrings["Show Path"] = "Show Path";
 localizedStrings["Show Remaining (%d)"] = "Show Remaining (%d)";
@@ -1590,6 +1598,7 @@ localizedStrings["Show hidden tabs\u2026"] = "Show hidden tabs\u2026";
 localizedStrings["Show independent Styles sidebar @ Settings Elements Pane"] = "Show independent Styles sidebar";
 localizedStrings["Show jump to effective property button"] = "Show jump to effective property button";
 localizedStrings["Show jump to variable declaration button"] = "Show jump to variable declaration button";
+localizedStrings["Show layer contents"] = "Show layer contents";
 /* Settings tab checkbox label for whether the details sidebars (on the right in LTR locales) are at the bottom */
 localizedStrings["Show on bottom when narrow @ Settings General Pane"] = "Show on bottom when narrow";
 localizedStrings["Show page rulers and node border lines"] = "Show page rulers and node border lines";
@@ -1597,6 +1606,8 @@ localizedStrings["Show property syntax in documentation popover"] = "Show proper
 localizedStrings["Show rulers"] = "Show rulers";
 localizedStrings["Show the details sidebar (%s)"] = "Show the details sidebar (%s)";
 localizedStrings["Show the navigation sidebar (%s)"] = "Show the navigation sidebar (%s)";
+/* Settings tab checkbox label for whether the User Agent styles should be shown */
+localizedStrings["Show user agent styles"] = "Show user agent styles";
 /* Settings tab checkbox label for whether the transparency grid is shown by default */
 localizedStrings["Show transparency grid (settings label)"] = "Show transparency grid";
 /* Tooltip for showing the checkered transparency grid under images and canvases */
@@ -1789,7 +1800,9 @@ localizedStrings["This is what the result of a warning test with no data looks l
 localizedStrings["This is what the result of an unsupported test with no data looks like."] = "This is what the result of an unsupported test with no data looks like.";
 localizedStrings["This means all of the Console Command Line API is available <https://webkit.org/web-inspector/console-command-line-api/>."] = "This means all of the Console Command Line API is available <https://webkit.org/web-inspector/console-command-line-api/>.";
 localizedStrings["This object is a root"] = "This object is a root";
+localizedStrings["This object is dominated by the object above"] = "This object is dominated by the object above";
 localizedStrings["This object is referenced by internal objects"] = "This object is referenced by internal objects";
+localizedStrings["This object is the highest dominator"] = "This object is the highest dominator";
 localizedStrings["This resource came from a local override"] = "This resource came from a local override";
 localizedStrings["This resource was blocked by a local override"] = "This resource was blocked by a local override";
 localizedStrings["This resource was loaded from a local override"] = "This resource was loaded from a local override";
@@ -1881,6 +1894,7 @@ localizedStrings["Use case sensitive autocomplete"] = "Use case sensitive autoco
 localizedStrings["Use default media styles"] = "Use default media styles";
 localizedStrings["Use fuzzy matching for CSS code completion"] = "Use fuzzy matching for CSS code completion";
 localizedStrings["Use mock capture devices"] = "Use mock capture devices";
+localizedStrings["Use strict word boundary checks for glob pattern matching"] = "Use strict word boundary checks for glob pattern matching";
 localizedStrings["User Agent"] = "User Agent";
 localizedStrings["User Agent Style Sheet"] = "User Agent Style Sheet";
 localizedStrings["User Style Sheet"] = "User Style Sheet";

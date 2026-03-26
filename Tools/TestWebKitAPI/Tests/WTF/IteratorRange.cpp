@@ -31,62 +31,6 @@
 
 namespace TestWebKitAPI {
 
-TEST(WTF_IteratorRange, MakeReversedRange)
-{
-    Vector<int> intVector { 10, 11, 12, 13 };
-
-    auto reversedRange = WTF::makeReversedRange(intVector);
-
-    static_assert(std::is_same<decltype(reversedRange.begin()), typename Vector<int>::reverse_iterator>::value, "IteratorRange has correct begin() iterator type");
-    static_assert(std::is_same<decltype(reversedRange.end()), typename Vector<int>::reverse_iterator>::value, "IteratorRange has correct end() iterator type");
-
-    EXPECT_EQ(reversedRange.begin(), intVector.rbegin());
-    EXPECT_EQ(reversedRange.end(), intVector.rend());
-
-    std::array<int, 4> expectedResults { { 13, 12, 11, 10 } };
-    size_t index = 0;
-
-    for (auto& value : reversedRange)
-        EXPECT_EQ(value, expectedResults[index++]);
-}
-
-TEST(WTF_IteratorRange, MakeConstReversedRange)
-{
-    const Vector<int> intVector { 10, 11, 12, 13 };
-
-    auto reversedRange = WTF::makeReversedRange(intVector);
-
-    static_assert(std::is_same<decltype(reversedRange.begin()), typename Vector<int>::const_reverse_iterator>::value, "IteratorRange has correct begin() iterator type");
-    static_assert(std::is_same<decltype(reversedRange.end()), typename Vector<int>::const_reverse_iterator>::value, "IteratorRange has correct end() iterator type");
-
-    EXPECT_EQ(reversedRange.begin(), intVector.rbegin());
-    EXPECT_EQ(reversedRange.end(), intVector.rend());
-
-    std::array<int, 4> expectedResults { { 13, 12, 11, 10 } };
-    size_t index = 0;
-
-    for (auto& value : reversedRange)
-        EXPECT_EQ(value, expectedResults[index++]);
-}
-
-TEST(WTF_IteratorRange, MakeReversedRangeFromRange)
-{
-    Vector<int> intVector { 10, 11, 12, 13 };
-
-    auto range = IteratorRange { intVector.begin(), intVector.end() };
-
-    auto reversedRange = makeReversedRange(range);
-
-    EXPECT_EQ(reversedRange.begin(), intVector.rbegin());
-    EXPECT_EQ(reversedRange.end(), intVector.rend());
-
-    std::array<int, 4> expectedResults { { 13, 12, 11, 10 } };
-    size_t index = 0;
-
-    for (auto& value : reversedRange)
-        EXPECT_EQ(value, expectedResults[index++]);
-}
-
 struct OneWayIterator {
     int* ptr;
 

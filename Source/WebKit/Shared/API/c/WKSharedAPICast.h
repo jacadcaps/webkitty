@@ -63,6 +63,7 @@
 
 namespace API {
 class Array;
+class CompletionListener;
 class Dictionary;
 class Data;
 class Point;
@@ -92,6 +93,7 @@ template<typename ImplType> struct ImplTypeInfo;
 
 WK_ADD_API_MAPPING(WKArrayRef, API::Array)
 WK_ADD_API_MAPPING(WKBooleanRef, API::Boolean)
+WK_ADD_API_MAPPING(WKCompletionListenerRef, API::CompletionListener);
 WK_ADD_API_MAPPING(WKContextMenuItemRef, WebContextMenuItem)
 WK_ADD_API_MAPPING(WKDataRef, API::Data)
 WK_ADD_API_MAPPING(WKDictionaryRef, API::Dictionary)
@@ -170,7 +172,7 @@ public:
     }
 
     ProxyingRefPtr(Ref<ImplType>&& impl)
-        : m_impl(WTFMove(impl))
+        : m_impl(WTF::move(impl))
     {
     }
 
@@ -263,6 +265,11 @@ inline WebCore::IntSize toIntSize(const WKSize& wkSize)
 inline WebCore::IntPoint toIntPoint(const WKPoint& wkPoint)
 {
     return WebCore::IntPoint(static_cast<int>(wkPoint.x), static_cast<int>(wkPoint.y));
+}
+
+inline WebCore::DoublePoint toDoublePoint(const WKPoint& wkPoint)
+{
+    return WebCore::DoublePoint(wkPoint.x, wkPoint.y);
 }
 
 inline WebCore::IntRect toIntRect(const WKRect& wkRect)
@@ -363,6 +370,12 @@ inline WKEventMouseButton toAPI(WebMouseEventButton mouseButton)
     case WebMouseEventButton::Right:
         wkMouseButton = kWKEventMouseButtonRightButton;
         break;
+    case WebMouseEventButton::Back:
+        wkMouseButton = kWKEventMouseButtonBackButton;
+        break;
+    case WebMouseEventButton::Forward:
+        wkMouseButton = kWKEventMouseButtonForwardButton;
+        break;
     }
 
     return wkMouseButton;
@@ -384,6 +397,12 @@ inline WKEventMouseButton toAPI(WebCore::MouseButton mouseButton)
         break;
     case WebCore::MouseButton::Right:
         wkMouseButton = kWKEventMouseButtonRightButton;
+        break;
+    case WebCore::MouseButton::Back:
+        wkMouseButton = kWKEventMouseButtonBackButton;
+        break;
+    case WebCore::MouseButton::Forward:
+        wkMouseButton = kWKEventMouseButtonForwardButton;
         break;
     default:
         break;

@@ -10,6 +10,7 @@
 #include "include/core/SkMatrix.h"
 #include "include/core/SkPaint.h"
 #include "include/core/SkPath.h"
+#include "include/core/SkPathBuilder.h"
 #include "include/core/SkPathEffect.h"
 #include "include/core/SkPathUtils.h"
 #include "include/core/SkPoint.h"
@@ -78,10 +79,8 @@ DEF_TEST(DashPathEffectTest_asPoints, r) {
         for (int j = 0; j < (int)std::size(testCases); ++j) {
             for (int k = 0; k < 2; ++k) {  // exercise alternating endpoints
                 SkPathEffectBase::PointData results;
-                SkPath src;
-
-                src.moveTo(testCases[j].fPts[k]);
-                src.lineTo(testCases[j].fPts[(k+1)%2]);
+                SkPath src = SkPath::Line(testCases[j].fPts[k],
+                                          testCases[j].fPts[(k+1)%2]);
 
                 bool actualResult = as_PEB(dash)->asPoints(&results, src, rec, mats[i], &cull);
                 if (i < 2) {
@@ -96,10 +95,11 @@ DEF_TEST(DashPathEffectTest_asPoints, r) {
 }
 
 DEF_TEST(DashPath_bug4871, r) {
-    SkPath path;
-    path.moveTo(30, 24);
-    path.cubicTo(30.002f, 24, 30, 24, 30, 24);
-    path.close();
+    SkPath path = SkPathBuilder()
+                  .moveTo(30, 24)
+                  .cubicTo(30.002f, 24, 30, 24, 30, 24)
+                  .close()
+                  .detach();
 
     SkScalar intervals[2] = { 1, 1 };
     sk_sp<SkPathEffect> dash(SkDashPathEffect::Make(intervals, 0));
@@ -108,8 +108,7 @@ DEF_TEST(DashPath_bug4871, r) {
     paint.setStyle(SkPaint::kStroke_Style);
     paint.setPathEffect(dash);
 
-    SkPath fill;
-    skpathutils::FillPathWithPaint(path, paint, &fill);
+    (void)skpathutils::FillPathWithPaint(path, paint);
 }
 
 // Verify that long lines with many dashes don't cause overflows/OOMs.
@@ -132,13 +131,12 @@ DEF_TEST(DashCrazy_crbug_875494, r) {
     SkScalar vals[] = { 98, 94, 2888458849.f, 227, 0, 197 };
 
     SkRect cull = SkRect::MakeXYWH(43,236,57,149);
-    SkPath path;
-    path.addRect(cull);
+    SkPath path = SkPath::Rect(cull);
 
-    SkPath path2;
+    SkPathBuilder builder;
     SkPaint paint;
     paint.setStyle(SkPaint::kStroke_Style);
     paint.setPathEffect(SkDashPathEffect::Make(vals, 222));
-    skpathutils::FillPathWithPaint(path, paint, &path2, &cull);
+    skpathutils::FillPathWithPaint(path, paint, &builder, &cull, SkMatrix::I());
 }
 

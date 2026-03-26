@@ -31,7 +31,6 @@
 #include "PDFPageCoverage.h"
 #include "PDFPluginBase.h"
 #include <WebCore/ContextMenuItem.h>
-#include <WebCore/GraphicsLayer.h>
 #include <WebCore/GraphicsLayerClient.h>
 #include <WebCore/NodeIdentifier.h>
 #include <WebCore/Page.h>
@@ -52,6 +51,8 @@ class TextStream;
 
 namespace WebCore {
 class FrameView;
+class GraphicsLayer;
+class GraphicsLayerFactory;
 class LocalFrameView;
 class PageOverlay;
 class PlatformWheelEvent;
@@ -59,6 +60,7 @@ class ShadowRoot;
 class AXCoreObject;
 
 enum class DelegatedScrollingMode : uint8_t;
+enum class GraphicsLayerType : uint8_t;
 
 struct DataDetectorElementInfo;
 }
@@ -80,7 +82,7 @@ struct DocumentEditingContext;
 struct PDFContextMenu;
 struct PDFContextMenuItem;
 
-enum class WebEventType : uint8_t;
+enum class WebEventType : uint32_t;
 enum class WebMouseEventButton : int8_t;
 enum class WebEventModifier : uint8_t;
 
@@ -256,6 +258,7 @@ private:
     void didInvalidateDataDetectorHighlightOverlayRects();
 
     PDFDataDetectorOverlayController& dataDetectorOverlayController() { return *m_dataDetectorOverlayController; }
+    Ref<PDFDataDetectorOverlayController> protectedDataDetectorOverlayController();
 #endif
 
     const PDFDocumentLayout& documentLayout() const { return m_documentLayout; }
@@ -375,7 +378,7 @@ private:
     String titleForContextMenuItemTag(ContextMenuItemTag) const;
     bool isDisplayModeContextMenuItemTag(ContextMenuItemTag) const;
     PDFContextMenuItem separatorContextMenuItem() const;
-    Vector<PDFContextMenuItem> selectionContextMenuItems(const WebCore::IntPoint& contextMenuEventRootViewPoint) const;
+    Vector<PDFContextMenuItem> selectionContextMenuItems(const WebCore::IntPoint& contextMenuEventRootViewPoint, bool shouldPresentLookupAndSearchOptions) const;
     Vector<PDFContextMenuItem> displayModeContextMenuItems() const;
     Vector<PDFContextMenuItem> scaleContextMenuItems() const;
     Vector<PDFContextMenuItem> navigationContextMenuItemsForPageAtIndex(PDFDocumentLayout::PageIndex) const;
@@ -473,9 +476,9 @@ private:
 
     // GraphicsLayerClient
     void notifyFlushRequired(const WebCore::GraphicsLayer*) override;
-    void paintContents(const WebCore::GraphicsLayer*, WebCore::GraphicsContext&, const WebCore::FloatRect&, OptionSet<WebCore::GraphicsLayerPaintBehavior>) override;
+    void paintContents(const WebCore::GraphicsLayer&, WebCore::GraphicsContext&, const WebCore::FloatRect&, OptionSet<WebCore::GraphicsLayerPaintBehavior>) override;
     float pageScaleFactor() const override;
-    bool layerNeedsPlatformContext(const WebCore::GraphicsLayer*) const override;
+    bool layerNeedsPlatformContext(const WebCore::GraphicsLayer&) const override;
 
     void paintPDFContent(const WebCore::GraphicsLayer*, WebCore::GraphicsContext&, const WebCore::FloatRect& clipRect, const std::optional<PDFLayoutRow>& = { }, AsyncPDFRenderer* = nullptr);
     void paintPDFSelection(const WebCore::GraphicsLayer*, WebCore::GraphicsContext&, const WebCore::FloatRect& clipRect, std::optional<PDFLayoutRow> = { });
@@ -573,8 +576,8 @@ private:
     void revealAnnotation(PDFAnnotation *);
 
     WebCore::GraphicsLayerFactory* graphicsLayerFactory() const;
-    RefPtr<WebCore::GraphicsLayer> createGraphicsLayer(GraphicsLayerClient&, WebCore::GraphicsLayer::Type);
-    RefPtr<WebCore::GraphicsLayer> createGraphicsLayer(const String& name, WebCore::GraphicsLayer::Type);
+    RefPtr<WebCore::GraphicsLayer> createGraphicsLayer(GraphicsLayerClient&, WebCore::GraphicsLayerType);
+    RefPtr<WebCore::GraphicsLayer> createGraphicsLayer(const String& name, WebCore::GraphicsLayerType);
 
     void setNeedsRepaintForIncrementalLoad();
     void setNeedsRepaintForAnnotation(PDFAnnotation *, RepaintRequirements);
@@ -653,8 +656,8 @@ private:
 
     RefPtr<PDFPresentationController> protectedPresentationController() const;
 
-    RefPtr<WebCore::GraphicsLayer> protectedScrollContainerLayer() const { return m_scrollContainerLayer; }
-    RefPtr<WebCore::GraphicsLayer> protectedOverflowControlsContainer() const { return m_overflowControlsContainer; }
+    RefPtr<WebCore::GraphicsLayer> protectedScrollContainerLayer() const;
+    RefPtr<WebCore::GraphicsLayer> protectedOverflowControlsContainer() const;
 
     RefPtr<PDFPresentationController> m_presentationController;
 
@@ -712,7 +715,7 @@ private:
     PDFPageCoverage m_findMatchRects;
 
 #if ENABLE(UNIFIED_PDF_DATA_DETECTION)
-    std::unique_ptr<PDFDataDetectorOverlayController> m_dataDetectorOverlayController;
+    RefPtr<PDFDataDetectorOverlayController> m_dataDetectorOverlayController;
 #endif
 
 #if PLATFORM(IOS_FAMILY)

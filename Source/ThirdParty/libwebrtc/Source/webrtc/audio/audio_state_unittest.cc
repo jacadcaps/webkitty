@@ -10,18 +10,37 @@
 
 #include "audio/audio_state.h"
 
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
 #include <memory>
 #include <numbers>
 #include <utility>
 #include <vector>
 
+#include "absl/functional/any_invocable.h"
+#include "absl/strings/string_view.h"
+#include "api/audio/audio_frame.h"
+#include "api/audio/audio_frame_processor.h"
+#include "api/audio/audio_mixer.h"
+#include "api/location.h"
+#include "api/make_ref_counted.h"
+#include "api/ref_count.h"
+#include "api/scoped_refptr.h"
+#include "api/task_queue/task_queue_base.h"
+#include "api/task_queue/task_queue_factory.h"
 #include "api/task_queue/test/mock_task_queue_base.h"
+#include "call/audio_state.h"
 #include "call/test/mock_audio_receive_stream.h"
 #include "call/test/mock_audio_send_stream.h"
+#include "modules/async_audio_processing/async_audio_processing.h"
 #include "modules/audio_device/include/mock_audio_device.h"
 #include "modules/audio_mixer/audio_mixer_impl.h"
 #include "modules/audio_processing/include/mock_audio_processing.h"
+#include "rtc_base/task_queue_for_test.h"
 #include "rtc_base/thread.h"
+#include "test/gmock.h"
 #include "test/gtest.h"
 
 namespace webrtc {
@@ -32,6 +51,7 @@ using ::testing::_;
 using ::testing::InSequence;
 using ::testing::Matcher;
 using ::testing::NiceMock;
+using ::testing::NotNull;
 using ::testing::StrictMock;
 using ::testing::Values;
 
@@ -132,13 +152,9 @@ struct ConfigHelper {
 
 class FakeAudioSource : public AudioMixer::Source {
  public:
-  // TODO(aleloi): Valid overrides commented out, because the gmock
-  // methods don't use any override declarations, and we want to avoid
-  // warnings from -Winconsistent-missing-override. See
-  // http://crbug.com/428099.
-  int Ssrc() const /*override*/ { return 0; }
+  int Ssrc() const override { return 0; }
 
-  int PreferredSampleRate() const /*override*/ { return kSampleRate; }
+  int PreferredSampleRate() const override { return kSampleRate; }
 
   MOCK_METHOD(AudioFrameInfo,
               GetAudioFrameWithInfo,
@@ -187,6 +203,20 @@ TEST_P(AudioStateTest, ConstructDestruct) {
       make_ref_counted<internal::AudioState>(helper.config()));
 }
 
+TEST_P(AudioStateTest, CreateUseDeleteOnDifferentThread) {
+  ConfigHelper helper(GetParam());
+  scoped_refptr<AudioState> audio_state = AudioState::Create(helper.config());
+  ASSERT_THAT(audio_state, NotNull());
+  TaskQueueForTest queue;
+  queue.SendTask([&] {
+    // Attach to the current TQ.
+    audio_state->SetStereoChannelSwapping(true);
+    // Ensure the object gets deleted on the current thread.
+    EXPECT_EQ(audio_state.release()->Release(),
+              RefCountReleaseStatus::kDroppedLastRef);
+  });
+}
+
 TEST_P(AudioStateTest, RecordedAudioArrivesAtSingleStream) {
   ConfigHelper helper(GetParam());
 
@@ -209,11 +239,11 @@ TEST_P(AudioStateTest, RecordedAudioArrivesAtSingleStream) {
           ::testing::Field(&AudioFrame::num_channels_, ::testing::Eq(2u)))))
       .WillOnce(
           // Verify that channels are not swapped by default.
-          ::testing::Invoke([](AudioFrame* audio_frame) {
+          [](AudioFrame* audio_frame) {
             auto levels = ComputeChannelLevels(audio_frame);
             EXPECT_LT(0u, levels[0]);
             EXPECT_EQ(0u, levels[1]);
-          }));
+          });
   MockAudioProcessing* ap =
       GetParam().use_null_audio_processing
           ? nullptr
@@ -259,10 +289,10 @@ TEST_P(AudioStateTest, RecordedAudioArrivesAtMultipleStreams) {
           ::testing::Field(&AudioFrame::num_channels_, ::testing::Eq(1u)))))
       .WillOnce(
           // Verify that there is output signal.
-          ::testing::Invoke([](AudioFrame* audio_frame) {
+          [](AudioFrame* audio_frame) {
             auto levels = ComputeChannelLevels(audio_frame);
             EXPECT_LT(0u, levels[0]);
-          }));
+          });
   EXPECT_CALL(
       stream_2,
       SendAudioDataForMock(::testing::AllOf(
@@ -270,10 +300,10 @@ TEST_P(AudioStateTest, RecordedAudioArrivesAtMultipleStreams) {
           ::testing::Field(&AudioFrame::num_channels_, ::testing::Eq(1u)))))
       .WillOnce(
           // Verify that there is output signal.
-          ::testing::Invoke([](AudioFrame* audio_frame) {
+          [](AudioFrame* audio_frame) {
             auto levels = ComputeChannelLevels(audio_frame);
             EXPECT_LT(0u, levels[0]);
-          }));
+          });
   MockAudioProcessing* ap =
       static_cast<MockAudioProcessing*>(audio_state->audio_processing());
   if (ap) {
@@ -316,11 +346,11 @@ TEST_P(AudioStateTest, EnableChannelSwap) {
   EXPECT_CALL(stream, SendAudioDataForMock(_))
       .WillOnce(
           // Verify that channels are swapped.
-          ::testing::Invoke([](AudioFrame* audio_frame) {
+          [](AudioFrame* audio_frame) {
             auto levels = ComputeChannelLevels(audio_frame);
             EXPECT_EQ(0u, levels[0]);
             EXPECT_LT(0u, levels[1]);
-          }));
+          });
 
   auto audio_data = Create10msTestData(kSampleRate, kNumChannels);
   uint32_t new_mic_level = 667;
@@ -341,13 +371,12 @@ TEST_P(AudioStateTest,
   helper.mixer()->AddSource(&fake_source);
 
   EXPECT_CALL(fake_source, GetAudioFrameWithInfo(_, _))
-      .WillOnce(
-          ::testing::Invoke([](int sample_rate_hz, AudioFrame* audio_frame) {
-            audio_frame->sample_rate_hz_ = sample_rate_hz;
-            audio_frame->samples_per_channel_ = sample_rate_hz / 100;
-            audio_frame->num_channels_ = kNumberOfChannels;
-            return AudioMixer::Source::AudioFrameInfo::kNormal;
-          }));
+      .WillOnce([](int sample_rate_hz, AudioFrame* audio_frame) {
+        audio_frame->sample_rate_hz_ = sample_rate_hz;
+        audio_frame->samples_per_channel_ = sample_rate_hz / 100;
+        audio_frame->num_channels_ = kNumberOfChannels;
+        return AudioMixer::Source::AudioFrameInfo::kNormal;
+      });
 
   int16_t audio_buffer[kSampleRate / 100 * kNumberOfChannels];
   size_t n_samples_out;

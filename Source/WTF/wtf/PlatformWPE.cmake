@@ -3,13 +3,14 @@ list(APPEND WTF_SOURCES
     android/RefPtrAndroid.cpp
 
     generic/MainThreadGeneric.cpp
-    generic/MemoryFootprintGeneric.cpp
     generic/WorkQueueGeneric.cpp
 
     glib/Application.cpp
     glib/ChassisType.cpp
     glib/FileSystemGlib.cpp
+    glib/GMallocString.cpp
     glib/GRefPtr.cpp
+    glib/GResources.cpp
     glib/GSocketMonitor.cpp
     glib/GSpanExtras.cpp
     glib/RunLoopGLib.cpp
@@ -18,6 +19,7 @@ list(APPEND WTF_SOURCES
     glib/URLGLib.cpp
 
     linux/CurrentProcessMemoryStatus.cpp
+    linux/MemoryFootprintLinux.cpp
     linux/RealTimeThreads.cpp
 
     posix/CPUTimePOSIX.cpp
@@ -38,10 +40,13 @@ list(APPEND WTF_SOURCES
 list(APPEND WTF_PUBLIC_HEADERS
     android/RefPtrAndroid.h
 
+    glib/ActivityObserver.h
     glib/Application.h
     glib/ChassisType.h
+    glib/GMallocString.h
     glib/GMutexLocker.h
     glib/GRefPtr.h
+    glib/GResources.h
     glib/GSocketMonitor.h
     glib/GSpanExtras.h
     glib/GThreadSafeWeakPtr.h
@@ -64,11 +69,13 @@ list(APPEND WTF_PUBLIC_HEADERS
 )
 
 list(APPEND WTF_LIBRARIES
-    ${GLIB_GIO_LIBRARIES}
-    ${GLIB_GOBJECT_LIBRARIES}
-    ${GLIB_LIBRARIES}
+    GLib::Gio
     Threads::Threads
     ZLIB::ZLIB
+)
+
+list(APPEND WTF_PRIVATE_DEFINITIONS
+    PKGDATADIR="${CMAKE_INSTALL_FULL_DATADIR}/wpe-webkit-${WPE_API_VERSION}"
 )
 
 if (ENABLE_JOURNALD_LOG)
@@ -78,11 +85,6 @@ endif ()
 if (ANDROID)
     list(APPEND WTF_LIBRARIES Android::Android Android::Log)
 endif ()
-
-list(APPEND WTF_SYSTEM_INCLUDE_DIRECTORIES
-    ${GIO_UNIX_INCLUDE_DIRS}
-    ${GLIB_INCLUDE_DIRS}
-)
 
 if (USE_LIBBACKTRACE)
     list(APPEND WTF_LIBRARIES

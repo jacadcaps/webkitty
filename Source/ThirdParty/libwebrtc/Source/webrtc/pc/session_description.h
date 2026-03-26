@@ -15,6 +15,7 @@
 #include <stdint.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -118,6 +119,20 @@ class MediaContentDescription {
   bool rtcp_fb_ack_ccfb() const { return rtcp_fb_ack_ccfb_; }
   void set_rtcp_fb_ack_ccfb(bool enable) { rtcp_fb_ack_ccfb_ = enable; }
 
+  // Returns the preferred RTCP ack type used for congestion control for this
+  // media content or `std::nullopt` if no supported type exists.
+  std::optional<RtcpFeedbackType> preferred_rtcp_cc_ack_type() const {
+    if (rtcp_fb_ack_ccfb_) {
+      return RtcpFeedbackType::CCFB;
+    }
+    for (const auto& codec : codecs_) {
+      if (codec.feedback_params.Has(FeedbackParam(kRtcpFbParamTransportCc))) {
+        return RtcpFeedbackType::TRANSPORT_CC;
+      }
+    }
+    return std::nullopt;
+  }
+
   int bandwidth() const { return bandwidth_; }
   void set_bandwidth(int bandwidth) { bandwidth_ = bandwidth; }
   std::string bandwidth_type() const { return bandwidth_type_; }
@@ -135,22 +150,10 @@ class MediaContentDescription {
   }
   void set_rtp_header_extensions(const RtpHeaderExtensions& extensions) {
     rtp_header_extensions_ = extensions;
-    rtp_header_extensions_set_ = true;
   }
   void AddRtpHeaderExtension(const RtpExtension& ext) {
     rtp_header_extensions_.push_back(ext);
-    rtp_header_extensions_set_ = true;
   }
-  void ClearRtpHeaderExtensions() {
-    rtp_header_extensions_.clear();
-    rtp_header_extensions_set_ = true;
-  }
-  // We can't always tell if an empty list of header extensions is
-  // because the other side doesn't support them, or just isn't hooked up to
-  // signal them. For now we assume an empty list means no signaling, but
-  // provide the ClearRtpHeaderExtensions method to allow "no support" to be
-  // clearly indicated (i.e. when derived from other information).
-  bool rtp_header_extensions_set() const { return rtp_header_extensions_set_; }
   const StreamParamsVec& streams() const { return send_streams_; }
   // TODO(pthatcher): Remove this by giving mediamessage.cc access
   // to MediaContentDescription
@@ -266,7 +269,6 @@ class MediaContentDescription {
   std::string bandwidth_type_ = kApplicationSpecificBandwidth;
 
   std::vector<RtpExtension> rtp_header_extensions_;
-  bool rtp_header_extensions_set_ = false;
   StreamParamsVec send_streams_;
   bool conference_mode_ = false;
   RtpTransceiverDirection direction_ = RtpTransceiverDirection::kSendRecv;
@@ -325,7 +327,8 @@ class SctpDataContentDescription : public MediaContentDescription {
       : MediaContentDescription(o),
         use_sctpmap_(o.use_sctpmap_),
         port_(o.port_),
-        max_message_size_(o.max_message_size_) {}
+        max_message_size_(o.max_message_size_),
+        sctp_init_(o.sctp_init_) {}
   webrtc::MediaType type() const override { return webrtc::MediaType::DATA; }
   SctpDataContentDescription* as_sctp() override { return this; }
   const SctpDataContentDescription* as_sctp() const override { return this; }
@@ -344,6 +347,12 @@ class SctpDataContentDescription : public MediaContentDescription {
   void set_max_message_size(int max_message_size) {
     max_message_size_ = max_message_size;
   }
+  std::optional<const std::vector<uint8_t>> sctp_init() const {
+    return sctp_init_;
+  }
+  void set_sctp_init(std::optional<const std::vector<uint8_t>> sctp_init) {
+    sctp_init_ = sctp_init;
+  }
 
  private:
   SctpDataContentDescription* CloneInternal() const override {
@@ -354,6 +363,9 @@ class SctpDataContentDescription : public MediaContentDescription {
   int port_ = 5000;
   // draft-ietf-mmusic-sdp-sctp-23: Max message size default is 64K
   int max_message_size_ = 64 * 1024;
+
+  // draft-hancke-tsvwg-snap
+  std::optional<std::vector<uint8_t>> sctp_init_;
 };
 
 class UnsupportedContentDescription : public MediaContentDescription {
@@ -396,7 +408,6 @@ enum class MediaProtocolType {
 // Owns the description.
 class RTC_EXPORT ContentInfo {
  public:
-  explicit ContentInfo(MediaProtocolType type) : type(type) {}
   ContentInfo(MediaProtocolType type,
               absl::string_view mid,
               std::unique_ptr<MediaContentDescription> description,
@@ -448,6 +459,7 @@ class ContentGroup {
   ContentGroup(ContentGroup&&);
   ContentGroup& operator=(const ContentGroup&);
   ContentGroup& operator=(ContentGroup&&);
+  bool operator==(const ContentGroup& o) const = default;
   ~ContentGroup();
 
   const std::string& semantics() const { return semantics_; }
@@ -599,34 +611,5 @@ enum ContentSource { CS_LOCAL, CS_REMOTE };
 
 }  //  namespace webrtc
 
-// Re-export symbols from the webrtc namespace for backwards compatibility.
-// TODO(bugs.webrtc.org/4222596): Remove once all references are updated.
-#ifdef WEBRTC_ALLOW_DEPRECATED_NAMESPACES
-namespace cricket {
-using ::webrtc::AudioContentDescription;
-using ::webrtc::ContentGroup;
-using ::webrtc::ContentGroups;
-using ::webrtc::ContentInfo;
-using ::webrtc::ContentInfos;
-using ::webrtc::ContentNames;
-using ::webrtc::ContentSource;
-using ::webrtc::CS_LOCAL;
-using ::webrtc::CS_REMOTE;
-using ::webrtc::kAutoBandwidth;
-using ::webrtc::kMsidSignalingMediaSection;
-using ::webrtc::kMsidSignalingNotUsed;
-using ::webrtc::kMsidSignalingSemantic;
-using ::webrtc::kMsidSignalingSsrcAttribute;
-using ::webrtc::MediaContentDescription;
-using ::webrtc::MediaProtocolType;
-using ::webrtc::MsidSignaling;
-using ::webrtc::RtpHeaderExtensions;
-using ::webrtc::RtpMediaContentDescription;
-using ::webrtc::SctpDataContentDescription;
-using ::webrtc::SessionDescription;
-using ::webrtc::UnsupportedContentDescription;
-using ::webrtc::VideoContentDescription;
-}  // namespace cricket
-#endif  // WEBRTC_ALLOW_DEPRECATED_NAMESPACES
 
 #endif  // PC_SESSION_DESCRIPTION_H_

@@ -27,6 +27,7 @@ import webkitpy
 from webkitcorepy import arguments, Terminal
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -34,6 +35,7 @@ import sys
 import re
 import requests
 from urllib.parse import urlparse
+from typing import Optional
 
 
 def init():
@@ -41,7 +43,7 @@ def init():
 
     # data source
     parser.add_argument('input_source',
-                        help='Specifies the source to query for layout test results data. Can be a file or URL.',
+                        help='Specifies the source to query for layout test results data. Can be a file or URL (URL being a build or step w/ stdio from buildbot, or link ending in .txt).',
                         type=str)
 
     # optional flags
@@ -67,9 +69,14 @@ def init():
                         action='store_true',
                         help='Exports one file containing all tests in the order they were run (regardless of worker number).',
                         required=False)
+    parser.add_argument('--buildbot-step',
+                        dest='buildbot_step_name',
+                        help='If input is a buildbot link and the user isn\'t specifying stdio input, this allows the user to choose a specific buildbot step from which to take layout tests run data. Only needed if using --no-warn.',
+                        default=None,
+                        required=False)
     parser.add_argument('--no-warn',
                         action='store_true',
-                        help='Does not warn or prompt the user before performing any actions. Potentially destructive due to bypassing file overwrite prompts. Good for automation. Will cause the script to quit if user input required.',
+                        help='Does not warn or prompt the user before performing any actions. Potentially destructive due to bypassing file overwrite prompts. Good for automation. Will cause the script to quit if user input required. If input is a buildbot link and --buildbot-step isn\'t specified, using this option will take the first layout tests run step.',
                         required=False)
 
     # logging
@@ -190,8 +197,12 @@ def parse_raw_stdio_into_test_names(raw, target_test='', long=False):
             if not long and test_name == target_test:
                 info(f'Found requested test (last of {i}), skipping remaining tests.')
                 break
-    info(f'Processed {i} tests total.')
-    return "\n".join(tests)
+    if i > 0:
+        info(f'Processed {i} tests total.')
+        return "\n".join(tests)
+    else:
+        error(f'No tests found. Quitting.')
+        graceful_exit(os.EX_DATAERR)
 
 
 # Parses a raw stdio log into a dict of lists containing test lists.
@@ -217,8 +228,12 @@ def parse_raw_stdio_into_workers(raw, target_test='', long=False):
                     info(f'Continuing to sort tests by worker (--long).')
                     continue
                 break
-    info(f'Finished parsing tests ({i} total).')
-    return (workers, int(target_worker))
+    if i > 0:
+        info(f'Finished parsing tests ({i} total).')
+        return (workers, int(target_worker))
+    else:
+        error(f'No tests found. Quitting.')
+        graceful_exit(os.EX_DATAERR)
 
 
 # Loads the stdio input for analysis from a file.
@@ -237,22 +252,70 @@ def load_from_file(path):
 
 # Loads the stdio input for analysis from a build URL.
 # Returns a str with the contents of the stdio log.
-def load_from_buildbot(url):
-    url = url.replace('/#/', '/api/v2/') + ("/raw" if "/logs/stdio" in url else "/steps/layout-test/logs/stdio/raw")
-    try: # validation
+def load_from_url(base_url: str, step_name: Optional[str] = None, no_warn: bool = False) -> str:
+    '''Takes a build URL and analyzes the steps to determine which log to return. Can also take a step stdio link ("/steps/<step-name>/logs/stdio") or a .txt file URL.'''
+
+    url = base_url
+    if not url.endswith('.txt'):
+        url = url.replace('/#/', '/api/v2/').strip('/')
+        # Don't analyze steps if user specifically asked for stdio
+        if '/logs/stdio' not in url:
+            url += '/steps'
+        elif not url.endswith('/raw'):
+            url += '/raw'
+
+    info('Loading from URL (this may take a moment)...')
+
+    try:
         uobj = urlparse(url)
         if not all([uobj.scheme, uobj.netloc]):
             raise IOError()
-    except:
-        error("Invalid URL specified: %s.", url)
+        data = requests.get(uobj.geturl())
+    except (TypeError, requests.RequestException) as e:
+        error(f'Unable to load data: {e.args[0]}. Check your spelling and try again.')
         graceful_exit(os.EX_DATAERR)
 
-    info("Loading from URL (this may take a moment)...")
+    # Early return for stdio/txt result
+    if url.endswith('/raw') or url.endswith('.txt'):
+        return data.text
 
-    try: # more validation
-        data = requests.get(url)
+    # Analyze steps
+    candidate_steps = {}
+    layout_test_step = {}
+    build_data = json.loads(data.text)
+    for step in build_data['steps']:
+        if step['name'] == 'layout-test':
+            layout_test_step = step
+        for url_data in step['urls']:
+            # This is fragile, but it works
+            if 'layout-test' in url_data['url'] and url_data['url'].endswith('.txt') and (step_name is None or step_name == step['name']):
+                candidate_steps[step['name']] = url_data['url']
+                break
+
+    cstep_names = list(candidate_steps.keys())
+    if len(cstep_names) == 0:
+        # Not all buildbot instances upload results to S3
+        if layout_test_step != {}: 
+            info('No S3 URLs found. Retrying and querying stdio of the "layout-test" step.\n')
+            return load_from_url(f'{base_url}/layout-test/logs/stdio/raw', step_name, no_warn)
+        elif step_name:
+            err = f'Step "{step_name}" is either not a step in this run or doesn\'t contain layout test run data.'
+        else:
+            err = 'No layout tests runs in this buildbot run have data uploaded to S3.'
+        error(err)
+        graceful_exit(os.EX_DATAERR)
+
+    if not step_name:
+        if len(cstep_names) == 1 or no_warn:
+            step_name = cstep_names[0]
+        else:
+            step_name = Terminal.choose(prompt='Choose a step from which to get layout test run data (enter a number)', options=cstep_names, numbered=True, default=cstep_names[0], strict=True)
+
+    info(f'Retrieving data from the "{step_name}" step...')
+    try:
+        data = requests.get(candidate_steps[step_name])
     except Exception as e:
-        error('Unable to load data: ' + e.args[0] + '. Check your spelling and try again.')
+        error(f'Unable to load data: {e.args[0]}. Check your spelling and try again.')
         graceful_exit(os.EX_DATAERR)
 
     return data.text
@@ -263,7 +326,7 @@ def main():
     info()
 
     if options.input_source.find('https://') == 0 or options.input_source.find('http://') == 0: # user entered url
-        stdio_text = load_from_buildbot(options.input_source)
+        stdio_text = load_from_url(options.input_source, options.buildbot_step_name, options.no_warn)
         if options.stdio_export_path is not None: # export raw stdio [--stdio-export-path]
             ex_path = export_file(options.stdio_export_path, stdio_text, options.no_warn)
             info(f'Exported stdio file to "{ex_path}".')

@@ -555,7 +555,7 @@ static GRefPtr<JSCValue> jscClassCreateConstructor(JSCClass* jscClass, const cha
     Ref vm = globalObject->vm();
     JSC::JSLockHolder locker(vm);
     auto* functionObject = JSC::JSCCallbackFunction::create(vm, globalObject, String::fromUTF8(name),
-        JSC::JSCCallbackFunction::Type::Constructor, jscClass, WTFMove(closure), returnType, WTFMove(parameters));
+        JSC::JSCCallbackFunction::Type::Constructor, jscClass, WTF::move(closure), returnType, WTF::move(parameters));
     auto context = jscContextGetOrCreate(priv->context);
     auto constructor = jscContextGetOrCreateValue(context.get(), toRef(functionObject));
     GRefPtr<JSCValue> prototype = jscContextGetOrCreateValue(context.get(), toRef(priv->prototype.get()));
@@ -607,7 +607,7 @@ JSCValue* jsc_class_add_constructor(JSCClass* jscClass, const char* name, GCallb
     });
     va_end(args);
 
-    return jscClassCreateConstructor(jscClass, name ? name : priv->name.data(), callback, userData, destroyNotify, returnType, WTFMove(parameters)).leakRef();
+    return jscClassCreateConstructor(jscClass, name ? name : priv->name.data(), callback, userData, destroyNotify, returnType, WTF::move(parameters)).leakRef();
 
 }
 
@@ -653,7 +653,7 @@ JSCValue* jsc_class_add_constructorv(JSCClass* jscClass, const char* name, GCall
         WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     });
 
-    return jscClassCreateConstructor(jscClass, name ? name : priv->name.data(), callback, userData, destroyNotify, returnType, WTFMove(parameters)).leakRef();
+    return jscClassCreateConstructor(jscClass, name ? name : priv->name.data(), callback, userData, destroyNotify, returnType, WTF::move(parameters)).leakRef();
 }
 
 /**
@@ -700,7 +700,7 @@ static void jscClassAddMethod(JSCClass* jscClass, const char* name, GCallback ca
     Ref vm = globalObject->vm();
     JSC::JSLockHolder locker(vm);
     auto* functionObject = toRef(JSC::JSCCallbackFunction::create(vm, globalObject, String::fromUTF8(name),
-        JSC::JSCCallbackFunction::Type::Method, jscClass, WTFMove(closure), returnType, WTFMove(parameters)));
+        JSC::JSCCallbackFunction::Type::Method, jscClass, WTF::move(closure), returnType, WTF::move(parameters)));
     auto context = jscContextGetOrCreate(priv->context);
     auto method = jscContextGetOrCreateValue(context.get(), functionObject);
     GRefPtr<JSCValue> prototype = jscContextGetOrCreateValue(context.get(), toRef(priv->prototype.get()));
@@ -743,7 +743,7 @@ void jsc_class_add_method(JSCClass* jscClass, const char* name, GCallback callba
     });
     va_end(args);
 
-    jscClassAddMethod(jscClass, name, callback, userData, destroyNotify, returnType, WTFMove(parameters));
+    jscClassAddMethod(jscClass, name, callback, userData, destroyNotify, returnType, WTF::move(parameters));
 }
 
 /**
@@ -781,7 +781,7 @@ void jsc_class_add_methodv(JSCClass* jscClass, const char* name, GCallback callb
         WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     });
 
-    jscClassAddMethod(jscClass, name, callback, userData, destroyNotify, returnType, WTFMove(parameters));
+    jscClassAddMethod(jscClass, name, callback, userData, destroyNotify, returnType, WTF::move(parameters));
 }
 
 /**
@@ -823,7 +823,7 @@ void jsc_class_add_method_variadic(JSCClass* jscClass, const char* name, GCallba
  * @user_data: user data to pass to @getter and @setter
  * @destroy_notify: (nullable): destroy notifier for @user_data
  *
- * Add a property with @name to @jsc_class. When the property value needs to be getted, @getter is called
+ * Add a property with @name to @jsc_class. When the property value is read, @getter is called
  * receiving the the class instance as first parameter and @user_data as last parameter. When the property
  * value needs to be set, @setter is called receiving the the class instance as first parameter, followed
  * by the value to be set and then @user_data as the last parameter. When the property is cleared in the

@@ -27,6 +27,8 @@
 
 #if HAVE(WEBCONTENTRESTRICTIONS)
 
+#include <wtf/ThreadSafeRefCounted.h>
+
 OBJC_CLASS WCRBrowserEngineClient;
 
 namespace WTF {
@@ -35,27 +37,39 @@ class WorkQueue;
 
 namespace WebCore {
 
-class ParentalControlsURLFilter {
-    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(ParentalControlsURLFilter);
+struct ParentalControlsURLFilterParameters;
+class ParentalControlsContentFilter;
+
+class ParentalControlsURLFilter : public ThreadSafeRefCounted<ParentalControlsURLFilter, WTF::DestructionThread::Main> {
 public:
 #if HAVE(WEBCONTENTRESTRICTIONS_PATH_SPI)
-    static ParentalControlsURLFilter& filterWithConfigurationPath(const String&);
+    WEBCORE_EXPORT static ParentalControlsURLFilter& filterWithConfigurationPath(const String&);
 #else
-    static ParentalControlsURLFilter& singleton();
+    WEBCORE_EXPORT static ParentalControlsURLFilter& singleton();
+    WEBCORE_EXPORT static void setGlobalFilter(Ref<ParentalControlsURLFilter>&&);
 #endif
-
+    WEBCORE_EXPORT static void allowURL(const ParentalControlsURLFilterParameters&, CompletionHandler<void(bool)>&&);
+    WEBCORE_EXPORT static WorkQueue& workQueueSingleton();
+    WEBCORE_EXPORT bool isEnabled() const;
     void resetIsEnabled();
-    bool isEnabled() const;
-    void isURLAllowedWithQueue(const URL&, CompletionHandler<void(bool, NSData *)>&&, WTF::WorkQueue& completionHandlerQueue);
-    void allowURL(const URL&, CompletionHandler<void(bool)>&&);
 
-private:
+    WEBCORE_EXPORT virtual ~ParentalControlsURLFilter();
+    virtual bool isEnabledImpl() const;
+    void isURLAllowed(const URL&, ParentalControlsContentFilter&);
+    WEBCORE_EXPORT void isURLAllowed(const URL&, CompletionHandler<void(bool, NSData *)>&&);
+    virtual void allowURL(const URL&, CompletionHandler<void(bool)>&&);
+
+protected:
 #if HAVE(WEBCONTENTRESTRICTIONS_PATH_SPI)
     ParentalControlsURLFilter(const String& configurationPath);
-#else
-    ParentalControlsURLFilter();
 #endif
+    WEBCORE_EXPORT ParentalControlsURLFilter();
+
+    virtual void isURLAllowedImpl(const URL&, CompletionHandler<void(bool, NSData *)>&&);
+
+private:
     WCRBrowserEngineClient* effectiveWCRBrowserEngineClient();
+    bool isWCRBrowserEngineClientEnabled() const;
 
     mutable std::optional<bool> m_isEnabled;
     const RetainPtr<WCRBrowserEngineClient> m_wcrBrowserEngineClient;

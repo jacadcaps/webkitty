@@ -85,8 +85,8 @@ NSObject *getJSWrapper(JSObject* impl)
     ASSERT(isMainThread());
     Locker locker { wrapperCacheLock };
 
-    NSObject* wrapper = wrapperCache().get(impl);
-    return wrapper ? retainPtr(wrapper).autorelease() : nil;
+    RetainPtr<id> wrapper = wrapperCache().get(impl);
+    return wrapper.autorelease();
 }
 
 void addJSWrapper(NSObject *wrapper, JSObject* impl)
@@ -116,7 +116,7 @@ id createJSWrapper(JSC::JSObject* object, RefPtr<JSC::Bindings::RootObject>&& or
 {
     if (id wrapper = getJSWrapper(object))
         return wrapper;
-    return adoptNS([[WebScriptObject alloc] _initWithJSObject:object originRootObject:WTFMove(origin) rootObject:WTFMove(root)]).autorelease();
+    return adoptNS([[WebScriptObject alloc] _initWithJSObject:object originRootObject:WTF::move(origin) rootObject:WTF::move(root)]).autorelease();
 }
 
 static void addExceptionToConsole(JSC::JSGlobalObject* lexicalGlobalObject, JSC::Exception* exception)
@@ -177,10 +177,10 @@ void disconnectWindowWrapper(WebScriptObject *windowWrapper)
     auto& wrapped = *toJS(jsObject);
 
     if (WebCore::createDOMWrapperFunction) {
-        if (auto wrapper = WebCore::createDOMWrapperFunction(wrapped)) {
-            if (![wrapper _hasImp]) // new wrapper, not from cache
-                [wrapper _setImp:&wrapped originRootObject:originRootObject rootObject:rootObject];
-            return wrapper;
+        if (RetainPtr wrapper = WebCore::createDOMWrapperFunction(wrapped)) {
+            if (![wrapper.get() _hasImp]) // new wrapper, not from cache
+                [wrapper.get() _setImp:&wrapped originRootObject:originRootObject rootObject:rootObject];
+            return wrapper.autorelease();
         }
     }
 
@@ -231,7 +231,7 @@ void disconnectWindowWrapper(WebScriptObject *windowWrapper)
 
     self = [super init];
     _private = [[WebScriptObjectPrivate alloc] init];
-    [self _setImp:imp originRootObject:WTFMove(originRootObject) rootObject:WTFMove(rootObject)];
+    [self _setImp:imp originRootObject:WTF::move(originRootObject) rootObject:WTF::move(rootObject)];
     
     return self;
 }
@@ -568,16 +568,15 @@ static void getListFromNSArray(JSC::JSGlobalObject* lexicalGlobalObject, NSArray
         JSC::VM& vm = rootObject->globalObject()->vm();
         JSLockHolder lock(vm);
 
-        if (object->inherits<JSHTMLElement>()) {
+        if (auto* jsHTMLElement = JSC::jsDynamicCast<JSHTMLElement*>(object)) {
             // Plugin elements cache the instance internally.
-            if (RefPtr instance = static_cast<ObjcInstance*>(pluginInstance(jsCast<JSHTMLElement*>(object)->wrapped())))
+            if (RefPtr instance = downcast<ObjcInstance>(pluginInstance(jsHTMLElement->wrapped())))
                 return instance->getObject();
-        } else if (object->inherits<ObjCRuntimeObject>()) {
-            ObjCRuntimeObject* runtimeObject = static_cast<ObjCRuntimeObject*>(object);
+        } else if (auto* runtimeObject = JSC::jsDynamicCast<ObjCRuntimeObject*>(object)) {
             RefPtr instance = runtimeObject->getInternalObjCInstance();
-            if (instance)
-                return instance->getObject();
-            return nil;
+            if (!instance)
+                return nil;
+            return instance->getObject();
         }
 
         return [WebScriptObject scriptObjectForJSObject:toRef(object) originRootObject:originRootObject rootObject:rootObject];

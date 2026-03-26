@@ -26,11 +26,14 @@
 #include "config.h"
 #include "PlatformWebView.h"
 
-#include "PlatformWebViewClientLibWPE.h"
 #include "TestController.h"
 #include <cstdio>
 #include <wtf/RunLoop.h>
 #include <wtf/text/WTFString.h>
+
+#if USE(LIBWPE)
+#include "PlatformWebViewClientLibWPE.h"
+#endif
 
 #if PLATFORM(WPE) && ENABLE(WPE_PLATFORM)
 #include "PlatformWebViewClientWPE.h"
@@ -38,19 +41,26 @@
 
 namespace WTR {
 
-PlatformWebView::PlatformWebView(WKPageConfigurationRef configuration, const TestOptions& options)
-    : m_windowIsKey(true)
-    , m_options(options)
+static PlatformWebViewClient* createClient(WKPageConfigurationRef configuration)
 {
-#if PLATFORM(WPE) && ENABLE(WPE_PLATFORM)
-    if (TestController::singleton().useWPELegacyAPI())
-        m_window = new PlatformWebViewClientLibWPE(configuration);
-    else
-        m_window = new PlatformWebViewClientWPE(configuration);
-#else
-    m_window = new PlatformWebViewClientLibWPE(configuration);
+#if ENABLE(WPE_PLATFORM)
+    if (!TestController::singleton().useWPELegacyAPI())
+        return new PlatformWebViewClientWPE(configuration);
+#endif
+#if USE(LIBWPE)
+    return new PlatformWebViewClientLibWPE(configuration);
 #endif
 
+    return nullptr;
+}
+
+PlatformWebView::PlatformWebView(WKPageConfigurationRef configuration, const TestOptions& options)
+    : m_window(createClient(configuration))
+    , m_windowIsKey(true)
+    , m_options(options)
+{
+    ASSERT(m_window);
+    m_window->resize({ options.viewWidth(), options.viewHeight() });
     m_view = m_window->view();
 }
 
@@ -59,8 +69,12 @@ PlatformWebView::~PlatformWebView()
     delete m_window;
 }
 
-void PlatformWebView::resizeTo(unsigned, unsigned, WebViewSizingMode)
+void PlatformWebView::resizeTo(unsigned width, unsigned height, WebViewSizingMode sizingMode)
 {
+    WKRect frame = windowFrame();
+    frame.size.width = width;
+    frame.size.height = height;
+    setWindowFrame(frame, sizingMode);
 }
 
 WKPageRef PlatformWebView::page()
@@ -75,11 +89,12 @@ void PlatformWebView::focus()
 
 WKRect PlatformWebView::windowFrame()
 {
-    return { { 0, 0 }, { 1, 1 } };
+    return { { 0, 0 }, m_window->size() };
 }
 
-void PlatformWebView::setWindowFrame(WKRect, WebViewSizingMode)
+void PlatformWebView::setWindowFrame(WKRect frame, WebViewSizingMode)
 {
+    m_window->resize(frame.size);
 }
 
 void PlatformWebView::didInitializeClients()

@@ -35,14 +35,14 @@
 namespace WTF {
 
 WorkQueueBase::WorkQueueBase(RunLoop& runLoop)
-    : m_runLoop(&runLoop)
+    : m_runLoop(runLoop)
     , m_threadID(mainThreadID)
 {
 }
 
 void WorkQueueBase::platformInitialize(ASCIILiteral name, Type, QOS qos)
 {
-    m_runLoop = RunLoop::create(name, ThreadType::Unknown, qos).ptr();
+    m_runLoop = RunLoop::create(name, ThreadType::Unknown, qos);
     BinarySemaphore semaphore;
     m_runLoop->dispatch([&] {
         m_threadID = Thread::currentSingleton().uid();
@@ -54,7 +54,7 @@ void WorkQueueBase::platformInitialize(ASCIILiteral name, Type, QOS qos)
 void WorkQueueBase::platformInvalidate()
 {
     if (m_runLoop) {
-        Ref<RunLoop> protector(*m_runLoop);
+        Ref<RunLoop> protector = m_runLoop.releaseNonNull();
         protector->stop();
         protector->dispatch([] {
             RunLoop::currentSingleton().stop();
@@ -64,14 +64,14 @@ void WorkQueueBase::platformInvalidate()
 
 void WorkQueueBase::dispatch(Function<void()>&& function)
 {
-    m_runLoop->dispatch([protectedThis = Ref { *this }, function = WTFMove(function)] {
+    m_runLoop->dispatch([protectedThis = Ref { *this }, function = WTF::move(function)] {
         function();
     });
 }
 
 void WorkQueueBase::dispatchAfter(Seconds delay, Function<void()>&& function)
 {
-    m_runLoop->dispatchAfter(delay, [protectedThis = Ref { *this }, function = WTFMove(function)] {
+    m_runLoop->dispatchAfter(delay, [protectedThis = Ref { *this }, function = WTF::move(function)] {
         function();
     });
 }

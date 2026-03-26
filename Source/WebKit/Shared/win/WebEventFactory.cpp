@@ -406,7 +406,7 @@ WebMouseEvent WebEventFactory::createWebMouseEvent(HWND hWnd, UINT message, WPAR
     auto modifiers = modifiersForEvent(wParam);
     auto buttons = buttonsForEvent(wParam);
 
-    return WebMouseEvent( { type, modifiers, WallTime::now() }, button, buttons, flooredIntPoint(position), flooredIntPoint(globalPosition), 0, 0, 0, clickCount, didActivateWebView);
+    return WebMouseEvent( { type, modifiers, MonotonicTime::now() }, button, buttons, flooredIntPoint(position), flooredIntPoint(globalPosition), 0, 0, 0, clickCount, didActivateWebView);
 }
 
 WebWheelEvent WebEventFactory::createWebWheelEvent(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam, float deviceScaleFactor)
@@ -418,7 +418,7 @@ WebWheelEvent WebEventFactory::createWebWheelEvent(HWND hWnd, UINT message, WPAR
     FloatPoint position = positionPoint;
     position.scale(1 / deviceScaleFactor);
 
-    WebWheelEvent::Granularity granularity = WebWheelEvent::ScrollByPixelWheelEvent;
+    auto granularity = WebWheelEvent::Granularity::ScrollByPixelWheelEvent;
 
     auto modifiers = modifiersForEvent(wParam);
 
@@ -440,20 +440,20 @@ WebWheelEvent WebEventFactory::createWebWheelEvent(HWND hWnd, UINT message, WPAR
     if (isMouseHWheel || (modifiers & WebEventModifier::ShiftKey)) {
         deltaX = delta * static_cast<float>(horizontalScrollChars()) * WebCore::cScrollbarPixelsPerLine;
         deltaY = 0;
-        granularity = WebWheelEvent::ScrollByPixelWheelEvent;
+        granularity = WebWheelEvent::Granularity::ScrollByPixelWheelEvent;
     } else {
         deltaX = 0;
         deltaY = delta;
         unsigned verticalMultiplier = verticalScrollLines();
         if (verticalMultiplier == WHEEL_PAGESCROLL)
-            granularity = WebWheelEvent::ScrollByPageWheelEvent;
+            granularity = WebWheelEvent::Granularity::ScrollByPageWheelEvent;
         else {
-            granularity = WebWheelEvent::ScrollByPixelWheelEvent;
+            granularity = WebWheelEvent::Granularity::ScrollByPixelWheelEvent;
             deltaY *= static_cast<float>(verticalMultiplier) * WebCore::cScrollbarPixelsPerLine;
         }
     }
 
-    return WebWheelEvent( { WebEventType::Wheel, modifiers, WallTime::now() }, flooredIntPoint(position), flooredIntPoint(globalPosition), FloatSize(deltaX, deltaY), FloatSize(wheelTicksX, wheelTicksY), granularity);
+    return WebWheelEvent( { WebEventType::Wheel, modifiers, MonotonicTime::now() }, flooredIntPoint(position), flooredIntPoint(globalPosition), FloatSize(deltaX, deltaY), FloatSize(wheelTicksX, wheelTicksY), granularity);
 }
 
 static WindowsKeyNames& windowsKeyNames()
@@ -470,7 +470,7 @@ WebKeyboardEvent WebEventFactory::createWebKeyboardEvent(HWND hwnd, UINT message
     String key = message == WM_CHAR ? windowsKeyNames().domKeyFromChar(wparam) : windowsKeyNames().domKeyFromParams(wparam, lparam);
     String code = windowsKeyNames().domCodeFromLParam(lparam);
     String keyIdentifier = keyIdentifierFromEvent(wparam, type);
-    int windowsVirtualKeyCode = static_cast<int>(wparam);
+    int windowsVirtualKeyCode = message == WM_CHAR ? 0 : static_cast<int>(wparam);
     int nativeVirtualKeyCode = static_cast<int>(wparam);
     int macCharCode = 0;
     bool autoRepeat = HIWORD(lparam) & KF_REPEAT;
@@ -478,13 +478,13 @@ WebKeyboardEvent WebEventFactory::createWebKeyboardEvent(HWND hwnd, UINT message
     bool isSystemKey = isSystemKeyEvent(message);
     auto modifiers = modifiersForCurrentKeyState();
 
-    return WebKeyboardEvent( { type, modifiers, WallTime::now() }, text, unmodifiedText, key, code, keyIdentifier, windowsVirtualKeyCode, nativeVirtualKeyCode, macCharCode, autoRepeat, isKeypad, isSystemKey);
+    return WebKeyboardEvent( { type, modifiers, MonotonicTime::now() }, text, unmodifiedText, key, code, keyIdentifier, windowsVirtualKeyCode, nativeVirtualKeyCode, macCharCode, autoRepeat, isKeypad, isSystemKey);
 }
 
 #if ENABLE(TOUCH_EVENTS)
 WebTouchEvent WebEventFactory::createWebTouchEvent()
 {
-    return WebTouchEvent({ WebEventType::TouchMove, OptionSet<WebEventModifier> { }, WallTime::now() }, { }, { }, { });
+    return WebTouchEvent({ WebEventType::TouchMove, OptionSet<WebEventModifier> { }, MonotonicTime::now() }, { }, { }, { });
 }
 #endif // ENABLE(TOUCH_EVENTS)
 

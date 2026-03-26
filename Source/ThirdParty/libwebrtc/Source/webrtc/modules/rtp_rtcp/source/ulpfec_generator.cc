@@ -10,9 +10,8 @@
 
 #include "modules/rtp_rtcp/source/ulpfec_generator.h"
 
-#include <string.h>
-
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -254,8 +253,8 @@ DataRate UlpfecGenerator::CurrentFecRate() const {
 int UlpfecGenerator::Overhead() const {
   RTC_DCHECK_RUNS_SERIALIZED(&race_checker_);
   RTC_DCHECK(!media_packets_.empty());
-  int num_fec_packets =
-      fec_->NumFecPackets(media_packets_.size(), CurrentParams().fec_rate);
+  int num_fec_packets = ForwardErrorCorrection::NumFecPackets(
+      media_packets_.size(), CurrentParams().fec_rate);
 
   // Return the overhead in Q8.
   return (num_fec_packets << 8) / media_packets_.size();

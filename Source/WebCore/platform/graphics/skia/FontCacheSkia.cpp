@@ -38,6 +38,9 @@
 #include "SystemSettings.h"
 #endif
 
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <skia/ports/SkFontScanner_FreeType.h>
+
 #if OS(ANDROID)
 #include <skia/ports/SkFontMgr_android.h>
 #elif PLATFORM(WIN)
@@ -46,6 +49,7 @@
 #else
 #include <skia/ports/SkFontMgr_fontconfig.h>
 #endif
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 
 namespace WebCore {
 
@@ -57,12 +61,12 @@ SkFontMgr& FontCache::fontManager() const
 {
     if (!m_fontManager) {
 #if OS(ANDROID)
-        m_fontManager = SkFontMgr_New_Android(nullptr);
+        m_fontManager = SkFontMgr_New_Android(nullptr, SkFontScanner_Make_FreeType());
 #elif OS(WINDOWS)
         auto result = createDWriteFactory();
         m_fontManager = SkFontMgr_New_DirectWrite(result.factory.get(), result.fontCollection.get());
 #else
-        m_fontManager = SkFontMgr_New_FontConfig(FcConfigReference(nullptr));
+        m_fontManager = SkFontMgr_New_FontConfig(FcConfigReference(nullptr), SkFontScanner_Make_FreeType());
 #endif
     }
     RELEASE_ASSERT(m_fontManager);
@@ -96,10 +100,10 @@ static SkFontStyle skiaFontStyle(const FontDescription& fontDescription)
         skWidth = SkFontStyle::kUltraExpanded_Width;
 
     SkFontStyle::Slant skSlant = SkFontStyle::kUpright_Slant;
-    if (auto italic = fontDescription.italic()) {
-        if (italic.value() > normalItalicValue() && italic.value() <= italicThreshold())
+    if (auto fontStyleSlope = fontDescription.fontStyleSlope()) {
+        if (fontStyleSlope.value() > normalItalicValue() && fontStyleSlope.value() <= italicThreshold())
             skSlant = SkFontStyle::kItalic_Slant;
-        else if (italic.value() > italicThreshold())
+        else if (fontStyleSlope.value() > italicThreshold())
             skSlant = SkFontStyle::kOblique_Slant;
     }
 
@@ -114,7 +118,7 @@ static std::pair<bool, bool> computeSynthesisProperties(const SkTypeface& typefa
     bool allowsSyntheticBold = fontDescription.hasAutoFontSynthesisWeight() && !synthesisOptions.contains(FontLookupOptions::DisallowBoldSynthesis);
     bool syntheticBold = allowsSyntheticBold && isFontWeightBold(fontDescription.weight()) && !typeface.isBold();
     bool allowsSyntheticOblique = fontDescription.hasAutoFontSynthesisStyle() && !synthesisOptions.contains(FontLookupOptions::DisallowObliqueSynthesis);
-    bool syntheticOblique = allowsSyntheticOblique && isItalic(fontDescription.italic()) && !typeface.isItalic();
+    bool syntheticOblique = allowsSyntheticOblique && isItalic(fontDescription.fontStyleSlope()) && !typeface.isItalic();
     return { syntheticBold, syntheticOblique };
 }
 
@@ -134,9 +138,9 @@ RefPtr<Font> FontCache::systemFallbackForCharacterCluster(const FontDescription&
     Vector<const char*, 1> bcp47;
     if (isEmoji)
         bcp47.append("und-Zsye");
-    auto typeface = fontManager().matchFamilyStyleCharacter(nullptr, skiaFontStyle(description), bcp47.mutableSpan().data(), bcp47.size(), baseCharacter);
+    auto typeface = fontManager().matchFamilyStyleCharacter(nullptr, { }, bcp47.mutableSpan().data(), bcp47.size(), baseCharacter);
 #else
-    auto typeface = m_skiaSystemFallbackFontCache.fontForCharacterCluster(skiaFontStyle(description), isEmoji ? "und-Zsye"_s : description.computedLocale(), stringView);
+    auto typeface = m_skiaSystemFallbackFontCache.fontForCharacterCluster(isEmoji ? "und-Zsye"_s : description.computedLocale(), stringView);
 #endif
     if (!typeface)
         return nullptr;
@@ -147,7 +151,7 @@ RefPtr<Font> FontCache::systemFallbackForCharacterCluster(const FontDescription&
     // @font-face size-adjust does not affect fallback font sizes, but font-size-adjust does.
     // We initialize FontPlatformData with the computed size, then apply font-size-adjust if required.
     auto size = description.computedSize();
-    FontPlatformData alternateFontData(WTFMove(typeface), size, syntheticBold, syntheticOblique, description.orientation(), description.widthVariant(), description.textRenderingMode(), WTFMove(features));
+    FontPlatformData alternateFontData(WTF::move(typeface), size, syntheticBold, syntheticOblique, description.orientation(), description.widthVariant(), description.textRenderingMode(), WTF::move(features));
     alternateFontData.updateSizeWithFontSizeAdjust(description.fontSizeAdjust(), size);
 
     return fontForPlatformData(alternateFontData);
@@ -190,7 +194,7 @@ Ref<Font> FontCache::lastResortFallbackFont(const FontDescription& fontDescripti
     }
 
     auto [syntheticBold, syntheticOblique] = computeSynthesisProperties(*typeface, fontDescription, { });
-    FontPlatformData platformData(WTFMove(typeface), fontDescription.computedSize(), syntheticBold, syntheticOblique,
+    FontPlatformData platformData(WTF::move(typeface), fontDescription.computedSize(), syntheticBold, syntheticOblique,
         fontDescription.orientation(), fontDescription.widthVariant(), fontDescription.textRenderingMode(), computeFeatures(fontDescription, { }));
     return fontForPlatformData(platformData);
 }
@@ -207,19 +211,21 @@ static String getFamilyNameStringFromFamily(const String& family)
     if (family.length() && !family.startsWith("-webkit-"_s))
         return family;
 
-    if (family == familyNamesData->at(FamilyNamesIndex::StandardFamily) || family == familyNamesData->at(FamilyNamesIndex::SerifFamily))
+    if (family == *familyNamesData->at(FamilyNamesIndex::StandardFamily) || family == *familyNamesData->at(FamilyNamesIndex::SerifFamily))
         return "serif"_s;
-    if (family == familyNamesData->at(FamilyNamesIndex::SansSerifFamily))
+    if (family == *familyNamesData->at(FamilyNamesIndex::SansSerifFamily))
         return "sans-serif"_s;
-    if (family == familyNamesData->at(FamilyNamesIndex::MonospaceFamily))
+    if (family == *familyNamesData->at(FamilyNamesIndex::MonospaceFamily))
         return "monospace"_s;
-    if (family == familyNamesData->at(FamilyNamesIndex::CursiveFamily))
+    if (family == *familyNamesData->at(FamilyNamesIndex::CursiveFamily))
         return "cursive"_s;
-    if (family == familyNamesData->at(FamilyNamesIndex::FantasyFamily))
+    if (family == *familyNamesData->at(FamilyNamesIndex::FantasyFamily))
         return "fantasy"_s;
+    if (family == *familyNamesData->at(FamilyNamesIndex::MathFamily))
+        return "math"_s;
 
 #if PLATFORM(GTK) || (PLATFORM(WPE) && ENABLE(WPE_PLATFORM))
-    if (family == familyNamesData->at(FamilyNamesIndex::SystemUiFamily) || family == "-webkit-system-font"_s)
+    if (family == *familyNamesData->at(FamilyNamesIndex::SystemUiFamily) || family == "-webkit-system-font"_s)
         return SystemSettings::singleton().defaultSystemFont();
 #endif
 
@@ -395,7 +401,7 @@ std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDe
     auto size = fontDescription.adjustedSizeForFontFace(fontCreationContext.sizeAdjust());
     auto features = computeFeatures(fontDescription, fontCreationContext);
     auto [syntheticBold, syntheticOblique] = computeSynthesisProperties(*typeface, fontDescription, options);
-    FontPlatformData platformData(WTFMove(typeface), size, syntheticBold, syntheticOblique, fontDescription.orientation(), fontDescription.widthVariant(), fontDescription.textRenderingMode(), WTFMove(features));
+    FontPlatformData platformData(WTF::move(typeface), size, syntheticBold, syntheticOblique, fontDescription.orientation(), fontDescription.widthVariant(), fontDescription.textRenderingMode(), WTF::move(features));
 
     platformData.updateSizeWithFontSizeAdjust(fontDescription.fontSizeAdjust(), fontDescription.computedSize());
     auto platformDataUniquePtr = makeUnique<FontPlatformData>(platformData);

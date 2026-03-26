@@ -89,7 +89,7 @@ static void wpeViewHeadlessConstructed(GObject* object)
         auto* priv = WPE_VIEW_HEADLESS(view)->priv;
         if (priv->committedBuffer)
             wpe_view_buffer_released(view, priv->committedBuffer.get());
-        priv->committedBuffer = WTFMove(priv->pendingBuffer);
+        priv->committedBuffer = WTF::move(priv->pendingBuffer);
         wpe_view_buffer_rendered(view, priv->committedBuffer.get());
 
         if (g_source_is_destroyed(priv->frameSource.get()))
@@ -137,19 +137,4 @@ static void wpe_view_headless_class_init(WPEViewHeadlessClass* viewHeadlessClass
 
     WPEViewClass* viewClass = WPE_VIEW_CLASS(viewHeadlessClass);
     viewClass->render_buffer = wpeViewHeadlessRenderBuffer;
-}
-
-/**
- * wpe_view_headless_new:
- * @display: a #WPEDisplayHeadless
- *
- * Create a new #WPEViewHeadless
- *
- * Returns: (transfer full): a #WPEView
- */
-WPEView* wpe_view_headless_new(WPEDisplayHeadless* display)
-{
-    g_return_val_if_fail(WPE_IS_DISPLAY_HEADLESS(display), nullptr);
-
-    return WPE_VIEW(g_object_new(WPE_TYPE_VIEW_HEADLESS, "display", display, nullptr));
 }

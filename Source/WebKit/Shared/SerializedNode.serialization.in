@@ -64,6 +64,7 @@
 [Nested] struct WebCore::SerializedNode::Element : WebCore::SerializedNode::ContainerNode {
     WebCore::SerializedNode::QualifiedName name;
     Vector<WebCore::SerializedNode::Element::Attribute> attributes;
+    std::optional<WebCore::SerializedNode::ShadowRoot> shadowRoot;
 };
 [Nested] struct WebCore::SerializedNode::Comment : WebCore::SerializedNode::CharacterData {
 };
@@ -75,9 +76,21 @@
     String target;
 };
 [Nested] struct WebCore::SerializedNode::ShadowRoot : WebCore::SerializedNode::DocumentFragment {
+    bool openMode;
+    WebCore::SlotAssignmentMode slotAssignmentMode;
+    WebCore::ShadowRootDelegatesFocus delegatesFocus;
+    WebCore::ShadowRootSerializable serializable;
+    WebCore::ShadowRootAvailableToElementInternals availableToElementInternals;
+    WebCore::ShadowRootScopedCustomElementRegistry hasScopedCustomElementRegistry;
 };
 [Nested] struct WebCore::SerializedNode::HTMLTemplateElement : WebCore::SerializedNode::Element {
+    std::optional<WebCore::SerializedNode::DocumentFragment> content;
 };
+[Nested] enum class WebCore::SlotAssignmentMode : bool
+[Nested] enum class WebCore::ShadowRootDelegatesFocus : bool
+[Nested] enum class WebCore::ShadowRootSerializable : bool
+[Nested] enum class WebCore::ShadowRootAvailableToElementInternals : bool
+[Nested] enum class WebCore::ShadowRootScopedCustomElementRegistry : bool
 
 struct WebCore::SerializedNode {
     Variant<WebCore::SerializedNode::Attr, WebCore::SerializedNode::CDATASection, WebCore::SerializedNode::Comment, WebCore::SerializedNode::Document, WebCore::SerializedNode::DocumentFragment, WebCore::SerializedNode::DocumentType, WebCore::SerializedNode::Element, WebCore::SerializedNode::ProcessingInstruction, WebCore::SerializedNode::ShadowRoot, WebCore::SerializedNode::Text, WebCore::SerializedNode::HTMLTemplateElement> data;

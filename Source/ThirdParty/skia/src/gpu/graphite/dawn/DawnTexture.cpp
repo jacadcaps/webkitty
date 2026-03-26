@@ -56,20 +56,20 @@ wgpu::Texture DawnTexture::MakeDawnTexture(const DawnSharedContext* sharedContex
 
     int numMipLevels = 1;
     if (info.mipmapped() == Mipmapped::kYes) {
-        numMipLevels = SkMipmap::ComputeLevelCount(dimensions.width(), dimensions.height()) + 1;
+        numMipLevels = SkMipmap::ComputeLevelCount(dimensions) + 1;
     }
 
     wgpu::TextureDescriptor desc;
-    desc.usage                      = dawnInfo.fUsage;
-    desc.dimension                  = wgpu::TextureDimension::e2D;
-    desc.size.width                 = dimensions.width();
-    desc.size.height                = dimensions.height();
-    desc.size.depthOrArrayLayers    = 1;
-    desc.format                     = dawnInfo.fFormat;
-    desc.mipLevelCount              = numMipLevels;
-    desc.sampleCount                = info.numSamples();
-    desc.viewFormatCount            = 0;
-    desc.viewFormats                = nullptr;
+    desc.usage                   = dawnInfo.fUsage;
+    desc.dimension               = wgpu::TextureDimension::e2D;
+    desc.size.width              = dimensions.width();
+    desc.size.height             = dimensions.height();
+    desc.size.depthOrArrayLayers = 1;
+    desc.format                  = dawnInfo.fFormat;
+    desc.mipLevelCount           = numMipLevels;
+    desc.sampleCount             = (uint8_t) info.sampleCount();
+    desc.viewFormatCount         = 0;
+    desc.viewFormats             = nullptr;
 
     auto texture = sharedContext->device().CreateTexture(&desc);
     if (!texture) {

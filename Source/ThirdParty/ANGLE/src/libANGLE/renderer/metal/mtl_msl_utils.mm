@@ -201,7 +201,7 @@ static std::string MSLGetMappedSamplerName(const std::string &originalName)
 
     if (MappedSamplerNameNeedsUserDefinedPrefix(originalName))
     {
-        samplerName = sh::kUserDefinedNamePrefix + samplerName;
+        samplerName = kUserDefinedNamePrefix + samplerName;
     }
 
     return samplerName;
@@ -214,7 +214,7 @@ void MSLGetShaderSource(const gl::ProgramState &programState,
     for (const gl::ShaderType shaderType : gl::AllShaderTypes())
     {
         const gl::SharedCompiledShaderState &glShader = programState.getAttachedShader(shaderType);
-        (*shaderSourcesOut)[shaderType]               = glShader ? glShader->translatedSource : "";
+        (*shaderSourcesOut)[shaderType]               = glShader ? *glShader->translatedSource : "";
     }
 }
 
@@ -232,7 +232,7 @@ void GetAssignedSamplerBindings(const sh::TranslatorMetalReflection *reflection,
         // Assign sequential index for subsequent array elements
         const bool structSampler = structSamplers.find(name) != structSamplers.end();
         const std::string mappedName =
-            structSampler ? name : MSLGetMappedSamplerName(sh::kUserDefinedNamePrefix + name);
+            structSampler ? name : MSLGetMappedSamplerName(kUserDefinedNamePrefix + name);
         auto original = originalBindings.find(mappedName);
         if (original != originalBindings.end())
         {

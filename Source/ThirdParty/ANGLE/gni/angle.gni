@@ -339,6 +339,7 @@ if (!defined(angle_zlib_compression_utils_dir)) {
 angle_common_configs = [
   angle_root + ":angle_asserts_config",
   angle_root + ":constructor_and_destructor_warnings",
+  angle_root + ":no_thread_safety_warnings",
   angle_root + ":extra_warnings",
   angle_root + ":internal_config",
   angle_root + ":angle_uwp_env",
@@ -349,7 +350,7 @@ angle_remove_configs = []
 if (angle_has_build) {
   angle_remove_configs += [ "//build/config/compiler:default_include_dirs" ]
 
-  if (is_clang && !is_nacl) {
+  if (is_clang) {
     angle_remove_configs += [ "//build/config/clang:find_bad_constructs" ]
   }
 
@@ -357,6 +358,12 @@ if (angle_has_build) {
     # default->optimize_max (e.g. Android defaults to -Oz, optimize_max is -O2)
     angle_remove_configs += [ "//build/config/compiler:default_optimization" ]
     angle_common_configs += [ "//build/config/compiler:optimize_max" ]
+  }
+
+  # See https://crbug.com/386992829
+  if (defined(angle_sanitize_array_bounds) && !angle_sanitize_array_bounds) {
+    angle_remove_configs +=
+        [ "//build/config/compiler:sanitize_c_array_bounds" ]
   }
 }
 
@@ -582,7 +589,7 @@ if (angle_standalone || build_with_chromium ||
                       "//third_party/googletest:gtest",
                     ]
       if (angle_has_rapidjson) {
-        public_deps += [ "$angle_root/third_party/rapidjson:rapidjson" ]
+        public_deps += [ "$angle_root/third_party/rapidjson" ]
       }
 
       data = invoker.data + [

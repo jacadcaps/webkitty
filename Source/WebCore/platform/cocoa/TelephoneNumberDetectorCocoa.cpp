@@ -29,6 +29,7 @@
 #if ENABLE(TELEPHONE_NUMBER_DETECTION)
 
 #include <wtf/SoftLinking.h>
+#include <wtf/darwin/DispatchExtras.h>
 
 #if USE(APPLE_INTERNAL_SDK)
 #include <DataDetectorsCore/DDDFAScanner.h>
@@ -61,7 +62,7 @@ static DDDFAScannerRef phoneNumbersScanner()
 void prewarm()
 {
     // Prewarm on a background queue to avoid hanging the main thread.
-    dispatch_async(dispatch_get_global_queue(0, 0), ^{
+    dispatch_async(globalDispatchQueueSingleton(0, 0), ^{
         phoneNumbersScanner();
     });
 }

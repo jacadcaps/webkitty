@@ -25,9 +25,11 @@
 
 #pragma once
 
+#ifdef __cplusplus
+
 DECLARE_SYSTEM_HEADER
 
-#if USE(APPLE_INTERNAL_SDK)
+#if USE(APPLE_INTERNAL_SDK) && !__has_feature(modules)
 
 #import <AudioToolbox/AudioComponentPriv.h>
 #import <AudioToolbox/AudioFormatPriv.h>
@@ -67,3 +69,5 @@ struct SpatialAudioPreferences {
 };
 
 #endif
+
+#endif // __cplusplus

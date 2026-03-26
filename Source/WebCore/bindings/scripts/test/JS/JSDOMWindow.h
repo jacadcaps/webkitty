@@ -20,10 +20,10 @@
 
 #pragma once
 
-#include "EventTargetInlines.h"
-#include "JSDOMWrapper.h"
-#include "JSEventTarget.h"
-#include "JSWindowProxy.h"
+#include <WebCore/EventTarget.h>
+#include <WebCore/JSDOMWrapper.h>
+#include <WebCore/JSEventTarget.h>
+#include <WebCore/JSWindowProxy.h>
 
 namespace WebCore {
 
@@ -35,7 +35,7 @@ public:
     using DOMWrapped = DOMWindow;
     static JSDOMWindow* create(JSC::VM& vm, JSC::Structure* structure, Ref<DOMWindow>&& impl, JSWindowProxy* proxy)
     {
-        JSDOMWindow* ptr = new (NotNull, JSC::allocateCell<JSDOMWindow>(vm)) JSDOMWindow(vm, structure, WTFMove(impl), proxy);
+        JSDOMWindow* ptr = new (NotNull, JSC::allocateCell<JSDOMWindow>(vm)) JSDOMWindow(vm, structure, WTF::move(impl), proxy);
         ptr->finishCreation(vm, proxy);
         return ptr;
     }

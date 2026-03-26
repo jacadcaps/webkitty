@@ -41,7 +41,7 @@ bool Module::load()
     if (!CFBundleLoadExecutable(bundle.get()))
         return false;
 
-    m_bundle = WTFMove(bundle);
+    m_bundle = WTF::move(bundle);
     return true;
 }
 
@@ -51,7 +51,7 @@ void Module::unload()
         return;
 
     // See the comment in Module.h for why we leak the bundle here.
-    CFBundleRef unused = m_bundle.leakRef();
+    SUPPRESS_RETAINPTR_CTOR_ADOPT CFBundleRef unused = m_bundle.leakRef();
     (void)unused;
 }
 

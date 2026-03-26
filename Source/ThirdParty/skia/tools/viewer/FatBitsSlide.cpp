@@ -13,6 +13,7 @@
 #include "include/core/SkMatrix.h"
 #include "include/core/SkPaint.h"
 #include "include/core/SkPath.h"
+#include "include/core/SkPathBuilder.h"
 #include "include/core/SkPathUtils.h"
 #include "include/core/SkPoint.h"
 #include "include/core/SkRect.h"
@@ -162,9 +163,7 @@ private:
     void drawRectSkeleton(SkCanvas* max, const SkRect& r) {
         SkPaint paint;
         this->setupSkeletonPaint(&paint);
-        SkPath path;
-
-        fRectAsOval ? path.addOval(r) : path.addRect(r);
+        SkPath path = fRectAsOval ? SkPath::Oval(r) : SkPath::Rect(r);
         max->drawPath(path, paint);
     }
 
@@ -237,21 +236,18 @@ void FatBits::drawLineSkeleton(SkCanvas* max, const SkPoint pts[]) {
     SkPaint paint;
     this->setupSkeletonPaint(&paint);
 
-    SkPath path;
-    path.moveTo(pts[0]);
-    path.lineTo(pts[1]);
+    SkPath path = SkPath::Line(pts[0], pts[1]);
 
     if (fStyle == kStroke_Style) {
         SkPaint p;
         p.setStyle(SkPaint::kStroke_Style);
         p.setStrokeWidth(fStrokeWidth * fZoom);
         p.setStrokeCap(fStrokeCap);
-        SkPath dst;
+        SkPathBuilder dst;
         skpathutils::FillPathWithPaint(path, p, &dst);
-        path = dst;
-
-        path.moveTo(pts[0]);
-        path.lineTo(pts[1]);
+        dst.moveTo(pts[0]);
+        dst.lineTo(pts[1]);
+        path = dst.detach();
     }
     max->drawPath(path, paint);
 }
@@ -321,11 +317,7 @@ void FatBits::drawTriangleSkeleton(SkCanvas* max, const SkPoint pts[]) {
     SkPaint paint;
     this->setupSkeletonPaint(&paint);
 
-    SkPath path;
-    path.moveTo(pts[0]);
-    path.lineTo(pts[1]);
-    path.lineTo(pts[2]);
-    path.close();
+    SkPath path = SkPath::Polygon({pts, 3}, true);
 
     max->drawPath(path, paint);
 }
@@ -339,11 +331,7 @@ void FatBits::drawTriangle(SkCanvas* canvas, SkPoint pts[3]) {
         apply_grid(pts, 3);
     }
 
-    SkPath path;
-    path.moveTo(pts[0]);
-    path.lineTo(pts[1]);
-    path.lineTo(pts[2]);
-    path.close();
+    SkPath path = SkPath::Polygon({pts, 3}, true);
 
     erase(fMinSurface.get());
     this->setupPaint(&paint);

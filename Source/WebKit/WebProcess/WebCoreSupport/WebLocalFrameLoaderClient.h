@@ -51,13 +51,12 @@ public:
 
     bool frameHasCustomContentProvider() const { return m_frameHasCustomContentProvider; }
 
-    void setUseIconLoadingClient(bool useIconLoadingClient) { m_useIconLoadingClient = useIconLoadingClient; }
-
     void applyWebsitePolicies(WebsitePoliciesData&&) final;
 
     std::optional<WebPageProxyIdentifier> webPageProxyID() const;
 
     bool hasFrameSpecificStorageAccess() final { return !!m_frameSpecificStorageAccessIdentifier; }
+    void revokeFrameSpecificStorageAccess() final { m_frameSpecificStorageAccessIdentifier = std::nullopt; }
     
     struct FrameSpecificStorageAccessIdentifier {
         WebCore::FrameIdentifier frameID;
@@ -87,7 +86,7 @@ private:
     bool shouldSuppressLayoutMilestones() const final;
     void fireLayoutRelatedMilestonesIfNeeded();
     
-    void assignIdentifierToInitialRequest(WebCore::ResourceLoaderIdentifier, WebCore::IsMainResourceLoad, WebCore::DocumentLoader*, const WebCore::ResourceRequest&) final;
+    void assignIdentifierToInitialRequest(WebCore::ResourceLoaderIdentifier, WebCore::DocumentLoader*, const WebCore::ResourceRequest&) final;
     
     void dispatchWillSendRequest(WebCore::DocumentLoader*, WebCore::ResourceLoaderIdentifier, WebCore::ResourceRequest&, const WebCore::ResourceResponse& redirectResponse) final;
     bool shouldUseCredentialStorage(WebCore::DocumentLoader*, WebCore::ResourceLoaderIdentifier) final;
@@ -100,8 +99,8 @@ private:
 #endif
     void dispatchDidReceiveResponse(WebCore::DocumentLoader*, WebCore::ResourceLoaderIdentifier, const WebCore::ResourceResponse&) final;
     void dispatchDidReceiveContentLength(WebCore::DocumentLoader*, WebCore::ResourceLoaderIdentifier, int dataLength) final;
-    void dispatchDidFinishLoading(WebCore::DocumentLoader*, WebCore::IsMainResourceLoad, WebCore::ResourceLoaderIdentifier) final;
-    void dispatchDidFailLoading(WebCore::DocumentLoader*, WebCore::IsMainResourceLoad, WebCore::ResourceLoaderIdentifier, const WebCore::ResourceError&) final;
+    void dispatchDidFinishLoading(WebCore::DocumentLoader*, WebCore::ResourceLoaderIdentifier) final;
+    void dispatchDidFailLoading(WebCore::DocumentLoader*, WebCore::ResourceLoaderIdentifier, const WebCore::ResourceError&) final;
     bool dispatchDidLoadResourceFromMemoryCache(WebCore::DocumentLoader*, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&, int length) final;
 #if ENABLE(DATA_DETECTION)
     void dispatchDidFinishDataDetection(NSArray *detectionResults) final;
@@ -139,15 +138,16 @@ private:
     
     void dispatchDecidePolicyForResponse(const WebCore::ResourceResponse&, const WebCore::ResourceRequest&, const String&, WebCore::FramePolicyFunction&&) final;
     void dispatchDecidePolicyForNewWindowAction(const WebCore::NavigationAction&, const WebCore::ResourceRequest&, WebCore::FormState*, const String& frameName, std::optional<WebCore::HitTestResult>&&, WebCore::FramePolicyFunction&&) final;
-    void dispatchDecidePolicyForNavigationAction(const WebCore::NavigationAction&, const WebCore::ResourceRequest&, const WebCore::ResourceResponse& redirectResponse, WebCore::FormState*, const String& clientRedirectSourceForHistory, std::optional<WebCore::NavigationIdentifier>, std::optional<WebCore::HitTestResult>&&, bool hasOpener, WebCore::IsPerformingHTTPFallback, WebCore::SandboxFlags, WebCore::PolicyDecisionMode, WebCore::FramePolicyFunction&&) final;
+    void dispatchDecidePolicyForNavigationAction(const WebCore::NavigationAction&, const WebCore::ResourceRequest&, const WebCore::ResourceResponse& redirectResponse, WebCore::FormState*, const String& clientRedirectSourceForHistory, std::optional<WebCore::NavigationIdentifier>, std::optional<WebCore::HitTestResult>&&, bool hasOpener, WebCore::NavigationUpgradeToHTTPSBehavior, WebCore::SandboxFlags, WebCore::PolicyDecisionMode, WebCore::FramePolicyFunction&&) final;
     void updateSandboxFlags(WebCore::SandboxFlags) final;
-    void updateOpener(const WebCore::Frame&) final;
+    void updateOpener(std::optional<WebCore::FrameIdentifier>) final;
+    void setPrinting(bool printing, WebCore::FloatSize pageSize, WebCore::FloatSize originalPageSize, float maximumShrinkRatio, WebCore::AdjustViewSize) final;
     void cancelPolicyCheck() final;
     
     void dispatchUnableToImplementPolicy(const WebCore::ResourceError&) final;
     
     void dispatchWillSendSubmitEvent(Ref<WebCore::FormState>&&) final;
-    void dispatchWillSubmitForm(WebCore::FormState&, CompletionHandler<void()>&&) final;
+    void dispatchWillSubmitForm(WebCore::FormState&, URL&& requestURL, String&& method, CompletionHandler<void()>&&) final;
     
     void revertToProvisionalState(WebCore::DocumentLoader*) final;
     void setMainDocumentError(WebCore::DocumentLoader*, const WebCore::ResourceError&) final;
@@ -171,9 +171,6 @@ private:
     WebCore::ShouldGoToHistoryItem shouldGoToHistoryItem(WebCore::HistoryItem&, WebCore::IsSameDocumentNavigation, WebCore::ProcessSwapDisposition) const final;
     bool supportsAsyncShouldGoToHistoryItem() const final;
     void shouldGoToHistoryItemAsync(WebCore::HistoryItem&, CompletionHandler<void(WebCore::ShouldGoToHistoryItem)>&&) const final;
-
-    void didDisplayInsecureContent() final;
-    void didRunInsecureContent(WebCore::SecurityOrigin&) final;
 
     void didFinishServiceWorkerPageRegistration(bool success) final;
     
@@ -239,6 +236,7 @@ private:
     WebCore::IntPoint accessibilityRemoteFrameOffset() final;
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
     void setIsolatedTree(Ref<WebCore::AXIsolatedTree>&&) final;
+    RefPtr<WebCore::AXIsolatedTree> isolatedTree() const final;
 #endif
     void willCacheResponse(WebCore::DocumentLoader*, WebCore::ResourceLoaderIdentifier, NSCachedURLResponse*, CompletionHandler<void(NSCachedURLResponse *)>&&) const final;
 
@@ -262,7 +260,7 @@ private:
 #endif
 
 #if ENABLE(CONTENT_FILTERING)
-    void contentFilterDidBlockLoad(WebCore::ContentFilterUnblockHandler) final;
+    void contentFilterDidBlockLoad(WebCore::ContentFilterUnblockHandler&&) final;
 #endif
 
     void prefetchDNS(const String&) final;
@@ -282,11 +280,16 @@ private:
 
     bool siteIsolationEnabled() const;
 
+    void broadcastAllFrameTreeSyncDataToOtherProcesses(WebCore::FrameTreeSyncData&) final;
+    void broadcastFrameTreeSyncDataToOtherProcesses(const WebCore::FrameTreeSyncSerializationData&) final;
+
     Ref<WebCore::LocalFrame> protectedLocalFrame() const;
 
 #if ENABLE(CONTENT_EXTENSIONS)
     void didExceedNetworkUsageThreshold();
 #endif
+
+    void removeStorageAccess();
 
 #if ENABLE(PDF_PLUGIN)
     RefPtr<PluginView> m_pluginView;
@@ -296,7 +299,6 @@ private:
     bool m_didCompletePageTransition { false };
     bool m_frameHasCustomContentProvider { false };
     bool m_frameCameFromBackForwardCache { false };
-    bool m_useIconLoadingClient { false };
     std::optional<FrameSpecificStorageAccessIdentifier> m_frameSpecificStorageAccessIdentifier;
     WeakRef<WebCore::LocalFrame> m_localFrame;
 
@@ -320,6 +322,8 @@ private:
     void frameNameChanged(const String&) final;
 
     RefPtr<WebCore::HistoryItem> createHistoryItemTree(bool clipAtTarget, WebCore::BackForwardItemIdentifier) const final;
+
+    RefPtr<WebCore::Frame> provisionalParentFrame() const final;
 };
 
 } // namespace WebKit

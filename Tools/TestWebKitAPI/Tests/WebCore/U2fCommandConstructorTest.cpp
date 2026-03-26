@@ -63,10 +63,10 @@ PublicKeyCredentialCreationOptions constructMakeCredentialRequest()
     AuthenticationExtensionsClientInputs extensions;
 
     PublicKeyCredentialCreationOptions options;
-    options.rp = WTFMove(rp);
-    options.user = WTFMove(user);
-    options.pubKeyCredParams.append(WTFMove(params));
-    options.extensions = WTFMove(extensions);
+    options.rp = WTF::move(rp);
+    options.user = WTF::move(user);
+    options.pubKeyCredParams.append(WTF::move(params));
+    options.extensions = WTF::move(extensions);
 
     return options;
 }
@@ -97,7 +97,7 @@ TEST(U2fCommandConstructorTest, TestConvertCtapMakeCredentialToU2fCheckOnlySign)
     credentialDescriptor.id = WebCore::toBufferSource(TestData::kU2fSignKeyHandle).variant();
     Vector<PublicKeyCredentialDescriptor> excludeList;
     excludeList.append(credentialDescriptor);
-    makeCredentialParam.excludeCredentials = WTFMove(excludeList);
+    makeCredentialParam.excludeCredentials = WTF::move(excludeList);
     EXPECT_TRUE(isConvertibleToU2fRegisterCommand(makeCredentialParam));
 
     const auto u2fCheckOnlySign = convertToU2fCheckOnlySignCommand(std::array { TestData::kClientDataHash }, makeCredentialParam, credentialDescriptor);
@@ -113,7 +113,7 @@ TEST(U2fCommandConstructorTest, TestConvertCtapMakeCredentialToU2fCheckOnlySignW
     credentialDescriptor.id = WebCore::toBufferSource(TestData::kU2fSignKeyHandle).variant();
     Vector<PublicKeyCredentialDescriptor> excludeList;
     excludeList.append(credentialDescriptor);
-    makeCredentialParam.excludeCredentials = WTFMove(excludeList);
+    makeCredentialParam.excludeCredentials = WTF::move(excludeList);
     EXPECT_TRUE(isConvertibleToU2fRegisterCommand(makeCredentialParam));
 
     const auto u2fCheckOnlySign = convertToU2fCheckOnlySignCommand(std::span { TestData::kClientDataHash }, makeCredentialParam, credentialDescriptor);
@@ -137,9 +137,9 @@ TEST(U2fCommandConstructorTest, TestU2fRegisterCredentialAlgorithmRequirement)
     params.alg = -257;
 
     PublicKeyCredentialCreationOptions makeCredentialParam;
-    makeCredentialParam.rp = WTFMove(rp);
-    makeCredentialParam.user = WTFMove(user);
-    makeCredentialParam.pubKeyCredParams.append(WTFMove(params));
+    makeCredentialParam.rp = WTF::move(rp);
+    makeCredentialParam.user = WTF::move(user);
+    makeCredentialParam.pubKeyCredParams.append(WTF::move(params));
 
     EXPECT_FALSE(isConvertibleToU2fRegisterCommand(makeCredentialParam));
 }
@@ -149,7 +149,7 @@ TEST(U2fCommandConstructorTest, TestU2fRegisterUserVerificationRequirement)
     auto makeCredentialParam = constructMakeCredentialRequest();
     AuthenticatorSelectionCriteria selection;
     selection.userVerification = UserVerificationRequirement::Required;
-    makeCredentialParam.authenticatorSelection = WTFMove(selection);
+    makeCredentialParam.authenticatorSelection = WTF::move(selection);
 
     EXPECT_FALSE(isConvertibleToU2fRegisterCommand(makeCredentialParam));
 }
@@ -159,7 +159,7 @@ TEST(U2fCommandConstructorTest, TestU2fRegisterResidentKeyRequirement)
     auto makeCredentialParam = constructMakeCredentialRequest();
     AuthenticatorSelectionCriteria selection;
     selection.requireResidentKey = true;
-    makeCredentialParam.authenticatorSelection = WTFMove(selection);
+    makeCredentialParam.authenticatorSelection = WTF::move(selection);
 
     EXPECT_FALSE(isConvertibleToU2fRegisterCommand(makeCredentialParam));
 }
@@ -171,8 +171,8 @@ TEST(U2fCommandConstructorTest, TestConvertCtapGetAssertionToU2fSignRequest)
     credentialDescriptor.type = PublicKeyCredentialType::PublicKey;
     credentialDescriptor.id = WebCore::toBufferSource(TestData::kU2fSignKeyHandle);
     Vector<PublicKeyCredentialDescriptor> allowedList;
-    allowedList.append(WTFMove(credentialDescriptor));
-    getAssertionReq.allowCredentials = WTFMove(allowedList);
+    allowedList.append(WTF::move(credentialDescriptor));
+    getAssertionReq.allowCredentials = WTF::move(allowedList);
     EXPECT_TRUE(isConvertibleToU2fSignCommand(getAssertionReq));
 
     const auto u2fSignCommand = convertToU2fSignCommand(std::span { TestData::kClientDataHash }, getAssertionReq, WebCore::toBufferSource(TestData::kU2fSignKeyHandle));
@@ -187,14 +187,14 @@ TEST(U2fCommandConstructorTest, TestConvertCtapGetAssertionWithAppIDToU2fSignReq
     credentialDescriptor.type = PublicKeyCredentialType::PublicKey;
     credentialDescriptor.id = WebCore::toBufferSource(TestData::kU2fSignKeyHandle);
     Vector<PublicKeyCredentialDescriptor> allowedList;
-    allowedList.append(WTFMove(credentialDescriptor));
-    getAssertionReq.allowCredentials = WTFMove(allowedList);
+    allowedList.append(WTF::move(credentialDescriptor));
+    getAssertionReq.allowCredentials = WTF::move(allowedList);
     EXPECT_TRUE(isConvertibleToU2fSignCommand(getAssertionReq));
 
     // AppID
     WebCore::AuthenticationExtensionsClientInputs extensions;
     extensions.appid = "https://www.example.com/appid"_s;
-    getAssertionReq.extensions = WTFMove(extensions);
+    getAssertionReq.extensions = WTF::move(extensions);
 
     const auto u2fSignCommand = convertToU2fSignCommand(std::span { TestData::kClientDataHash }, getAssertionReq, WebCore::toBufferSource(TestData::kU2fSignKeyHandle), true);
     ASSERT_TRUE(u2fSignCommand);
@@ -214,8 +214,8 @@ TEST(U2fCommandConstructorTest, TestU2fSignUserVerificationRequirement)
     credentialDescriptor.type = PublicKeyCredentialType::PublicKey;
     credentialDescriptor.id = WebCore::toBufferSource(TestData::kU2fSignKeyHandle);
     Vector<PublicKeyCredentialDescriptor> allowedList;
-    allowedList.append(WTFMove(credentialDescriptor));
-    getAssertionReq.allowCredentials = WTFMove(allowedList);
+    allowedList.append(WTF::move(credentialDescriptor));
+    getAssertionReq.allowCredentials = WTF::move(allowedList);
     getAssertionReq.userVerification = UserVerificationRequirement::Required;
 
     EXPECT_FALSE(isConvertibleToU2fSignCommand(getAssertionReq));
@@ -228,8 +228,8 @@ TEST(U2fCommandConstructorTest, TestCreateSignWithIncorrectKeyHandle)
     credentialDescriptor.type = PublicKeyCredentialType::PublicKey;
     credentialDescriptor.id = WebCore::toBufferSource(TestData::kU2fSignKeyHandle);
     Vector<PublicKeyCredentialDescriptor> allowedList;
-    allowedList.append(WTFMove(credentialDescriptor));
-    getAssertionReq.allowCredentials = WTFMove(allowedList);
+    allowedList.append(WTF::move(credentialDescriptor));
+    getAssertionReq.allowCredentials = WTF::move(allowedList);
     ASSERT_TRUE(isConvertibleToU2fSignCommand(getAssertionReq));
 
     Vector<uint8_t> keyHandle(kMaxKeyHandleLength, 0xff);

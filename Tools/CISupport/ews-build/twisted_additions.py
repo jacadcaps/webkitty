@@ -148,7 +148,7 @@ class HTTPConnectSetup(http.HTTPClient):
     """
 
     def __init__(self, host, port):
-        self.host = host
+        self.host = f'[{host}]' if ':' in host else host
         self.port = port
 
     def connectionMade(self):
@@ -157,7 +157,7 @@ class HTTPConnectSetup(http.HTTPClient):
 
     def handleStatus(self, version, status, message):
         if status != b'200':
-            raise error.ConnectError(f'Unexpected status on CONNECT: {status}')
+            raise error.ConnectError(f'Unexpected {status} status on CONNECT, {message}, {version}, host: {self.host}:{self.port}')
 
     def handleEndHeaders(self):
         # TODO: Make sure parent is assigned, and has a proxyConnected callback

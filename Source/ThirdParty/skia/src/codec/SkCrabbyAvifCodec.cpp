@@ -17,7 +17,9 @@
 #include "include/core/SkStream.h"
 #include "include/core/SkTypes.h"
 #include "include/private/SkGainmapInfo.h"
+#include "include/private/base/SkMutex.h"
 #include "modules/skcms/skcms.h"
+#include "src/codec/SkCodecPriv.h"
 #include "src/core/SkStreamPriv.h"
 
 #include <cstdint>
@@ -160,7 +162,7 @@ std::unique_ptr<SkCodec> SkCrabbyAvifCodec::MakeFromStream(std::unique_ptr<SkStr
         // It is safe to make without copy because we'll hold onto the stream.
         data = SkData::MakeWithoutCopy(stream->getMemoryBase(), stream->getLength());
     } else {
-        data = SkCopyStreamToData(stream.get());
+        data = SkStreamPriv::CopyStreamToData(stream.get());
         // If we are forced to copy the stream to a data, we can go ahead and
         // delete the stream.
         stream.reset(nullptr);
@@ -169,7 +171,7 @@ std::unique_ptr<SkCodec> SkCrabbyAvifCodec::MakeFromStream(std::unique_ptr<SkStr
 }
 
 std::unique_ptr<SkCodec> SkCrabbyAvifCodec::MakeFromData(std::unique_ptr<SkStream> stream,
-                                                         sk_sp<SkData> data,
+                                                         sk_sp<const SkData> data,
                                                          Result* result,
                                                          bool gainmapOnly /*=false*/) {
     SkASSERT(result);
@@ -190,6 +192,10 @@ std::unique_ptr<SkCodec> SkCrabbyAvifCodec::MakeFromData(std::unique_ptr<SkStrea
     // created with older tools but can be decoded and rendered without any
     // issues.
     avifDecoder->strictFlags = crabbyavif::AVIF_STRICT_DISABLED;
+
+    // Disable support for sample transforms. Android pipeline does not support
+    // these images.
+    avifDecoder->allowSampleTransform = crabbyavif::CRABBY_AVIF_FALSE;
 
     // Android uses MediaCodec for decoding the underlying image. So there is no
     // need to set maxThreads since MediaCodec doesn't allow explicit setting
@@ -240,13 +246,21 @@ std::unique_ptr<SkCodec> SkCrabbyAvifCodec::MakeFromData(std::unique_ptr<SkStrea
         }
     }
 
-    std::unique_ptr<SkEncodedInfo::ICCProfile> profile = nullptr;
+    std::unique_ptr<SkCodecs::ColorProfile> profile;
     if (image->icc.size > 0) {
         auto icc = SkData::MakeWithCopy(image->icc.data, image->icc.size);
-        profile = SkEncodedInfo::ICCProfile::Make(std::move(icc));
-        if (profile && profile->profile()->data_color_space != skcms_Signature_RGB) {
-            profile = nullptr;
-        }
+        profile = SkCodecs::ColorProfile::MakeICCProfile(std::move(icc));
+    } else if (image->transferCharacteristics == crabbyavif::AVIF_TRANSFER_CHARACTERISTICS_PQ ||
+               image->transferCharacteristics == crabbyavif::AVIF_TRANSFER_CHARACTERISTICS_HLG) {
+        // Do not set matrix_coefficients here because cicp_get_sk_color_space in SkAndroidCodec.cpp
+        // fails if matrix_coeffieicnts is not zero:
+        // https://skia.googlesource.com/skia/+/33b2d3333755ac5ce21495959c2d4bb11f299f8b/src/codec/SkAndroidCodec.cpp#186
+        profile = SkCodecs::ColorProfile::MakeCICP(
+            image->colorPrimaries, image->transferCharacteristics, 0,
+            image->yuvRange == crabbyavif::AVIF_RANGE_FULL);
+    }
+    if (profile && profile->dataSpace() != SkCodecs::ColorProfile::DataSpace::kRGB) {
+        profile = nullptr;
     }
 
     SkEncodedInfo info = SkEncodedInfo::Make(
@@ -270,7 +284,7 @@ std::unique_ptr<SkCodec> SkCrabbyAvifCodec::MakeFromData(std::unique_ptr<SkStrea
 
 SkCrabbyAvifCodec::SkCrabbyAvifCodec(SkEncodedInfo&& info,
                                      std::unique_ptr<SkStream> stream,
-                                     sk_sp<SkData> data,
+                                     sk_sp<const SkData> data,
                                      AvifDecoder avifDecoder,
                                      SkEncodedOrigin origin,
                                      bool useAnimation,
@@ -359,6 +373,7 @@ bool SkCrabbyAvifCodec::conversionSupported(const SkImageInfo& dstInfo,
                                             bool srcIsOpaque,
                                             bool needsColorXform) {
     return dstInfo.colorType() == kRGBA_8888_SkColorType ||
+           dstInfo.colorType() == kBGRA_8888_SkColorType ||
            dstInfo.colorType() == kRGBA_1010102_SkColorType ||
            dstInfo.colorType() == kRGBA_F16_SkColorType ||
            dstInfo.colorType() == kRGB_565_SkColorType;
@@ -369,8 +384,15 @@ SkCodec::Result SkCrabbyAvifCodec::onGetPixels(const SkImageInfo& dstInfo,
                                                size_t dstRowBytes,
                                                const Options& options,
                                                int* rowsDecoded) {
+    // Creating multiple MediaCodec instances can lead to binder starvation
+    // issues (e.g. b/447869238) on Android. Guard access to this function with
+    // a static lock so that a single app process can only create one MediaCodec
+    // instance at a time.
+    static SkMutex mutex;
+    SkAutoMutexExclusive lock(mutex);
     switch (dstInfo.colorType()) {
         case kRGBA_8888_SkColorType:
+        case kBGRA_8888_SkColorType:
         case kRGB_565_SkColorType:
             fAvifDecoder->androidMediaCodecOutputColorFormat =
                     crabbyavif::ANDROID_MEDIA_CODEC_OUTPUT_COLOR_FORMAT_YUV420_FLEXIBLE;
@@ -463,9 +485,15 @@ SkCodec::Result SkCrabbyAvifCodec::onGetPixels(const SkImageInfo& dstInfo,
     switch (dstInfo.colorType()) {
         case kRGBA_8888_SkColorType:
             rgbImage.depth = 8;
+            rgbImage.format = crabbyavif::AVIF_RGB_FORMAT_RGBA;
+            break;
+        case kBGRA_8888_SkColorType:
+            rgbImage.depth = 8;
+            rgbImage.format = crabbyavif::AVIF_RGB_FORMAT_BGRA;
             break;
         case kRGBA_F16_SkColorType:
             rgbImage.depth = 16;
+            rgbImage.format = crabbyavif::AVIF_RGB_FORMAT_RGBA;
             rgbImage.isFloat = crabbyavif::CRABBY_AVIF_TRUE;
             break;
         case kRGBA_1010102_SkColorType:
@@ -521,7 +549,7 @@ std::unique_ptr<SkCodec> Decode(std::unique_ptr<SkStream> stream,
     return SkCrabbyAvifCodec::MakeFromStream(std::move(stream), outResult);
 }
 
-std::unique_ptr<SkCodec> Decode(sk_sp<SkData> data,
+std::unique_ptr<SkCodec> Decode(sk_sp<const SkData> data,
                                 SkCodec::Result* outResult,
                                 SkCodecs::DecodeContext) {
     if (!data) {

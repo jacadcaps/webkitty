@@ -41,6 +41,7 @@
 #import <wtf/BlockObjCExceptions.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/NeverDestroyed.h>
+#import <wtf/TZoneMallocInlines.h>
 #import <wtf/cf/TypeCastsCF.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 #import <wtf/text/StringToIntegerConversion.h>
@@ -88,7 +89,7 @@ using namespace WebCore;
     if (!self)
         return self;
 
-    _callback = WTFMove(callback);
+    _callback = WTF::move(callback);
     return self;
 }
 
@@ -101,7 +102,7 @@ using namespace WebCore;
 {
     callOnMainRunLoop([strongSelf = RetainPtr { self }, error = RetainPtr { error }]() mutable {
         if (RefPtr callback = strongSelf->_callback.get())
-            callback->sessionFailedWithError(WTFMove(error), "-[SCStreamDelegate stream:didStopWithError:] called"_s);
+            callback->sessionFailedWithError(WTF::move(error), "-[SCStreamDelegate stream:didStopWithError:] called"_s);
     });
 }
 
@@ -137,7 +138,7 @@ using namespace WebCore;
 
     callOnMainRunLoop([strongSelf = RetainPtr { self }, sampleBuffer = RetainPtr { sampleBuffer }]() mutable {
         if (RefPtr callback = strongSelf->_callback.get())
-            callback->streamDidOutputVideoSampleBuffer(WTFMove(sampleBuffer));
+            callback->streamDidOutputVideoSampleBuffer(WTF::move(sampleBuffer));
     });
 }
 
@@ -164,6 +165,8 @@ using namespace WebCore;
 #pragma clang diagnostic pop
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ScreenCaptureKitCaptureSource);
 
 ALLOW_NEW_API_WITHOUT_GUARDS_BEGIN
 
@@ -198,7 +201,7 @@ ScreenCaptureKitCaptureSource::~ScreenCaptureKitCaptureSource()
     clearSharingSession();
 
     if (auto callback = std::exchange(m_whenReadyCallback, { })) {
-        callOnMainRunLoop([callback = WTFMove(callback)]() mutable {
+        callOnMainRunLoop([callback = WTF::move(callback)]() mutable {
             callback({ "Source no longer needed"_s , MediaAccessDenialReason::InvalidAccess });
         });
     }
@@ -211,7 +214,7 @@ void ScreenCaptureKitCaptureSource::whenReady(CompletionHandler<void(CaptureSour
         return;
     }
 
-    m_whenReadyCallback = WTFMove(callback);
+    m_whenReadyCallback = WTF::move(callback);
 
     if (m_isRunning)
         return;
@@ -252,20 +255,19 @@ void ScreenCaptureKitCaptureSource::stop()
         return;
 
     auto stopHandler = makeBlockPtr([weakThis = WeakPtr { *this }] (NSError *error) mutable {
-        callOnMainRunLoop([weakThis = WTFMove(weakThis), error = RetainPtr { error }]() mutable {
+        callOnMainRunLoop([weakThis = WTF::move(weakThis), error = RetainPtr { error }]() mutable {
             if (!error)
                 return;
 
             if (RefPtr protectedThis = weakThis.get())
-                protectedThis->sessionFailedWithError(WTFMove(error), "-[SCStream stopCaptureWithCompletionHandler:] failed"_s);
+                protectedThis->sessionFailedWithError(WTF::move(error), "-[SCStream stopCaptureWithCompletionHandler:] failed"_s);
         });
     });
     [contentStream() stopCaptureWithCompletionHandler:stopHandler.get()];
 
-    if (m_sessionSource) {
+    // We do not nullify m_sessionSource to keep the picker active since it is helping capture for some fullscreen cases.
+    if (m_sessionSource)
         m_contentFilter = m_sessionSource->contentFilter();
-        m_sessionSource = nullptr;
-    }
 }
 
 void ScreenCaptureKitCaptureSource::end()
@@ -333,9 +335,9 @@ void ScreenCaptureKitCaptureSource::sessionFilterDidChange(SCContentFilter* cont
             if (!error)
                 return;
 
-            callOnMainRunLoop([weakThis = WTFMove(weakThis), error = RetainPtr { error }]() mutable {
+            callOnMainRunLoop([weakThis = WTF::move(weakThis), error = RetainPtr { error }]() mutable {
                 if (RefPtr protectedThis = weakThis.get())
-                    protectedThis->sessionFailedWithError(WTFMove(error), "-[SCStream updateContentFilter:completionHandler:] failed"_s);
+                    protectedThis->sessionFailedWithError(WTF::move(error), "-[SCStream updateContentFilter:completionHandler:] failed"_s);
             });
         });
 
@@ -400,16 +402,13 @@ void ScreenCaptureKitCaptureSource::startContentStream()
 {
     ALWAYS_LOG_IF_POSSIBLE(LOGIDENTIFIER);
 
-    if (contentStream())
-        return;
-
     if (!m_captureHelper)
         m_captureHelper = adoptNS([[WebCoreScreenCaptureKitHelper alloc] initWithCallback:this]);
 
     if (!m_contentFilter && !m_sharingSession) {
         auto filterAndSession = ScreenCaptureKitSharingSessionManager::singleton().contentFilterAndSharingSessionFromCaptureDevice(m_captureDevice);
-        m_contentFilter = WTFMove(filterAndSession.first);
-        m_sharingSession = WTFMove(filterAndSession.second);
+        m_contentFilter = WTF::move(filterAndSession.first);
+        m_sharingSession = WTF::move(filterAndSession.second);
 
 #if HAVE(SC_CONTENT_SHARING_PICKER)
         m_contentSize = FloatSize { m_contentFilter.get().contentRect.size };
@@ -452,18 +451,18 @@ void ScreenCaptureKitCaptureSource::startContentStream()
 
     NSError *error;
     if (![contentStream() addStreamOutput:m_captureHelper.get() type:SCStreamOutputTypeScreen sampleHandlerQueue:captureQueue() error:&error]) {
-        sessionFailedWithError(WTFMove(error), "-[SCStream addStreamOutput:type:sampleHandlerQueue:error:] failed"_s);
+        sessionFailedWithError(WTF::move(error), "-[SCStream addStreamOutput:type:sampleHandlerQueue:error:] failed"_s);
         return;
     }
 
     auto completionHandler = makeBlockPtr([weakThis = WeakPtr { *this }, identifier = LOGIDENTIFIER] (NSError *error) mutable {
-        callOnMainRunLoop([weakThis = WTFMove(weakThis), error = RetainPtr { error }, identifier]() mutable {
+        callOnMainRunLoop([weakThis = WTF::move(weakThis), error = RetainPtr { error }, identifier]() mutable {
             RefPtr protectedThis = weakThis.get();
             if (!protectedThis)
                 return;
 
             if (error) {
-                protectedThis->sessionFailedWithError(WTFMove(error), "-[SCStream startCaptureWithCompletionHandler:] failed"_s);
+                protectedThis->sessionFailedWithError(WTF::move(error), "-[SCStream startCaptureWithCompletionHandler:] failed"_s);
                 return;
             }
 
@@ -507,9 +506,9 @@ void ScreenCaptureKitCaptureSource::updateStreamConfiguration()
         if (!error)
             return;
 
-        callOnMainRunLoop([weakThis = WTFMove(weakThis), error = RetainPtr { error }]() mutable {
+        callOnMainRunLoop([weakThis = WTF::move(weakThis), error = RetainPtr { error }]() mutable {
             if (RefPtr protectedThis = weakThis.get())
-                weakThis->sessionFailedWithError(WTFMove(error), "-[SCStream updateConfiguration:completionHandler:] failed"_s);
+                weakThis->sessionFailedWithError(WTF::move(error), "-[SCStream updateConfiguration:completionHandler:] failed"_s);
         });
     });
 
@@ -602,7 +601,7 @@ void ScreenCaptureKitCaptureSource::streamDidOutputVideoSampleBuffer(RetainPtr<C
         return;
     }
 
-    m_currentFrame = WTFMove(sampleBuffer);
+    m_currentFrame = WTF::move(sampleBuffer);
 
     if (scaleFactor != 1)
         contentRect.scale(scaleFactor);
@@ -628,9 +627,9 @@ void ScreenCaptureKitCaptureSource::streamDidOutputVideoSampleBuffer(RetainPtr<C
         if (!m_transferSession)
             m_transferSession = ImageTransferSessionVT::create(preferedPixelBufferFormat());
 
-        m_transferSession->setCroppingRectangle(contentRect);
+        m_transferSession->setCroppingRectangle(contentRect, intrinsicSize);
         if (auto newFrame = m_transferSession->convertCMSampleBuffer(m_currentFrame.get(), IntSize { contentRect.size() })) {
-            m_currentFrame = WTFMove(newFrame);
+            m_currentFrame = WTF::move(newFrame);
             intrinsicSize = FloatSize(PAL::CMVideoFormatDescriptionGetPresentationDimensions(PAL::CMSampleBufferGetFormatDescription(m_currentFrame.get()), true, true));
         }
     }

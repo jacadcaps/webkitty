@@ -26,9 +26,14 @@
 #include "config.h"
 #include "AccessibilityMenuList.h"
 
+#include "AXLoggerBase.h"
+#include "AXNotifications.h"
+#include "AccessibilityObjectInlines.h"
 #include "AXObjectCache.h"
 #include "AccessibilityMenuListPopup.h"
+#include "FrameDestructionObserverInlines.h"
 #include "RenderMenuList.h"
+#include "RenderObjectDocument.h"
 #include <wtf/Scope.h>
 
 namespace WebCore {
@@ -91,8 +96,8 @@ void AccessibilityMenuList::addChildren()
 {
     // This class sets its children once in the create function, and should never
     // have dirty or uninitialized children afterwards.
-    ASSERT(m_childrenInitialized);
-    ASSERT(!m_childrenDirty);
+    AX_ASSERT(m_childrenInitialized);
+    AX_ASSERT(!m_childrenDirty);
 }
 
 bool AccessibilityMenuList::isCollapsed() const
@@ -124,8 +129,8 @@ void AccessibilityMenuList::didUpdateActiveOption(int optionIndex)
 
     const auto& childObjects = unignoredChildren();
     if (!childObjects.isEmpty()) {
-        ASSERT(childObjects.size() == 1);
-        ASSERT(is<AccessibilityMenuListPopup>(childObjects[0].get()));
+        AX_ASSERT(childObjects.size() == 1);
+        AX_ASSERT(is<AccessibilityMenuListPopup>(childObjects[0].get()));
 
         // We might be calling this method in situations where the renderers for list items
         // associated to the menu list have not been created (e.g. they might be rendered

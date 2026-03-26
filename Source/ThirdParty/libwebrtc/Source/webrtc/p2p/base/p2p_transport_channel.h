@@ -20,9 +20,8 @@
 #ifndef P2P_BASE_P2P_TRANSPORT_CHANNEL_H_
 #define P2P_BASE_P2P_TRANSPORT_CHANNEL_H_
 
-#include <stddef.h>
-#include <stdint.h>
-
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
@@ -34,11 +33,15 @@
 #include "api/array_view.h"
 #include "api/async_dns_resolver.h"
 #include "api/candidate.h"
+#include "api/environment/environment.h"
 #include "api/ice_transport_interface.h"
+#include "api/local_network_access_permission.h"
 #include "api/rtc_error.h"
 #include "api/sequence_checker.h"
 #include "api/transport/enums.h"
 #include "api/transport/stun.h"
+#include "api/units/time_delta.h"
+#include "api/units/timestamp.h"
 #include "logging/rtc_event_log/events/rtc_event_ice_candidate_pair_config.h"
 #include "logging/rtc_event_log/ice_logger.h"
 #include "p2p/base/active_ice_controller_factory_interface.h"
@@ -72,10 +75,6 @@
 #include "rtc_base/thread_annotations.h"
 
 namespace webrtc {
-class RtcEventLog;
-}  // namespace webrtc
-
-namespace webrtc {
 
 bool IceCredentialsChanged(absl::string_view old_ufrag,
                            absl::string_view old_pwd,
@@ -106,10 +105,10 @@ class RTC_EXPORT P2PTransportChannel : public IceTransportInternal,
 
   // For testing only.
   // TODO(zstein): Remove once AsyncDnsResolverFactory is required.
-  P2PTransportChannel(absl::string_view transport_name,
+  P2PTransportChannel(const Environment& env,
+                      absl::string_view transport_name,
                       int component,
-                      PortAllocator* allocator,
-                      const FieldTrialsView* field_trials = nullptr);
+                      PortAllocator* allocator);
 
   ~P2PTransportChannel() override;
 
@@ -129,9 +128,6 @@ class RTC_EXPORT P2PTransportChannel : public IceTransportInternal,
   void SetIceParameters(const IceParameters& ice_params) override;
   void SetRemoteIceParameters(const IceParameters& ice_params) override;
   void SetRemoteIceMode(IceMode mode) override;
-  // TODO(deadbeef): Deprecated. Remove when Chromium's
-  // IceTransportChannel does not depend on this.
-  void Connect() {}
   void MaybeStartGathering() override;
   IceGatheringState gathering_state() const override;
   void ResolveHostnameCandidate(const Candidate& candidate);
@@ -161,7 +157,7 @@ class RTC_EXPORT P2PTransportChannel : public IceTransportInternal,
 
   // From IceAgentInterface
   void OnStartedPinging() override;
-  int64_t GetLastPingSentMs() const override;
+  Timestamp GetLastPingSent() const override;
   void UpdateConnectionStates() override;
   void UpdateState() override;
   void SendPingRequest(const Connection* connection) override;
@@ -201,7 +197,7 @@ class RTC_EXPORT P2PTransportChannel : public IceTransportInternal,
   }
 
   void PruneAllPorts();
-  int check_receiving_interval() const;
+  TimeDelta check_receiving_interval() const;
   std::optional<NetworkRoute> network_route() const override;
 
   void RemoveConnection(Connection* connection);
@@ -247,8 +243,6 @@ class RTC_EXPORT P2PTransportChannel : public IceTransportInternal,
     return stun_dict_writer_;
   }
 
-  const FieldTrialsView* field_trials() const override { return field_trials_; }
-
   void ResetDtlsStunPiggybackCallbacks() override;
   void SetDtlsStunPiggybackCallbacks(
       DtlsStunPiggybackCallbacks&& callbacks) override;
@@ -266,8 +260,38 @@ class RTC_EXPORT P2PTransportChannel : public IceTransportInternal,
                                           : &remote_ice_parameters_.back();
   }
 
+  // Returns the number of outstanding Local Network Access permission queries.
+  size_t PermissionQueriesOutstandingForTesting() const;
+
  private:
+  struct CandidateAndResolver final {
+    CandidateAndResolver(const Candidate& candidate,
+                         std::unique_ptr<AsyncDnsResolverInterface>&& resolver);
+    ~CandidateAndResolver();
+    // Moveable, but not copyable.
+    CandidateAndResolver(CandidateAndResolver&&) = default;
+    CandidateAndResolver& operator=(CandidateAndResolver&&) = default;
+
+    Candidate candidate;
+    std::unique_ptr<AsyncDnsResolverInterface> resolver;
+  };
+
+  struct CandidateAndPermission final {
+#if WEBRTC_WEBKIT_BUILD
+    CandidateAndPermission() = default;
+    CandidateAndPermission(Candidate candidate, std::unique_ptr<LocalNetworkAccessPermissionInterface>&& permission_query)
+      : candidate(candidate)
+      , permission_query(std::move(permission_query))
+    {
+    }
+#endif
+
+    Candidate candidate;
+    std::unique_ptr<LocalNetworkAccessPermissionInterface> permission_query;
+  };
+
   P2PTransportChannel(
+      const Environment& env,
       absl::string_view transport_name,
       int component,
       PortAllocator* allocator,
@@ -277,10 +301,9 @@ class RTC_EXPORT P2PTransportChannel : public IceTransportInternal,
       // on release, this pointer is set.
       std::unique_ptr<AsyncDnsResolverFactoryInterface>
           owned_dns_resolver_factory,
-      RtcEventLog* event_log,
+      LocalNetworkAccessPermissionFactoryInterface* lna_permission_factory,
       IceControllerFactoryInterface* ice_controller_factory,
-      ActiveIceControllerFactoryInterface* active_ice_controller_factory,
-      const FieldTrialsView* field_trials);
+      ActiveIceControllerFactoryInterface* active_ice_controller_factory);
 
   bool IsGettingPorts() {
     RTC_DCHECK_RUN_ON(network_thread_);
@@ -346,7 +369,7 @@ class RTC_EXPORT P2PTransportChannel : public IceTransportInternal,
   // When pruning a port, move it from `ports_` to `pruned_ports_`.
   // Returns true if the port is found and removed from `ports_`.
   bool PrunePort(PortInterface* port);
-  void OnRoleConflict(PortInterface* port);
+  void NotifyRoleConflictInternal();
 
   void OnConnectionStateChange(Connection* connection);
   void OnReadPacket(Connection* connection, const ReceivedIpPacket& packet);
@@ -407,18 +430,33 @@ class RTC_EXPORT P2PTransportChannel : public IceTransportInternal,
     return const_cast<Connection*>(conn);
   }
 
-  int64_t ComputeEstimatedDisconnectedTimeMs(int64_t now,
-                                             Connection* old_connection);
+  TimeDelta ComputeEstimatedDisconnectedTime(Connection* old_connection);
 
-  void ParseFieldTrials(const FieldTrialsView* field_trials);
+  void ParseFieldTrials(const FieldTrialsView& field_trials);
 
-  std::string transport_name_ RTC_GUARDED_BY(network_thread_);
+  void FinishAddingRemoteCandidate(const Candidate& new_remote_candidate);
+  void OnCandidateResolved(AsyncDnsResolverInterface* resolver);
+  void CheckLocalNetworkAccessPermission(const Candidate& new_remote_candidate);
+  void OnLocalNetworkAccessResult(
+      LocalNetworkAccessPermissionInterface* permission_query,
+      LocalNetworkAccessPermissionStatus status);
+  void AddRemoteCandidateWithResult(Candidate candidate,
+                                    const AsyncDnsResolverResult& result);
+
+  std::unique_ptr<StunAttribute> GoogDeltaReceived(
+      const StunByteStringAttribute*);
+  void GoogDeltaAckReceived(RTCErrorOr<const StunUInt64Attribute*>);
+
+  const Environment env_;
+  const std::string transport_name_ RTC_GUARDED_BY(network_thread_);
   int component_ RTC_GUARDED_BY(network_thread_);
-  PortAllocator* allocator_ RTC_GUARDED_BY(network_thread_);
+  PortAllocator* const allocator_ RTC_GUARDED_BY(network_thread_);
   AsyncDnsResolverFactoryInterface* const async_dns_resolver_factory_
       RTC_GUARDED_BY(network_thread_);
   const std::unique_ptr<AsyncDnsResolverFactoryInterface>
       owned_dns_resolver_factory_;
+  LocalNetworkAccessPermissionFactoryInterface* const lna_permission_factory_
+      RTC_GUARDED_BY(network_thread_);
   Thread* const network_thread_;
   bool incoming_only_ RTC_GUARDED_BY(network_thread_);
   int error_ RTC_GUARDED_BY(network_thread_);
@@ -450,8 +488,9 @@ class RTC_EXPORT P2PTransportChannel : public IceTransportInternal,
   IceGatheringState gathering_state_ RTC_GUARDED_BY(network_thread_);
   std::unique_ptr<BasicRegatheringController> regathering_controller_
       RTC_GUARDED_BY(network_thread_);
-  int64_t last_ping_sent_ms_ RTC_GUARDED_BY(network_thread_) = 0;
-  int weak_ping_interval_ RTC_GUARDED_BY(network_thread_) = WEAK_PING_INTERVAL;
+  Timestamp last_ping_sent_ RTC_GUARDED_BY(network_thread_) = Timestamp::Zero();
+  int weak_ping_interval_ RTC_GUARDED_BY(network_thread_) =
+      kWeakPingInterval.ms();
   // TODO(jonasolsson): Remove state_ and rename standardized_state_ once state_
   // is no longer used to compute the ICE connection state.
   IceTransportStateInternal state_ RTC_GUARDED_BY(network_thread_) =
@@ -475,26 +514,10 @@ class RTC_EXPORT P2PTransportChannel : public IceTransportInternal,
   std::unique_ptr<ActiveIceControllerInterface> ice_controller_
       RTC_GUARDED_BY(network_thread_);
 
-  struct CandidateAndResolver final {
-    CandidateAndResolver(const Candidate& candidate,
-                         std::unique_ptr<AsyncDnsResolverInterface>&& resolver);
-    ~CandidateAndResolver();
-    // Moveable, but not copyable.
-    CandidateAndResolver(CandidateAndResolver&&) = default;
-    CandidateAndResolver& operator=(CandidateAndResolver&&) = default;
-
-    Candidate candidate_;
-    std::unique_ptr<AsyncDnsResolverInterface> resolver_;
-  };
   std::vector<CandidateAndResolver> resolvers_ RTC_GUARDED_BY(network_thread_);
-  void FinishAddingRemoteCandidate(const Candidate& new_remote_candidate);
-  void OnCandidateResolved(AsyncDnsResolverInterface* resolver);
-  void AddRemoteCandidateWithResult(Candidate candidate,
-                                    const AsyncDnsResolverResult& result);
-
-  std::unique_ptr<StunAttribute> GoogDeltaReceived(
-      const StunByteStringAttribute*);
-  void GoogDeltaAckReceived(RTCErrorOr<const StunUInt64Attribute*>);
+  // Stores pending Local Area Network permission queries.
+  std::vector<CandidateAndPermission> permission_queries_
+      RTC_GUARDED_BY(network_thread_);
 
   // Bytes/packets sent/received on this channel.
   uint64_t bytes_sent_ = 0;
@@ -506,13 +529,11 @@ class RTC_EXPORT P2PTransportChannel : public IceTransportInternal,
   uint32_t selected_candidate_pair_changes_ = 0;
 
   // When was last data received on a existing connection,
-  // from connection->last_data_received() that uses webrtc::TimeMillis().
-  int64_t last_data_received_ms_ = 0;
+  // from connection->last_data_received() that uses TimeMillis().
+  Timestamp last_data_received_ = Timestamp::Zero();
 
   // Parsed field trials.
   IceFieldTrials ice_field_trials_;
-  // Unparsed field trials.
-  const FieldTrialsView* field_trials_;
 
   // A dictionary of attributes that will be reflected to peer.
   StunDictionaryWriter stun_dict_writer_;
@@ -526,14 +547,5 @@ class RTC_EXPORT P2PTransportChannel : public IceTransportInternal,
 
 }  //  namespace webrtc
 
-// Re-export symbols from the webrtc namespace for backwards compatibility.
-// TODO(bugs.webrtc.org/4222596): Remove once all references are updated.
-#ifdef WEBRTC_ALLOW_DEPRECATED_NAMESPACES
-namespace cricket {
-using ::webrtc::IceCredentialsChanged;
-using ::webrtc::P2PTransportChannel;
-using ::webrtc::RemoteCandidate;
-}  // namespace cricket
-#endif  // WEBRTC_ALLOW_DEPRECATED_NAMESPACES
 
 #endif  // P2P_BASE_P2P_TRANSPORT_CHANNEL_H_

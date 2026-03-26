@@ -37,8 +37,8 @@ WKTypeID WKBundleScriptWorldGetTypeID()
 
 WKBundleScriptWorldRef WKBundleScriptWorldCreateWorld()
 {
-    RefPtr<WebKit::InjectedBundleScriptWorld> world = WebKit::InjectedBundleScriptWorld::create();
-    return toAPI(world.leakRef());
+    RefPtr<WebKit::InjectedBundleScriptWorld> world = WebKit::InjectedBundleScriptWorld::create(WebKit::ContentWorldIdentifier::generate());
+    return toAPILeakingRef(WTF::move(world));
 }
 
 WKBundleScriptWorldRef WKBundleScriptWorldNormalWorld()
@@ -48,30 +48,35 @@ WKBundleScriptWorldRef WKBundleScriptWorldNormalWorld()
 
 void WKBundleScriptWorldClearWrappers(WKBundleScriptWorldRef scriptWorldRef)
 {
-    WebKit::toImpl(scriptWorldRef)->clearWrappers();
+    WebKit::toProtectedImpl(scriptWorldRef)->clearWrappers();
 }
 
 void WKBundleScriptWorldMakeAllShadowRootsOpen(WKBundleScriptWorldRef scriptWorldRef)
 {
-    WebKit::toImpl(scriptWorldRef)->makeAllShadowRootsOpen();
+    WebKit::toProtectedImpl(scriptWorldRef)->makeAllShadowRootsOpen();
 }
 
 void WKBundleScriptWorldExposeClosedShadowRootsForExtensions(WKBundleScriptWorldRef scriptWorldRef)
 {
-    WebKit::toImpl(scriptWorldRef)->exposeClosedShadowRootsForExtensions();
+    WebKit::toProtectedImpl(scriptWorldRef)->exposeClosedShadowRootsForExtensions();
 }
 
 void WKBundleScriptWorldDisableOverrideBuiltinsBehavior(WKBundleScriptWorldRef scriptWorldRef)
 {
-    WebKit::toImpl(scriptWorldRef)->disableOverrideBuiltinsBehavior();
+    WebKit::toProtectedImpl(scriptWorldRef)->disableOverrideBuiltinsBehavior();
 }
 
 void WKBundleScriptWorldSetAllowElementUserInfo(WKBundleScriptWorldRef scriptWorldRef)
 {
-    WebKit::toImpl(scriptWorldRef)->setAllowElementUserInfo();
+    WebKit::toProtectedImpl(scriptWorldRef)->setAllowElementUserInfo();
 }
 
 WKStringRef WKBundleScriptWorldCopyName(WKBundleScriptWorldRef scriptWorldRef)
 {
     return WebKit::toCopiedAPI(WebKit::toImpl(scriptWorldRef)->name());
+}
+
+void WKBundleScriptWorldSetAllowJSHandleCreation(WKBundleScriptWorldRef scriptWorldRef)
+{
+    WebKit::toProtectedImpl(scriptWorldRef)->setAllowJSHandleCreation();
 }

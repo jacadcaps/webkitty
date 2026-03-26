@@ -40,6 +40,7 @@
 #import <wtf/RetainPtr.h>
 #import <wtf/RunLoop.h>
 #import <wtf/WeakObjCPtr.h>
+#import <wtf/darwin/DispatchExtras.h>
 #import <wtf/text/MakeString.h>
 #import <wtf/text/StringHash.h>
 
@@ -64,12 +65,12 @@
 
 - (NSString *)lastStateChange
 {
-    return std::exchange(_lastStateChange, @"").get();
+    return std::exchange(_lastStateChange, @"").unsafeGet();
 }
 
 - (NSString *)lastMethodCalled
 {
-    return std::exchange(_lastMethodCalled, @"").get();
+    return std::exchange(_lastMethodCalled, @"").unsafeGet();
 }
 
 - (NSString *)identifier
@@ -80,7 +81,7 @@
 - (void)joinWithCompletion:(void(^ _Nonnull)(BOOL))completionHandler
 {
     _lastMethodCalled = @"join";
-    dispatch_async(dispatch_get_main_queue(), ^() {
+    dispatch_async(mainDispatchQueueSingleton(), ^() {
         completionHandler(!_failsCommands);
     });
 }
@@ -93,7 +94,7 @@
 - (void)seekTo:(double)time withCompletion:(void(^ _Nonnull)(BOOL))completionHandler
 {
     _lastMethodCalled = @"seekTo";
-    dispatch_async(dispatch_get_main_queue(), ^() {
+    dispatch_async(mainDispatchQueueSingleton(), ^() {
         completionHandler(!_failsCommands);
     });
 }
@@ -101,7 +102,7 @@
 - (void)playWithCompletion:(void(^ _Nonnull)(BOOL))completionHandler
 {
     _lastMethodCalled = @"play";
-    dispatch_async(dispatch_get_main_queue(), ^() {
+    dispatch_async(mainDispatchQueueSingleton(), ^() {
         completionHandler(!_failsCommands);
     });
 }
@@ -109,7 +110,7 @@
 - (void)pauseWithCompletion:(void(^ _Nonnull)(BOOL))completionHandler
 {
     _lastMethodCalled = @"pause";
-    dispatch_async(dispatch_get_main_queue(), ^() {
+    dispatch_async(mainDispatchQueueSingleton(), ^() {
         completionHandler(!_failsCommands);
     });
 }
@@ -117,7 +118,7 @@
 - (void)setTrack:(NSString*)trackIdentifier withCompletion:(void(^ _Nonnull)(BOOL))completionHandler
 {
     _lastMethodCalled = @"setTrack";
-    dispatch_async(dispatch_get_main_queue(), ^() {
+    dispatch_async(mainDispatchQueueSingleton(), ^() {
         completionHandler(!_failsCommands);
     });
 }
@@ -268,7 +269,7 @@ public:
     {
         for (auto event : events) {
             auto eventMessage = makeString(event, " event"_s);
-            [webView() performAfterReceivingMessage:eventMessage.createNSString().get() action:[this, eventMessage = WTFMove(eventMessage)] {
+            [webView() performAfterReceivingMessage:eventMessage.createNSString().get() action:[this, eventMessage = WTF::move(eventMessage)] {
                 _eventListenersCalled.add(eventMessage);
             }];
         }
@@ -309,7 +310,7 @@ public:
             auto handlerMessage = makeString(handler, suffix);
             RetainPtr nsHandlerMessage = handlerMessage.createNSString();
             [_messageHandlers addObject:nsHandlerMessage.get()];
-            [webView() performAfterReceivingMessage:nsHandlerMessage.get() action:[this, handlerMessage = WTFMove(handlerMessage)] {
+            [webView() performAfterReceivingMessage:nsHandlerMessage.get() action:[this, handlerMessage = WTF::move(handlerMessage)] {
                 _sessionMessagesPosted.add(handlerMessage);
             }];
         }

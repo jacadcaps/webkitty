@@ -47,19 +47,19 @@ class VideoTrackPrivateAVFObjC final : public VideoTrackPrivateAVF {
     WTF_MAKE_TZONE_ALLOCATED(VideoTrackPrivateAVFObjC);
     WTF_MAKE_NONCOPYABLE(VideoTrackPrivateAVFObjC)
 public:
-    static RefPtr<VideoTrackPrivateAVFObjC> create(AVPlayerItemTrack* track)
+    static Ref<VideoTrackPrivateAVFObjC> create(AVPlayerItemTrack* track)
     {
-        return adoptRef(new VideoTrackPrivateAVFObjC(track));
+        return adoptRef(*new VideoTrackPrivateAVFObjC(track));
     }
 
-    static RefPtr<VideoTrackPrivateAVFObjC> create(AVAssetTrack* track)
+    static Ref<VideoTrackPrivateAVFObjC> create(AVAssetTrack* track)
     {
-        return adoptRef(new VideoTrackPrivateAVFObjC(track));
+        return adoptRef(*new VideoTrackPrivateAVFObjC(track));
     }
 
-    static RefPtr<VideoTrackPrivateAVFObjC> create(MediaSelectionOptionAVFObjC& option)
+    static Ref<VideoTrackPrivateAVFObjC> create(MediaSelectionOptionAVFObjC& option)
     {
-        return adoptRef(new VideoTrackPrivateAVFObjC(option));
+        return adoptRef(*new VideoTrackPrivateAVFObjC(option));
     }
 
     void setSelected(bool) override;
@@ -82,7 +82,7 @@ private:
     const Ref<AVTrackPrivateAVFObjCImpl> m_impl;
 
     using VideoTrackConfigurationObserver = Observer<void()>;
-    VideoTrackConfigurationObserver m_videoTrackConfigurationObserver;
+    const Ref<VideoTrackConfigurationObserver> m_videoTrackConfigurationObserver;
 };
 
 }

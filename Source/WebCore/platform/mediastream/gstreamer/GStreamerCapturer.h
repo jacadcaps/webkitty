@@ -28,23 +28,20 @@
 #include "GStreamerCommon.h"
 #include "PipeWireCaptureDevice.h"
 
+#include <wtf/Lock.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/WeakHashSet.h>
-
-namespace WebCore {
-class GStreamerCapturerObserver;
-}
-
-namespace WTF {
-template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
-template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::GStreamerCapturerObserver> : std::true_type { };
-}
 
 namespace WebCore {
 
 class GStreamerCapturerObserver : public CanMakeWeakPtr<GStreamerCapturerObserver> {
 public:
     virtual ~GStreamerCapturerObserver();
+
+    void ref() const { virtualRef(); }
+    void deref() const { virtualDeref(); }
+    virtual void virtualRef() const = 0;
+    virtual void virtualDeref() const = 0;
 
     virtual void sourceCapsChanged(const GstCaps*) { }
     virtual void captureEnded() { }
@@ -69,14 +66,18 @@ public:
     void start();
     void stop();
     bool isStopped() const;
-    WARN_UNUSED_RETURN GRefPtr<GstCaps> caps();
+    [[nodiscard]] GRefPtr<GstCaps> caps();
 
     std::pair<GstClockTime, GstClockTime> queryLatency();
 
     GstElement* makeElement(ASCIILiteral factoryName);
     virtual GstElement* createSource();
-    GstElement* source() { return m_src.get();  }
-    virtual const char* name() = 0;
+    GRefPtr<GstElement> source()
+    {
+        Locker locker { m_lock };
+        return m_src;
+    }
+    virtual ASCIILiteral name() = 0;
 
     GstElement* sink() const { return m_sink.get(); }
 
@@ -91,9 +92,14 @@ public:
 
     void stopDevice(bool disconnectSignals);
 
+    struct SinkSignalsHolder {
+        unsigned long prerollSignalId;
+        unsigned long newSampleSignalId;
+    };
+
 protected:
     GRefPtr<GstElement> m_sink;
-    GRefPtr<GstElement> m_src;
+    GRefPtr<GstElement> m_src WTF_GUARDED_BY_LOCK(m_lock);
     GRefPtr<GstElement> m_valve;
     GRefPtr<GstElement> m_capsfilter;
     std::optional<GStreamerCaptureDevice> m_device { };
@@ -102,6 +108,7 @@ protected:
     GRefPtr<GstElement> m_pipeline;
 
 private:
+    Lock m_lock;
     CaptureDevice::DeviceType m_deviceType;
     WeakHashSet<GStreamerCapturerObserver> m_observers;
 };

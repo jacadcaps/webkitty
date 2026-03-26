@@ -152,7 +152,7 @@ void JSTestDomainSecurityPrototype::finishCreation(VM& vm)
 const ClassInfo JSTestDomainSecurity::s_info = { "TestDomainSecurity"_s, &Base::s_info, &JSTestDomainSecurityTable, nullptr, CREATE_METHOD_TABLE(JSTestDomainSecurity) };
 
 JSTestDomainSecurity::JSTestDomainSecurity(Structure* structure, JSDOMGlobalObject& globalObject, Ref<TestDomainSecurity>&& impl)
-    : JSDOMWrapper<TestDomainSecurity>(structure, globalObject, WTFMove(impl))
+    : JSDOMWrapper<TestDomainSecurity>(structure, globalObject, WTF::move(impl))
 {
 }
 
@@ -177,7 +177,7 @@ JSValue JSTestDomainSecurity::getConstructor(VM& vm, const JSGlobalObject* globa
 
 void JSTestDomainSecurity::destroy(JSC::JSCell* cell)
 {
-    JSTestDomainSecurity* thisObject = static_cast<JSTestDomainSecurity*>(cell);
+    SUPPRESS_MEMORY_UNSAFE_CAST JSTestDomainSecurity* thisObject = static_cast<JSTestDomainSecurity*>(cell);
     thisObject->JSTestDomainSecurity::~JSTestDomainSecurity();
 }
 
@@ -225,7 +225,7 @@ static inline JSC::EncodedJSValue jsTestDomainSecurityPrototypeFunction_exciting
     auto nextChildConversionResult = convert<IDLInterface<Node>>(*lexicalGlobalObject, argument0.value(), [](JSC::JSGlobalObject& lexicalGlobalObject, JSC::ThrowScope& scope) { throwArgumentTypeError(lexicalGlobalObject, scope, 0, "nextChild"_s, "TestDomainSecurity"_s, "excitingFunction"_s, "Node"_s); });
     if (nextChildConversionResult.hasException(throwScope)) [[unlikely]]
        return encodedJSValue();
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&]() -> decltype(auto) { return impl.excitingFunction(*nextChildConversionResult.releaseReturnValue()); })));
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&]() -> decltype(auto) { return impl.excitingFunction(nextChildConversionResult.releaseReturnValue()); })));
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsTestDomainSecurityPrototypeFunction_excitingFunction, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
@@ -284,7 +284,7 @@ static inline JSC::EncodedJSValue jsTestDomainSecurityPrototypeFunction_overload
     auto param2ConversionResult = convert<IDLInterface<Node>>(*lexicalGlobalObject, argument1.value(), [](JSC::JSGlobalObject& lexicalGlobalObject, JSC::ThrowScope& scope) { throwArgumentTypeError(lexicalGlobalObject, scope, 1, "param2"_s, "TestDomainSecurity"_s, "overloadedMethod"_s, "Node"_s); });
     if (param2ConversionResult.hasException(throwScope)) [[unlikely]]
        return encodedJSValue();
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&]() -> decltype(auto) { return impl.overloadedMethod(*param1ConversionResult.releaseReturnValue(), *param2ConversionResult.releaseReturnValue()); })));
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&]() -> decltype(auto) { return impl.overloadedMethod(param1ConversionResult.releaseReturnValue(), param2ConversionResult.releaseReturnValue()); })));
 }
 
 static inline JSC::EncodedJSValue jsTestDomainSecurityPrototypeFunction_overloadedMethodOverloadDispatcher(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSTestDomainSecurity>::ClassParameter castedThis)
@@ -341,7 +341,7 @@ bool JSTestDomainSecurityOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unkn
 
 void JSTestDomainSecurityOwner::finalize(JSC::Handle<JSC::Unknown> handle, void* context)
 {
-    auto* jsTestDomainSecurity = static_cast<JSTestDomainSecurity*>(handle.slot()->asCell());
+    SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestDomainSecurity = static_cast<JSTestDomainSecurity*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
     uncacheWrapper(world, jsTestDomainSecurity->protectedWrapped().ptr(), jsTestDomainSecurity);
 }
@@ -355,7 +355,7 @@ extern "C" { extern void (*const __identifier("??_7TestDomainSecurity@WebCore@@6
 extern "C" { extern void* _ZTVN7WebCore18TestDomainSecurityE[]; }
 #endif
 template<std::same_as<TestDomainSecurity> T>
-static inline void verifyVTable(TestDomainSecurity* ptr) 
+static inline void verifyVTable(TestDomainSecurity* ptr)
 {
     if constexpr (std::is_polymorphic_v<T>) {
         const void* actualVTablePointer = getVTablePointer<T>(ptr);
@@ -375,12 +375,13 @@ static inline void verifyVTable(TestDomainSecurity* ptr)
 #endif
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestDomainSecurity>&& impl)
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<TestDomainSecurity>&& impl)
 {
+    UNUSED_PARAM(lexicalGlobalObject);
 #if ENABLE(BINDING_INTEGRITY)
     verifyVTable<TestDomainSecurity>(impl.ptr());
 #endif
-    return createWrapper<TestDomainSecurity>(globalObject, WTFMove(impl));
+    return createWrapper<TestDomainSecurity>(globalObject, WTF::move(impl));
 }
 
 JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestDomainSecurity& impl)

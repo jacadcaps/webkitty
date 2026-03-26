@@ -58,7 +58,7 @@ public:
         return adoptRef(*new CurlRequest(request, &client, captureMetrics));
     }
 
-    virtual ~CurlRequest();
+    ~CurlRequest() = default;
 
     WEBCORE_EXPORT void invalidateClient();
     WEBCORE_EXPORT void setAuthenticationScheme(ProtectionSpace::AuthenticationScheme);
@@ -89,6 +89,7 @@ private:
     uint32_t checkedPtrCountWithoutThreadCheck() const final { return CanMakeThreadSafeCheckedPtr::checkedPtrCountWithoutThreadCheck(); }
     void incrementCheckedPtrCount() const final { CanMakeThreadSafeCheckedPtr::incrementCheckedPtrCount(); }
     void decrementCheckedPtrCount() const final { CanMakeThreadSafeCheckedPtr::decrementCheckedPtrCount(); }
+    void setDidBeginCheckedPtrDeletion() final { CanMakeThreadSafeCheckedPtr::setDidBeginCheckedPtrDeletion(); }
 
     void retain() override { ref(); }
     void release() override { deref(); }

@@ -6,6 +6,10 @@
 
 // GLES1Renderer.cpp: Implements the GLES1Renderer renderer.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include "libANGLE/GLES1Renderer.h"
 
 #include <string.h>
@@ -161,9 +165,10 @@ angle::Result GLES1Renderer::prepareForDraw(PrimitiveMode mode,
     if (gles1State->isDirty(GLES1State::DIRTY_GLES1_TEXTURE_UNIT_ENABLE) &&
         needToUpdateVertexAttribArray)
     {
-        glState->setEnableVertexAttribArray(
+        context->getMutablePrivateState()->setEnableVertexAttribArray(
             TexCoordArrayIndex(clientActiveTexture),
             isTextureEnabled && gles1State->isTexCoordArrayEnabled(clientActiveTexture));
+
         context->getStateCache().onGLES1TextureStateChange(context);
     }
 
@@ -698,7 +703,7 @@ angle::Result GLES1Renderer::linkProgram(Context *context,
     programObject->attachShader(context, getShader(vertexShader));
     programObject->attachShader(context, getShader(fragmentShader));
 
-    for (auto it : attribLocs)
+    for (const auto &it : attribLocs)
     {
         GLint index             = it.first;
         const std::string &name = it.second;
@@ -1051,8 +1056,8 @@ angle::Result GLES1Renderer::initializeRendererProgram(Context *context,
         ss2d << "tex_sampler" << i;
         sscube << "tex_cube_sampler" << i;
 
-        programState.tex2DSamplerLocs[i]   = executable.getUniformLocation(ss2d.str().c_str());
-        programState.texCubeSamplerLocs[i] = executable.getUniformLocation(sscube.str().c_str());
+        programState.tex2DSamplerLocs[i]   = executable.getUniformLocation(ss2d.str());
+        programState.texCubeSamplerLocs[i] = executable.getUniformLocation(sscube.str());
     }
 
     programState.textureEnvColorLoc = executable.getUniformLocation("texture_env_color");
@@ -1230,12 +1235,14 @@ void GLES1Renderer::setAttributesEnabled(Context *context,
         if (mask.test(index))
         {
             gles1State->setClientStateEnabled(attrib, true);
-            context->enableVertexAttribArray(index);
+            ContextPrivateEnableVertexAttribArray(context->getMutablePrivateState(),
+                                                  context->getMutablePrivateStateCache(), index);
         }
         else
         {
             gles1State->setClientStateEnabled(attrib, false);
-            context->disableVertexAttribArray(index);
+            ContextPrivateDisableVertexAttribArray(context->getMutablePrivateState(),
+                                                   context->getMutablePrivateStateCache(), index);
         }
     }
 
@@ -1246,12 +1253,14 @@ void GLES1Renderer::setAttributesEnabled(Context *context,
         if (mask.test(index))
         {
             gles1State->setTexCoordArrayEnabled(i, true);
-            context->enableVertexAttribArray(index);
+            ContextPrivateEnableVertexAttribArray(context->getMutablePrivateState(),
+                                                  context->getMutablePrivateStateCache(), index);
         }
         else
         {
             gles1State->setTexCoordArrayEnabled(i, false);
-            context->disableVertexAttribArray(index);
+            ContextPrivateDisableVertexAttribArray(context->getMutablePrivateState(),
+                                                   context->getMutablePrivateStateCache(), index);
         }
     }
 }

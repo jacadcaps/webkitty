@@ -25,12 +25,13 @@
 
 #pragma once
 
-#include "WasmStreamingParser.h"
+#include <JavaScriptCore/WasmStreamingParser.h>
+#include <wtf/Platform.h>
 
 #if ENABLE(WEBASSEMBLY)
 
-#include "DeferredWorkTimer.h"
-#include "JSCJSValue.h"
+#include <JavaScriptCore/DeferredWorkTimer.h>
+#include <JavaScriptCore/JSCJSValue.h>
 
 namespace JSC {
 

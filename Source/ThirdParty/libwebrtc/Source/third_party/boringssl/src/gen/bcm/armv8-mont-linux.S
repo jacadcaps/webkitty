@@ -6,11 +6,11 @@
 #if !defined(OPENSSL_NO_ASM) && defined(OPENSSL_AARCH64) && defined(__ELF__)
 .text
 
-.globl	bn_mul_mont
-.hidden	bn_mul_mont
-.type	bn_mul_mont,%function
+.globl	bn_mul_mont_words
+.hidden	bn_mul_mont_words
+.type	bn_mul_mont_words,%function
 .align	5
-bn_mul_mont:
+bn_mul_mont_words:
 	AARCH64_SIGN_LINK_REGISTER
 	tst	x5,#7
 	b.eq	__bn_sqr8x_mont
@@ -211,12 +211,12 @@ bn_mul_mont:
 	ldr	x29,[sp],#64
 	AARCH64_VALIDATE_LINK_REGISTER
 	ret
-.size	bn_mul_mont,.-bn_mul_mont
+.size	bn_mul_mont_words,.-bn_mul_mont_words
 .type	__bn_sqr8x_mont,%function
 .align	5
 __bn_sqr8x_mont:
 	// Not adding AARCH64_SIGN_LINK_REGISTER here because __bn_sqr8x_mont is jumped to
-	// only from bn_mul_mont which has already signed the return address.
+	// only from bn_mul_mont_words which has already signed the return address.
 	cmp	x1,x2
 	b.ne	__bn_mul4x_mont
 .Lsqr8x_mont:
@@ -428,7 +428,7 @@ __bn_sqr8x_mont:
 	adc	x24,x24,x15
 
 	adds	x24,x24,x16
-	sub	x14,x3,x5	// rewinded ap
+	sub	x14,x3,x5	// rewound ap
 	adc	x25,xzr,xzr		// t[14]
 	add	x25,x25,x17
 
@@ -775,7 +775,7 @@ __bn_sqr8x_mont:
 					// to be zero at this point
 	ldp	x6,x7,[x2,#8*0]
 	sub	x27,x3,x1	// done yet?
-	sub	x16,x3,x5	// rewinded np
+	sub	x16,x3,x5	// rewound np
 	ldp	x8,x9,[x2,#8*2]
 	ldp	x10,x11,[x2,#8*4]
 	ldp	x12,x13,[x2,#8*6]
@@ -978,7 +978,7 @@ __bn_sqr8x_mont:
 .align	5
 __bn_mul4x_mont:
 	// Not adding AARCH64_SIGN_LINK_REGISTER here because __bn_mul4x_mont is jumped to
-	// only from bn_mul_mont or __bn_mul8x_mont which have already signed the
+	// only from bn_mul_mont_words or __bn_mul8x_mont which have already signed the
 	// return address.
 	stp	x29,x30,[sp,#-128]!
 	add	x29,sp,#0
@@ -1115,7 +1115,7 @@ __bn_mul4x_mont:
 	//adc	x0,x0,xzr
 	cbnz	x28,.Loop_mul4x_1st_tail
 
-	sub	x11,x27,x5	// rewinded x1
+	sub	x11,x27,x5	// rewound x1
 	cbz	x10,.Lmul4x_proceed
 
 	ldp	x6,x7,[x1,#8*0]
@@ -1257,7 +1257,7 @@ __bn_mul4x_mont:
 	//adc	x0,x0,xzr
 	cbnz	x28,.Loop_mul4x_tail
 
-	sub	x11,x3,x5		// rewinded np?
+	sub	x11,x3,x5		// rewound np?
 	adc	x0,x0,xzr
 	cbz	x10,.Loop_mul4x_break
 

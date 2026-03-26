@@ -26,9 +26,9 @@
 
 #if ENABLE(MEDIA_STREAM)
 
-#include "CaptureDevice.h"
-#include "MediaStreamTrackHintValue.h"
-#include "RealtimeMediaSource.h"
+#include <WebCore/CaptureDevice.h>
+#include <WebCore/MediaStreamTrackHintValue.h>
+#include <WebCore/RealtimeMediaSource.h>
 #include <wtf/FastMalloc.h>
 
 namespace WebCore {

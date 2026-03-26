@@ -243,7 +243,7 @@ private:
             switch (m_node->op()) {
             case PutByValDirect:
             case PutByVal:
-            case PutByValAlias: {
+            case PutByValDirectResolved: {
                 switch (m_node->arrayMode().modeForPut().type()) {
                 case Array::Generic:
                 case Array::Float16Array:
@@ -391,7 +391,8 @@ private:
             case NewAsyncGenerator:
             case NewArray:
             case NewArrayWithSize:
-            case NewArrayWithConstantSize:
+            case NewArrayWithButterfly:
+            case NewButterflyWithSize:
             case NewArrayWithSizeAndStructure:
             case NewArrayBuffer:
             case NewInternalFieldObject:
@@ -404,7 +405,7 @@ private:
             case NewSet:
             case NewSymbol:
             case MaterializeNewObject:
-            case MaterializeNewArrayWithConstantSize:
+            case MaterializeNewArrayWithButterfly:
             case MaterializeCreateActivation:
             case MakeRope:
             case MakeAtomString:

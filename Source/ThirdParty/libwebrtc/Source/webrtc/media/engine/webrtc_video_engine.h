@@ -28,6 +28,7 @@
 #include "api/crypto/crypto_options.h"
 #include "api/crypto/frame_decryptor_interface.h"
 #include "api/crypto/frame_encryptor_interface.h"
+#include "api/environment/environment.h"
 #include "api/field_trials_view.h"
 #include "api/frame_transformer_interface.h"
 #include "api/media_types.h"
@@ -102,12 +103,14 @@ class WebRtcVideoEngine : public VideoEngineInterface {
   ~WebRtcVideoEngine() override;
 
   std::unique_ptr<VideoMediaSendChannelInterface> CreateSendChannel(
+      const Environment& env,
       Call* call,
       const MediaConfig& config,
       const VideoOptions& options,
       const CryptoOptions& crypto_options,
       VideoBitrateAllocatorFactory* video_bitrate_allocator_factory) override;
   std::unique_ptr<VideoMediaReceiveChannelInterface> CreateReceiveChannel(
+      const Environment& env,
       Call* call,
       const MediaConfig& config,
       const VideoOptions& options,
@@ -122,15 +125,18 @@ class WebRtcVideoEngine : public VideoEngineInterface {
   }
   std::vector<Codec> LegacySendCodecs(bool include_rtx) const override;
   std::vector<Codec> LegacyRecvCodecs(bool include_rtx) const override;
-  std::vector<RtpHeaderExtensionCapability> GetRtpHeaderExtensions()
-      const override;
+
+  std::vector<RtpHeaderExtensionCapability> GetRtpHeaderExtensions(
+      /* optional field trials from PeerConnection that override those from
+         PeerConnectionFactory */
+      const webrtc::FieldTrialsView* field_trials) const override;
 
  private:
   const std::unique_ptr<VideoDecoderFactory> decoder_factory_;
   const std::unique_ptr<VideoEncoderFactory> encoder_factory_;
   const std::unique_ptr<VideoBitrateAllocatorFactory>
       bitrate_allocator_factory_;
-  const FieldTrialsView& trials_;
+  const FieldTrialsView& trials_;  // from PeerConnectionFactory
 };
 
 struct VideoCodecSettings {
@@ -158,6 +164,7 @@ class WebRtcVideoSendChannel : public MediaChannelUtil,
                                public EncoderSwitchRequestCallback {
  public:
   WebRtcVideoSendChannel(
+      const Environment& env,
       Call* call,
       const MediaConfig& config,
       const VideoOptions& options,
@@ -220,11 +227,6 @@ class WebRtcVideoSendChannel : public MediaChannelUtil,
       uint32_t ssrc,
       VideoEncoderFactory::EncoderSelectorInterface* encoder_selector) override;
 
-  void SetSendCodecChangedCallback(
-      absl::AnyInvocable<void()> callback) override {
-    send_codec_changed_callback_ = std::move(callback);
-  }
-
   void SetSsrcListChangedCallback(
       absl::AnyInvocable<void(const std::set<uint32_t>&)> callback) override {
     ssrc_list_changed_callback_ = std::move(callback);
@@ -245,7 +247,7 @@ class WebRtcVideoSendChannel : public MediaChannelUtil,
     ADAPTREASON_BANDWIDTH = 2,
   };
 
-  // Implements webrtc::EncoderSwitchRequestCallback.
+  // Implements EncoderSwitchRequestCallback.
   void RequestEncoderFallback() override;
   void RequestEncoderSwitch(const SdpVideoFormat& format,
                             bool allow_default_fallback) override;
@@ -268,14 +270,14 @@ class WebRtcVideoSendChannel : public MediaChannelUtil,
     if (!send_codec()) {
       return false;
     }
-    return webrtc::HasLntf(send_codec()->codec);
+    return HasLntf(send_codec()->codec);
   }
   bool SendCodecHasNack() const override {
     RTC_DCHECK_RUN_ON(&thread_checker_);
     if (!send_codec()) {
       return false;
     }
-    return webrtc::HasNack(send_codec()->codec);
+    return HasNack(send_codec()->codec);
   }
   std::optional<int> SendCodecRtxTime() const override {
     RTC_DCHECK_RUN_ON(&thread_checker_);
@@ -310,6 +312,7 @@ class WebRtcVideoSendChannel : public MediaChannelUtil,
   class WebRtcVideoSendStream {
    public:
     WebRtcVideoSendStream(
+        const Environment& env,
         Call* call,
         const StreamParams& sp,
         VideoSendStream::Config config,
@@ -355,7 +358,7 @@ class WebRtcVideoSendChannel : public MediaChannelUtil,
 
    private:
     // Parameters needed to reconstruct the underlying stream.
-    // webrtc::VideoSendStream doesn't support setting a lot of options on the
+    // VideoSendStream doesn't support setting a lot of options on the
     // fly, so when those need to be changed we tear down and reconstruct with
     // similar parameters depending on which options changed etc.
     struct VideoSendStreamParameters {
@@ -391,6 +394,7 @@ class WebRtcVideoSendChannel : public MediaChannelUtil,
     DegradationPreference GetDegradationPreference() const
         RTC_EXCLUSIVE_LOCKS_REQUIRED(&thread_checker_);
 
+    const Environment env_;
     RTC_NO_UNIQUE_ADDRESS SequenceChecker thread_checker_;
     TaskQueueBase* const worker_thread_;
     const std::vector<uint32_t> ssrcs_ RTC_GUARDED_BY(&thread_checker_);
@@ -443,6 +447,8 @@ class WebRtcVideoSendChannel : public MediaChannelUtil,
   const std::optional<VideoCodecSettings>& send_codec() const {
     return send_codec_;
   }
+
+  const Environment env_;
   TaskQueueBase* const worker_thread_;
   ScopedTaskSafety task_safety_;
   RTC_NO_UNIQUE_ADDRESS SequenceChecker network_thread_checker_{
@@ -537,7 +543,8 @@ class WebRtcVideoSendChannel : public MediaChannelUtil,
 class WebRtcVideoReceiveChannel : public MediaChannelUtil,
                                   public VideoMediaReceiveChannelInterface {
  public:
-  WebRtcVideoReceiveChannel(Call* call,
+  WebRtcVideoReceiveChannel(const Environment& env,
+                            Call* call,
                             const MediaConfig& config,
                             const VideoOptions& options,
                             const CryptoOptions& crypto_options,
@@ -600,11 +607,6 @@ class WebRtcVideoReceiveChannel : public MediaChannelUtil,
       scoped_refptr<FrameTransformerInterface> frame_transformer) override;
   std::vector<RtpSource> GetSources(uint32_t ssrc) const override;
 
-  void SetReceiverFeedbackParameters(bool lntf_enabled,
-                                     bool nack_enabled,
-                                     RtcpMode rtcp_mode,
-                                     std::optional<int> rtx_time) override;
-
  private:
   class WebRtcVideoReceiveStream;
   struct ChangedReceiverParameters {
@@ -615,6 +617,7 @@ class WebRtcVideoReceiveChannel : public MediaChannelUtil,
     // This allows us to recreate the FlexfecReceiveStream separately from the
     // VideoReceiveStreamInterface when the FlexFEC payload type is changed.
     std::optional<int> flexfec_payload_type;
+    std::optional<RtcpMode> rtcp_mode;
   };
 
   // Finds VideoReceiveStreamInterface corresponding to ssrc. Aware of
@@ -653,6 +656,7 @@ class WebRtcVideoReceiveChannel : public MediaChannelUtil,
   class WebRtcVideoReceiveStream : public VideoSinkInterface<VideoFrame> {
    public:
     WebRtcVideoReceiveStream(
+        const Environment& env,
         Call* call,
         const StreamParams& sp,
         VideoReceiveStreamInterface::Config config,
@@ -721,6 +725,7 @@ class WebRtcVideoReceiveChannel : public MediaChannelUtil,
     // were applied.
     bool ReconfigureCodecs(const std::vector<VideoCodecSettings>& recv_codecs);
 
+    const Environment env_;
     Call* const call_;
     const StreamParams stream_params_;
 
@@ -759,6 +764,7 @@ class WebRtcVideoReceiveChannel : public MediaChannelUtil,
     return unsignaled_stream_params_;
   }
   // Variables.
+  const Environment env_;
   TaskQueueBase* const worker_thread_;
   ScopedTaskSafety task_safety_;
   RTC_NO_UNIQUE_ADDRESS SequenceChecker network_thread_checker_{
@@ -849,7 +855,7 @@ class WebRtcVideoReceiveChannel : public MediaChannelUtil,
 };
 
 // Keeping the old name "WebRtcVideoChannel" around because some external
-// customers are using webrtc::WebRtcVideoChannel::AdaptReason
+// customers are using WebRtcVideoChannel::AdaptReason
 // TODO(bugs.webrtc.org/15216): Move this enum to an interface class and
 // delete this workaround.
 class WebRtcVideoChannel : public WebRtcVideoSendChannel {
@@ -860,18 +866,5 @@ class WebRtcVideoChannel : public WebRtcVideoSendChannel {
 };
 
 }  //  namespace webrtc
-
-// Re-export symbols from the webrtc namespace for backwards compatibility.
-// TODO(bugs.webrtc.org/4222596): Remove once all references are updated.
-#ifdef WEBRTC_ALLOW_DEPRECATED_NAMESPACES
-namespace cricket {
-using ::webrtc::MergeInfoAboutOutboundRtpSubstreamsForTesting;
-using ::webrtc::VideoCodecSettings;
-using ::webrtc::WebRtcVideoChannel;
-using ::webrtc::WebRtcVideoEngine;
-using ::webrtc::WebRtcVideoReceiveChannel;
-using ::webrtc::WebRtcVideoSendChannel;
-}  // namespace cricket
-#endif  // WEBRTC_ALLOW_DEPRECATED_NAMESPACES
 
 #endif  // MEDIA_ENGINE_WEBRTC_VIDEO_ENGINE_H_

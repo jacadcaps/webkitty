@@ -160,7 +160,7 @@ class SingleTestRunner(object):
         if self_comparison_header:
             return self._run_self_comparison_test(self_comparison_header)
         if self._options.site_isolation:
-            comparison_header = 'SiteIsolationEnabled=true runInCrossOriginFrame=true'
+            comparison_header = 'SiteIsolationEnabled=true'
             if self._reference_files:
                 return self._run_self_comparison_test(comparison_header)
             return self._run_self_comparison_without_reference_test(comparison_header)
@@ -520,13 +520,16 @@ class SingleTestRunner(object):
             output.strip_text_start_if_needed(self._port.logging_detectors_to_strip_text_start(driver_input.test_name))
             output.strip_stderror_patterns(self._port.stderr_patterns_to_strip())
 
+        if expected_driver_output.text:
+            expected_driver_output.text = self._get_normalized_output_text(expected_driver_output.text)
+
         test_result = self._compare_output(expected_driver_output, driver_output)
         test_result_writer.write_test_result(self._filesystem, self._port, self._results_directory, self._test_name, driver_output, expected_driver_output, test_result.failures)
         return test_result
 
     def _fuzzy_metadata_for_file(self, filename):
         test_doc = Parser(self._filesystem.read_binary_file(filename))
-        fuzzy_nodes = test_doc.findAll('meta', attrs={"name": "fuzzy"})
+        fuzzy_nodes = test_doc.findAll(['meta', 'html:meta'], attrs={"name": "fuzzy"})
         if not fuzzy_nodes:
             return None
 

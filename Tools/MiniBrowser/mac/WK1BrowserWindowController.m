@@ -148,6 +148,10 @@ static BOOL areEssentiallyEqual(double a, double b)
 {
     SEL action = [menuItem action];
 
+    if (action == @selector(cloneSiteIsolatedWindow:))
+        return NO;
+    if (action == @selector(cloneNonIsolatedWindow:))
+        return NO;
     if (action == @selector(saveAsPDF:))
         return NO;
     if (action == @selector(saveAsImage:))
@@ -218,6 +222,7 @@ static BOOL areEssentiallyEqual(double a, double b)
 - (void)windowWillClose:(NSNotification *)notification
 {
     [[[NSApplication sharedApplication] browserAppDelegate] browserWindowWillClose:self.window];
+    [_webView close];
 }
 
 - (double)currentZoomFactor
@@ -341,6 +346,7 @@ static BOOL areEssentiallyEqual(double a, double b)
     preferences.punchOutWhiteBackgroundsInDarkMode = settings.punchOutWhiteBackgroundsInDarkMode;
     preferences.mockCaptureDevicesEnabled = settings.useMockCaptureDevices;
     preferences.allowUniversalAccessFromFileURLs = settings.allowUniversalAccessFromFileURLs;
+    preferences.tabsToLinks = settings.tabFocusesLinksEnabled;
 
     preferences.serviceControlsEnabled = settings.dataDetectorsEnabled;
     // There is no WebKitLegacy API on macOS for telephone number detection.

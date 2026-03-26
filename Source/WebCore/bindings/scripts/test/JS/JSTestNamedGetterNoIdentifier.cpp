@@ -23,8 +23,7 @@
 
 #include "ActiveDOMObject.h"
 #include "ContextDestructionObserverInlines.h"
-#include "Document.h"
-#include "DocumentInlines.h"
+#include "DocumentQuirks.h"
 #include "ExtendedDOMClientIsoSubspaces.h"
 #include "ExtendedDOMIsoSubspaces.h"
 #include "JSDOMAbstractOperations.h"
@@ -34,7 +33,6 @@
 #include "JSDOMExceptionHandling.h"
 #include "JSDOMGlobalObjectInlines.h"
 #include "JSDOMWrapperCache.h"
-#include "Quirks.h"
 #include "ScriptExecutionContext.h"
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/FunctionPrototype.h>
@@ -124,7 +122,7 @@ void JSTestNamedGetterNoIdentifierPrototype::finishCreation(VM& vm)
 const ClassInfo JSTestNamedGetterNoIdentifier::s_info = { "TestNamedGetterNoIdentifier"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestNamedGetterNoIdentifier) };
 
 JSTestNamedGetterNoIdentifier::JSTestNamedGetterNoIdentifier(Structure* structure, JSDOMGlobalObject& globalObject, Ref<TestNamedGetterNoIdentifier>&& impl)
-    : JSDOMWrapper<TestNamedGetterNoIdentifier>(structure, globalObject, WTFMove(impl))
+    : JSDOMWrapper<TestNamedGetterNoIdentifier>(structure, globalObject, WTF::move(impl))
 {
 }
 
@@ -149,7 +147,7 @@ JSValue JSTestNamedGetterNoIdentifier::getConstructor(VM& vm, const JSGlobalObje
 
 void JSTestNamedGetterNoIdentifier::destroy(JSC::JSCell* cell)
 {
-    JSTestNamedGetterNoIdentifier* thisObject = static_cast<JSTestNamedGetterNoIdentifier*>(cell);
+    SUPPRESS_MEMORY_UNSAFE_CAST JSTestNamedGetterNoIdentifier* thisObject = static_cast<JSTestNamedGetterNoIdentifier*>(cell);
     thisObject->JSTestNamedGetterNoIdentifier::~JSTestNamedGetterNoIdentifier();
 }
 
@@ -164,7 +162,7 @@ bool JSTestNamedGetterNoIdentifier::legacyPlatformObjectGetOwnProperty(JSObject*
             return thisObject.wrapped().namedItem(propertyNameToAtomString(propertyName));
         });
         if (auto namedProperty = accessVisibleNamedProperty<LegacyOverrideBuiltIns::No>(*lexicalGlobalObject, *thisObject, propertyName, getterFunctor)) {
-            auto value = toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, WTFMove(namedProperty.value()));
+            auto value = toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, WTF::move(namedProperty.value()));
             RETURN_IF_EXCEPTION(throwScope, false);
             slot.setValue(thisObject, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly), value);
             return true;
@@ -191,7 +189,7 @@ bool JSTestNamedGetterNoIdentifier::getOwnPropertySlotByIndex(JSObject* object, 
         return thisObject.wrapped().namedItem(propertyNameToAtomString(propertyName));
     });
     if (auto namedProperty = accessVisibleNamedProperty<LegacyOverrideBuiltIns::No>(*lexicalGlobalObject, *thisObject, propertyName, getterFunctor)) {
-        auto value = toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, WTFMove(namedProperty.value()));
+        auto value = toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, WTF::move(namedProperty.value()));
         RETURN_IF_EXCEPTION(throwScope, false);
         slot.setValue(thisObject, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly), value);
         return true;
@@ -199,7 +197,7 @@ bool JSTestNamedGetterNoIdentifier::getOwnPropertySlotByIndex(JSObject* object, 
     return JSObject::getOwnPropertySlotByIndex(object, lexicalGlobalObject, index, slot);
 }
 
-void JSTestNamedGetterNoIdentifier::getOwnPropertyNames(JSObject* object, JSGlobalObject* lexicalGlobalObject, PropertyNameArray& propertyNames, DontEnumPropertiesMode mode)
+void JSTestNamedGetterNoIdentifier::getOwnPropertyNames(JSObject* object, JSGlobalObject* lexicalGlobalObject, PropertyNameArrayBuilder& propertyNames, DontEnumPropertiesMode mode)
 {
     SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
     auto* thisObject = jsCast<JSTestNamedGetterNoIdentifier*>(object);
@@ -235,7 +233,7 @@ bool JSTestNamedGetterNoIdentifier::put(JSCell* cell, JSGlobalObject* lexicalGlo
         ownDescriptor.setPropertySlot(lexicalGlobalObject, propertyName, slot);
         RETURN_IF_EXCEPTION(throwScope, false);
     }
-    RELEASE_AND_RETURN(throwScope, ordinarySetWithOwnDescriptor(lexicalGlobalObject, thisObject, propertyName, value, putPropertySlot.thisValue(), WTFMove(ownDescriptor), putPropertySlot.isStrictMode()));
+    RELEASE_AND_RETURN(throwScope, ordinarySetWithOwnDescriptor(lexicalGlobalObject, thisObject, propertyName, value, putPropertySlot.thisValue(), WTF::move(ownDescriptor), putPropertySlot.isStrictMode()));
 }
 
 bool JSTestNamedGetterNoIdentifier::putByIndex(JSCell* cell, JSGlobalObject* lexicalGlobalObject, unsigned index, JSValue value, bool shouldThrow)
@@ -362,7 +360,7 @@ bool JSTestNamedGetterNoIdentifierOwner::isReachableFromOpaqueRoots(JSC::Handle<
 
 void JSTestNamedGetterNoIdentifierOwner::finalize(JSC::Handle<JSC::Unknown> handle, void* context)
 {
-    auto* jsTestNamedGetterNoIdentifier = static_cast<JSTestNamedGetterNoIdentifier*>(handle.slot()->asCell());
+    SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestNamedGetterNoIdentifier = static_cast<JSTestNamedGetterNoIdentifier*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
     uncacheWrapper(world, jsTestNamedGetterNoIdentifier->protectedWrapped().ptr(), jsTestNamedGetterNoIdentifier);
 }
@@ -376,7 +374,7 @@ extern "C" { extern void (*const __identifier("??_7TestNamedGetterNoIdentifier@W
 extern "C" { extern void* _ZTVN7WebCore27TestNamedGetterNoIdentifierE[]; }
 #endif
 template<std::same_as<TestNamedGetterNoIdentifier> T>
-static inline void verifyVTable(TestNamedGetterNoIdentifier* ptr) 
+static inline void verifyVTable(TestNamedGetterNoIdentifier* ptr)
 {
     if constexpr (std::is_polymorphic_v<T>) {
         const void* actualVTablePointer = getVTablePointer<T>(ptr);
@@ -396,12 +394,13 @@ static inline void verifyVTable(TestNamedGetterNoIdentifier* ptr)
 #endif
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestNamedGetterNoIdentifier>&& impl)
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<TestNamedGetterNoIdentifier>&& impl)
 {
+    UNUSED_PARAM(lexicalGlobalObject);
 #if ENABLE(BINDING_INTEGRITY)
     verifyVTable<TestNamedGetterNoIdentifier>(impl.ptr());
 #endif
-    return createWrapper<TestNamedGetterNoIdentifier>(globalObject, WTFMove(impl));
+    return createWrapper<TestNamedGetterNoIdentifier>(globalObject, WTF::move(impl));
 }
 
 JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestNamedGetterNoIdentifier& impl)

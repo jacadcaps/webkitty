@@ -56,6 +56,9 @@ def main(argv):
             with open('%s/%s.messages.in' % (base_dir, message_receiver)) as source_file:
                 receiver = webkit.parser.parse(source_file)
 
+        receiver.enforce_attribute_constraints()
+        receiver.enforce_opaque_ipc_types_usage()
+
         receivers.append(receiver)
         if receiver_name != receiver.name:
             sys.stderr.write("Error: %s defined in file %s/%s.messages.in instead of %s.messages.in\n" % (receiver.name, base_dir, message_receiver, receiver.name))
@@ -74,6 +77,9 @@ def main(argv):
             continue
         with open('%sMessageReceiver.cpp' % receiver.name, "w+") as implementation_output:
             implementation_output.write(webkit.messages.generate_message_handler(receiver))
+        if receiver.swift_receiver or receiver.swift_receiver_build_enabled_by:
+            with open('%sMessageReceiver.swift' % receiver.name, "w+") as swift_implementation_output:
+                swift_implementation_output.write(webkit.messages.generate_swift_message_handler(receiver))
 
         receiver_message_header = '%sMessages.h' % receiver.name
         receiver_header_files.append(receiver_message_header)

@@ -148,7 +148,7 @@ void JSExposedStarPrototype::finishCreation(VM& vm)
 const ClassInfo JSExposedStar::s_info = { "ExposedStar"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSExposedStar) };
 
 JSExposedStar::JSExposedStar(Structure* structure, JSDOMGlobalObject& globalObject, Ref<ExposedStar>&& impl)
-    : JSEventTarget(structure, globalObject, WTFMove(impl))
+    : JSEventTarget(structure, globalObject, WTF::move(impl))
 {
 }
 
@@ -259,7 +259,7 @@ extern "C" { extern void (*const __identifier("??_7ExposedStar@WebCore@@6B@")[])
 extern "C" { extern void* _ZTVN7WebCore11ExposedStarE[]; }
 #endif
 template<std::same_as<ExposedStar> T>
-static inline void verifyVTable(ExposedStar* ptr) 
+static inline void verifyVTable(ExposedStar* ptr)
 {
     if constexpr (std::is_polymorphic_v<T>) {
         const void* actualVTablePointer = getVTablePointer<T>(ptr);
@@ -279,12 +279,13 @@ static inline void verifyVTable(ExposedStar* ptr)
 #endif
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<ExposedStar>&& impl)
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<ExposedStar>&& impl)
 {
+    UNUSED_PARAM(lexicalGlobalObject);
 #if ENABLE(BINDING_INTEGRITY)
     verifyVTable<ExposedStar>(impl.ptr());
 #endif
-    return createWrapper<ExposedStar>(globalObject, WTFMove(impl));
+    return createWrapper<ExposedStar>(globalObject, WTF::move(impl));
 }
 
 JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, ExposedStar& impl)

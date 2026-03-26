@@ -78,8 +78,8 @@ using namespace WebCore;
     ASSERT(!m_coordinator);
 
     UIStatusBarStyleOverrides overrides = UIStatusBarStyleOverrideWebRTCAudioCapture;
-    m_statusBarStyleOverride = [getSBSStatusBarStyleOverridesAssertionClass() assertionWithStatusBarStyleOverrides:overrides forPID:legacyPresentingApplicationPID() exclusive:YES showsWhenForeground:YES];
-    m_coordinator = adoptNS([[getSBSStatusBarStyleOverridesCoordinatorClass() alloc] init]);
+    m_statusBarStyleOverride = [getSBSStatusBarStyleOverridesAssertionClassSingleton() assertionWithStatusBarStyleOverrides:overrides forPID:legacyPresentingApplicationPID() exclusive:YES showsWhenForeground:YES];
+    m_coordinator = adoptNS([[getSBSStatusBarStyleOverridesCoordinatorClassSingleton() alloc] init]);
     m_coordinator.get().delegate = self;
 
     [m_coordinator setRegisteredStyleOverrides:overrides reply:^(NSError *error) {
@@ -88,8 +88,8 @@ using namespace WebCore;
         RELEASE_LOG_ERROR(WebRTC, "WebCoreMediaCaptureStatusBarHandler _acquireStatusBarOverride failed, code = %ld, description is '%s'", [error code], [error localizedDescription].UTF8String);
 
         callOnMainThread([self, strongSelf = retainPtr(self)] {
-            if (m_manager)
-                m_manager->didError();
+            if (RefPtr manager = m_manager.get())
+                manager->didError();
         });
     }];
 
@@ -98,13 +98,13 @@ using namespace WebCore;
         if (acquired)
             return;
         callOnMainThread([self, strongSelf = retainPtr(self)] {
-            if (m_manager)
-                m_manager->didError();
+            if (RefPtr manager = m_manager.get())
+                manager->didError();
         });
     } invalidationHandler:^{
         callOnMainThread([self, strongSelf = retainPtr(self)] {
-            if (m_manager)
-                m_manager->didError();
+            if (RefPtr manager = m_manager.get())
+                manager->didError();
         });
     }];
 }
@@ -128,9 +128,10 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 ALLOW_DEPRECATED_DECLARATIONS_END
 {
     callOnMainThread([self, strongSelf = retainPtr(self), completion = makeBlockPtr(completion)]() mutable {
-        if (!m_manager)
+        RefPtr manager = m_manager.get();
+        if (!manager)
             return;
-        m_manager->didTap([completion = WTFMove(completion)] {
+        manager->didTap([completion = WTF::move(completion)] {
             completion.get()();
         });
     });
@@ -141,8 +142,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 - (void)statusBarCoordinator:(SBSStatusBarStyleOverridesCoordinator *)coordinator invalidatedRegistrationWithError:(NSError *)error
 {
     callOnMainThread([self, strongSelf = retainPtr(self)] {
-        if (m_manager)
-            m_manager->didError();
+        if (RefPtr manager = m_manager.get())
+            manager->didError();
     });
 }
 
@@ -155,6 +156,17 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(MediaCaptureStatusBarManager);
 bool MediaCaptureStatusBarManager::hasSupport()
 {
     return SpringBoardServicesLibrary();
+}
+
+Ref<MediaCaptureStatusBarManager> MediaCaptureStatusBarManager::create(TapCallback&& callback, ErrorCallback&& errorCallback)
+{
+    return adoptRef(*new MediaCaptureStatusBarManager(WTF::move(callback), WTF::move(errorCallback)));
+}
+
+MediaCaptureStatusBarManager::MediaCaptureStatusBarManager(TapCallback&& callback, ErrorCallback&& errorCallback)
+    : m_tapCallback(WTF::move(callback))
+    , m_errorCallback(WTF::move(errorCallback))
+{
 }
 
 MediaCaptureStatusBarManager::~MediaCaptureStatusBarManager()

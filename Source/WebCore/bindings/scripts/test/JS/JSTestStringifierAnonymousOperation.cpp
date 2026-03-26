@@ -126,7 +126,7 @@ void JSTestStringifierAnonymousOperationPrototype::finishCreation(VM& vm)
 const ClassInfo JSTestStringifierAnonymousOperation::s_info = { "TestStringifierAnonymousOperation"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestStringifierAnonymousOperation) };
 
 JSTestStringifierAnonymousOperation::JSTestStringifierAnonymousOperation(Structure* structure, JSDOMGlobalObject& globalObject, Ref<TestStringifierAnonymousOperation>&& impl)
-    : JSDOMWrapper<TestStringifierAnonymousOperation>(structure, globalObject, WTFMove(impl))
+    : JSDOMWrapper<TestStringifierAnonymousOperation>(structure, globalObject, WTF::move(impl))
 {
 }
 
@@ -151,7 +151,7 @@ JSValue JSTestStringifierAnonymousOperation::getConstructor(VM& vm, const JSGlob
 
 void JSTestStringifierAnonymousOperation::destroy(JSC::JSCell* cell)
 {
-    JSTestStringifierAnonymousOperation* thisObject = static_cast<JSTestStringifierAnonymousOperation*>(cell);
+    SUPPRESS_MEMORY_UNSAFE_CAST JSTestStringifierAnonymousOperation* thisObject = static_cast<JSTestStringifierAnonymousOperation*>(cell);
     thisObject->JSTestStringifierAnonymousOperation::~JSTestStringifierAnonymousOperation();
 }
 
@@ -209,7 +209,7 @@ bool JSTestStringifierAnonymousOperationOwner::isReachableFromOpaqueRoots(JSC::H
 
 void JSTestStringifierAnonymousOperationOwner::finalize(JSC::Handle<JSC::Unknown> handle, void* context)
 {
-    auto* jsTestStringifierAnonymousOperation = static_cast<JSTestStringifierAnonymousOperation*>(handle.slot()->asCell());
+    SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestStringifierAnonymousOperation = static_cast<JSTestStringifierAnonymousOperation*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
     uncacheWrapper(world, jsTestStringifierAnonymousOperation->protectedWrapped().ptr(), jsTestStringifierAnonymousOperation);
 }
@@ -223,7 +223,7 @@ extern "C" { extern void (*const __identifier("??_7TestStringifierAnonymousOpera
 extern "C" { extern void* _ZTVN7WebCore33TestStringifierAnonymousOperationE[]; }
 #endif
 template<std::same_as<TestStringifierAnonymousOperation> T>
-static inline void verifyVTable(TestStringifierAnonymousOperation* ptr) 
+static inline void verifyVTable(TestStringifierAnonymousOperation* ptr)
 {
     if constexpr (std::is_polymorphic_v<T>) {
         const void* actualVTablePointer = getVTablePointer<T>(ptr);
@@ -243,12 +243,13 @@ static inline void verifyVTable(TestStringifierAnonymousOperation* ptr)
 #endif
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestStringifierAnonymousOperation>&& impl)
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<TestStringifierAnonymousOperation>&& impl)
 {
+    UNUSED_PARAM(lexicalGlobalObject);
 #if ENABLE(BINDING_INTEGRITY)
     verifyVTable<TestStringifierAnonymousOperation>(impl.ptr());
 #endif
-    return createWrapper<TestStringifierAnonymousOperation>(globalObject, WTFMove(impl));
+    return createWrapper<TestStringifierAnonymousOperation>(globalObject, WTF::move(impl));
 }
 
 JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestStringifierAnonymousOperation& impl)

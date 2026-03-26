@@ -27,15 +27,21 @@
  */
 
 #include "config.h"
+#include <wtf/Condition.h>
 #include <wtf/HashSet.h>
+#include <wtf/Lock.h>
 #include <wtf/RedBlackTree.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/Vector.h>
+#include <wtf/WorkQueue.h>
 
 namespace TestWebKitAPI {
 
 using namespace WTF;
 
-class TestNode : public RedBlackTree<TestNode, char>::Node {
+class TestNode final : public RedBlackTree<TestNode, char>::Node {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(TestNode);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(TestNode);
 public:
     TestNode(char key, unsigned value)
         : m_key(key)
@@ -69,7 +75,7 @@ public:
         char key;
         unsigned value;
         
-        Pair() { }
+        Pair() = default;
         
         Pair(char key, unsigned value)
             : key(key)
@@ -320,14 +326,16 @@ TEST_F(RedBlackTreeTest, BiggerBestFitSearch)
     testDriver("+d+d+d+d+d+d+d+d+d+d+f+f+f+f+f+f+f+h+h+i+j+k+l+m+o+p+q+r+z@a@b@c@d@e@f@g@h@i@j@k@l@m@n@o@p@q@r@s@t@u@v@w@x@y@z");
 }
 
+class IterateTestNode final : public RedBlackTree<IterateTestNode, unsigned>::Node {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(IterateTestNode);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(IterateTestNode);
+public:
+    unsigned key() { return value; }
+    unsigned value;
+};
+
 TEST_F(RedBlackTreeTest, Iterate)
 {
-    class Node : public RedBlackTree<Node, unsigned>::Node {
-    public:
-        unsigned value;
-        unsigned key() { return value; }
-    };
-
     HashSet<unsigned> items;
     items.add(2);
     items.add(42);
@@ -339,16 +347,16 @@ TEST_F(RedBlackTreeTest, Iterate)
     items.add(250);
     items.add(300);
 
-    RedBlackTree<Node, unsigned> tree;
+    RedBlackTree<IterateTestNode, unsigned> tree;
     for (unsigned value : items) {
-        Node* node = new Node;
+        IterateTestNode* node = new IterateTestNode;
         node->value = value;
         tree.insert(node);
     }
 
     {
         HashSet<unsigned> testItems;
-        tree.iterate([&] (Node& node, bool& iterateLeft, bool& iterateRight) {
+        tree.iterate([&] (IterateTestNode& node, bool& iterateLeft, bool& iterateRight) {
             testItems.add(node.value);
             iterateLeft = true;
             iterateRight = true;
@@ -359,7 +367,7 @@ TEST_F(RedBlackTreeTest, Iterate)
 
     {
         HashSet<unsigned> lessThanOrEqual73;
-        tree.iterate([&] (Node& node, bool& iterateLeft, bool& iterateRight) {
+        tree.iterate([&] (IterateTestNode& node, bool& iterateLeft, bool& iterateRight) {
             if (node.value < 73) {
                 iterateRight = true;
                 iterateLeft = true;
@@ -380,7 +388,7 @@ TEST_F(RedBlackTreeTest, Iterate)
 
     {
         HashSet<unsigned> greaterThan55;
-        tree.iterate([&] (Node& node, bool& iterateLeft, bool& iterateRight) {
+        tree.iterate([&] (IterateTestNode& node, bool& iterateLeft, bool& iterateRight) {
             if (node.value <= 55)
                 iterateRight = true;
             else {
@@ -399,6 +407,96 @@ TEST_F(RedBlackTreeTest, Iterate)
         EXPECT_TRUE(greaterThan55.contains(250));
         EXPECT_TRUE(greaterThan55.contains(300));
     }
+}
+
+class IterateTestThreadSafeNode final : public RedBlackTree<IterateTestThreadSafeNode, unsigned>::ThreadSafeNode {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(IterateTestThreadSafeNode);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(IterateTestThreadSafeNode);
+public:
+    unsigned key() { return value; }
+    unsigned value;
+};
+
+TEST_F(RedBlackTreeTest, IterateBackgroundThread)
+{
+    HashSet<unsigned> items;
+    items.add(2);
+    items.add(42);
+    items.add(48);
+    items.add(55);
+    items.add(73);
+    items.add(105);
+    items.add(200);
+    items.add(250);
+    items.add(300);
+
+    Lock treeLock;
+    RedBlackTree<IterateTestThreadSafeNode, unsigned> tree;
+    for (unsigned value : items) {
+        IterateTestThreadSafeNode* node = new IterateTestThreadSafeNode;
+        node->value = value;
+        Locker locker { treeLock };
+        tree.insert(node);
+    }
+
+    HashSet<unsigned> lessThanOrEqual73;
+    HashSet<unsigned> greaterThan55;
+
+    Ref workQueue = ConcurrentWorkQueue::create("Test Queue"_s);
+    Condition workCompleteCondition;
+    std::atomic<int> numActive = 2;
+
+    workQueue->dispatch([&]() {
+        Locker locker { treeLock };
+        tree.iterate([&] (IterateTestThreadSafeNode& node, bool& iterateLeft, bool& iterateRight) {
+            if (node.value < 73) {
+                iterateRight = true;
+                iterateLeft = true;
+            } else
+                iterateLeft = true;
+
+            if (node.value <= 73)
+                lessThanOrEqual73.add(node.value);
+        });
+        --numActive;
+        workCompleteCondition.notifyOne();
+    });
+    workQueue->dispatch([&]() {
+        Locker locker { treeLock };
+        tree.iterate([&] (IterateTestThreadSafeNode& node, bool& iterateLeft, bool& iterateRight) {
+            if (node.value <= 55)
+                iterateRight = true;
+            else {
+                iterateLeft = true;
+                iterateRight = true;
+            }
+
+            if (node.value > 55)
+                greaterThan55.add(node.value);
+        });
+        --numActive;
+        workCompleteCondition.notifyOne();
+    });
+
+    {
+        Locker locker { treeLock };
+        while (numActive)
+            workCompleteCondition.wait(treeLock);
+    }
+
+    EXPECT_EQ(lessThanOrEqual73.size(), static_cast<size_t>(5));
+    EXPECT_TRUE(lessThanOrEqual73.contains(2));
+    EXPECT_TRUE(lessThanOrEqual73.contains(42));
+    EXPECT_TRUE(lessThanOrEqual73.contains(48));
+    EXPECT_TRUE(lessThanOrEqual73.contains(55));
+    EXPECT_TRUE(lessThanOrEqual73.contains(73));
+
+    EXPECT_EQ(greaterThan55.size(), static_cast<size_t>(5));
+    EXPECT_TRUE(greaterThan55.contains(73));
+    EXPECT_TRUE(greaterThan55.contains(105));
+    EXPECT_TRUE(greaterThan55.contains(200));
+    EXPECT_TRUE(greaterThan55.contains(250));
+    EXPECT_TRUE(greaterThan55.contains(300));
 }
 
 } // namespace TestWebKitAPI

@@ -442,7 +442,7 @@ std::optional<Vector<Cookie>> CookieJarDB::searchCookies(const URL& firstParty, 
         cookie.httpOnly = cookieHttpOnly;
         cookie.secure = cookieSecure;
         cookie.session = cookieSession;
-        results.append(WTFMove(cookie));
+        results.append(WTF::move(cookie));
     }
 
     return results;
@@ -470,7 +470,7 @@ Vector<Cookie> CookieJarDB::getAllCookies()
         cookie.httpOnly = (pstmt->columnInt(5) == 1);
         cookie.secure = (pstmt->columnInt(6) == 1);
         cookie.session = (pstmt->columnInt(7) == 1);
-        result.append(WTFMove(cookie));
+        result.append(WTF::move(cookie));
     }
     return result;
 }
@@ -638,9 +638,9 @@ bool CookieJarDB::deleteAllCookies()
 
 void CookieJarDB::createPrepareStatement(ASCIILiteral sql)
 {
-    auto statement = m_database.prepareHeapStatement(sql);
+    auto statement = m_database.prepareStatement(sql);
     ASSERT(statement);
-    m_statements.add(sql, statement.value().moveToUniquePtr());
+    m_statements.add(sql, WTF::move(statement));
 }
 
 SQLiteStatement& CookieJarDB::preparedStatement(const String& sql)
@@ -651,9 +651,9 @@ SQLiteStatement& CookieJarDB::preparedStatement(const String& sql)
     return *statement;
 }
 
-bool CookieJarDB::executeSQLStatement(Expected<SQLiteStatement, int>&& statement)
+bool CookieJarDB::executeSQLStatement(std::unique_ptr<SQLiteStatement>&& statement)
 {
-    if (!statement && !checkSQLiteReturnCode(statement.error())) {
+    if (!statement && !checkSQLiteReturnCode(m_database.lastError())) {
         LOG_ERROR("Failed to prepare sql statement with error: %s", m_database.lastErrorMsg());
         return false;
     }

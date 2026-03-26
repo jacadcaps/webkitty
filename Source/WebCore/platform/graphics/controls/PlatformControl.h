@@ -25,8 +25,8 @@
 
 #pragma once
 
-#include "ControlStyle.h"
-#include "FloatRect.h"
+#include <WebCore/ControlStyle.h>
+#include <WebCore/FloatRect.h>
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -58,7 +58,7 @@ public:
     virtual void draw(GraphicsContext&, const FloatRoundedRect&, float, const ControlStyle&) { }
 
 protected:
-    ControlPart& m_owningPart;
+    ThreadSafeWeakRef<ControlPart> m_owningPart;
 };
 
 } // namespace WebCore

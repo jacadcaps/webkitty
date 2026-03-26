@@ -1,9 +1,5 @@
 /*
-<<<<<<< HEAD
-* Copyright (C) 2025 Apple Inc. All rights reserved.
-=======
  * Copyright (C) 2025 Apple Inc. All rights reserved.
->>>>>>> bb34e112b85b (Use after free in NavigateEvent())
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,7 +28,6 @@
 
 #include "JSNavigateEvent.h"
 #include "NavigateEvent.h"
-#include "WebCoreOpaqueRootInlines.h"
 
 namespace WebCore {
 
@@ -42,6 +37,7 @@ void JSNavigation::visitAdditionalChildren(Visitor& visitor)
     // We cannot ref the event on the GC thread.
     SUPPRESS_UNCOUNTED_ARG if (auto* event = wrapped().ongoingNavigateEvent())
         addWebCoreOpaqueRoot(visitor, event);
+    SUPPRESS_UNCOUNTED_ARG wrapped().visitAdditionalChildren(visitor);
 }
 
 DEFINE_VISIT_ADDITIONAL_CHILDREN(JSNavigation);

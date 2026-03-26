@@ -28,6 +28,7 @@
 
 #import "APIConversions.h"
 #import "Adapter.h"
+#import "DDMesh.h"
 #import "HardwareCapabilities.h"
 #import "PresentationContext.h"
 #import <cstring>
@@ -41,30 +42,33 @@ namespace WebGPU {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(Instance);
 
+static NSArray<id<MTLDevice>>* getDevices()
+{
+#if PLATFORM(MAC) || PLATFORM(MACCATALYST)
+    NSArray<id<MTLDevice>> *devices = MTLCopyAllDevices();
+#else
+    NSMutableArray<id<MTLDevice>> *devices = [NSMutableArray array];
+    if (id<MTLDevice> device = MTLCreateSystemDefaultDevice())
+        [devices addObject:device];
+#endif
+    return devices;
+}
+
 Ref<Instance> Instance::create(const WGPUInstanceDescriptor& descriptor)
 {
-    if (!descriptor.nextInChain)
-        return Instance::createInvalid();
-
-    if (descriptor.nextInChain->sType != static_cast<WGPUSType>(WGPUSTypeExtended_InstanceCocoaDescriptor))
-        return Instance::createInvalid();
-
-    const WGPUInstanceCocoaDescriptor& cocoaDescriptor = reinterpret_cast<const WGPUInstanceCocoaDescriptor&>(*descriptor.nextInChain);
-
-    if (cocoaDescriptor.chain.next)
-        return Instance::createInvalid();
+    const WGPUInstanceCocoaDescriptor& cocoaDescriptor = descriptor.cocoaDescriptor;
 
     return adoptRef(*new Instance(cocoaDescriptor.scheduleWorkBlock, reinterpret_cast<const WTF::MachSendRight*>(cocoaDescriptor.webProcessResourceOwner)));
 }
 
 Instance::Instance(WGPUScheduleWorkBlock scheduleWorkBlock, const MachSendRight* webProcessResourceOwner)
     : m_webProcessID(webProcessResourceOwner ? std::optional<MachSendRight>(*webProcessResourceOwner) : std::nullopt)
-    , m_scheduleWorkBlock(scheduleWorkBlock ? WTFMove(scheduleWorkBlock) : ^(WGPUWorkItem workItem) { defaultScheduleWork(WTFMove(workItem)); })
+    , m_scheduleWorkBlock(scheduleWorkBlock ? WTF::move(scheduleWorkBlock) : ^(WGPUWorkItem workItem) { defaultScheduleWork(WTF::move(workItem)); })
 {
 }
 
 Instance::Instance()
-    : m_scheduleWorkBlock(^(WGPUWorkItem workItem) { defaultScheduleWork(WTFMove(workItem)); })
+    : m_scheduleWorkBlock(^(WGPUWorkItem workItem) { defaultScheduleWork(WTF::move(workItem)); })
     , m_isValid(false)
 {
 }
@@ -78,7 +82,7 @@ Ref<PresentationContext> Instance::createSurface(const WGPUSurfaceDescriptor& de
 
 void Instance::scheduleWork(WorkItem&& workItem)
 {
-    m_scheduleWorkBlock(makeBlockPtr(WTFMove(workItem)).get());
+    m_scheduleWorkBlock(makeBlockPtr(WTF::move(workItem)).get());
 }
 
 const std::optional<const MachSendRight>& Instance::webProcessID() const
@@ -89,7 +93,7 @@ const std::optional<const MachSendRight>& Instance::webProcessID() const
 void Instance::defaultScheduleWork(WGPUWorkItem&& workItem)
 {
     Locker locker(m_lock);
-    m_pendingWork.append(WTFMove(workItem));
+    m_pendingWork.append(WTF::move(workItem));
 }
 
 void Instance::processEvents()
@@ -146,22 +150,11 @@ static NSArray<id<MTLDevice>> *sortedDevices(NSArray<id<MTLDevice>> *devices, WG
 
 void Instance::requestAdapter(const WGPURequestAdapterOptions& options, CompletionHandler<void(WGPURequestAdapterStatus, Ref<Adapter>&&, String&&)>&& callback)
 {
-#if PLATFORM(MAC) || PLATFORM(MACCATALYST)
-    NSArray<id<MTLDevice>> *devices = MTLCopyAllDevices();
-#else
-    NSMutableArray<id<MTLDevice>> *devices = [NSMutableArray array];
-    if (id<MTLDevice> device = MTLCreateSystemDefaultDevice())
-        [devices addObject:device];
-#endif
+    auto devices = getDevices();
 
     // FIXME: Deal with options.compatibleSurface.
 
     auto sortedDevices = WebGPU::sortedDevices(devices, options.powerPreference);
-
-    if (options.nextInChain) {
-        callback(WGPURequestAdapterStatus_Error, Adapter::createInvalid(*this), "Unknown descriptor type"_s);
-        return;
-    }
 
     if (options.forceFallbackAdapter) {
         callback(WGPURequestAdapterStatus_Unavailable, Adapter::createInvalid(*this), "No adapters present"_s);
@@ -193,7 +186,7 @@ void Instance::requestAdapter(const WGPURequestAdapterOptions& options, Completi
     }
 
     // FIXME: this should be asynchronous
-    callback(WGPURequestAdapterStatus_Success, Adapter::create(sortedDevices[0], *this, options.xrCompatible, WTFMove(*deviceCapabilities)), { });
+    callback(WGPURequestAdapterStatus_Success, Adapter::create(sortedDevices[0], *this, options.xrCompatible, WTF::move(*deviceCapabilities)), { });
 }
 
 void Instance::retainDevice(Device& device, id<MTLCommandBuffer> commandBuffer)
@@ -215,6 +208,11 @@ void Instance::retainDevice(Device& device, id<MTLCommandBuffer> commandBuffer)
     retainedDeviceInstances.removeIf([&] (auto& pair) {
         return !pair.value.size();
     });
+}
+
+id<MTLDevice> Instance::device() const
+{
+    return getDevices().firstObject;
 }
 
 } // namespace WebGPU
@@ -259,19 +257,19 @@ void wgpuInstanceRequestAdapter(WGPUInstance instance, const WGPURequestAdapterO
             return;
         }
 
-        callback(status, WebGPU::releaseToAPI(WTFMove(adapter)), message.utf8().data(), userdata);
+        callback(status, WebGPU::releaseToAPI(WTF::move(adapter)), message.utf8().data(), userdata);
     });
 }
 
 void wgpuInstanceRequestAdapterWithBlock(WGPUInstance instance, WGPURequestAdapterOptions const * options, WGPURequestAdapterBlockCallback callback)
 {
-    WebGPU::protectedFromAPI(instance)->requestAdapter(*options, [callback = WebGPU::fromAPI(WTFMove(callback))](WGPURequestAdapterStatus status, Ref<WebGPU::Adapter>&& adapter, String&& message) {
+    WebGPU::protectedFromAPI(instance)->requestAdapter(*options, [callback = WebGPU::fromAPI(WTF::move(callback))](WGPURequestAdapterStatus status, Ref<WebGPU::Adapter>&& adapter, String&& message) {
         if (status != WGPURequestAdapterStatus_Success) {
             callback(status, nullptr, message.utf8().data());
             return;
         }
 
-        callback(status, WebGPU::releaseToAPI(WTFMove(adapter)), message.utf8().data());
+        callback(status, WebGPU::releaseToAPI(WTF::move(adapter)), message.utf8().data());
     });
 }
 
@@ -404,4 +402,9 @@ WGPUBool wgpuXRProjectionLayerIsValid(WGPUXRProjectionLayer layer)
 WGPUBool wgpuXRViewIsValid(WGPUXRView view)
 {
     return WebGPU::protectedFromAPI(view)->isValid();
+}
+
+WGPUDDMesh wgpuDDMeshCreate(WGPUInstance instance, const WGPUDDCreateMeshDescriptor* descriptor)
+{
+    return WebGPU::releaseToAPI(WebGPU::protectedFromAPI(instance)->createModelBacking(*descriptor));
 }

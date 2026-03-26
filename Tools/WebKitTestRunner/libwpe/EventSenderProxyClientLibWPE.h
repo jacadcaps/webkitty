@@ -25,6 +25,8 @@
 
 #pragma once
 
+#if USE(LIBWPE)
+
 #include "EventSenderProxyClient.h"
 
 #include <wtf/HashSet.h>
@@ -48,6 +50,8 @@ private:
     void mouseScrollBy(int, int, double, double, double) override;
 
     void keyDown(WKStringRef, double, WKEventModifiers, unsigned) override;
+    void rawKeyDown(WKStringRef, WKEventModifiers, unsigned) override;
+    void rawKeyUp(WKStringRef, WKEventModifiers, unsigned) override;
 
 #if ENABLE(TOUCH_EVENTS)
     void addTouchPoint(int, int, double) override;
@@ -73,3 +77,5 @@ private:
 };
 
 } // namespace WTR
+
+#endif // USE(LIBWPE)

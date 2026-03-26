@@ -23,6 +23,7 @@
 import difflib
 import os
 import re
+import shlex
 import shutil
 import sys
 import tempfile
@@ -73,7 +74,7 @@ class Review(Command):
         if not from_config:
             from_config = local.Git.config().get('core.editor', None)
         if from_config:
-            return from_config.split(' ')
+            return shlex.split(from_config)
         return [shutil.which('vim')]
 
     @classmethod

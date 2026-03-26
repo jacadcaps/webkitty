@@ -47,6 +47,7 @@
 #import <WebKit/_WKDownloadDelegate.h>
 #import <wtf/NeverDestroyed.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
+#import <wtf/darwin/DispatchExtras.h>
 
 using namespace TestWebKitAPI;
 
@@ -321,7 +322,7 @@ TEST(QuickLook, AllowResponseAfterLoadingPreview)
     int64_t deferredWaitTime = 100 * NSEC_PER_MSEC;
     dispatch_time_t when = dispatch_time(DISPATCH_TIME_NOW, deferredWaitTime);
 
-    dispatch_after(when, dispatch_get_main_queue(), ^{
+    dispatch_after(when, mainDispatchQueueSingleton(), ^{
         decisionHandler(_responsePolicy);
     });
 }

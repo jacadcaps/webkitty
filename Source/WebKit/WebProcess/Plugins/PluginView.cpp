@@ -46,11 +46,13 @@
 #include <WebCore/CookieJar.h>
 #include <WebCore/Credential.h>
 #include <WebCore/CredentialStorage.h>
-#include <WebCore/DocumentInlines.h>
 #include <WebCore/DocumentLoader.h>
+#include <WebCore/DocumentPage.h>
+#include <WebCore/DocumentView.h>
 #include <WebCore/EventHandler.h>
 #include <WebCore/EventNames.h>
 #include <WebCore/FocusController.h>
+#include <WebCore/FrameDestructionObserverInlines.h>
 #include <WebCore/FrameLoadRequest.h>
 #include <WebCore/FrameLoader.h>
 #include <WebCore/GraphicsContext.h>
@@ -58,13 +60,14 @@
 #include <WebCore/HTMLPlugInElement.h>
 #include <WebCore/HTTPHeaderNames.h>
 #include <WebCore/HostWindow.h>
-#include <WebCore/LocalFrame.h>
+#include <WebCore/LocalFrameInlines.h>
 #include <WebCore/LocalFrameLoaderClient.h>
 #include <WebCore/LocalFrameView.h>
 #include <WebCore/MIMETypeRegistry.h>
 #include <WebCore/MouseEvent.h>
 #include <WebCore/NetscapePlugInStreamLoader.h>
 #include <WebCore/NetworkStorageSession.h>
+#include <WebCore/NodeDocument.h>
 #include <WebCore/OriginAccessPatterns.h>
 #include <WebCore/PageInlines.h>
 #include <WebCore/PlatformMouseEvent.h>
@@ -93,6 +96,10 @@ public:
         return adoptRef(*new Stream(pluginView, request));
     }
     ~Stream();
+
+    // NetscapePlugInStreamLoaderClient.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
 
     void start();
     void cancel();
@@ -139,7 +146,7 @@ void PluginView::Stream::start()
     ASSERT(frame);
 
     WebProcess::singleton().protectedWebLoaderStrategy()->schedulePluginStreamLoad(*frame, *this, ResourceRequest { m_request }, [this, protectedThis = Ref { *this }](RefPtr<NetscapePlugInStreamLoader>&& loader) {
-        m_loader = WTFMove(loader);
+        m_loader = WTF::move(loader);
     });
 }
 
@@ -161,8 +168,8 @@ void PluginView::Stream::continueLoad()
 
 void PluginView::Stream::willSendRequest(NetscapePlugInStreamLoader*, ResourceRequest&& request, const ResourceResponse&, CompletionHandler<void(ResourceRequest&&)>&& decisionHandler)
 {
-    m_loadCallback = WTFMove(decisionHandler);
-    m_request = WTFMove(request);
+    m_loadCallback = WTF::move(decisionHandler);
+    m_request = WTF::move(request);
 }
 
 void PluginView::Stream::didReceiveResponse(NetscapePlugInStreamLoader*, const ResourceResponse& response)
@@ -813,7 +820,7 @@ RefPtr<FragmentedSharedBuffer> PluginView::liveResourceData() const
 {
     if (!m_isInitialized) {
         if (m_manualStreamState == ManualStreamState::Finished)
-            return m_manualStreamData.get();
+            return m_manualStreamData.buffer();
 
         return nullptr;
     }
@@ -947,7 +954,7 @@ void PluginView::focusPluginElement()
 
     Ref pluginElement = m_pluginElement;
     if (RefPtr page = frame->page())
-        page->focusController().setFocusedElement(pluginElement.ptr(), *frame);
+        page->focusController().setFocusedElement(pluginElement.ptr(), frame.get());
     else
         frame->protectedDocument()->setFocusedElement(pluginElement.ptr());
 }
@@ -986,7 +993,7 @@ void PluginView::redeliverManualStream()
 
     // Deliver the data.
     if (m_manualStreamData) {
-        m_manualStreamData.take()->forEachSegmentAsSharedBuffer([&](auto&& buffer) {
+        m_manualStreamData.takeBuffer()->forEachSegmentAsSharedBuffer([&](auto&& buffer) {
             manualLoadDidReceiveData(buffer);
         });
     }
@@ -1136,7 +1143,7 @@ void PluginView::setPDFTextAnnotationValueForTesting(unsigned pageIndex, unsigne
 
 void PluginView::registerPDFTestCallback(RefPtr<VoidCallback>&& callback)
 {
-    m_plugin->registerPDFTest(WTFMove(callback));
+    m_plugin->registerPDFTest(WTF::move(callback));
 }
 
 PDFPluginIdentifier PluginView::pdfPluginIdentifier() const
@@ -1146,7 +1153,7 @@ PDFPluginIdentifier PluginView::pdfPluginIdentifier() const
 
 void PluginView::openWithPreview(CompletionHandler<void(const String&, std::optional<FrameInfoData>&&, std::span<const uint8_t>)>&& completionHandler)
 {
-    m_plugin->openWithPreview(WTFMove(completionHandler));
+    m_plugin->openWithPreview(WTF::move(completionHandler));
 }
 
 #if PLATFORM(IOS_FAMILY)
@@ -1168,7 +1175,7 @@ SelectionEndpoint PluginView::extendInitialSelection(FloatPoint pointInRootView,
 
 DocumentEditingContext PluginView::documentEditingContext(DocumentEditingContextRequest&& request) const
 {
-    return m_plugin->documentEditingContext(WTFMove(request));
+    return m_plugin->documentEditingContext(WTF::move(request));
 }
 
 void PluginView::clearSelection()
@@ -1193,7 +1200,7 @@ std::optional<FloatRect> PluginView::highlightRectForTapAtPoint(FloatPoint point
 
 void PluginView::handleSyntheticClick(PlatformMouseEvent&& event)
 {
-    m_plugin->handleSyntheticClick(WTFMove(event));
+    m_plugin->handleSyntheticClick(WTF::move(event));
 }
 
 CursorContext PluginView::cursorContext(FloatPoint pointInRootView) const
@@ -1239,6 +1246,11 @@ bool PluginView::pluginDelegatesScrollingToMainFrame() const
         return false;
 
     return m_plugin->delegatesScrollingToMainFrame();
+}
+
+bool PluginView::isPresentingLockedContent() const
+{
+    return m_isInitialized && m_plugin->isLocked();
 }
 
 } // namespace WebKit

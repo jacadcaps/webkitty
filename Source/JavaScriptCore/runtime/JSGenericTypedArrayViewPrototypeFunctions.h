@@ -49,7 +49,7 @@
 
 #pragma once
 
-#include "CachedCall.h"
+#include "CachedCallInlines.h"
 #include "Error.h"
 #include "InterpreterInlines.h"
 #include "JSArrayBufferViewInlines.h"
@@ -455,7 +455,7 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncIncludes(VM& vm, JSGl
         IdempotentArrayBufferByteLengthGetter<std::memory_order_seq_cst> getter;
         auto lengthValue = integerIndexedObjectLength(thisObject, getter);
         if (!lengthValue) [[unlikely]]
-            return JSValue::encode(jsBoolean(valueToFind.isUndefined()));
+            return JSValue::encode(jsBoolean(index < length && valueToFind.isUndefined()));
 
         updatedLength = lengthValue.value();
     }
@@ -465,7 +465,7 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncIncludes(VM& vm, JSGl
     if (!targetOption) {
         // Even though our TypedArray's length is updated, we iterate up to `length`.
         // So, if `updatedLength` is smaller than `length`, we will see undefined after that.
-        return JSValue::encode(jsBoolean(valueToFind.isUndefined() && length > updatedLength));
+        return JSValue::encode(jsBoolean(index < length && updatedLength < length && valueToFind.isUndefined()));
     }
 
     scope.assertNoExceptionExceptTermination();
@@ -774,7 +774,7 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncForEach(VM& vm, JSGlo
     size_t length = thisObject->length();
 
     JSValue functorValue = callFrame->argument(0);
-    auto callData = JSC::getCallData(functorValue);
+    auto callData = JSC::getCallDataInline(functorValue);
     if (callData.type == CallData::Type::None) [[unlikely]]
         return throwVMTypeError(globalObject, scope, "TypedArray.prototype.forEach callback must be a function"_s);
 
@@ -834,7 +834,7 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncMap(VM& vm, JSGlobalO
     size_t length = thisObject->length();
 
     JSValue functorValue = callFrame->argument(0);
-    auto callData = JSC::getCallData(functorValue);
+    auto callData = JSC::getCallDataInline(functorValue);
     if (callData.type == CallData::Type::None) [[unlikely]]
         return throwVMTypeError(globalObject, scope, "TypedArray.prototype.map callback must be a function"_s);
 
@@ -941,7 +941,7 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncFilter(VM& vm, JSGlob
     size_t length = thisObject->length();
 
     JSValue functorValue = callFrame->argument(0);
-    auto callData = JSC::getCallData(functorValue);
+    auto callData = JSC::getCallDataInline(functorValue);
     if (callData.type == CallData::Type::None) [[unlikely]]
         return throwVMTypeError(globalObject, scope, "TypedArray.prototype.filter callback must be a function"_s);
 
@@ -1034,7 +1034,7 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncFind(VM& vm, JSGlobal
     size_t length = thisObject->length();
 
     JSValue functorValue = callFrame->argument(0);
-    auto callData = JSC::getCallData(functorValue);
+    auto callData = JSC::getCallDataInline(functorValue);
     if (callData.type == CallData::Type::None) [[unlikely]]
         return throwVMTypeError(globalObject, scope, "TypedArray.prototype.find callback must be a function"_s);
 
@@ -1107,7 +1107,7 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncFindIndex(VM& vm, JSG
     size_t length = thisObject->length();
 
     JSValue functorValue = callFrame->argument(0);
-    auto callData = JSC::getCallData(functorValue);
+    auto callData = JSC::getCallDataInline(functorValue);
     if (callData.type == CallData::Type::None) [[unlikely]]
         return throwVMTypeError(globalObject, scope, "TypedArray.prototype.findIndex callback must be a function"_s);
 
@@ -1180,7 +1180,7 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncFindLast(VM& vm, JSGl
     size_t length = thisObject->length();
 
     JSValue functorValue = callFrame->argument(0);
-    auto callData = JSC::getCallData(functorValue);
+    auto callData = JSC::getCallDataInline(functorValue);
     if (callData.type == CallData::Type::None) [[unlikely]]
         return throwVMTypeError(globalObject, scope, "TypedArray.prototype.findLast callback must be a function"_s);
 
@@ -1253,7 +1253,7 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncFindLastIndex(VM& vm,
     size_t length = thisObject->length();
 
     JSValue functorValue = callFrame->argument(0);
-    auto callData = JSC::getCallData(functorValue);
+    auto callData = JSC::getCallDataInline(functorValue);
     if (callData.type == CallData::Type::None) [[unlikely]]
         return throwVMTypeError(globalObject, scope, "TypedArray.prototype.findLastIndex callback must be a function"_s);
 
@@ -1326,7 +1326,7 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncEvery(VM& vm, JSGloba
     size_t length = thisObject->length();
 
     JSValue functorValue = callFrame->argument(0);
-    auto callData = JSC::getCallData(functorValue);
+    auto callData = JSC::getCallDataInline(functorValue);
     if (callData.type == CallData::Type::None) [[unlikely]]
         return throwVMTypeError(globalObject, scope, "TypedArray.prototype.every callback must be a function"_s);
 
@@ -1399,7 +1399,7 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncSome(VM& vm, JSGlobal
     size_t length = thisObject->length();
 
     JSValue functorValue = callFrame->argument(0);
-    auto callData = JSC::getCallData(functorValue);
+    auto callData = JSC::getCallDataInline(functorValue);
     if (callData.type == CallData::Type::None) [[unlikely]]
         return throwVMTypeError(globalObject, scope, "TypedArray.prototype.some callback must be a function"_s);
 
@@ -1523,7 +1523,7 @@ static ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncSortImpl(VM& v
         return JSValue::encode(thisObject);
     }
 
-    auto callData = JSC::getCallData(comparatorValue);
+    auto callData = JSC::getCallDataInline(comparatorValue);
 
     size_t length = thisObject->length();
     if (length < 2)
@@ -1592,8 +1592,10 @@ static ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncSortImpl(VM& v
     if (thisObject->isDetached()) [[unlikely]]
         return JSValue::encode(thisObject);
 
+    // The comparator may trigger FastTypedArray -> WastefulTypedArray transition via .buffer access,
+    // which relocates the backing store. Do not reuse originalSpan here.
     size_t copyLength = std::min<size_t>(thisObject->length(), result.size());
-    WTF::copyElements(originalSpan, spanConstCast<const typename ViewClass::ElementType>(result.first(copyLength)));
+    WTF::copyElements(thisObject->typedSpan().first(copyLength), spanConstCast<const typename ViewClass::ElementType>(result.first(copyLength)));
 
     return JSValue::encode(thisObject);
 }
@@ -1843,6 +1845,7 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncSubarray(VM& vm, JSGl
     ViewClass* thisObject = jsCast<ViewClass*>(callFrame->thisValue());
 
     size_t thisLength = thisObject->length();
+    size_t srcByteOffset = thisObject->byteOffsetRaw();
 
     JSValue start = callFrame->argument(0);
     if (!start.isInt32()) [[unlikely]] {
@@ -1881,12 +1884,12 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncSubarray(VM& vm, JSGl
         return { };
     }
 
-    size_t newByteOffset = thisObject->byteOffsetRaw() + begin * ViewClass::elementSize;
+    size_t newByteOffset = srcByteOffset + begin * ViewClass::elementSize;
 
     scope.release();
     return JSValue::encode(speciesConstruct(globalObject, thisObject, [&]() {
         Structure* structure = globalObject->typedArrayStructure(ViewClass::TypedArrayStorageType, arrayBuffer->isResizableOrGrowableShared());
-        return ViewClass::create(globalObject, structure, WTFMove(arrayBuffer), newByteOffset, count);
+        return ViewClass::create(globalObject, structure, WTF::move(arrayBuffer), newByteOffset, count);
     }, [&](MarkedArgumentBuffer& args) {
         args.append(vm.m_typedArrayController->toJS(globalObject, thisObject->globalObject(), arrayBuffer.get()));
         args.append(jsNumber(newByteOffset));

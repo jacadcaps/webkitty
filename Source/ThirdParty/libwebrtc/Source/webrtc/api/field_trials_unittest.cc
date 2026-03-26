@@ -10,18 +10,18 @@
 
 #include "api/field_trials.h"
 
+#include <memory>
+
 #include "absl/strings/str_cat.h"
+#include "api/field_trials_view.h"
+#include "rtc_base/checks.h"
 #include "rtc_base/containers/flat_set.h"
-#include "system_wrappers/include/field_trial.h"
-#include "test/field_trial.h"
 #include "test/gmock.h"
 #include "test/gtest.h"
 
 namespace webrtc {
 namespace {
 
-using field_trial::FieldTrialsAllowedInScopeForTesting;
-using test::ScopedFieldTrials;
 using ::testing::AllOf;
 using ::testing::HasSubstr;
 using ::testing::IsNull;
@@ -29,7 +29,6 @@ using ::testing::Not;
 using ::testing::NotNull;
 
 TEST(FieldTrialsTest, EmptyStringHasNoEffect) {
-  FieldTrialsAllowedInScopeForTesting k({"MyCoolTrial"});
   FieldTrials f("");
   f.RegisterKeysForTesting({"MyCoolTrial"});
 
@@ -49,25 +48,6 @@ TEST(FieldTrialsTest, EnabledDisabledMustBeFirstInValue) {
   EXPECT_FALSE(f.IsEnabled("AnotherTrial"));
 }
 
-TEST(FieldTrialsTest, FieldTrialsDoesNotReadGlobalString) {
-  FieldTrialsAllowedInScopeForTesting k({"MyCoolTrial", "MyUncoolTrial"});
-  ScopedFieldTrials g("MyCoolTrial/Enabled/MyUncoolTrial/Disabled/");
-  FieldTrials f("");
-  f.RegisterKeysForTesting({"MyCoolTrial", "MyUncoolTrial"});
-
-  EXPECT_FALSE(f.IsEnabled("MyCoolTrial"));
-  EXPECT_FALSE(f.IsDisabled("MyUncoolTrial"));
-}
-
-TEST(FieldTrialsTest, FieldTrialsInstanceDoesNotModifyGlobalString) {
-  FieldTrialsAllowedInScopeForTesting k({"SomeString"});
-  FieldTrials f("SomeString/Enabled/");
-  f.RegisterKeysForTesting({"SomeString"});
-
-  EXPECT_TRUE(f.IsEnabled("SomeString"));
-  EXPECT_FALSE(field_trial::IsEnabled("SomeString"));
-}
-
 TEST(FieldTrialsTest, FieldTrialsSupportSimultaneousInstances) {
   FieldTrials f1("SomeString/Enabled/");
   FieldTrials f2("SomeOtherString/Enabled/");
@@ -79,20 +59,6 @@ TEST(FieldTrialsTest, FieldTrialsSupportSimultaneousInstances) {
 
   EXPECT_FALSE(f2.IsEnabled("SomeString"));
   EXPECT_TRUE(f2.IsEnabled("SomeOtherString"));
-}
-
-TEST(FieldTrialsTest, GlobalAndNonGlobalFieldTrialsAreDisjoint) {
-  FieldTrialsAllowedInScopeForTesting k({"SomeString", "SomeOtherString"});
-  ScopedFieldTrials g("SomeString/Enabled/");
-  FieldTrials f("SomeOtherString/Enabled/");
-
-  f.RegisterKeysForTesting({"SomeString", "SomeOtherString"});
-
-  EXPECT_TRUE(field_trial::IsEnabled("SomeString"));
-  EXPECT_FALSE(field_trial::IsEnabled("SomeOtherString"));
-
-  EXPECT_FALSE(f.IsEnabled("SomeString"));
-  EXPECT_TRUE(f.IsEnabled("SomeOtherString"));
 }
 
 TEST(FieldTrialsTest, CreateAcceptsValidInputs) {
@@ -191,6 +157,35 @@ TEST(FieldTrialsTest, SettingEmptyValueRemovesFieldTrial) {
   f2.Merge(f);
   f2.RegisterKeysForTesting({"Audio"});
   EXPECT_EQ(f2.Lookup("Audio"), "Disabled");
+}
+
+TEST(FieldTrialsTest, CreateCopy) {
+  auto f = std::make_unique<FieldTrials>("Audio/Enabled/");
+  f->RegisterKeysForTesting({"Audio"});
+
+  FieldTrialsView* view = f.get();
+  auto copy = view->CreateCopy();
+  f.reset();
+  EXPECT_EQ(copy->Lookup("Audio"), "Enabled");
+}
+
+TEST(FieldTrials, Immutable) {
+  FieldTrials f("Audio/Enabled/");
+  f.RegisterKeysForTesting({"Audio"});
+
+  // Has never been read, modifyable
+  f.Set("Audio", "Disabled");
+  EXPECT_EQ(f.Lookup("Audio"), "Disabled");
+
+  // A copy can be modified.
+  FieldTrials c(f);
+  c.Set("Audio", "Enabled");
+
+#if RTC_DCHECK_IS_ON && GTEST_HAS_DEATH_TEST && !defined(WEBRTC_ANDROID)
+  // But FieldTrials that have been read from,
+  // must not be modified (as documented in FieldTrialsView).
+  EXPECT_DEATH(f.Set("Audio", "Enabled"), "");
+#endif
 }
 
 }  // namespace

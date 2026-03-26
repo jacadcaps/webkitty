@@ -42,13 +42,13 @@ namespace WebKit {
 
 static bool hasActionsForResult(DDScannerResult *dataDetectorResult)
 {
-    RetainPtr ddActionsManagerClass = PAL::getDDActionsManagerClass();
-    return [[ddActionsManagerClass.get() sharedManager] hasActionsForResult:RetainPtr { [dataDetectorResult coreResult] }.get() actionContext:nil];
+    RetainPtr ddActionsManagerClass = PAL::getDDActionsManagerClassSingleton();
+    return [retainPtr([ddActionsManagerClass.get() sharedManager]) hasActionsForResult:RetainPtr { [dataDetectorResult coreResult] }.get() actionContext:nil];
 }
 
 static bool resultIsPastDate(DDScannerResult *dataDetectorResult, PDFPage *pdfPage)
 {
-    RetainPtr referenceDate = [[[pdfPage document] documentAttributes] objectForKey:RetainPtr { get_PDFKit_PDFDocumentCreationDateAttribute() }.get()];
+    RetainPtr referenceDate = [retainPtr([[pdfPage document] documentAttributes]) objectForKey:get_PDFKit_PDFDocumentCreationDateAttributeSingleton()];
     RetainPtr referenceTimeZone = adoptCF(CFTimeZoneCopyDefault());
     return PAL::softLink_DataDetectorsCore_DDResultIsPastDate(RetainPtr { [dataDetectorResult coreResult] }.get(), (CFDateRef)referenceDate.get(), (CFTimeZoneRef)referenceTimeZone.get());
 }

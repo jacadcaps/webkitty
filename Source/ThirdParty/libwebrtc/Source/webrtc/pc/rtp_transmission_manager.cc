@@ -17,6 +17,7 @@
 #include <utility>
 #include <vector>
 
+#include "absl/functional/any_invocable.h"
 #include "api/environment/environment.h"
 #include "api/make_ref_counted.h"
 #include "api/media_stream_interface.h"
@@ -51,8 +52,8 @@ namespace webrtc {
 
 namespace {
 
-static const char kDefaultAudioSenderId[] = "defaulta0";
-static const char kDefaultVideoSenderId[] = "defaultv0";
+const char kDefaultAudioSenderId[] = "defaulta0";
+const char kDefaultVideoSenderId[] = "defaultv0";
 
 }  // namespace
 
@@ -92,11 +93,11 @@ void RtpTransmissionManager::OnNegotiationNeeded() {
   on_negotiation_needed_();
 }
 
-// Function that returns the currently valid observer
-PeerConnectionObserver* RtpTransmissionManager::Observer() const {
-  RTC_DCHECK(!closed_);
+void RtpTransmissionManager::RunWithObserver(
+    absl::AnyInvocable<void(webrtc::PeerConnectionObserver*) &&> task) {
+  RTC_DCHECK_RUN_ON(signaling_thread());
   RTC_DCHECK(observer_);
-  return observer_;
+  std::move(task)(observer_);
 }
 
 VoiceMediaSendChannelInterface*
@@ -321,13 +322,33 @@ RtpTransmissionManager::CreateAndAddTransceiver(
   // Allow receiver IDs to conflict since those come from remote SDP (which
   // could be invalid, but should not cause a crash).
   RTC_DCHECK(!FindSenderById(sender->id()));
+  std::vector<RtpHeaderExtensionCapability> header_extensions;
+  if (!env_.field_trials().IsDisabled(
+          "WebRTC-HeaderExtensionNegotiateMemory")) {
+    // If we have already negotiated header extensions for this type,
+    // reuse the negotiated state for new transceivers of the same type.
+    for (const auto& transceiver : transceivers()->List()) {
+      if (transceiver->media_type() == sender->media_type()) {
+        header_extensions = transceiver->GetHeaderExtensionsToNegotiate();
+        break;
+      }
+    }
+  }
+  if (header_extensions.empty()) {
+    if (sender->media_type() == MediaType::AUDIO) {
+      header_extensions =
+          media_engine()->voice().GetRtpHeaderExtensions(&env_.field_trials());
+    } else {
+      header_extensions =
+          media_engine()->video().GetRtpHeaderExtensions(&env_.field_trials());
+    }
+  }
+
   auto transceiver = RtpTransceiverProxyWithInternal<RtpTransceiver>::Create(
       signaling_thread(),
       make_ref_counted<RtpTransceiver>(
-          sender, receiver, context_, codec_lookup_helper_,
-          sender->media_type() == MediaType::AUDIO
-              ? media_engine()->voice().GetRtpHeaderExtensions()
-              : media_engine()->video().GetRtpHeaderExtensions(),
+          env_, sender, receiver, context_, codec_lookup_helper_,
+          std::move(header_extensions),
           [this_weak_ptr = weak_ptr_factory_.GetWeakPtr()]() {
             if (this_weak_ptr) {
               this_weak_ptr->OnNegotiationNeeded();
@@ -524,7 +545,8 @@ void RtpTransmissionManager::CreateAudioReceiver(
   auto receiver = RtpReceiverProxyWithInternal<RtpReceiverInternal>::Create(
       signaling_thread(), worker_thread(), std::move(audio_receiver));
   GetAudioTransceiver()->internal()->AddReceiver(receiver);
-  Observer()->OnAddTrack(receiver, streams);
+  RunWithObserver(
+      [&](auto observer) { observer->OnAddTrack(receiver, streams); });
   NoteUsageEvent(UsageEvent::AUDIO_ADDED);
 }
 
@@ -548,7 +570,8 @@ void RtpTransmissionManager::CreateVideoReceiver(
   auto receiver = RtpReceiverProxyWithInternal<RtpReceiverInternal>::Create(
       signaling_thread(), worker_thread(), std::move(video_receiver));
   GetVideoTransceiver()->internal()->AddReceiver(receiver);
-  Observer()->OnAddTrack(receiver, streams);
+  RunWithObserver(
+      [&](auto observer) { observer->OnAddTrack(receiver, streams); });
   NoteUsageEvent(UsageEvent::VIDEO_ADDED);
 }
 
@@ -624,7 +647,7 @@ void RtpTransmissionManager::OnRemoteSenderRemoved(
   }
   if (receiver) {
     RTC_DCHECK(!closed_);
-    Observer()->OnRemoveTrack(receiver);
+    RunWithObserver([&](auto observer) { observer->OnRemoveTrack(receiver); });
   }
 }
 
@@ -741,7 +764,7 @@ RtpTransmissionManager::FindReceiverById(const std::string& receiver_id) const {
   return nullptr;
 }
 
-MediaEngineInterface* RtpTransmissionManager::media_engine() const {
+const MediaEngineInterface* RtpTransmissionManager::media_engine() const {
   return context_->media_engine();
 }
 

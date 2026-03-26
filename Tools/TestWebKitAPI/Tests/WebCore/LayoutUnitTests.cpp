@@ -321,4 +321,13 @@ TEST(WebCoreLayoutUnit, FromFloatRound)
     ASSERT_EQ(LayoutUnit::min(), LayoutUnit::fromFloatRound(-Limits::infinity()));
 }
 
+TEST(WebCoreLayoutUnit, LayoutUnitPlusPlus)
+{
+    ASSERT_EQ(LayoutUnit(-1), ++LayoutUnit(-2));
+    ASSERT_EQ(LayoutUnit(0), ++LayoutUnit(-1));
+    ASSERT_EQ(LayoutUnit(1), ++LayoutUnit(0));
+    ASSERT_EQ(LayoutUnit(2), ++LayoutUnit(1));
+    ASSERT_EQ(LayoutUnit::max(), ++LayoutUnit(LayoutUnit::max()));
+}
+
 } // namespace TestWebKitAPI

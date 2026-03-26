@@ -31,6 +31,8 @@
 
 #if PLATFORM(IOS_FAMILY)
 
+#import <UIKit/UITextInputTraits.h>
+
 using CocoaWritingToolsBehavior = UIWritingToolsBehavior;
 
 constexpr auto CocoaWritingToolsBehaviorNone = UIWritingToolsBehaviorNone;
@@ -46,6 +48,8 @@ constexpr auto CocoaWritingToolsResultList = UIWritingToolsResultList;
 constexpr auto CocoaWritingToolsResultTable = UIWritingToolsResultTable;
 
 #else
+
+#import <AppKit/NSTextCheckingClient.h>
 
 using CocoaWritingToolsBehavior = NSWritingToolsBehavior;
 

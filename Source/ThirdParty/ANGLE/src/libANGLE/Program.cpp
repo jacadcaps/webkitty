@@ -7,6 +7,10 @@
 // Program.cpp: Implements the gl::Program class. Implements GL program objects
 // and related functionality. [OpenGL ES 2.0.24] section 2.10.3 page 28.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include "libANGLE/Program.h"
 
 #include <algorithm>
@@ -257,23 +261,21 @@ void InfoLog::getLog(GLsizei bufSize, GLsizei *length, char *infoLog) const
 // append a sanitized message to the program info log.
 // The D3D compiler includes a fake file path in some of the warning or error
 // messages, so lets remove all occurrences of this fake file path from the log.
-void InfoLog::appendSanitized(const char *message)
+void InfoLog::appendSanitized(std::string message)
 {
     ensureInitialized();
 
-    std::string msg(message);
-
-    size_t found;
-    do
+    while (1)
     {
-        found = msg.find(g_fakepath);
-        if (found != std::string::npos)
+        size_t found = message.find(g_fakepath);
+        if (found == std::string::npos)
         {
-            msg.erase(found, strlen(g_fakepath));
+            break;
         }
-    } while (found != std::string::npos);
+        message.erase(found, strlen(g_fakepath));
+    }
 
-    if (!msg.empty())
+    if (!message.empty())
     {
         *mLazyStream << message << std::endl;
     }
@@ -925,7 +927,6 @@ void Program::setupExecutableForLink(const Context *context)
         mState.mShaderCompileJobs[shaderType] = std::move(compileJob);
         mState.mAttachedShaders[shaderType]   = std::move(shaderCompiledState);
     }
-    mProgram->prepareForLink(shaderImpls);
 
     const angle::FrontendFeatures &frontendFeatures = context->getFrontendFeatures();
     if (frontendFeatures.dumpShaderSource.enabled)
@@ -949,6 +950,13 @@ void Program::setupExecutableForLink(const Context *context)
     mState.mExecutable->mPod.isSeparable                 = mState.mSeparable;
 
     mState.mInfoLog.reset();
+
+    mProgram->prepareForLink(shaderImpls);
+
+    if (context->getState().usesPassthroughShaders())
+    {
+        mProgram->prepareForPassthroughLink(&mState.mAttachedShaders);
+    }
 }
 
 void Program::syncExecutableOnSuccessfulLink()
@@ -1518,7 +1526,7 @@ angle::Result Program::getBinary(Context *context,
         // release the memory.  Note that implicit caching to blob cache is disabled when the
         // GL_PROGRAM_BINARY_RETRIEVABLE_HINT is set.  If that hint is not set, serialization is
         // done twice, which is what the perf warning above is about!
-        mBinary.clear();
+        mBinary.destroy();
     }
 
     if (length)
@@ -1596,6 +1604,8 @@ unsigned int Program::getRefCount() const
 
 void Program::getAttachedShaders(GLsizei maxCount, GLsizei *count, ShaderProgramID *shaders) const
 {
+    ASSERT(shaders != nullptr);
+
     int total = 0;
 
     for (const Shader *shader : mAttachedShaders)
@@ -1987,7 +1997,9 @@ bool Program::linkUniforms(const Caps &caps,
 
         if (locationSize > caps.maxUniformLocations)
         {
-            mState.mInfoLog << "Exceeded maximum uniform location size";
+            mState.mInfoLog
+                << "Exceeded maximum uniform location size: number of uniform locations = "
+                << locationSize << ", max uniform locations = " << caps.maxUniformLocations;
             return false;
         }
     }
@@ -2404,7 +2416,7 @@ void Program::cacheProgramBinaryIfNotAlready(const Context *context)
 
         // Drop the binary; the application didn't specify that it wants to retrieve the binary.  If
         // it did, we wouldn't be implicitly caching it.
-        mBinary.clear();
+        mBinary.destroy();
     }
 
     mIsBinaryCached = true;
@@ -2435,7 +2447,7 @@ void Program::dumpProgramInfo(const Context *context) const
     pathStream << dumpHash << ".program";
     std::string path = pathStream.str();
 
-    writeFile(path.c_str(), dump.c_str(), dump.length());
+    writeFile(path.c_str(), dump);
     INFO() << "Dumped program: " << path;
 }
 }  // namespace gl

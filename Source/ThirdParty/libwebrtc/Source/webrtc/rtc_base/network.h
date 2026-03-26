@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/strings/string_view.h"
 #include "api/array_view.h"
 #include "api/environment/environment.h"
@@ -33,6 +34,7 @@
 #include "rtc_base/network_constants.h"
 #include "rtc_base/network_monitor.h"
 #include "rtc_base/network_monitor_factory.h"
+#include "rtc_base/sigslot_trampoline.h"
 #include "rtc_base/socket_factory.h"
 #include "rtc_base/system/rtc_export.h"
 #include "rtc_base/third_party/sigslot/sigslot.h"
@@ -52,7 +54,7 @@ extern const char kPublicIPv6Host[];
 class Network;
 
 // By default, ignore loopback interfaces on the host.
-const int kDefaultNetworkIgnoreMask = webrtc::ADAPTER_TYPE_LOOPBACK;
+const int kDefaultNetworkIgnoreMask = ADAPTER_TYPE_LOOPBACK;
 
 namespace webrtc_network_internal {
 bool CompareNetworks(const std::unique_ptr<Network>& a,
@@ -127,6 +129,8 @@ class NetworkMask {
 class RTC_EXPORT NetworkManager : public DefaultLocalAddressProvider,
                                   public MdnsResponderProvider {
  public:
+  NetworkManager()
+      : networks_changed_trampoline_(this), error_trampoline_(this) {}
   // This enum indicates whether adapter enumeration is allowed.
   enum EnumerationPermission {
     ENUMERATION_ALLOWED,  // Adapter enumeration is allowed. Getting 0 network
@@ -191,6 +195,20 @@ class RTC_EXPORT NetworkManager : public DefaultLocalAddressProvider,
   MdnsResponderInterface* GetMdnsResponder() const override;
 
   virtual void set_vpn_list(const std::vector<NetworkMask>& /* vpn */) {}
+  void SubscribeNetworksChanged(absl::AnyInvocable<void()> callback) {
+    networks_changed_trampoline_.Subscribe(std::move(callback));
+  }
+  void NotifyNetworksChanged() { SignalNetworksChanged(); }
+  void SubscribeError(absl::AnyInvocable<void()> callback) {
+    error_trampoline_.Subscribe(std::move(callback));
+  }
+  void NotifyError() { SignalError(); }
+
+ private:
+  SignalTrampoline<NetworkManager, &NetworkManager::SignalNetworksChanged>
+      networks_changed_trampoline_;
+  SignalTrampoline<NetworkManager, &NetworkManager::SignalError>
+      error_trampoline_;
 };
 
 // Represents a Unix-type network interface, with a name and single address.
@@ -204,19 +222,20 @@ class RTC_EXPORT Network {
                 description,
                 prefix,
                 prefix_length,
-                webrtc::ADAPTER_TYPE_UNKNOWN) {}
+                ADAPTER_TYPE_UNKNOWN) {}
 
   Network(absl::string_view name,
           absl::string_view description,
           const IPAddress& prefix,
           int prefix_length,
           AdapterType type);
-
-  Network(const Network&);
+  // Copying a Network only works if signal listeners have not been set.
+  Network(const Network& o);
+  Network(Network&&) = default;
   ~Network();
 
   // This signal is fired whenever type() or underlying_type_for_vpn() changes.
-  // Mutable, to support connecting on the const Network passed to webrtc::Port
+  // Mutable, to support connecting on the const Network passed to Port
   // constructor.
   mutable sigslot::signal1<const Network*> SignalTypeChanged;
 
@@ -317,8 +336,8 @@ class RTC_EXPORT Network {
       return;
     }
     type_ = type;
-    if (type != webrtc::ADAPTER_TYPE_VPN) {
-      underlying_type_for_vpn_ = webrtc::ADAPTER_TYPE_UNKNOWN;
+    if (type != ADAPTER_TYPE_VPN) {
+      underlying_type_for_vpn_ = ADAPTER_TYPE_UNKNOWN;
     }
     SignalTypeChanged(this);
   }
@@ -331,17 +350,17 @@ class RTC_EXPORT Network {
     SignalTypeChanged(this);
   }
 
-  bool IsVpn() const { return type_ == webrtc::ADAPTER_TYPE_VPN; }
+  bool IsVpn() const { return type_ == ADAPTER_TYPE_VPN; }
 
   bool IsCellular() const { return IsCellular(type_); }
 
   static bool IsCellular(AdapterType type) {
     switch (type) {
-      case webrtc::ADAPTER_TYPE_CELLULAR:
-      case webrtc::ADAPTER_TYPE_CELLULAR_2G:
-      case webrtc::ADAPTER_TYPE_CELLULAR_3G:
-      case webrtc::ADAPTER_TYPE_CELLULAR_4G:
-      case webrtc::ADAPTER_TYPE_CELLULAR_5G:
+      case ADAPTER_TYPE_CELLULAR:
+      case ADAPTER_TYPE_CELLULAR_2G:
+      case ADAPTER_TYPE_CELLULAR_3G:
+      case ADAPTER_TYPE_CELLULAR_4G:
+      case ADAPTER_TYPE_CELLULAR_5G:
         return true;
       default:
         return false;
@@ -401,7 +420,7 @@ class RTC_EXPORT Network {
   int scope_id_;
   bool ignored_;
   AdapterType type_;
-  AdapterType underlying_type_for_vpn_ = webrtc::ADAPTER_TYPE_UNKNOWN;
+  AdapterType underlying_type_for_vpn_ = ADAPTER_TYPE_UNKNOWN;
   int preference_;
   bool active_ = true;
   uint16_t id_ = 0;
@@ -586,23 +605,5 @@ class RTC_EXPORT BasicNetworkManager : public NetworkManagerBase,
 
 }  //  namespace webrtc
 
-// Re-export symbols from the webrtc namespace for backwards compatibility.
-// TODO(bugs.webrtc.org/4222596): Remove once all references are updated.
-#ifdef WEBRTC_ALLOW_DEPRECATED_NAMESPACES
-namespace rtc {
-using ::webrtc::BasicNetworkManager;
-using ::webrtc::DefaultLocalAddressProvider;
-using ::webrtc::GetAdapterTypeFromName;
-using ::webrtc::kDefaultNetworkIgnoreMask;
-using ::webrtc::kPublicIPv4Host;
-using ::webrtc::kPublicIPv6Host;
-using ::webrtc::MakeNetworkKey;
-using ::webrtc::MdnsResponderProvider;
-using ::webrtc::Network;
-using ::webrtc::NetworkManager;
-using ::webrtc::NetworkManagerBase;
-using ::webrtc::NetworkMask;
-}  // namespace rtc
-#endif  // WEBRTC_ALLOW_DEPRECATED_NAMESPACES
 
 #endif  // RTC_BASE_NETWORK_H_

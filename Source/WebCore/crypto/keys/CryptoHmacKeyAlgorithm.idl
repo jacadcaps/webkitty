@@ -24,7 +24,8 @@
  */
 
 [
-    JSGenerateToJSObject
+    JSGenerateToJSObject,
+    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary CryptoHmacKeyAlgorithm : CryptoKeyAlgorithm {
     // The inner hash function to use.
     required CryptoKeyAlgorithm hash;

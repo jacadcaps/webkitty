@@ -27,24 +27,24 @@
 
 #pragma once
 
-#include "ResourceRequestBase.h"
+#include <WebCore/ResourceRequestBase.h>
 
 namespace WebCore {
 
 class ResourceRequest : public ResourceRequestBase {
 public:
     explicit ResourceRequest(String&& url)
-        : ResourceRequestBase(URL({ }, WTFMove(url)), ResourceRequestCachePolicy::UseProtocolCachePolicy)
+        : ResourceRequestBase(URL({ }, WTF::move(url)), ResourceRequestCachePolicy::UseProtocolCachePolicy)
     {
     }
 
     ResourceRequest(URL&& url)
-        : ResourceRequestBase(WTFMove(url), ResourceRequestCachePolicy::UseProtocolCachePolicy)
+        : ResourceRequestBase(WTF::move(url), ResourceRequestCachePolicy::UseProtocolCachePolicy)
     {
     }
 
     ResourceRequest(URL&& url, const String& referrer, ResourceRequestCachePolicy policy = ResourceRequestCachePolicy::UseProtocolCachePolicy)
-        : ResourceRequestBase(WTFMove(url), policy)
+        : ResourceRequestBase(WTF::move(url), policy)
     {
         setHTTPReferrer(referrer);
     }
@@ -55,7 +55,7 @@ public:
     }
 
     ResourceRequest(ResourceRequestBase&& base)
-        : ResourceRequestBase(WTFMove(base))
+        : ResourceRequestBase(WTF::move(base))
     {
     }
 

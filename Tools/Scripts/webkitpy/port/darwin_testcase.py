@@ -37,10 +37,6 @@ from webkitcorepy import OutputCapture
 
 class DarwinTest(port_testcase.PortTestCase):
 
-    def assert_skipped_file_search_paths(self, port_name, expected_paths, use_webkit2=False):
-        port = self.make_port(port_name=port_name, options=MockOptions(webkit_test_runner=use_webkit2))
-        self.assertEqual(port._skipped_file_search_paths(), expected_paths)
-
     def test_sharding_groups(self):
         port = self.make_port()
         self.assertEqual(sorted(port.sharding_groups().keys()), ['media'])

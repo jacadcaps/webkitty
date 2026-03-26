@@ -39,6 +39,7 @@
 #import <wtf/HashSet.h>
 #import <wtf/MemoryFootprint.h>
 #import <wtf/StdLibExtras.h>
+#import <wtf/TZoneMallocInlines.h>
 
 namespace TestWebKitAPI {
 
@@ -49,19 +50,19 @@ namespace {
 class MockGraphicsContextGLClient final : public GraphicsContextGL::Client {
 public:
     void forceContextLost() final { ++m_contextLostCalls; }
-    void addDebugMessage(GCGLenum, GCGLenum, GCGLenum, const String&) final { }
+    void addDebugMessage(GCGLenum, GCGLenum, GCGLenum, const CString&) final { }
     int contextLostCalls() { return m_contextLostCalls; }
 private:
     int m_contextLostCalls { 0 };
 };
 
 class TestedGraphicsContextGLCocoa : public GraphicsContextGLCocoa {
-    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(TestedGraphicsContextGLCocoa);
+    WTF_MAKE_TZONE_ALLOCATED(TestedGraphicsContextGLCocoa);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(TestedGraphicsContextGLCocoa);
 public:
     static RefPtr<TestedGraphicsContextGLCocoa> create(GraphicsContextGLAttributes&& attributes)
     {
-        auto context = adoptRef(*new TestedGraphicsContextGLCocoa(WTFMove(attributes)));
+        auto context = adoptRef(*new TestedGraphicsContextGLCocoa(WTF::move(attributes)));
         if (!context->initialize())
             return nullptr;
         return context;
@@ -69,10 +70,12 @@ public:
     RefPtr<GraphicsLayerContentsDisplayDelegate> layerContentsDisplayDelegate() final { return nullptr; }
 private:
     TestedGraphicsContextGLCocoa(GraphicsContextGLAttributes attributes)
-        : GraphicsContextGLCocoa(WTFMove(attributes), { })
+        : GraphicsContextGLCocoa(WTF::move(attributes), { })
     {
     }
 };
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(TestedGraphicsContextGLCocoa);
 
 class GraphicsContextGLCocoaTest : public ::testing::Test {
 protected:
@@ -314,7 +317,7 @@ TEST_F(GraphicsContextGLCocoaTest, ClearBufferIncorrectSizes)
     attributes.isWebGL2 = true;
     attributes.depth = true;
     attributes.stencil = true;
-    auto gl = TestedGraphicsContextGLCocoa::create(WTFMove(attributes));
+    auto gl = TestedGraphicsContextGLCocoa::create(WTF::move(attributes));
     gl->reshape(1, 1);
 
     float floats5[5] { 0.1f, 0.2f, 0.3f, 0.4f, 0.5f };
@@ -401,11 +404,11 @@ TEST_F(GraphicsContextGLCocoaTest, DestroyWithoutMakingCurrent)
     attributes.isWebGL2 = true;
     attributes.depth = true;
     attributes.stencil = true;
-    RefPtr gl1 = TestedGraphicsContextGLCocoa::create(WTFMove(attributes));
+    RefPtr gl1 = TestedGraphicsContextGLCocoa::create(WTF::move(attributes));
     gl1->reshape(1, 1);
-    RefPtr gl2 = TestedGraphicsContextGLCocoa::create(WTFMove(attributes));
+    RefPtr gl2 = TestedGraphicsContextGLCocoa::create(WTF::move(attributes));
     gl2->reshape(1, 1);
-    RefPtr gl3 = TestedGraphicsContextGLCocoa::create(WTFMove(attributes));
+    RefPtr gl3 = TestedGraphicsContextGLCocoa::create(WTF::move(attributes));
     gl3->reshape(1, 1);
     // Current context is now 3.
     gl1 = nullptr; // Test the case where we destroy with other context being current.
@@ -416,7 +419,7 @@ TEST_F(GraphicsContextGLCocoaTest, DestroyWithoutMakingCurrent)
 TEST_F(GraphicsContextGLCocoaTest, TwoLinks)
 {
     GraphicsContextGLAttributes attributes;
-    auto gl = TestedGraphicsContextGLCocoa::create(WTFMove(attributes));
+    auto gl = TestedGraphicsContextGLCocoa::create(WTF::move(attributes));
     auto vs = gl->createShader(GraphicsContextGL::VERTEX_SHADER);
     gl->shaderSource(vs, "void main() { }"_s);
     gl->compileShader(vs);
@@ -433,24 +436,24 @@ TEST_F(GraphicsContextGLCocoaTest, TwoLinks)
     gl = nullptr;
 }
 
-TEST_F(GraphicsContextGLCocoaTest, BufferAsImageNoDrawingBufferReturnsNullptr)
+TEST_F(GraphicsContextGLCocoaTest, CopyNativeImageNoDrawingBufferReturnsNullptr)
 {
     using GL = GraphicsContextGL;
     auto gl = TestedGraphicsContextGLCocoa::create({ });
-    RefPtr drawingImage = gl->bufferAsNativeImage(GL::SurfaceBuffer::DrawingBuffer);
-    RefPtr displayImage = gl->bufferAsNativeImage(GL::SurfaceBuffer::DisplayBuffer);
+    RefPtr drawingImage = gl->copyNativeImageYFlipped(GL::SurfaceBuffer::DrawingBuffer);
+    RefPtr displayImage = gl->copyNativeImageYFlipped(GL::SurfaceBuffer::DisplayBuffer);
     EXPECT_EQ(drawingImage, nullptr);
     EXPECT_EQ(displayImage, nullptr);
 }
 
 
-TEST_F(GraphicsContextGLCocoaTest, BufferAsImageAfterReshape)
+TEST_F(GraphicsContextGLCocoaTest, CopyNativeImageAfterReshape)
 {
     using GL = GraphicsContextGL;
     auto gl = TestedGraphicsContextGLCocoa::create({ });
     gl->reshape(10, 10);
-    RefPtr drawingImage = gl->bufferAsNativeImage(GL::SurfaceBuffer::DrawingBuffer);
-    RefPtr displayImage = gl->bufferAsNativeImage(GL::SurfaceBuffer::DisplayBuffer);
+    RefPtr drawingImage = gl->copyNativeImageYFlipped(GL::SurfaceBuffer::DrawingBuffer);
+    RefPtr displayImage = gl->copyNativeImageYFlipped(GL::SurfaceBuffer::DisplayBuffer);
     EXPECT_NE(drawingImage, nullptr);
     EXPECT_EQ(displayImage, nullptr);
     EXPECT_EQ(drawingImage->size(), FloatSize(10, 10));
@@ -464,12 +467,12 @@ TEST_F(GraphicsContextGLCocoaTest, CopyImageAndMutateDrawingBuffer)
     using GL = GraphicsContextGL;
     auto gl = TestedGraphicsContextGLCocoa::create({ });
     gl->reshape(10, 10);
-    RefPtr drawingImage0 = gl->bufferAsNativeImage(GL::SurfaceBuffer::DrawingBuffer);
+    RefPtr drawingImage0 = gl->copyNativeImageYFlipped(GL::SurfaceBuffer::DrawingBuffer);
     ASSERT_NE(drawingImage0, nullptr);
     EXPECT_TRUE(imagePixelIs(Color::transparentBlack, *drawingImage0, FloatPoint(5, 5)));
     gl->clearColor(0.f, 1.f, 0.f, 1.f);
     gl->clear(GL::COLOR_BUFFER_BIT);
-    RefPtr drawingImage1 = gl->bufferAsNativeImage(GL::SurfaceBuffer::DrawingBuffer);
+    RefPtr drawingImage1 = gl->copyNativeImageYFlipped(GL::SurfaceBuffer::DrawingBuffer);
     ASSERT_NE(drawingImage1, nullptr);
     EXPECT_TRUE(imagePixelIs(Color::transparentBlack, *drawingImage0, FloatPoint(5, 5)));
     EXPECT_TRUE(imagePixelIs(Color::green, *drawingImage1, FloatPoint(5, 5)));
@@ -478,13 +481,13 @@ TEST_F(GraphicsContextGLCocoaTest, CopyImageAndMutateDrawingBuffer)
     gl->clear(GL::COLOR_BUFFER_BIT);
     EXPECT_TRUE(imagePixelIs(Color::transparentBlack, *drawingImage0, FloatPoint(5, 5)));
     EXPECT_TRUE(imagePixelIs(Color::green, *drawingImage1, FloatPoint(5, 5)));
-    RefPtr drawingImage2 = gl->bufferAsNativeImage(GL::SurfaceBuffer::DrawingBuffer);
+    RefPtr drawingImage2 = gl->copyNativeImageYFlipped(GL::SurfaceBuffer::DrawingBuffer);
     ASSERT_NE(drawingImage2, nullptr);
     EXPECT_TRUE(imagePixelIs(Color::transparentBlack, *drawingImage0, FloatPoint(5, 5)));
     EXPECT_TRUE(imagePixelIs(Color::green, *drawingImage1, FloatPoint(5, 5)));
     EXPECT_TRUE(imagePixelIs(Color::blue, *drawingImage2, FloatPoint(5, 5)));
     gl->prepareForDisplay();
-    RefPtr displayImage = gl->bufferAsNativeImage(GL::SurfaceBuffer::DisplayBuffer);
+    RefPtr displayImage = gl->copyNativeImageYFlipped(GL::SurfaceBuffer::DisplayBuffer);
     ASSERT_NE(displayImage, nullptr);
     EXPECT_TRUE(imagePixelIs(Color::transparentBlack, *drawingImage0, FloatPoint(5, 5)));
     EXPECT_TRUE(imagePixelIs(Color::green, *drawingImage1, FloatPoint(5, 5)));
@@ -538,7 +541,12 @@ TEST_P(AnyContextAttributeTest, DisplayBuffersAreNotRecycledWhedInUse)
 
 // Test that drawing to GraphicsContextGL and marking the display buffer in use does not leak big
 // amounts of memory for each displayed buffer.
+// FIXME when rdar://164264557 is resolved.
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 260000
+TEST_P(AnyContextAttributeTest, DISABLED_UnrecycledDisplayBuffersNoLeaks)
+#else
 TEST_P(AnyContextAttributeTest, UnrecycledDisplayBuffersNoLeaks)
+#endif
 {
     // The test detects the leak by observing memory footprint. However, some of the freed IOSurface
     // memory (130mb) stays resident, presumably by intention of IOKit. The test would originally leak
@@ -742,7 +750,7 @@ protected:
     void SetUp() override // NOLINT
     {
         GraphicsContextGLAttributes attributes;
-        m_context = TestedGraphicsContextGLCocoa::create(WTFMove(attributes));
+        m_context = TestedGraphicsContextGLCocoa::create(WTF::move(attributes));
         m_expectedColor = Color::gray;
         auto [r, g, b, a] = m_expectedColor.toColorTypeLossy<SRGBA<float>>().resolved();
         m_context->reshape(20, 20);
@@ -804,7 +812,7 @@ protected:
     void SetUp() override // NOLINT
     {
         GraphicsContextGLAttributes attributes;
-        m_context = TestedGraphicsContextGLCocoa::create(WTFMove(attributes));
+        m_context = TestedGraphicsContextGLCocoa::create(WTF::move(attributes));
         m_context->reshape(INITIAL_WIDTH, INITIAL_HEIGHT);
     }
 

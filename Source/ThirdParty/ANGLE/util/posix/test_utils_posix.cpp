@@ -6,6 +6,10 @@
 
 // test_utils_posix.cpp: Implementation of OS-specific functions for Posix systems
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include "util/test_utils.h"
 
 #include <dlfcn.h>
@@ -356,9 +360,9 @@ void WriteDebugMessage(const char *format, ...)
 {
     va_list vararg;
     va_start(vararg, format);
-ANGLE_DISABLE_NONLITERAL_FORMAT_WARNING
+    ANGLE_DISABLE_NONLITERAL_FORMAT_WARNING
     vfprintf(stderr, format, vararg);
-ANGLE_REENABLE_NONLITERAL_FORMAT_WARNING
+    ANGLE_REENABLE_NONLITERAL_FORMAT_WARNING
     va_end(vararg);
 }
 

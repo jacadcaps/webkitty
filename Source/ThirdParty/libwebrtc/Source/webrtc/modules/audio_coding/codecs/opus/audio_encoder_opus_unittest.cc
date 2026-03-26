@@ -25,6 +25,7 @@
 #include "api/audio_codecs/opus/audio_encoder_opus_config.h"
 #include "api/call/bitrate_allocation.h"
 #include "api/environment/environment_factory.h"
+#include "api/field_trials.h"
 #include "api/field_trials_view.h"
 #include "api/rtp_parameters.h"
 #include "api/units/data_rate.h"
@@ -39,14 +40,14 @@
 #include "rtc_base/buffer.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/fake_clock.h"
-#include "test/explicit_key_value_config.h"
+#include "test/create_test_field_trials.h"
 #include "test/gmock.h"
 #include "test/gtest.h"
 #include "test/testsupport/file_utils.h"
 
 namespace webrtc {
 namespace {
-using test::ExplicitKeyValueConfig;
+using ::testing::_;
 using ::testing::NiceMock;
 using ::testing::Return;
 
@@ -81,9 +82,8 @@ std::unique_ptr<AudioEncoderOpusStates> CreateCodec(
 
   MockAudioNetworkAdaptor** mock_ptr = &states->mock_audio_network_adaptor;
   AudioEncoderOpusImpl::AudioNetworkAdaptorCreator creator =
-      [mock_ptr](absl::string_view, RtcEventLog* /* event_log */) {
-        std::unique_ptr<MockAudioNetworkAdaptor> adaptor(
-            new NiceMock<MockAudioNetworkAdaptor>());
+      [mock_ptr](absl::string_view) {
+        auto adaptor = std::make_unique<NiceMock<MockAudioNetworkAdaptor>>();
         EXPECT_CALL(*adaptor, Die());
         *mock_ptr = adaptor.get();
         return adaptor;
@@ -265,7 +265,7 @@ TEST_P(AudioEncoderOpusTest, SetReceiverFrameLengthRange) {
 TEST_P(AudioEncoderOpusTest,
        InvokeAudioNetworkAdaptorOnReceivedUplinkPacketLossFraction) {
   auto states = CreateCodec(sample_rate_hz_, 2);
-  states->encoder->EnableAudioNetworkAdaptor("", nullptr);
+  states->encoder->EnableAudioNetworkAdaptor("");
 
   auto config = CreateEncoderRuntimeConfig();
   EXPECT_CALL(*states->mock_audio_network_adaptor, GetEncoderRuntimeConfig())
@@ -282,10 +282,9 @@ TEST_P(AudioEncoderOpusTest,
 
 TEST_P(AudioEncoderOpusTest,
        InvokeAudioNetworkAdaptorOnReceivedUplinkBandwidth) {
-  ExplicitKeyValueConfig field_trials(
-      "WebRTC-Audio-StableTargetAdaptation/Disabled/");
+  FieldTrials field_trials = CreateTestFieldTrials("");
   auto states = CreateCodec(sample_rate_hz_, 2, &field_trials);
-  states->encoder->EnableAudioNetworkAdaptor("", nullptr);
+  states->encoder->EnableAudioNetworkAdaptor("");
 
   auto config = CreateEncoderRuntimeConfig();
   EXPECT_CALL(*states->mock_audio_network_adaptor, GetEncoderRuntimeConfig())
@@ -298,7 +297,8 @@ TEST_P(AudioEncoderOpusTest,
               SetTargetAudioBitrate(kTargetAudioBitrate));
   EXPECT_CALL(*states->mock_bitrate_smoother,
               SetTimeConstantMs(kProbingIntervalMs * 4));
-  EXPECT_CALL(*states->mock_bitrate_smoother, AddSample(kTargetAudioBitrate));
+  EXPECT_CALL(*states->mock_bitrate_smoother,
+              AddSample(kTargetAudioBitrate, _));
   states->encoder->OnReceivedUplinkBandwidth(kTargetAudioBitrate,
                                              kProbingIntervalMs);
 
@@ -308,7 +308,7 @@ TEST_P(AudioEncoderOpusTest,
 TEST_P(AudioEncoderOpusTest,
        InvokeAudioNetworkAdaptorOnReceivedUplinkAllocation) {
   auto states = CreateCodec(sample_rate_hz_, 2);
-  states->encoder->EnableAudioNetworkAdaptor("", nullptr);
+  states->encoder->EnableAudioNetworkAdaptor("");
 
   auto config = CreateEncoderRuntimeConfig();
   EXPECT_CALL(*states->mock_audio_network_adaptor, GetEncoderRuntimeConfig())
@@ -316,12 +316,10 @@ TEST_P(AudioEncoderOpusTest,
 
   BitrateAllocationUpdate update;
   update.target_bitrate = DataRate::BitsPerSec(30000);
-  update.stable_target_bitrate = DataRate::BitsPerSec(20000);
   update.bwe_period = TimeDelta::Millis(200);
   EXPECT_CALL(*states->mock_audio_network_adaptor,
               SetTargetAudioBitrate(update.target_bitrate.bps()));
-  EXPECT_CALL(*states->mock_audio_network_adaptor,
-              SetUplinkBandwidth(update.stable_target_bitrate.bps()));
+
   states->encoder->OnReceivedUplinkAllocation(update);
 
   CheckEncoderRuntimeConfig(states->encoder.get(), config);
@@ -329,7 +327,7 @@ TEST_P(AudioEncoderOpusTest,
 
 TEST_P(AudioEncoderOpusTest, InvokeAudioNetworkAdaptorOnReceivedRtt) {
   auto states = CreateCodec(sample_rate_hz_, 2);
-  states->encoder->EnableAudioNetworkAdaptor("", nullptr);
+  states->encoder->EnableAudioNetworkAdaptor("");
 
   auto config = CreateEncoderRuntimeConfig();
   EXPECT_CALL(*states->mock_audio_network_adaptor, GetEncoderRuntimeConfig())
@@ -345,7 +343,7 @@ TEST_P(AudioEncoderOpusTest, InvokeAudioNetworkAdaptorOnReceivedRtt) {
 
 TEST_P(AudioEncoderOpusTest, InvokeAudioNetworkAdaptorOnReceivedOverhead) {
   auto states = CreateCodec(sample_rate_hz_, 2);
-  states->encoder->EnableAudioNetworkAdaptor("", nullptr);
+  states->encoder->EnableAudioNetworkAdaptor("");
 
   auto config = CreateEncoderRuntimeConfig();
   EXPECT_CALL(*states->mock_audio_network_adaptor, GetEncoderRuntimeConfig())
@@ -484,7 +482,7 @@ TEST_P(AudioEncoderOpusTest, ConfigBandwidthAdaptation) {
 
 TEST_P(AudioEncoderOpusTest, EmptyConfigDoesNotAffectEncoderSettings) {
   auto states = CreateCodec(sample_rate_hz_, 2);
-  states->encoder->EnableAudioNetworkAdaptor("", nullptr);
+  states->encoder->EnableAudioNetworkAdaptor("");
 
   auto config = CreateEncoderRuntimeConfig();
   AudioEncoderRuntimeConfig empty_config;
@@ -503,14 +501,13 @@ TEST_P(AudioEncoderOpusTest, EmptyConfigDoesNotAffectEncoderSettings) {
 }
 
 TEST_P(AudioEncoderOpusTest, UpdateUplinkBandwidthInAudioNetworkAdaptor) {
-  ExplicitKeyValueConfig field_trials(
-      "WebRTC-Audio-StableTargetAdaptation/Disabled/");
+  FieldTrials field_trials = CreateTestFieldTrials("");
   auto states = CreateCodec(sample_rate_hz_, 2, &field_trials);
-  states->encoder->EnableAudioNetworkAdaptor("", nullptr);
+  states->encoder->EnableAudioNetworkAdaptor("");
   const size_t opus_rate_khz = CheckedDivExact(sample_rate_hz_, 1000);
   const std::vector<int16_t> audio(opus_rate_khz * 10 * 2, 0);
   Buffer encoded;
-  EXPECT_CALL(*states->mock_bitrate_smoother, GetAverage())
+  EXPECT_CALL(*states->mock_bitrate_smoother, GetAverage)
       .WillOnce(Return(50000));
   EXPECT_CALL(*states->mock_audio_network_adaptor, SetUplinkBandwidth(50000));
   states->encoder->Encode(
@@ -525,7 +522,7 @@ TEST_P(AudioEncoderOpusTest, UpdateUplinkBandwidthInAudioNetworkAdaptor) {
         0, ArrayView<const int16_t>(audio.data(), audio.size()), &encoded);
 
     // Update when it is time to update.
-    EXPECT_CALL(*states->mock_bitrate_smoother, GetAverage())
+    EXPECT_CALL(*states->mock_bitrate_smoother, GetAverage)
         .WillOnce(Return(40000));
     EXPECT_CALL(*states->mock_audio_network_adaptor, SetUplinkBandwidth(40000));
     states->fake_clock->AdvanceTime(TimeDelta::Millis(1));

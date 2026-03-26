@@ -65,6 +65,13 @@ void DrawingAreaProxy::stopReceivingMessages(WebProcessProxy& process)
 {
     for (auto& name : messageReceiverNames())
         process.removeMessageReceiver(name, identifier());
+
+    for (auto [connectionID, callbackID] : m_outstandingPresentationUpdateCallbacks) {
+        if (RefPtr connection = IPC::Connection::connection(connectionID)) {
+            if (auto callback = connection->takeAsyncReplyHandler(callbackID))
+                callback(nullptr, nullptr);
+        }
+    }
 }
 
 std::span<IPC::ReceiverName> DrawingAreaProxy::messageReceiverNames() const
@@ -80,12 +87,12 @@ IPC::Connection* DrawingAreaProxy::messageSenderConnection() const
 
 bool DrawingAreaProxy::sendMessage(UniqueRef<IPC::Encoder>&& encoder, OptionSet<IPC::SendOption> sendOptions)
 {
-    return m_webProcessProxy->sendMessage(WTFMove(encoder), sendOptions);
+    return m_webProcessProxy->sendMessage(WTF::move(encoder), sendOptions);
 }
 
 bool DrawingAreaProxy::sendMessageWithAsyncReply(UniqueRef<IPC::Encoder>&& encoder, AsyncReplyHandler handler, OptionSet<IPC::SendOption> sendOptions)
 {
-    return m_webProcessProxy->sendMessage(WTFMove(encoder), sendOptions, WTFMove(handler));
+    return m_webProcessProxy->sendMessage(WTF::move(encoder), sendOptions, WTF::move(handler));
 }
 
 uint64_t DrawingAreaProxy::messageSenderDestinationID() const
@@ -150,5 +157,15 @@ void DrawingAreaProxy::viewExposedRectChangedTimerFired()
     m_lastSentViewExposedRect = viewExposedRect;
 }
 #endif // PLATFORM(MAC)
+
+void DrawingAreaProxy::addOutstandingPresentationUpdateCallback(IPC::Connection& connection, AsyncReplyID callbackID)
+{
+    m_outstandingPresentationUpdateCallbacks.add({ connection.uniqueID(), callbackID });
+}
+
+void DrawingAreaProxy::removeOutstandingPresentationUpdateCallback(IPC::Connection& connection, AsyncReplyID callbackID)
+{
+    m_outstandingPresentationUpdateCallbacks.remove({ connection.uniqueID(), callbackID });
+}
 
 } // namespace WebKit

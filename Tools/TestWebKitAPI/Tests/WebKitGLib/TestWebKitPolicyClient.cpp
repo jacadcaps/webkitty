@@ -23,7 +23,6 @@
 #include "LoadTrackingTest.h"
 #include "WebKitTestServer.h"
 #include "WebKitWebsitePolicies.h"
-#include <WebCore/SoupVersioning.h>
 #include <wtf/glib/GRefPtr.h>
 #include <wtf/text/CString.h>
 
@@ -193,7 +192,7 @@ static void testNavigationPolicy(PolicyClientTest* test, gconstpointer)
     g_assert_true(webkit_navigation_action_is_redirect(navigationAction));
     g_assert_null(webkit_navigation_action_get_frame_name(navigationAction));
     request = webkit_navigation_action_get_request(navigationAction);
-    g_assert_cmpstr(webkit_uri_request_get_uri(request), ==, kServer->getURIForPath("/").data());
+    ASSERT_CMP_CSTRING(webkit_uri_request_get_uri(request), ==, kServer->getURIForPath("/"));
 
     // If we are waiting until load completion, it will never complete if we ignore the
     // navigation. So we tell the main loop to quit sometime later.
@@ -302,11 +301,7 @@ static void testNewWindowPolicy(PolicyClientTest* test, gconstpointer)
     g_assert_false(data.triedToOpenWindow);
 }
 
-#if USE(SOUP2)
-static void serverCallback(SoupServer* server, SoupMessage* message, const char* path, GHashTable*, SoupClientContext*, gpointer)
-#else
 static void serverCallback(SoupServer* server, SoupServerMessage* message, const char* path, GHashTable*, gpointer)
-#endif
 {
     if (soup_server_message_get_method(message) != SOUP_METHOD_GET) {
         soup_server_message_set_status(message, SOUP_STATUS_NOT_IMPLEMENTED, nullptr);

@@ -40,12 +40,15 @@ DECLARE_SYSTEM_HEADER
 #import <AppKit/NSMenu_Private.h>
 #import <AppKit/NSPreviewRepresentingActivityItem_Private.h>
 #import <AppKit/NSTextInputClient_Private.h>
+#import <AppKit/NSView_Layout.h>
 #import <AppKit/NSWindow_Private.h>
 #import <AppKit/NSScrollViewSeparatorTrackingAdapter_Private.h>
 
 #if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
 #import <AppKit/NSScrollPocket_Private.h>
 #endif
+
+#import <AppKit/NSPanGestureRecognizer_Private.h>
 
 #else
 
@@ -77,6 +80,8 @@ typedef NS_OPTIONS(NSUInteger, NSWindowShadowOptions) {
     NSWindowShadowSecondaryWindow = 0x2,
 };
 
+static const NSWindowStyleMask NSWindowStyleMaskAlertWindow = (NSWindowStyleMask)(1ull << 33ull);
+
 @interface NSWindow ()
 - (NSInspectorBar *)inspectorBar;
 - (void)setInspectorBar:(NSInspectorBar *)bar;
@@ -87,12 +92,45 @@ typedef NS_OPTIONS(NSUInteger, NSWindowShadowOptions) {
 - (BOOL)registerScrollViewSeparatorTrackingAdapter:(NSObject<NSScrollViewSeparatorTrackingAdapter> *)adapter;
 - (void)unregisterScrollViewSeparatorTrackingAdapter:(NSObject<NSScrollViewSeparatorTrackingAdapter> *)adapter;
 
+- (void)_setSharesParentFirstResponder:(BOOL)sharesParentFirstResponder;
+
 @end
 
 @class LPLinkMetadata;
 
 @interface NSPreviewRepresentingActivityItem ()
 - (instancetype)initWithItem:(id)item linkMetadata:(LPLinkMetadata *)linkMetadata;
+@end
+
+typedef NS_ENUM(NSInteger, NSScrollPocketStyle) {
+    NSScrollPocketStyleAutomatic,
+    NSScrollPocketStyleSoft,
+    NSScrollPocketStyleHard,
+};
+
+typedef NS_ENUM(NSInteger, NSScrollPocketEdge) {
+    NSScrollPocketEdgeTop    = 0,
+    NSScrollPocketEdgeBottom = 1,
+    NSScrollPocketEdgeLeft   = 2,
+    NSScrollPocketEdgeRight  = 3,
+};
+
+@interface NSScrollPocket : NSView
+- (void)addElementContainer:(NSView *)elementContainer;
+- (void)removeElementContainer:(NSView *)elementContainer;
+@property (nonatomic) BOOL prefersSolidColorHardPocket;
+@property NSScrollPocketEdge edge;
+@property NSScrollPocketStyle style;
+@property (copy, nullable) NSColor *captureColor;
+@property (readonly, strong) NSView *captureView;
+@end
+
+@interface NSView (NSConstraintBasedLayout)
+- (void)_setHostsAutolayoutEngine:(BOOL)flag;
+@end
+
+@interface NSPanGestureRecognizer (SPI)
+@property (readonly) NSTimeInterval timestamp;
 @end
 
 #endif
@@ -120,19 +158,6 @@ typedef NS_OPTIONS(NSUInteger, NSWindowShadowOptions) {
 typedef void (^NSWindowSnapshotReadinessHandler) (void);
 - (NSWindowSnapshotReadinessHandler)_holdResizeSnapshotWithReason:(NSString *)reason;
 @end
-#endif
-
-#if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
-
-@interface NSScrollPocket (Staging_151173930)
-- (void)addElementContainer:(NSView *)elementContainer;
-- (void)removeElementContainer:(NSView *)elementContainer;
-@end
-
-@interface NSScrollPocket (Staging_149248735)
-@property (nonatomic) BOOL prefersSolidColorHardPocket;
-@end
-
 #endif
 
 #endif // PLATFORM(MAC)

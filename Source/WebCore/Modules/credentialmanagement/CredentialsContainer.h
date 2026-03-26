@@ -26,7 +26,7 @@
 
 #pragma once
 
-#include "BasicCredential.h"
+#include <WebCore/BasicCredential.h>
 #include <wtf/RefCounted.h>
 #include <wtf/WeakPtr.h>
 
@@ -43,7 +43,7 @@ class CredentialsContainer : public RefCounted<CredentialsContainer> {
 public:
     static Ref<CredentialsContainer> create(WeakPtr<Document, WeakPtrImplWithEventTargetData>&& document)
     {
-        return adoptRef(*new CredentialsContainer(WTFMove(document)));
+        return adoptRef(*new CredentialsContainer(WTF::move(document)));
     }
 
     virtual void get(CredentialRequestOptions&&, CredentialPromise&&);

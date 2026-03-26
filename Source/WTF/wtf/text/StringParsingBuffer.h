@@ -78,6 +78,12 @@ public:
         return result;
     }
 
+    void dropLast(size_t amountToDrop = 1)
+    {
+        ASSERT(amountToDrop <= lengthRemaining());
+        m_data = m_data.first(lengthRemaining() - amountToDrop);
+    }
+
     CharacterType operator[](size_t i) const
     {
         ASSERT(i < lengthRemaining());

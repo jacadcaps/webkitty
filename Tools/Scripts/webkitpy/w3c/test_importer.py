@@ -71,7 +71,8 @@ import itertools
 import json
 import logging
 import mimetypes
-from pathlib import Path
+from pathlib import PurePath
+from typing import Optional
 
 from webkitscmpy.local.git import Git
 
@@ -115,16 +116,13 @@ def configure_logging():
     return handler
 
 
-# FIXME: We should decide whether we want to make this specific to web-platform-tests or to make it generic to any git repository containing tests.
 def parse_args(args):
     description = """
 To import a web-platform-tests test suite named xyz, use:
     import-w3c-tests --tip-of-tree web-platform-tests/xyz
 
-To import a web-platform-tests suite from a local copy of web platform tests:
-   1. Your local WPT copy must be in a directory called "web-platform-tests".
-   2. If the local copy is at, for example, "~/dev/web-platform-tests/", use:
-      import-w3c-tests web-platform-tests/xyz --src-dir ~/dev/"""
+To import a web-platform-tests suite from a local checkout in ~/dev/wpt:
+      import-w3c-tests web-platform-tests/xyz --src-dir ~/dev/wpt"""
     parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
 
     parser.add_argument('-n', '--no-overwrite', dest='overwrite', action='store_false', default=True,
@@ -141,7 +139,7 @@ To import a web-platform-tests suite from a local copy of web platform tests:
                         help='Import into a specified directory relative to the LayoutTests root. By default, imports into imported/w3c')
 
     parser.add_argument('-s', '--src-dir', dest='source', default=None,
-                        help='Import from a specific folder which contains web-platform-tests folder. If not provided, the script will clone the necessary repositories.')
+                        help='Import from a specific web-platform-tests directory. If not provided, the script will clone the necessary repository. By default, the repository will be cloned into the parent directory of your WebKit checkout (e.g. ~/WebKit/../wpt).')
 
     parser.add_argument('-v', '--verbose', action='store_true', default=False,
                         help='Print maximal log')
@@ -174,7 +172,7 @@ class TestImporter(object):
         webkit_finder = WebKitFinder(self.filesystem)
         self._webkit_root = webkit_finder.webkit_base()
 
-        self.destination_directory = self.port.path_from_webkit_base("LayoutTests", options.destination)
+        self.destination_directory = self.port.path_from_webkit_base('LayoutTests', options.destination)
         self.tests_w3c_relative_path = self.filesystem.join('imported', 'w3c')
         self.layout_tests_path = self.port.path_from_webkit_base('LayoutTests')
         self.layout_tests_w3c_path = self.filesystem.join(self.layout_tests_path, self.tests_w3c_relative_path)
@@ -182,13 +180,14 @@ class TestImporter(object):
 
         self._test_downloader = None
 
-        self._potential_test_resource_files = []
-
         self.import_list = []
         self.upstream_revision = None
 
-        self._test_resource_files_json_path = self.filesystem.join(self.layout_tests_w3c_path, "resources", "resource-files.json")
-        self._test_resource_files = json.loads(self.filesystem.read_text_file(self._test_resource_files_json_path)) if self.filesystem.exists(self._test_resource_files_json_path) else None
+        self._resource_files_json_path = self.filesystem.join(self.layout_tests_w3c_path, 'resources', 'resource-files.json')
+        self._resource_files = json.loads(self.filesystem.read_text_file(self._resource_files_json_path)) if self.filesystem.exists(self._resource_files_json_path) else None
+
+        self._new_resource_files = set()
+        self._non_resource_files = set()
 
         self._tests_options_json_path = self.filesystem.join(self.layout_tests_path, 'tests-options.json')
         self._tests_options = json.loads(self.filesystem.read_text_file(self._tests_options_json_path)) if self.filesystem.exists(self._tests_options_json_path) else None
@@ -206,18 +205,20 @@ class TestImporter(object):
         }
 
     def do_import(self):
-        if self.source_directory:
-            source_path = str(Path(self.source_directory) / 'web-platform-tests')
-            try:
-                self.upstream_revision = Git(source_path).find('HEAD').hash
-            except OSError:
-                self.upstream_revision = None
-        else:
-            _log.info('Downloading W3C test repositories')
-            self.filesystem.maybe_make_directory(self.tests_download_path)
-            self.test_downloader().download_tests(self.options.use_tip_of_tree)
-            self.upstream_revision = self.test_downloader().upstream_revision
-            self.source_directory = self.tests_download_path
+        finder = WebKitFinder(self.filesystem)
+        self.source_directory = self.source_directory or WPTPaths.ensure_wpt_repository(finder, self.source_directory)
+
+        directory = self._get_wpt_directory(self.source_directory)
+        _log.debug(f"Using {directory!r} for {self.source_directory!r}")
+        if directory is None:
+            return
+
+        self.source_directory = directory
+        source_path = self.filesystem.join(self.source_directory, 'web-platform-tests')
+        try:
+            self.upstream_revision = Git(source_path).find('HEAD').hash
+        except OSError:
+            self.upstream_revision = None
 
         for test_path in self.test_paths:
             if test_path != "web-platform-tests" and not test_path.startswith(
@@ -243,10 +244,13 @@ class TestImporter(object):
         if self.options.clean_destination_directory:
             for test_path in test_paths:
                 self.clean_destination_directory(test_path)
-            if self._test_resource_files:
+            if self._resource_files:
                 test_paths_tuple = tuple(test_paths)
-                self._test_resource_files["files"] = [t for t in self._test_resource_files["files"]
-                                                      if not t.startswith(test_paths_tuple)]
+                self._resource_files['files'] = [
+                    t
+                    for t in self._resource_files['files']
+                    if not t.startswith(test_paths_tuple)
+                ]
                 if self._tests_options:
                     self.remove_slow_from_w3c_tests_options(test_paths_tuple)
 
@@ -260,6 +264,48 @@ class TestImporter(object):
         self.test_downloader().update_import_expectations(
             self.test_paths, self._to_skip_new_directories
         )
+
+    def _get_wpt_directory(self, directory: str) -> Optional[str]:
+        """Finds an appropriate path to WPT
+
+        This checks whether either `directory` or `directory / "web-platform-tests"` is
+        WPT, and returns an appropriate path.
+
+        NB: The path returned may be neither of these, as we may create a symlink to
+        ensure we have a directory called "web-platform-tests".
+        """
+
+        fs = self.filesystem
+        directory_abs = fs.abspath(directory)
+        d = PurePath(directory)
+
+        if not fs.isdir(directory):
+            _log.error(f"{directory_abs} is not a directory")
+            return None
+
+        if fs.isfile(str(d / "resources" / "testharness.js")) and fs.isfile(str(d / "wpt")):
+            # For historic reasons, we require the directory be called
+            # web-platform-tests. (We should ultimately remove this restriction, but
+            # this is future work.)
+
+            # Getting the path and not using this as a context manager means we don't
+            # actually tidy up after ourselves, which isn't ideal, but as a temporary
+            # workaround this will do.
+            temp_parent = str(fs.mkdtemp())
+
+            fs.symlink(str(d), fs.join(temp_parent, "web-platform-tests"))
+            return temp_parent
+
+        if fs.isdir(str(d / "web-platform-tests")):
+            # This is historically what we required, and we should keep supporting this.
+            return directory
+
+        _log.error(
+            f"Neither {directory_abs} nor "
+            f"{fs.join(directory_abs, 'web-platform-tests')} "
+            "appear to be web-platform-tests"
+        )
+        return None
 
     def generate_git_submodules_description_for_all_repositories(self):
         for test_repository in self._test_downloader.test_repositories:
@@ -279,7 +325,7 @@ class TestImporter(object):
         return self._test_downloader
 
     def should_skip_path(self, path):
-        rel_path = Path(path).relative_to(self.source_directory)
+        rel_path = PurePath(path).relative_to(self.source_directory)
         if rel_path.suffix == ".pl":
             return True
 
@@ -287,9 +333,9 @@ class TestImporter(object):
             return True
 
         downloader = self.test_downloader()
-        paths_to_skip_new_directories = {Path(p) for p in downloader.paths_to_skip_new_directories}
-        paths_to_skip = {Path(p) for p in downloader.paths_to_skip}
-        paths_to_import = {Path(p) for p in downloader.paths_to_import}
+        paths_to_skip_new_directories = {PurePath(p) for p in downloader.paths_to_skip_new_directories}
+        paths_to_skip = {PurePath(p) for p in downloader.paths_to_skip}
+        paths_to_import = {PurePath(p) for p in downloader.paths_to_import}
 
         for parent in itertools.chain([rel_path], rel_path.parents):
             if parent in paths_to_skip_new_directories:
@@ -373,6 +419,8 @@ class TestImporter(object):
                 if self.should_skip_path(fullpath):
                     continue
 
+                relpath = self.filesystem.relpath(fullpath, self.source_directory)
+
                 mimetype = mimetypes.guess_type(fullpath)
                 if 'html' not in str(mimetype[0]) and 'application/xhtml+xml' not in str(mimetype[0]) and 'application/xml' not in str(mimetype[0]) and 'image/svg+xml' not in str(mimetype[0]):
                     copy_list.append({'src': fullpath, 'dest': filename})
@@ -383,11 +431,13 @@ class TestImporter(object):
                 if test_info is None:
                     # This is probably a resource file, but we should generate WPT manifest instead and get the list of resource files from it.
                     if not self._is_in_resources_directory(fullpath):
-                        self._potential_test_resource_files.append(fullpath)
+                        self._new_resource_files.add(relpath)
                     copy_list.append({'src': fullpath, 'dest': filename})
                     continue
                 elif self._is_in_resources_directory(fullpath):
                     _log.warning('%s is a test located in a "resources" folder. This test will be skipped by WebKit test runners.', fullpath)
+
+                self._non_resource_files.add(relpath)
 
                 if 'manualtest' in test_info.keys():
                     continue
@@ -662,40 +712,47 @@ class TestImporter(object):
             _log.info('Upstream commit: https://github.com/web-platform-tests/wpt/commit/%s', self.upstream_revision)
             _log.info('-' * 72)
 
-        if self._test_resource_files:
-            # FIXME: We should check that actual tests are not in the test_resource_files list
-            should_update_json_file = self.options.clean_destination_directory
-            files = self._test_resource_files["files"]
-            for full_path in self._potential_test_resource_files:
-                resource_file_path = self.filesystem.relpath(full_path, self.source_directory)
-                if not self._already_identified_as_resource_file(resource_file_path):
-                    files.append(resource_file_path)
-                    should_update_json_file = True
+        if self._resource_files is not None:
+            files = set(self._resource_files['files'])
+
+            directories_tuple = tuple(
+                f'{d}{self.filesystem.sep}'
+                for d in self._resource_files['directories']
+            )
+
+            files |= {
+                p
+                for p in self._new_resource_files
+                if not p.startswith(directories_tuple)
+            }
+            files -= self._non_resource_files
+
+            should_update_json_file = (
+                self.options.clean_destination_directory
+                or files != set(self._resource_files['files'])
+            )
+
             if should_update_json_file:
-                files.sort()
-                self.filesystem.write_text_file(self._test_resource_files_json_path, json.dumps(self._test_resource_files, sort_keys=True, indent=4).replace(' \n', '\n'))
+                self._resource_files['files'] = sorted(files)
+                self.filesystem.write_text_file(
+                    self._resource_files_json_path,
+                    json.dumps(
+                        self._resource_files,
+                        sort_keys=True,
+                        indent=4,
+                    ).replace(' \n', '\n'),
+                )
 
         if self._tests_options:
             self.update_tests_options()
 
-    def _already_identified_as_resource_file(self, path):
-        if not self._test_resource_files:
-            return False
-        if path in self._test_resource_files["files"]:
-            return True
-        return any([path.find(directory) != -1 for directory in self._test_resource_files["directories"]])
-
     def _is_in_resources_directory(self, path):
-        return "resources" in path.split(self.filesystem.sep)
+        return 'resources' in path.split(self.filesystem.sep)
 
     def update_tests_options(self):
         should_update = self.options.clean_destination_directory
         for full_path in self._slow_tests:
             w3c_test_path = self.filesystem.relpath(full_path, self.source_directory)
-            # No need to mark tests as slow if they are in skipped directories
-            if self._already_identified_as_resource_file(w3c_test_path):
-                continue
-
             test_path = self.filesystem.join(self.tests_w3c_relative_path, w3c_test_path)
             options = self._tests_options.get(test_path, [])
             if not 'slow' in options:

@@ -120,7 +120,7 @@ struct OpenXRInteractionProfile {
     std::span<const OpenXRAxis> axes;
 };
 
-constexpr ASCIILiteral handInteractionProfileName { "/interaction_profiles/ext/hand_interaction_ext"_s };
+constexpr ASCIILiteral handInteractionProfilePath { "/interaction_profiles/ext/hand_interaction_ext"_s };
 constexpr std::array<OpenXRProfileId, 3> handInteractionProfileIds { "generic-hand-select-grasp", "generic-hand-select", "generic-hand" };
 constexpr std::array<OpenXRButton, 2> handInteractionProfileButtons {
     OpenXRButton { .type = OpenXRButtonType::Trigger, .path = s_pathPinchExt, .flags = OpenXRButtonFlags::Value, .hand = OpenXRHandFlags::Both },
@@ -128,14 +128,14 @@ constexpr std::array<OpenXRButton, 2> handInteractionProfileButtons {
 };
 
 constexpr OpenXRInteractionProfile handInteractionProfile {
-    handInteractionProfileName,
+    handInteractionProfilePath,
     handInteractionProfileIds,
     handInteractionProfileButtons,
     { }
 };
 
 // Default fallback when there isn't a specific controller binding.
-constexpr ASCIILiteral khrSimpleControllerName { "/interaction_profiles/khr/simple_controller"_s };
+constexpr ASCIILiteral khrSimpleControllerPath { "/interaction_profiles/khr/simple_controller"_s };
 constexpr std::array<ASCIILiteral, 1> khrSimpleProfileIds { "generic-button"_s };
 
 constexpr std::array<OpenXRButton, 1> khrSimpleButtons {
@@ -143,7 +143,7 @@ constexpr std::array<OpenXRButton, 1> khrSimpleButtons {
 };
 
 constexpr OpenXRInteractionProfile khrSimpleControllerProfile {
-    khrSimpleControllerName,
+    khrSimpleControllerPath,
     khrSimpleProfileIds,
     khrSimpleButtons,
     { }

@@ -65,6 +65,7 @@ set(libangle_common_headers
     "src/common/system_utils.h"
     "src/common/tls.h"
     "src/common/uniform_type_info_autogen.h"
+    "src/common/unsafe_buffers.h"
     "src/common/utilities.h"
     "src/common/vector_utils.h"
     "src/libANGLE/CLBitField.h"
@@ -590,6 +591,7 @@ set(libangle_mac_sources "src/libANGLE/renderer/driver_utils_mac.mm")
 # The frame capture headers are always visible to libANGLE.
 
 list(APPEND libangle_sources
+    "src/common/frame_capture_binary_data.h"
     "src/common/frame_capture_utils.h"
     "src/common/frame_capture_utils_autogen.h"
     "src/common/gl_enum_utils.h"

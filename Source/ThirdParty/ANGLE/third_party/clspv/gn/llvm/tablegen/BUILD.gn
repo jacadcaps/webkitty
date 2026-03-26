@@ -34,6 +34,13 @@ tablegen("AArch64TargetParserDef") {
   output_name = "$clspv_llvm_dir/llvm/TargetParser/AArch64TargetParserDef.inc"
 }
 
+tablegen("PPCGenTargetFeatures") {
+  args = [ "-gen-target-features" ]
+  td_file = "//$clspv_llvm_dir/llvm/lib/Target/PowerPC/PPC.td"
+  tblgen_target = "../tools:clspv-tool-llvm-min-tblgen"
+  output_name = "$clspv_llvm_dir/llvm/TargetParser/PPCGenTargetFeatures.inc"
+}
+
 # from llvm/include/llvm/Frontend/OpenMP
 tablegen("OMPh") {
   #visibility = [ ":public_tablegen" ]
@@ -51,6 +58,14 @@ tablegen("OMP") {
   output_name = "$clspv_llvm_dir/llvm/Frontend/OpenMP/OMP.inc"
 }
 
+tablegen("ACCcpp") {
+  #visibility = [ ":public_tablegen" ]
+  args = [ "-gen-directive-impl" ]
+  td_file = "//$clspv_llvm_dir/llvm/include/llvm/Frontend/OpenACC/ACC.td"
+  tblgen_target = "../tools:clspv-tool-llvm-min-tblgen"
+  output_name = "$clspv_llvm_dir/llvm/Frontend/OpenACC/ACC.inc"
+}
+
 # from llvm/include/llvm/IR
 tablegen("Attributes") {
   #visibility = [ ":public_tablegen" ]
@@ -58,6 +73,14 @@ tablegen("Attributes") {
   td_file = "//$clspv_llvm_dir/llvm/include/llvm/IR/Attributes.td"
   tblgen_target = "../tools:clspv-tool-llvm-min-tblgen"
   output_name = "$clspv_llvm_dir/llvm/IR/Attributes.inc"
+}
+
+tablegen("RuntimeLibcalls") {
+  #visibility = [ ":public_tablegen" ]
+  args = [ "-gen-runtime-libcalls" ]
+  td_file = "//$clspv_llvm_dir/llvm/include/llvm/IR/RuntimeLibcalls.td"
+  tblgen_target = "../tools:clspv-tool-llvm-min-tblgen"
+  output_name = "$clspv_llvm_dir/llvm/IR/RuntimeLibcalls.inc"
 }
 
 tablegen("IntrinsicImpl") {
@@ -169,6 +192,9 @@ group("public_tablegen") {
     # IR's public headers include Attributes.inc.
     ":Attributes",
 
+    # IR's public headers include RuntimeLibcalls.inc.
+    ":RuntimeLibcalls",
+
     # IR's public headers include IntrinsicEnums.inc.
     ":IntrinsicEnums",
     ":IntrinsicImpl",
@@ -197,6 +223,9 @@ group("public_tablegen") {
     # Frontend/OpenMP
     ":OMP",
     ":OMPh",
+
+    # Frontend/OpenACC
+    ":ACCcpp",
   ]
 }
 
@@ -349,6 +378,7 @@ diag_groups = [
   "Sema",
   "Serialization",
   "InstallAPI",
+  "Trap",
 ]
 foreach(diag_group, diag_groups) {
   clang_tablegen("Diagnostic${diag_group}Kinds") {
@@ -357,16 +387,50 @@ foreach(diag_group, diag_groups) {
       "-clang-component=${diag_group}",
     ]
     td_file = "//$clspv_llvm_dir/clang/include/clang/Basic/Diagnostic.td"
-    output_name = "$clspv_llvm_dir/clang/Basic/Diagnostic${diag_group}Kinds.inc"
+    output_path = "$clspv_llvm_dir/clang/include/clang/Basic"
+  }
+
+  clang_tablegen("Diagnostic${diag_group}Enums") {
+    args = [
+      "-gen-clang-diags-enums",
+      "-clang-component=${diag_group}",
+    ]
+    td_file = "//$clspv_llvm_dir/clang/include/clang/Basic/Diagnostic.td"
+    output_path = "$clspv_llvm_dir/clang/include/clang/Basic"
+  }
+
+  clang_tablegen("Diagnostic${diag_group}CompatIDs") {
+    args = [
+      "-gen-clang-diags-compat-ids",
+      "-clang-component=${diag_group}",
+    ]
+    td_file = "//$clspv_llvm_dir/clang/include/clang/Basic/Diagnostic.td"
+    output_path = "$clspv_llvm_dir/clang/include/clang/Basic"
+  }
+
+  clang_tablegen("Diagnostic${diag_group}Interface") {
+    args = [
+      "-gen-clang-diags-iface",
+      "-clang-component=${diag_group}",
+    ]
+    td_file = "//$clspv_llvm_dir/clang/include/clang/Basic/Diagnostic.td"
+    output_path = "$clspv_llvm_dir/clang/include/clang/Basic"
   }
 }
 group("diags_tablegen") {
-  # DiagnosticGroups and DiagnosticIndexName are intentionally not part of this
-  # group.  Much of clang depends on the DiagKinds.inc files transitively,
-  # but almost nothing needs DiagnosticGroups.inc or DiagnosticIndexName.inc.
+  # DiagnosticGroups, DiagnosticIndexName, DiagnosticAllCompatIDs are
+  # intentionally not part of this group.  Much of clang depends on the
+  # DiagKinds.inc files transitively, but almost nothing needs
+  # DiagnosticGroups.inc, DiagnosticIndexName.inc, or
+  # DiagnosticAllCompatIDs.inc.
   public_deps = []
   foreach(diag_group, diag_groups) {
-    public_deps += [ ":Diagnostic${diag_group}Kinds" ]
+    public_deps += [
+      ":Diagnostic${diag_group}CompatIDs",
+      ":Diagnostic${diag_group}Enums",
+      ":Diagnostic${diag_group}Interface",
+      ":Diagnostic${diag_group}Kinds",
+    ]
   }
 }
 
@@ -378,6 +442,12 @@ clang_tablegen("DiagnosticGroups") {
 
 clang_tablegen("DiagnosticIndexName") {
   args = [ "-gen-clang-diags-index-name" ]
+  td_file = "//$clspv_llvm_dir/clang/include/clang/Basic/Diagnostic.td"
+  output_path = "$clspv_llvm_dir/clang/include/clang/Basic"
+}
+
+clang_tablegen("DiagnosticAllCompatIDs") {
+  args = [ "-gen-clang-diags-compat-ids" ]
   td_file = "//$clspv_llvm_dir/clang/include/clang/Basic/Diagnostic.td"
   output_path = "$clspv_llvm_dir/clang/include/clang/Basic"
 }
@@ -408,6 +478,12 @@ clang_tablegen("AttrHasAttributeImpl") {
   output_path = "$clspv_llvm_dir/clang/include/clang/Basic"
 }
 
+clang_tablegen("AttributeSpellingList") {
+  args = [ "-gen-attribute-spelling-list" ]
+  td_file = "//$clspv_llvm_dir/clang/include/clang/Basic/Attr.td"
+  output_path = "$clspv_llvm_dir/clang/include/clang/Basic"
+}
+
 clang_tablegen("Builtins") {
   args = [ "-gen-clang-builtins" ]
   td_file = "//$clspv_llvm_dir/clang/include/clang/Basic/Builtins.td"
@@ -420,6 +496,30 @@ clang_tablegen("BuiltinsBPF") {
   output_path = "$clspv_llvm_dir/clang/include/clang/Basic"
 }
 
+clang_tablegen("BuiltinsNVPTX") {
+  args = [ "-gen-clang-builtins" ]
+  td_file = "//$clspv_llvm_dir/clang/include/clang/Basic/BuiltinsNVPTX.td"
+  output_path = "$clspv_llvm_dir/clang/include/clang/Basic"
+}
+
+clang_tablegen("BuiltinsSPIRV") {
+  args = [ "-gen-clang-builtins" ]
+  td_file = "//$clspv_llvm_dir/clang/include/clang/Basic/BuiltinsSPIRVBase.td"
+  output_path = "$clspv_llvm_dir/clang/include/clang/Basic"
+}
+
+clang_tablegen("BuiltinsX86_64") {
+  args = [ "-gen-clang-builtins" ]
+  td_file = "//$clspv_llvm_dir/clang/include/clang/Basic/BuiltinsX86_64.td"
+  output_path = "$clspv_llvm_dir/clang/include/clang/Basic"
+}
+
+clang_tablegen("BuiltinsHexagon") {
+  args = [ "-gen-clang-builtins" ]
+  td_file = "//$clspv_llvm_dir/clang/include/clang/Basic/BuiltinsHexagon.td"
+  output_path = "$clspv_llvm_dir/clang/include/clang/Basic"
+}
+
 clang_tablegen("BuiltinsRISCV") {
   args = [ "-gen-clang-builtins" ]
   td_file = "//$clspv_llvm_dir/clang/include/clang/Basic/BuiltinsRISCV.td"
@@ -429,6 +529,30 @@ clang_tablegen("BuiltinsRISCV") {
 clang_tablegen("BuiltinsX86") {
   args = [ "-gen-clang-builtins" ]
   td_file = "//$clspv_llvm_dir/clang/include/clang/Basic/BuiltinsX86.td"
+  output_path = "$clspv_llvm_dir/clang/include/clang/Basic"
+}
+
+clang_tablegen("BuiltinsDirectX") {
+  args = [ "-gen-clang-builtins" ]
+  td_file = "//$clspv_llvm_dir/clang/include/clang/Basic/BuiltinsDirectX.td"
+  output_path = "$clspv_llvm_dir/clang/include/clang/Basic"
+}
+
+clang_tablegen("BuiltinsSPIRVCommon") {
+  args = [ "-gen-clang-builtins" ]
+  td_file = "//$clspv_llvm_dir/clang/include/clang/Basic/BuiltinsSPIRVCommon.td"
+  output_path = "$clspv_llvm_dir/clang/include/clang/Basic"
+}
+
+clang_tablegen("BuiltinsSPIRVVK") {
+  args = [ "-gen-clang-builtins" ]
+  td_file = "//$clspv_llvm_dir/clang/include/clang/Basic/BuiltinsSPIRVVK.td"
+  output_path = "$clspv_llvm_dir/clang/include/clang/Basic"
+}
+
+clang_tablegen("BuiltinsSPIRVCL") {
+  args = [ "-gen-clang-builtins" ]
+  td_file = "//$clspv_llvm_dir/clang/include/clang/Basic/BuiltinsSPIRVCL.td"
   output_path = "$clspv_llvm_dir/clang/include/clang/Basic"
 }
 
@@ -598,6 +722,24 @@ clang_tablegen("riscv_sifive_vector_builtin_sema") {
   output_path = "$clspv_llvm_dir/clang/include/clang/Basic"
 }
 
+clang_tablegen("riscv_andes_vector_builtins") {
+  args = [ "-gen-riscv-andes-vector-builtins" ]
+  td_file = "//$clspv_llvm_dir/clang/include/clang/Basic/riscv_andes_vector.td"
+  output_path = "$clspv_llvm_dir/clang/include/clang/Basic"
+}
+
+clang_tablegen("riscv_andes_vector_builtin_cg") {
+  args = [ "-gen-riscv-andes-vector-builtin-codegen" ]
+  td_file = "//$clspv_llvm_dir/clang/include/clang/Basic/riscv_andes_vector.td"
+  output_path = "$clspv_llvm_dir/clang/include/clang/Basic"
+}
+
+clang_tablegen("riscv_andes_vector_builtin_sema") {
+  args = [ "-gen-riscv-andes-vector-builtin-sema" ]
+  td_file = "//$clspv_llvm_dir/clang/include/clang/Basic/riscv_andes_vector.td"
+  output_path = "$clspv_llvm_dir/clang/include/clang/Basic"
+}
+
 # from clang/include/clang/Driver
 tablegen("Options") {
   args = [ "-gen-opt-parser-defs" ]
@@ -615,7 +757,7 @@ clang_tablegen("AttrTemplateInstantiate") {
 clang_tablegen("AttrParsedAttrList") {
   args = [ "-gen-clang-attr-parsed-attr-list" ]
   td_file = "//$clspv_llvm_dir/clang/include/clang/Basic/Attr.td"
-  output_path = "$clspv_llvm_dir/clang/include/clang/Sema"
+  output_path = "$clspv_llvm_dir/clang/include/clang/Basic"
 }
 
 clang_tablegen("AttrParsedAttrKinds") {
@@ -676,4 +818,15 @@ clang_tablegen("Checkers") {
   args = [ "-gen-clang-sa-checkers" ]
   td_file = "//$clspv_llvm_dir/clang/include/clang/StaticAnalyzer/Checkers/Checkers.td"
   output_path = "$clspv_llvm_dir/clang/include/clang/StaticAnalyzer/Checkers"
+}
+
+clang_tablegen("BuiltinTemplates") {
+  args = [ "-gen-clang-builtin-templates" ]
+  td_file = "//$clspv_llvm_dir/clang/include/clang/Basic/BuiltinTemplates.td"
+  output_path = "$clspv_llvm_dir/clang/include/clang/Basic"
+}
+clang_tablegen("CXX11AttributeInfo") {
+  args = [ "-gen-cxx11-attribute-info" ]
+  td_file = "//$clspv_llvm_dir/clang/include/clang/Basic/Attr.td"
+  output_path = "$clspv_llvm_dir/clang/include/clang/Basic"
 }

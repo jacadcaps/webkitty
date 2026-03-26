@@ -26,7 +26,8 @@
 typedef (object or DOMString) HashAlgorithmIdentifier;
 
 [
-    ImplementedAs=CryptoAlgorithmRsaHashedImportParams
+    ImplementedAs=CryptoAlgorithmRsaHashedImportParams,
+    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary RsaHashedImportParams : CryptoAlgorithmParameters {
     // The hash algorithm to use
     required HashAlgorithmIdentifier hash;

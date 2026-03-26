@@ -152,7 +152,6 @@ private:
     class BufferDMABuf final : public Buffer {
     public:
         static RefPtr<Buffer> create(WebPageProxy&, uint64_t id, uint64_t surfaceID, const WebCore::IntSize&, RendererBufferFormat::Usage, uint32_t format, Vector<WTF::UnixFileDescriptor>&&, Vector<uint32_t>&& offsets, Vector<uint32_t>&& strides, uint64_t modifier);
-        ~BufferDMABuf() = default;
 
     private:
         BufferDMABuf(WebPageProxy&, uint64_t id, uint64_t surfaceID, const WebCore::IntSize&, RendererBufferFormat::Usage, Vector<WTF::UnixFileDescriptor>&&, GRefPtr<GdkDmabufTextureBuilder>&&);
@@ -194,6 +193,7 @@ private:
 #if USE(GTK4)
         GRefPtr<GdkTexture> m_texture;
 #else
+        GRefPtr<GdkGLContext> m_gdkGLContext;
         unsigned m_textureID { 0 };
 #endif
         uint32_t m_fourcc { 0 };
@@ -225,7 +225,6 @@ private:
     class BufferSHM final : public Buffer {
     public:
         static RefPtr<Buffer> create(WebPageProxy&, uint64_t id, uint64_t surfaceID, RefPtr<WebCore::ShareableBitmap>&&);
-        ~BufferSHM() = default;
 
     private:
         BufferSHM(WebPageProxy&, uint64_t id, uint64_t surfaceID, RefPtr<WebCore::ShareableBitmap>&&);

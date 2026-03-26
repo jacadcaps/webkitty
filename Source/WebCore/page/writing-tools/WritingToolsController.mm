@@ -30,22 +30,30 @@
 
 #import "Chrome.h"
 #import "ChromeClient.h"
+#import "ColorCocoa.h"
+#import "ContainerNodeInlines.h"
 #import "CompositeEditCommand.h"
-#import "DocumentInlines.h"
 #import "DocumentMarkerController.h"
+#import "DocumentMarkers.h"
+#import "DocumentView.h"
 #import "EditingHTMLConverter.h"
 #import "Editor.h"
 #import "FocusController.h"
+#import "FrameDestructionObserverInlines.h"
 #import "FrameSelection.h"
 #import "GeometryUtilities.h"
+#import "HTMLBodyElement.h"
 #import "IntelligenceTextEffectsSupport.h"
+#import "LocalFrameInlines.h"
 #import "Logging.h"
 #import "NodeRenderStyle.h"
+#import "RenderStyle+GettersInlines.h"
 #import "RenderedDocumentMarker.h"
 #import "TextAnimationTypes.h"
 #import "TextIterator.h"
 #import "VisibleUnits.h"
 #import "WebContentReader.h"
+#import <pal/spi/cocoa/NSAttributedStringSPI.h>
 #import <ranges>
 #import <wtf/Scope.h>
 #import <wtf/TZoneMallocInlines.h>
@@ -159,6 +167,45 @@ static std::optional<SimpleRange> contextRangeForSession(Document& document, con
     return selection.firstRange();
 }
 
+static RetainPtr<NSAttributedString> attributedStringApplyingBodyTextColorIfNecessary(const Document& document, NSAttributedString *originalAttributedString)
+{
+    RetainPtr attributedString = adoptNS([[NSMutableAttributedString alloc] initWithAttributedString:originalAttributedString]);
+
+    __block BOOL attributedStringHasSpecifiedTextColor = NO;
+    [originalAttributedString enumerateAttributesInRange:NSMakeRange(0, originalAttributedString.length) options:0 usingBlock:^(NSDictionary<NSAttributedStringKey, id> *attributes, NSRange, BOOL *stop) {
+        // FIXME: This is a static analysis false positive.
+        SUPPRESS_UNRETAINED_ARG if (attributes[NSForegroundColorAttributeName]) {
+            attributedStringHasSpecifiedTextColor = YES;
+            *stop = YES;
+        }
+    }];
+
+    if (attributedStringHasSpecifiedTextColor)
+        return attributedString;
+
+    RefPtr body = document.body();
+    if (!body)
+        return attributedString;
+
+    CheckedPtr renderer = body->renderer();
+    if (!renderer)
+        return attributedString;
+
+    CheckedRef style = renderer->style();
+
+    auto textColor = style->visitedDependentColorApplyingColorFilter();
+    if (!textColor.isVisible())
+        return attributedString;
+
+    RetainPtr attributes = @{
+        NSForegroundColorAttributeName: cocoaColor(textColor).get(),
+    };
+
+    [attributedString addAttributes:attributes.get() range:NSMakeRange(0, [attributedString length])];
+
+    return attributedString;
+}
+
 #pragma mark - WritingToolsController implementation.
 
 WritingToolsController::WritingToolsController(Page& page)
@@ -193,7 +240,7 @@ void WritingToolsController::willBeginWritingToolsSession(const std::optional<Wr
 
         ASSERT(session->type == WritingTools::Session::Type::Composition);
 
-        m_state = CompositionState { { }, { WritingToolsCompositionCommand::create(Ref { *document }, *contextRange) }, *session };
+        m_state = CompositionState::create({ }, { WritingToolsCompositionCommand::create(Ref { *document }, *contextRange) }, *session).moveToUniquePtr();
 
         completionHandler({ { std::nullopt, AttributedString::fromNSAttributedString(adoptNS([[NSAttributedString alloc] initWithString:@""])), CharacterRange { 0, 0 } } });
         return;
@@ -228,7 +275,7 @@ void WritingToolsController::willBeginWritingToolsSession(const std::optional<Wr
 
     switch (session->type) {
     case WritingTools::Session::Type::Proofreading:
-        m_state = ProofreadingState { createLiveRange(*contextRange), *session, 0 };
+        m_state = ProofreadingState::create(createLiveRange(*contextRange), *session, 0).moveToUniquePtr();
         break;
 
     case WritingTools::Session::Type::Composition:
@@ -236,7 +283,7 @@ void WritingToolsController::willBeginWritingToolsSession(const std::optional<Wr
         // the command itself is never applied or unapplied.
         //
         // The range associated with each command is the resulting context range after the command is applied.
-        m_state = CompositionState { { }, { WritingToolsCompositionCommand::create(Ref { *document }, *contextRange) }, *session };
+        m_state = CompositionState::create({ }, { WritingToolsCompositionCommand::create(Ref { *document }, *contextRange) }, *session).moveToUniquePtr();
         break;
     }
 
@@ -446,7 +493,7 @@ void WritingToolsController::removeCompositionClearStateDeferralReason()
     // (Since animations are done async, they may end up still being in progress after the session
     // has ended, and since they depend on the current state this would lead to issues in the animation).
 
-    CheckedPtr state = std::get_if<CompositionState>(&m_state);
+    CheckedPtr state = dynamicDowncast<CompositionState>(m_state.get());
     if (!state) {
         ASSERT_NOT_REACHED();
         return;
@@ -458,7 +505,7 @@ void WritingToolsController::removeCompositionClearStateDeferralReason()
         return;
 
     state = nullptr;
-    m_state = { };
+    m_state = nullptr;
 }
 
 void WritingToolsController::intelligenceTextAnimationsDidComplete()
@@ -473,7 +520,7 @@ void WritingToolsController::intelligenceTextAnimationsDidComplete()
         return;
     }
 
-    CheckedPtr state = std::get_if<CompositionState>(&m_state);
+    CheckedPtr state = dynamicDowncast<CompositionState>(m_state.get());
     if (!state) {
         ASSERT_NOT_REACHED();
         return;
@@ -534,7 +581,7 @@ void WritingToolsController::smartReplySessionDidReceiveTextWithReplacementRange
     Ref currentCommand = state->reappliedCommands.takeLast();
 
     // The prior replacement command must be undone in such a way as to not have it be added to the undo stack.
-    currentCommand->ensureComposition().unapply(EditCommandComposition::AddToUndoStack::No);
+    currentCommand->ensureComposition()->unapply(EditCommandComposition::AddToUndoStack::No);
 
     // Now that the prior replacement command is undone, remove and replace it with a fresh command, with the same range.
     // The same range is used since it represents the end of the previous command, and is only updated again when `finished` is `true`,
@@ -618,7 +665,7 @@ void WritingToolsController::compositionSessionDidReceiveTextWithReplacementRang
     Ref currentCommand = state->reappliedCommands.takeLast();
 
     // The prior replacement command must be undone in such a way as to not have it be added to the undo stack
-    currentCommand->ensureComposition().unapply(EditCommandComposition::AddToUndoStack::No);
+    currentCommand->ensureComposition()->unapply(EditCommandComposition::AddToUndoStack::No);
 
     // Now that the prior replacement command is undone, remove and replace it with a fresh command, with the same range.
     // The same range is used since it represents the end of the previous command, and is only updated again when `finished` is `true`,
@@ -735,7 +782,7 @@ void WritingToolsController::compositionSessionDidReceiveTextWithReplacementRang
     if (isZeroToOneCompositionType(session.compositionType))
         finished = false;
 
-    m_page->chrome().client().addSourceTextAnimationForActiveWritingToolsSession(sourceAnimationUUID, destinationAnimationUUID, finished, range, attributedText.string, WTFMove(addDestinationTextAnimation));
+    m_page->chrome().client().addSourceTextAnimationForActiveWritingToolsSession(sourceAnimationUUID, destinationAnimationUUID, finished, range, attributedText.string, WTF::move(addDestinationTextAnimation));
 }
 
 template<>
@@ -794,7 +841,7 @@ void WritingToolsController::writingToolsSessionDidReceiveAction<WritingTools::S
         auto newData = DocumentMarker::WritingToolsTextSuggestionData { currentText, oldData.suggestionID, newState, oldData.decoration };
         auto newOffsetRange = OffsetRange { startOffset, endOffset + previousText.length() - currentText.length() };
 
-        markers.addMarker(node, DocumentMarker { DocumentMarkerType::WritingToolsTextSuggestion, newOffsetRange, WTFMove(newData) });
+        markers.addMarker(node, DocumentMarker { DocumentMarkerType::WritingToolsTextSuggestion, newOffsetRange, WTF::move(newData) });
     }
 }
 
@@ -905,7 +952,7 @@ void WritingToolsController::willEndWritingToolsSession(const WritingTools::Sess
 template<>
 void WritingToolsController::didEndWritingToolsSession<WritingTools::Session::Type::Proofreading>(bool)
 {
-    m_state = { };
+    m_state = nullptr;
 }
 
 template<>
@@ -957,7 +1004,7 @@ void WritingToolsController::didEndWritingToolsSession(const WritingTools::Sessi
 
     // FIXME: Remove this branch once all composition types use the new effects system.
     if (session.type == WritingTools::Session::Type::Composition && session.compositionType == WritingTools::Session::CompositionType::SmartReply) {
-        m_state = { };
+        m_state = nullptr;
         return;
     }
 
@@ -1010,7 +1057,7 @@ void WritingToolsController::updateStateForSelectedSuggestionIfNeeded()
 static bool appliedCommandIsWritingToolsCommand(const Vector<Ref<WritingToolsCompositionCommand>>& commands, EditCommandComposition* composition)
 {
     return std::ranges::any_of(commands, [composition](const auto& command) {
-        return &command->ensureComposition() == composition;
+        return command->ensureComposition().ptr() == composition;
     });
 }
 
@@ -1047,23 +1094,23 @@ void WritingToolsController::respondToReappliedEditing(EditCommandComposition* c
 
 std::optional<SimpleRange> WritingToolsController::activeSessionRange() const
 {
-    return WTF::switchOn(m_state,
-        [](std::monostate) -> std::optional<SimpleRange> { return std::nullopt; },
-        [](const ProofreadingState& state) -> std::optional<SimpleRange> { return makeSimpleRange(state.contextRange); },
-        [](const CompositionState& state) -> std::optional<SimpleRange> { return state.reappliedCommands.last()->currentContextRange(); }
-    );
+    if (CheckedPtr state = dynamicDowncast<CompositionState>(m_state.get()))
+        return state->reappliedCommands.last()->currentContextRange();
+    if (CheckedPtr state = dynamicDowncast<ProofreadingState>(m_state.get()))
+        return makeSimpleRange(state->contextRange);
+    return std::nullopt;
 }
 
 template<WritingTools::Session::Type Type>
 WritingToolsController::StateFromSessionType<Type>::Value* WritingToolsController::currentState()
 {
-    return std::get_if<typename WritingToolsController::StateFromSessionType<Type>::Value>(&m_state);
+    return dynamicDowncast<typename WritingToolsController::StateFromSessionType<Type>::Value>(m_state.get());
 }
 
 template<WritingTools::Session::Type Type>
 const WritingToolsController::StateFromSessionType<Type>::Value* WritingToolsController::currentState() const
 {
-    return std::get_if<typename WritingToolsController::StateFromSessionType<Type>::Value>(&m_state);
+    return dynamicDowncast<typename WritingToolsController::StateFromSessionType<Type>::Value>(m_state.get());
 }
 
 RefPtr<Document> WritingToolsController::document() const
@@ -1097,7 +1144,7 @@ void WritingToolsController::showOriginalCompositionForSession()
         auto oldSize = stack.size();
 
         // Each call to `unapply` indirectly results in a call to `respondToUnappliedEditing`, which decrements the size of the stack.
-        stack.last()->ensureComposition().unapply();
+        stack.last()->ensureComposition()->unapply();
 
         RELEASE_ASSERT(oldSize > stack.size());
     }
@@ -1119,7 +1166,7 @@ void WritingToolsController::showRewrittenCompositionForSession()
         auto oldSize = stack.size();
 
         // Each call to `reapply` indirectly results in a call to `respondToReappliedEditing`, which decrements the size of the stack.
-        stack.last()->ensureComposition().reapply();
+        stack.last()->ensureComposition()->reapply();
 
         RELEASE_ASSERT(oldSize > stack.size());
     }
@@ -1253,7 +1300,11 @@ void WritingToolsController::replaceContentsOfRangeInSession(ProofreadingState& 
 
 void WritingToolsController::replaceContentsOfRangeInSession(CompositionState& state, const SimpleRange& range, const AttributedString& replacementText, WritingToolsCompositionCommand::State commandState)
 {
-    RefPtr fragment = createFragment(*document()->frame(), replacementText.nsAttributedString().get(), { FragmentCreationOptions::NoInterchangeNewlines, FragmentCreationOptions::SanitizeMarkup });
+    RetainPtr platformReplacementText = replacementText.nsAttributedString();
+    if (state.session.compositionType == WritingTools::Session::CompositionType::SmartReply)
+        platformReplacementText = attributedStringApplyingBodyTextColorIfNecessary(*document(), platformReplacementText.get());
+
+    RefPtr fragment = createFragment(*document()->frame(), platformReplacementText.get(), { FragmentCreationOptions::NoInterchangeNewlines, FragmentCreationOptions::SanitizeMarkup });
     if (!fragment) {
         ASSERT_NOT_REACHED();
         return;
@@ -1265,7 +1316,7 @@ void WritingToolsController::replaceContentsOfRangeInSession(CompositionState& s
     auto matchStyle = hasAttributes ? WritingToolsCompositionCommand::MatchStyle::No : WritingToolsCompositionCommand::MatchStyle::Yes;
 
     EditingScope editingScope { *document() };
-    state.reappliedCommands.last()->replaceContentsOfRangeWithFragment(WTFMove(fragment), range, matchStyle, commandState);
+    state.reappliedCommands.last()->replaceContentsOfRangeWithFragment(WTF::move(fragment), range, matchStyle, commandState);
 }
 
 void WritingToolsController::commitComposition(CompositionState& state, Document& document)

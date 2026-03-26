@@ -33,6 +33,7 @@
 #import "ImageBufferSet.h"
 #import "Logging.h"
 #import "PlatformCALayerRemote.h"
+#import "PrepareBackingStoreBuffersData.h"
 #import "RemoteImageBufferSetProxy.h"
 #import "RemoteLayerBackingStoreCollection.h"
 #import "RemoteLayerTreeContext.h"
@@ -42,7 +43,6 @@
 #import "RemoteLayerTreeNode.h"
 #import "RemoteLayerWithInProcessRenderingBackingStore.h"
 #import "RemoteLayerWithRemoteRenderingBackingStore.h"
-#import "SwapBuffersDisplayRequirement.h"
 #import "WebPageProxy.h"
 #import "WebProcess.h"
 #import "WebProcessPool.h"
@@ -81,17 +81,17 @@ class DelegatedContentsFenceFlusher final : public ThreadSafeImageBufferSetFlush
 public:
     static std::unique_ptr<DelegatedContentsFenceFlusher> create(Ref<PlatformCALayerDelegatedContentsFence> fence)
     {
-        return std::unique_ptr<DelegatedContentsFenceFlusher> { new DelegatedContentsFenceFlusher(WTFMove(fence)) };
+        return std::unique_ptr<DelegatedContentsFenceFlusher> { new DelegatedContentsFenceFlusher(WTF::move(fence)) };
     }
 
-    bool flushAndCollectHandles(HashMap<RemoteImageBufferSetIdentifier, std::unique_ptr<BufferSetBackendHandle>>&) final
+    bool flushAndCollectHandles(HashMap<ImageBufferSetIdentifier, std::unique_ptr<BufferSetBackendHandle>>&) final
     {
         return m_fence->waitFor(delegatedContentsFinishedTimeout);
     }
 
 private:
     DelegatedContentsFenceFlusher(Ref<PlatformCALayerDelegatedContentsFence> fence)
-        : m_fence(WTFMove(fence))
+        : m_fence(WTF::move(fence))
     {
     }
 
@@ -158,47 +158,21 @@ RemoteLayerBackingStore::ProcessModel RemoteLayerBackingStore::processModelForLa
     return ProcessModel::InProcess;
 }
 
-#if !LOG_DISABLED
-static bool hasValue(const ImageBufferBackendHandle& backendHandle)
-{
-    return WTF::switchOn(backendHandle,
-        [&] (const ShareableBitmap::Handle& handle) {
-            return true;
-        },
-        [&] (const MachSendRight& machSendRight) {
-            return !!machSendRight;
-        }
-#if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
-        , [&] (const WebCore::DynamicContentScalingDisplayList& handle) {
-            return true;
-        }
-#endif
-    );
-}
-#endif
-
 void RemoteLayerBackingStore::encode(IPC::Encoder& encoder) const
 {
-    // FIXME: For simplicity this should be moved to the end of display() once the buffer handles can be created once
-    // and stored in m_bufferHandle. http://webkit.org/b/234169
+    // Only delegated contents encode their handle here. Buffer sets encode their handles
+    // out of line (and on a different thread) using the flushAndCollectHandles method
+    // on their async flusher.
     std::optional<ImageBufferBackendHandle> handle;
     if (m_contentsBufferHandle) {
         ASSERT(m_parameters.type == Type::IOSurface);
         handle = ImageBufferBackendHandle { *m_contentsBufferHandle };
-    } else
-        handle = frontBufferHandle();
+    }
 
-    // It would be nice to ASSERT(handle && hasValue(*handle)) here, but when we hit the timeout in RemoteImageBufferProxy::ensureBackendCreated(), we don't have a handle.
-#if !LOG_DISABLED
-    if (!(handle && hasValue(*handle)))
-        LOG_WITH_STREAM(RemoteLayerBuffers, stream << "RemoteLayerBackingStore " << m_layer->layerID() << " encode - no buffer handle; did ensureBackendCreated() time out?");
-#endif
-
-    encoder << WTFMove(handle);
+    encoder << WTF::move(handle);
 
     encoder << bufferSetIdentifier();
 
-    encodeBufferAndBackendInfos(encoder);
     encoder << m_contentsRenderingResourceIdentifier;
     encoder << m_previouslyPaintedRect;
 
@@ -211,7 +185,6 @@ void RemoteLayerBackingStore::encode(IPC::Encoder& encoder) const
 #if HAVE(SUPPORT_HDR_DISPLAY)
     encoder << m_maxRequestedEDRHeadroom;
 #endif
-
 }
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteLayerBackingStoreProperties);
@@ -295,39 +268,26 @@ WebCore::IntRect RemoteLayerBackingStore::layerBounds() const
     return IntRect { { }, expandedIntSize(m_parameters.size) };
 }
 
-ImageBufferPixelFormat RemoteLayerBackingStore::pixelFormat() const
+PixelFormat RemoteLayerBackingStore::pixelFormat() const
 {
     switch (contentsFormat()) {
     case ContentsFormat::RGBA8:
-        return m_parameters.isOpaque ? ImageBufferPixelFormat::BGRX8 : ImageBufferPixelFormat::BGRA8;
+        return m_parameters.isOpaque ? PixelFormat::BGRX8 : PixelFormat::BGRA8;
 
 #if ENABLE(PIXEL_FORMAT_RGB10)
     case ContentsFormat::RGBA10:
-        return m_parameters.isOpaque ? ImageBufferPixelFormat::RGB10 : ImageBufferPixelFormat::RGB10A8;
+        return m_parameters.isOpaque ? PixelFormat::RGB10 : PixelFormat::RGB10A8;
 #endif
 #if ENABLE(PIXEL_FORMAT_RGBA16F)
     case ContentsFormat::RGBA16F:
-        return ImageBufferPixelFormat::RGBA16F;
+        return PixelFormat::RGBA16F;
 #endif
     }
 }
 
 unsigned RemoteLayerBackingStore::bytesPerPixel() const
 {
-    switch (pixelFormat()) {
-    case ImageBufferPixelFormat::BGRX8: return 4;
-    case ImageBufferPixelFormat::BGRA8: return 4;
-#if ENABLE(PIXEL_FORMAT_RGB10)
-    case ImageBufferPixelFormat::RGB10: return 4;
-#endif
-#if ENABLE(PIXEL_FORMAT_RGB10A8)
-    case ImageBufferPixelFormat::RGB10A8: return 5;
-#endif
-#if ENABLE(PIXEL_FORMAT_RGBA16F)
-    case ImageBufferPixelFormat::RGBA16F: return 8;
-#endif
-    }
-    return 4;
+    return contentsFormatBytesPerPixel(contentsFormat(), m_parameters.isOpaque);
 }
 
 bool RemoteLayerBackingStore::supportsPartialRepaint() const
@@ -436,7 +396,7 @@ void RemoteLayerBackingStore::paintContents()
 
     if (hasEmptyDirtyRegion()) {
         if (auto flusher = createFlusher(ThreadSafeImageBufferSetFlusher::FlushType::BackendHandlesOnly))
-            m_frontBufferFlushers.append(WTFMove(flusher));
+            m_frontBufferFlushers.append(WTF::move(flusher));
         return;
     }
 
@@ -461,8 +421,6 @@ void RemoteLayerBackingStore::drawInContext(GraphicsContext& context)
     paintBehavior.add(GraphicsLayerPaintBehavior::TonemapHDRToDisplayHeadroom);
     context.clearMaxEDRHeadrooms();
 #endif
-    if (auto* context = m_layer->context(); context && context->nextRenderingUpdateRequiresSynchronousImageDecoding())
-        paintBehavior.add(GraphicsLayerPaintBehavior::ForceSynchronousImageDecode);
     
     // FIXME: This should be moved to PlatformCALayerRemote for better layering.
     Ref layer = m_layer.get();
@@ -515,7 +473,7 @@ void RemoteLayerBackingStore::drawInContext(GraphicsContext& context)
 
     m_previouslyPaintedRect = dirtyBounds;
     if (auto flusher = createFlusher())
-        m_frontBufferFlushers.append(WTFMove(flusher));
+        m_frontBufferFlushers.append(WTF::move(flusher));
 }
 
 void RemoteLayerBackingStore::enumerateRectsBeingDrawn(GraphicsContext& context, void (^block)(FloatRect))
@@ -534,7 +492,7 @@ void RemoteLayerBackingStore::enumerateRectsBeingDrawn(GraphicsContext& context,
 }
 
 RemoteLayerBackingStoreProperties::RemoteLayerBackingStoreProperties(ImageBufferBackendHandle&& handle, WebCore::RenderingResourceIdentifier identifier, bool opaque)
-    : m_bufferHandle(WTFMove(handle))
+    : m_bufferHandle(WTF::move(handle))
     , m_contentsRenderingResourceIdentifier(identifier)
     , m_isOpaque(opaque)
     , m_type(RemoteLayerBackingStore::Type::IOSurface)
@@ -547,13 +505,13 @@ RemoteLayerBackingStoreProperties::LayerContentsBufferInfo RemoteLayerBackingSto
     RetainPtr<id> contents;
     WTF::switchOn(backendHandle,
         [&] (ShareableBitmap::Handle& handle) {
-            if (auto bitmap = ShareableBitmap::create(WTFMove(handle), SharedMemory::Protection::ReadOnly)) {
-                contents = bridge_id_cast(bitmap->makeCGImageCopy());
+            if (auto bitmap = ShareableBitmap::create(WTF::move(handle), SharedMemory::Protection::ReadOnly)) {
+                contents = bridge_id_cast(bitmap->createPlatformImage());
                 hasExtendedDynamicRange = bitmap->colorSpace().usesExtendedRange();
             }
         },
         [&] (MachSendRight& machSendRight) {
-            if (auto surface = WebCore::IOSurface::createFromSendRight(WTFMove(machSendRight))) {
+            if (auto surface = WebCore::IOSurface::createFromSendRight(WTF::move(machSendRight))) {
 #if ENABLE(PIXEL_FORMAT_RGBA16F)
                 if (surface->pixelFormat() == WebCore::IOSurface::Format::RGBA16F) {
                     hasExtendedDynamicRange = true;
@@ -563,6 +521,8 @@ RemoteLayerBackingStoreProperties::LayerContentsBufferInfo RemoteLayerBackingSto
 #endif
                 }
 #endif
+                if (surface->isVolatile())
+                    RELEASE_LOG_ERROR(RemoteLayerTree, "Received volatile IOSurface");
                 contents = surface->asCAIOSurfaceLayerContents();
             }
         }
@@ -588,8 +548,8 @@ void RemoteLayerBackingStoreProperties::applyBackingStoreToNode(RemoteLayerTreeN
 #if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
     if (hostingView && [hostingView isKindOfClass:[WKSeparatedImageView class]]) {
         if (m_bufferHandle) {
-            auto machSendRight = std::get<MachSendRight>(WTFMove(*m_bufferHandle));
-            auto surface = WebCore::IOSurface::createFromSendRight(WTFMove(machSendRight));
+            auto machSendRight = std::get<MachSendRight>(WTF::move(*m_bufferHandle));
+            auto surface = WebCore::IOSurface::createFromSendRight(WTF::move(machSendRight));
             if (surface) {
                 [(WKSeparatedImageView *)hostingView setSurface:surface->surface()];
                 return;
@@ -603,7 +563,7 @@ void RemoteLayerBackingStoreProperties::applyBackingStoreToNode(RemoteLayerTreeN
     LayerContentsBufferInfo bufferInfo = lookupCachedBuffer(node);
     // m_bufferHandle can be unset here if IPC with the GPU process timed out.
     if (!bufferInfo.buffer && m_bufferHandle)
-        bufferInfo = layerContentsBufferFromBackendHandle(WTFMove(*m_bufferHandle), isDelegatedDisplay);
+        bufferInfo = layerContentsBufferFromBackendHandle(WTF::move(*m_bufferHandle), isDelegatedDisplay);
 
     if (!bufferInfo.buffer) {
         [layer _web_clearContents];
@@ -639,7 +599,7 @@ void RemoteLayerBackingStoreProperties::applyBackingStoreToNode(RemoteLayerTreeN
             [layer setValue:@1 forKeyPath:WKDynamicContentScalingBifurcationEnabledKey];
             [layer setValue:@([layer contentsScale]) forKeyPath:WKDynamicContentScalingBifurcationScaleKey];
         }
-        [(WKCompositingLayer *)layer.get() _setWKContents:bufferInfo.buffer.get() withDisplayList:WTFMove(*m_displayListBufferHandle) replayForTesting:replayDynamicContentScalingDisplayListsIntoBackingStore];
+        [(WKCompositingLayer *)layer.get() _setWKContents:bufferInfo.buffer.get() withDisplayList:WTF::move(*m_displayListBufferHandle) replayForTesting:replayDynamicContentScalingDisplayListsIntoBackingStore];
         return;
     } else
         [layer _web_clearDynamicContentScalingDisplayListIfNeeded];
@@ -708,11 +668,13 @@ RemoteLayerBackingStoreProperties::LayerContentsBufferInfo RemoteLayerBackingSto
             if (surface->pixelFormat() == WebCore::IOSurface::Format::RGBA16F)
                 result.hasExtendedDynamicRange = true;
 #endif
-            cachedBuffers.append({ *m_frontBufferInfo, result.buffer, WTFMove(surface) });
+            if (surface->isVolatile())
+                RELEASE_LOG_ERROR(RemoteLayerTree, "Received volatile IOSurface");
+            cachedBuffers.append({ *m_frontBufferInfo, result.buffer, WTF::move(surface) });
         }
     }
 
-    node.setCachedContentsBuffers(WTFMove(cachedBuffers));
+    node.setCachedContentsBuffers(WTF::move(cachedBuffers));
     return result;
 }
 
@@ -773,6 +735,6 @@ TextStream& operator<<(TextStream& ts, BackingStoreNeedsDisplayReason reason)
 }
 
 RemoteLayerBackingStoreOrProperties::RemoteLayerBackingStoreOrProperties(std::unique_ptr<RemoteLayerBackingStoreProperties>&& properties)
-    : properties(WTFMove(properties)) { }
+    : properties(WTF::move(properties)) { }
 
 } // namespace WebKit

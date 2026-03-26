@@ -43,7 +43,7 @@
 #import <wtf/ObjCRuntimeExtras.h>
 
 extern "C" const char *_protocol_getMethodTypeEncoding(Protocol *p, SEL sel, BOOL isRequiredMethod, BOOL isInstanceMethod);
-extern "C" id __NSMakeSpecialForwardingCaptureBlock(const char *signature, void (^handler)(NSInvocation *inv));
+extern "C" id __NSMakeSpecialForwardingCaptureBlock(const char *signature, void (^handler)(NSInvocation *inv)) NS_RETURNS_RETAINED; // FIXME(rdar://162217343): Despite the name, __NSMakeSpecialForwardingCaptureBlock returns +1
 
 static const void* replyBlockKey = &replyBlockKey;
 
@@ -97,7 +97,7 @@ struct PendingReply {
     if (!_remoteObjectProxies)
         _remoteObjectProxies = [NSMapTable strongToWeakObjectsMapTable];
 
-    if (RetainPtr<id> remoteObjectProxy = [_remoteObjectProxies objectForKey:interface.identifier])
+    if (RetainPtr<id> remoteObjectProxy = [_remoteObjectProxies objectForKey:retainPtr(interface.identifier).get()])
         return remoteObjectProxy.autorelease();
 
     RetainPtr<NSString> identifier = adoptNS([interface.identifier copy]);
@@ -183,7 +183,7 @@ static uint64_t generateReplyIdentifier()
     if (!remoteObjectRegistry)
         return;
 
-    remoteObjectRegistry->sendInvocation(WebKit::RemoteObjectInvocation(interface.identifier, [encoder rootObjectDictionary], WTFMove(replyInfo)));
+    remoteObjectRegistry->sendInvocation(WebKit::RemoteObjectInvocation(interface.identifier, [encoder rootObjectDictionary], WTF::move(replyInfo)));
 }
 
 - (WebKit::RemoteObjectRegistry&)remoteObjectRegistry
@@ -208,7 +208,7 @@ static NSString *replyBlockSignature(Protocol *protocol, SEL selector, NSUIntege
     if (!targetMethodSignature)
         return nil;
 
-    return [targetMethodSignature _signatureForBlockAtArgumentIndex:blockIndex]._typeString;
+    return retainPtr([targetMethodSignature _signatureForBlockAtArgumentIndex:blockIndex]).get()._typeString;
 }
 
 - (void)_invokeMethod:(const WebKit::RemoteObjectInvocation&)remoteObjectInvocation
@@ -248,7 +248,7 @@ static NSString *replyBlockSignature(Protocol *protocol, SEL selector, NSUIntege
         }
 
         RetainPtr<NSString> wireBlockSignature = [NSMethodSignature signatureWithObjCTypes:replyInfo->blockSignature.utf8().data()]._typeString;
-        RetainPtr<NSString> expectedBlockSignature = replyBlockSignature([interface protocol], invocation.get().selector, i);
+        RetainPtr<NSString> expectedBlockSignature = replyBlockSignature(retainPtr([interface protocol]).get(), invocation.get().selector, i);
 
         if (!expectedBlockSignature) {
             NSLog(@"_invokeMethod: Failed to validate reply block signature: could not find local signature");
@@ -258,7 +258,6 @@ static NSString *replyBlockSignature(Protocol *protocol, SEL selector, NSUIntege
 
         if (!WebKit::methodSignaturesAreCompatible(wireBlockSignature.get(), expectedBlockSignature.get())) {
             NSLog(@"_invokeMethod: Failed to validate reply block signature: %@ != %@", wireBlockSignature.get(), expectedBlockSignature.get());
-            ASSERT_NOT_REACHED();
             return;
         }
 

@@ -156,10 +156,10 @@ inline Variant<id<MTLLibrary>, NSError *> metalCompile(const String& msl)
     auto options = [MTLCompileOptions new];
     options.preprocessorMacros = @{ @"__wgslMetalAppleGPUFamily" : [NSString stringWithFormat:@"%u", 8] };
     NSError *error = nil;
-    id<MTLLibrary> library = [device newLibraryWithSource:msl.createNSString().get() options:options error:&error];
+    RetainPtr library = [device newLibraryWithSource:msl.createNSString().get() options:options error:&error];
     if (error != nil)
         return { error };
-    return { library };
+    return { library.get() };
 }
 #endif
 

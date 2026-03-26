@@ -29,7 +29,6 @@
 #include "DrawingAreaCoordinatedGraphics.h"
 
 #include "DrawingAreaProxyMessages.h"
-#include "LayerTreeHost.h"
 #include "MessageSenderInlines.h"
 #include "UpdateInfo.h"
 #include "WebDisplayRefreshMonitor.h"
@@ -39,7 +38,7 @@
 #include "WebPreferencesKeys.h"
 #include "WebProcess.h"
 #include <WebCore/GraphicsContext.h>
-#include <WebCore/LocalFrame.h>
+#include <WebCore/LocalFrameInlines.h>
 #include <WebCore/LocalFrameView.h>
 #include <WebCore/Page.h>
 #include <WebCore/PageOverlayController.h>
@@ -48,12 +47,22 @@
 #include <WebCore/ShareableBitmap.h>
 #include <wtf/SetForScope.h>
 
+#if PLATFORM(PLAYSTATION)
+#include "LayerTreeHostPlayStation.h"
+#else
+#include "LayerTreeHost.h"
+#endif
+
 #if USE(GLIB_EVENT_LOOP)
 #include <wtf/glib/RunLoopSourcePriority.h>
 #endif
 
 #if USE(GRAPHICS_LAYER_TEXTURE_MAPPER)
 #include "LayerTreeHostTextureMapper.h"
+#endif
+
+#if PLATFORM(WPE)
+#include "NonCompositedFrameRenderer.h"
 #endif
 
 namespace WebKit {
@@ -97,6 +106,15 @@ void DrawingAreaCoordinatedGraphics::setNeedsDisplayInRect(const IntRect& rect)
     if (dirtyRect.isEmpty())
         return;
 
+#if PLATFORM(WPE)
+    if (m_nonCompositedFrameRenderer) {
+        ASSERT(m_dirtyRegion.isEmpty());
+        m_nonCompositedFrameRenderer->setNeedsDisplayInRect(dirtyRect);
+        scheduleDisplay();
+        return;
+    }
+#endif
+
     m_dirtyRegion.unite(dirtyRect);
     scheduleDisplay();
 }
@@ -109,6 +127,10 @@ void DrawingAreaCoordinatedGraphics::scroll(const IntRect& scrollRect, const Int
         ASSERT(m_dirtyRegion.isEmpty());
         return;
     }
+#if PLATFORM(WPE)
+    else if (m_nonCompositedFrameRenderer)
+        return;
+#endif
 
     if (scrollRect.isEmpty())
         return;
@@ -157,6 +179,13 @@ void DrawingAreaCoordinatedGraphics::scroll(const IntRect& scrollRect, const Int
 void DrawingAreaCoordinatedGraphics::updateRenderingWithForcedRepaint()
 {
     if (!m_layerTreeHost) {
+#if PLATFORM(WPE)
+        if (m_nonCompositedFrameRenderer) {
+            m_nonCompositedFrameRenderer->setNeedsDisplayInRect(m_webPage->bounds());
+            display();
+            return;
+        }
+#endif
         m_isWaitingForDidUpdate = false;
         m_dirtyRegion = m_webPage->bounds();
         display();
@@ -164,7 +193,7 @@ void DrawingAreaCoordinatedGraphics::updateRenderingWithForcedRepaint()
     }
 
     if (!m_layerTreeStateIsFrozen)
-        m_layerTreeHost->forceRepaint();
+        m_layerTreeHost->updateRenderingWithForcedRepaint();
 }
 
 void DrawingAreaCoordinatedGraphics::updateRenderingWithForcedRepaintAsync(WebPage& page, CompletionHandler<void()>&& completionHandler)
@@ -177,7 +206,7 @@ void DrawingAreaCoordinatedGraphics::updateRenderingWithForcedRepaintAsync(WebPa
     if (m_layerTreeStateIsFrozen)
         return completionHandler();
 
-    m_layerTreeHost->forceRepaintAsync(WTFMove(completionHandler));
+    m_layerTreeHost->updateRenderingWithForcedRepaintAsync(WTF::move(completionHandler));
 }
 
 void DrawingAreaCoordinatedGraphics::setLayerTreeStateIsFrozen(bool isFrozen)
@@ -216,8 +245,10 @@ void DrawingAreaCoordinatedGraphics::updatePreferences(const WebPreferencesStore
 #if ENABLE(DEVELOPER_MODE)
     if (m_supportsAsyncScrolling) {
         auto* disableAsyncScrolling = getenv("WEBKIT_DISABLE_ASYNC_SCROLLING");
+        IGNORE_CLANG_WARNINGS_BEGIN("unsafe-buffer-usage-in-libc-call")
         if (disableAsyncScrolling && strcmp(disableAsyncScrolling, "0"))
             m_supportsAsyncScrolling = false;
+        IGNORE_CLANG_WARNINGS_END
     }
 #endif
 
@@ -233,8 +264,12 @@ void DrawingAreaCoordinatedGraphics::updatePreferences(const WebPreferencesStore
 bool DrawingAreaCoordinatedGraphics::enterAcceleratedCompositingModeIfNeeded()
 {
     ASSERT(!m_layerTreeHost);
-    if (!m_alwaysUseCompositing)
+    if (!m_alwaysUseCompositing) {
+#if PLATFORM(WPE)
+        m_nonCompositedFrameRenderer = NonCompositedFrameRenderer::create(m_webPage);
+#endif
         return false;
+    }
 
     enterAcceleratedCompositingMode(nullptr);
     return true;
@@ -320,7 +355,7 @@ void DrawingAreaCoordinatedGraphics::triggerRenderingUpdate()
         return;
 
     if (m_layerTreeHost)
-        m_layerTreeHost->scheduleLayerFlush();
+        m_layerTreeHost->scheduleRenderingUpdate();
     else
         scheduleDisplay();
 }
@@ -362,6 +397,12 @@ void DrawingAreaCoordinatedGraphics::updateGeometry(const IntSize& size, Complet
 
     if (m_layerTreeHost)
         m_layerTreeHost->sizeDidChange();
+#if PLATFORM(WPE)
+    else if (m_nonCompositedFrameRenderer) {
+        m_nonCompositedFrameRenderer->setNeedsDisplayInRect({ { }, size });
+        m_nonCompositedFrameRenderer->display();
+    }
+#endif
     else {
         m_dirtyRegion = IntRect(IntPoint(), size);
         UpdateInfo updateInfo;
@@ -371,13 +412,13 @@ void DrawingAreaCoordinatedGraphics::updateGeometry(const IntSize& size, Complet
         } else
             display(updateInfo);
         if (!m_layerTreeHost)
-            send(Messages::DrawingAreaProxy::Update(0, WTFMove(updateInfo)));
+            send(Messages::DrawingAreaProxy::Update(0, WTF::move(updateInfo)));
     }
 
     completionHandler();
 }
 
-void DrawingAreaCoordinatedGraphics::displayDidRefresh()
+void DrawingAreaCoordinatedGraphics::displayDidRefresh(MonotonicTime)
 {
     // We might get didUpdate messages from the UI process even after we've
     // entered accelerated compositing mode. Ignore them.
@@ -405,6 +446,12 @@ void DrawingAreaCoordinatedGraphics::dispatchAfterEnsuringDrawing(IPC::AsyncRepl
         }
     } else {
         if (!m_isPaintingSuspended) {
+#if PLATFORM(WPE)
+            if (m_nonCompositedFrameRenderer)
+                m_nonCompositedFrameRenderer->setNeedsDisplayInRect(m_webPage->bounds());
+            else
+#endif
+            m_dirtyRegion = m_webPage->bounds();
             scheduleDisplay();
             return;
         }
@@ -526,14 +573,6 @@ void DrawingAreaCoordinatedGraphics::enterAcceleratedCompositingMode(GraphicsLay
     m_exitCompositingTimer.stop();
     m_wantsToExitAcceleratedCompositingMode = false;
 
-#if !HAVE(DISPLAY_LINK)
-    auto changeWindowScreen = [&] {
-        // In order to ensure that we get a unique DisplayRefreshMonitor per-DrawingArea (necessary because ThreadedDisplayRefreshMonitor
-        // is driven by the ThreadedCompositor of the drawing area), give each page a unique DisplayID derived from DrawingArea's unique ID.
-        Ref { m_webPage.get() }->windowScreenDidChange(m_layerTreeHost->displayID(), std::nullopt);
-    };
-#endif
-
     ASSERT(!m_layerTreeHost);
 #if USE(GRAPHICS_LAYER_TEXTURE_MAPPER) || HAVE(DISPLAY_LINK)
     m_layerTreeHost = makeUnique<LayerTreeHost>(m_webPage);
@@ -545,7 +584,9 @@ void DrawingAreaCoordinatedGraphics::enterAcceleratedCompositingMode(GraphicsLay
 #endif
 
 #if !HAVE(DISPLAY_LINK)
-    changeWindowScreen();
+    // In order to ensure that we get a unique DisplayRefreshMonitor per-DrawingArea (necessary because ThreadedDisplayRefreshMonitor
+    // is driven by the ThreadedCompositor of the drawing area), give each page a unique DisplayID derived from DrawingArea's unique ID.
+    Ref { m_webPage.get() }->windowScreenDidChange(m_layerTreeHost->displayID(), std::nullopt);
 #endif
     if (m_layerTreeStateIsFrozen)
         m_layerTreeHost->setLayerTreeStateIsFrozen(true);
@@ -613,12 +654,12 @@ void DrawingAreaCoordinatedGraphics::exitAcceleratedCompositingMode()
     // Send along a complete update of the page so we can paint the contents right after we exit the
     // accelerated compositing mode, eliminiating flicker.
     if (m_compositingAccordingToProxyMessages) {
-        send(Messages::DrawingAreaProxy::ExitAcceleratedCompositingMode(0, WTFMove(updateInfo)));
+        send(Messages::DrawingAreaProxy::ExitAcceleratedCompositingMode(0, WTF::move(updateInfo)));
         m_compositingAccordingToProxyMessages = false;
     } else {
         // If we left accelerated compositing mode before we sent an EnterAcceleratedCompositingMode message to the
         // UI process, we still need to let it know about the new contents, so send an Update message.
-        send(Messages::DrawingAreaProxy::Update(0, WTFMove(updateInfo)));
+        send(Messages::DrawingAreaProxy::Update(0, WTF::move(updateInfo)));
     }
 }
 
@@ -657,6 +698,14 @@ void DrawingAreaCoordinatedGraphics::display()
     if (m_isPaintingSuspended)
         return;
 
+#if PLATFORM(WPE)
+    if (m_nonCompositedFrameRenderer) {
+        m_nonCompositedFrameRenderer->display();
+        dispatchPendingCallbacksAfterEnsuringDrawing();
+        return;
+    }
+#endif
+
     UpdateInfo updateInfo;
     display(updateInfo);
 
@@ -674,10 +723,10 @@ void DrawingAreaCoordinatedGraphics::display()
 #endif
 
     if (m_compositingAccordingToProxyMessages) {
-        send(Messages::DrawingAreaProxy::ExitAcceleratedCompositingMode(0, WTFMove(updateInfo)));
+        send(Messages::DrawingAreaProxy::ExitAcceleratedCompositingMode(0, WTF::move(updateInfo)));
         m_compositingAccordingToProxyMessages = false;
     } else
-        send(Messages::DrawingAreaProxy::Update(0, WTFMove(updateInfo)));
+        send(Messages::DrawingAreaProxy::Update(0, WTF::move(updateInfo)));
     m_isWaitingForDidUpdate = true;
     m_scheduledWhileWaitingForDidUpdate = false;
 }
@@ -735,7 +784,7 @@ void DrawingAreaCoordinatedGraphics::display(UpdateInfo& updateInfo)
         return;
 
     if (auto handle = bitmap->createHandle())
-        updateInfo.bitmapHandle = WTFMove(*handle);
+        updateInfo.bitmapHandle = WTF::move(*handle);
     else
         return;
 
@@ -778,6 +827,11 @@ void DrawingAreaCoordinatedGraphics::forceUpdate()
     if (m_isWaitingForDidUpdate || m_layerTreeHost)
         return;
 
+#if PLATFORM(WPE)
+    if (m_nonCompositedFrameRenderer)
+        m_nonCompositedFrameRenderer->setNeedsDisplayInRect(m_webPage->bounds());
+    else
+#endif
     m_dirtyRegion = m_webPage->bounds();
     display();
 }
@@ -788,7 +842,7 @@ void DrawingAreaCoordinatedGraphics::didDiscardBackingStore()
     m_dirtyRegion = m_webPage->bounds();
 }
 
-#if PLATFORM(WPE) && USE(GBM) && ENABLE(WPE_PLATFORM)
+#if PLATFORM(WPE) && ENABLE(WPE_PLATFORM) && (USE(GBM) || OS(ANDROID))
 void DrawingAreaCoordinatedGraphics::preferredBufferFormatsDidChange()
 {
     if (m_layerTreeHost)
@@ -801,13 +855,36 @@ void DrawingAreaCoordinatedGraphics::resetDamageHistoryForTesting()
 {
     if (m_layerTreeHost)
         m_layerTreeHost->resetDamageHistoryForTesting();
+#if PLATFORM(WPE)
+    else if (m_nonCompositedFrameRenderer)
+        m_nonCompositedFrameRenderer->resetDamageHistoryForTesting();
+#endif
 }
 
 void DrawingAreaCoordinatedGraphics::foreachRegionInDamageHistoryForTesting(Function<void(const Region&)>&& callback) const
 {
     if (m_layerTreeHost)
-        m_layerTreeHost->foreachRegionInDamageHistoryForTesting(WTFMove(callback));
+        m_layerTreeHost->foreachRegionInDamageHistoryForTesting(WTF::move(callback));
+#if PLATFORM(WPE)
+    else if (m_nonCompositedFrameRenderer)
+        m_nonCompositedFrameRenderer->foreachRegionInDamageHistoryForTesting(WTF::move(callback));
+#endif
 }
 #endif
+
+#if PLATFORM(GTK) || PLATFORM(WPE)
+void DrawingAreaCoordinatedGraphics::fillGLInformation(RenderProcessInfo&& info, CompletionHandler<void(RenderProcessInfo&&)>&& completionHandler)
+{
+    if (m_layerTreeHost)
+        m_layerTreeHost->fillGLInformation(WTF::move(info), WTF::move(completionHandler));
+    else
+        completionHandler(WTF::move(info));
+}
+#endif
+
+bool DrawingAreaCoordinatedGraphics::shouldUseTiledBackingForFrameView(const WebCore::LocalFrameView& frameView) const
+{
+    return frameView.frame().isMainFrame() || m_webPage->corePage()->settings().asyncFrameScrollingEnabled();
+}
 
 } // namespace WebKit

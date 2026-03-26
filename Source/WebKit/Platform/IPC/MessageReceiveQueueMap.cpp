@@ -33,16 +33,16 @@ void MessageReceiveQueueMap::addImpl(StoreType&& queue, const ReceiverMatcher& m
 {
     if (!matcher.receiverName) {
         ASSERT(!m_anyReceiverQueue);
-        m_anyReceiverQueue = WTFMove(queue);
+        m_anyReceiverQueue = WTF::move(queue);
         return;
     }
     uint8_t receiverName = static_cast<uint8_t>(*matcher.receiverName);
     if (!matcher.destinationID.has_value()) {
-        auto result = m_anyIDQueues.add(receiverName, WTFMove(queue));
+        auto result = m_anyIDQueues.add(receiverName, WTF::move(queue));
         ASSERT_UNUSED(result, result.isNewEntry);
         return;
     }
-    auto result = m_queues.add(std::make_pair(receiverName, *matcher.destinationID), WTFMove(queue));
+    auto result = m_queues.add(std::make_pair(receiverName, *matcher.destinationID), WTF::move(queue));
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
@@ -65,21 +65,23 @@ void MessageReceiveQueueMap::remove(const ReceiverMatcher& matcher)
 
 MessageReceiveQueue* MessageReceiveQueueMap::get(const Decoder& message) const
 {
-    uint8_t receiverName = static_cast<uint8_t>(message.messageReceiverName());
     auto queueExtractor = WTF::makeVisitor(
         [](const std::unique_ptr<MessageReceiveQueue>& queue) { return queue.get(); },
         [](MessageReceiveQueue* queue) { return queue; }
     );
 
-    {
-        auto it = m_anyIDQueues.find(receiverName);
-        if (it != m_anyIDQueues.end())
-            return WTF::visit(queueExtractor, it->value);
-    }
-    {
-        auto it = m_queues.find(std::make_pair(receiverName, message.destinationID()));
-        if (it != m_queues.end())
-            return WTF::visit(queueExtractor, it->value);
+    if (message.isValid() && QueueMap::isValidKey(std::make_pair(static_cast<uint8_t>(message.messageReceiverName()), message.destinationID()))) {
+        uint8_t receiverName = static_cast<uint8_t>(message.messageReceiverName());
+        {
+            auto it = m_anyIDQueues.find(receiverName);
+            if (it != m_anyIDQueues.end())
+                return WTF::visit(queueExtractor, it->value);
+        }
+        {
+            auto it = m_queues.find(std::make_pair(receiverName, message.destinationID()));
+            if (it != m_queues.end())
+                return WTF::visit(queueExtractor, it->value);
+        }
     }
     if (m_anyReceiverQueue)
         return WTF::visit(queueExtractor, *m_anyReceiverQueue);

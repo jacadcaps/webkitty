@@ -11,7 +11,9 @@
 #ifndef MEDIA_SCTP_SCTP_TRANSPORT_FACTORY_H_
 #define MEDIA_SCTP_SCTP_TRANSPORT_FACTORY_H_
 
+#include <cstdint>
 #include <memory>
+#include <vector>
 
 #include "api/environment/environment.h"
 #include "api/transport/sctp_transport_factory_interface.h"
@@ -28,18 +30,13 @@ class SctpTransportFactory : public SctpTransportFactoryInterface {
       const Environment& env,
       DtlsTransportInternal* transport) override;
 
+  std::vector<uint8_t> GenerateConnectionToken(const Environment& env) override;
+
  private:
   Thread* network_thread_;
 };
 
 }  //  namespace webrtc
 
-// Re-export symbols from the webrtc namespace for backwards compatibility.
-// TODO(bugs.webrtc.org/4222596): Remove once all references are updated.
-#ifdef WEBRTC_ALLOW_DEPRECATED_NAMESPACES
-namespace cricket {
-using ::webrtc::SctpTransportFactory;
-}  // namespace cricket
-#endif  // WEBRTC_ALLOW_DEPRECATED_NAMESPACES
 
 #endif  // MEDIA_SCTP_SCTP_TRANSPORT_FACTORY_H__

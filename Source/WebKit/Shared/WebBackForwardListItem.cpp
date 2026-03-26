@@ -26,6 +26,7 @@
 #include "config.h"
 #include "WebBackForwardListItem.h"
 
+#include "BrowsingContextGroup.h"
 #include "SuspendedPageProxy.h"
 #include "WebBackForwardCache.h"
 #include "WebBackForwardCacheEntry.h"
@@ -40,18 +41,19 @@
 namespace WebKit {
 using namespace WebCore;
 
-Ref<WebBackForwardListItem> WebBackForwardListItem::create(Ref<FrameState>&& mainFrameState, WebPageProxyIdentifier pageID, std::optional<FrameIdentifier> navigatedFrameID)
+Ref<WebBackForwardListItem> WebBackForwardListItem::create(Ref<FrameState>&& mainFrameState, WebPageProxyIdentifier pageID, std::optional<FrameIdentifier> navigatedFrameID, BrowsingContextGroup* browsingContextGroup)
 {
     RELEASE_ASSERT(RunLoop::isMain());
-    return adoptRef(*new WebBackForwardListItem(WTFMove(mainFrameState), pageID, navigatedFrameID));
+    return adoptRef(*new WebBackForwardListItem(WTF::move(mainFrameState), pageID, navigatedFrameID, browsingContextGroup));
 }
 
-WebBackForwardListItem::WebBackForwardListItem(Ref<FrameState>&& mainFrameState, WebPageProxyIdentifier pageID, std::optional<FrameIdentifier> navigatedFrameID)
+WebBackForwardListItem::WebBackForwardListItem(Ref<FrameState>&& mainFrameState, WebPageProxyIdentifier pageID, std::optional<FrameIdentifier> navigatedFrameID, BrowsingContextGroup* browsingContextGroup)
     : m_identifier(*mainFrameState->itemID)
-    , m_mainFrameItem(WebBackForwardListFrameItem::create(*this, nullptr, WTFMove(mainFrameState)))
+    , m_mainFrameItem(WebBackForwardListFrameItem::create(*this, nullptr, WTF::move(mainFrameState)))
     , m_navigatedFrameID(navigatedFrameID)
     , m_pageID(pageID)
     , m_lastProcessIdentifier(navigatedFrameItem().identifier().processIdentifier())
+    , m_browsingContextGroup(browsingContextGroup)
 {
     auto result = allItems().add(m_identifier, *this);
     ASSERT_UNUSED(result, result.isNewEntry);
@@ -77,16 +79,6 @@ WebBackForwardListItem* WebBackForwardListItem::itemForID(BackForwardItemIdentif
     return allItems().get(identifier);
 }
 
-static const FrameState* childItemWithDocumentSequenceNumber(const FrameState& frameState, int64_t number)
-{
-    for (auto& child : frameState.children) {
-        if (child->documentSequenceNumber == number)
-            return child.ptr();
-    }
-
-    return nullptr;
-}
-
 static const FrameState* childItemWithTarget(const FrameState& frameState, const String& target)
 {
     for (auto& child : frameState.children) {
@@ -97,43 +89,16 @@ static const FrameState* childItemWithTarget(const FrameState& frameState, const
     return nullptr;
 }
 
-static bool documentTreesAreEqual(const FrameState& a, const FrameState& b)
-{
-    if (a.documentSequenceNumber != b.documentSequenceNumber)
-        return false;
-
-    if (a.children.size() != b.children.size())
-        return false;
-
-    for (auto& child : a.children) {
-        const FrameState* otherChild = childItemWithDocumentSequenceNumber(b, child->documentSequenceNumber);
-        if (!otherChild || !documentTreesAreEqual(child, *otherChild))
-            return false;
-    }
-
-    return true;
-}
-
 bool WebBackForwardListItem::itemIsInSameDocument(const WebBackForwardListItem& other) const
 {
     if (m_pageID != other.m_pageID)
         return false;
 
     // The following logic must be kept in sync with WebCore::HistoryItem::shouldDoSameDocumentNavigationTo().
-
     Ref mainFrameState = this->mainFrameState();
     Ref otherMainFrameState = other.mainFrameState();
 
-    if (mainFrameState->stateObjectData || otherMainFrameState->stateObjectData)
-        return mainFrameState->documentSequenceNumber == otherMainFrameState->documentSequenceNumber;
-
-    URL url = URL({ }, mainFrameState->urlString);
-    URL otherURL = URL({ }, otherMainFrameState->urlString);
-
-    if ((url.hasFragmentIdentifier() || otherURL.hasFragmentIdentifier()) && equalIgnoringFragmentIdentifier(url, otherURL))
-        return mainFrameState->documentSequenceNumber == otherMainFrameState->documentSequenceNumber;
-
-    return documentTreesAreEqual(mainFrameState, otherMainFrameState);
+    return mainFrameState->documentSequenceNumber == otherMainFrameState->documentSequenceNumber;
 }
 
 static bool hasSameFrames(const FrameState& a, const FrameState& b)
@@ -189,7 +154,7 @@ RefPtr<WebBackForwardCacheEntry> WebBackForwardListItem::protectedBackForwardCac
 
 void WebBackForwardListItem::setBackForwardCacheEntry(RefPtr<WebBackForwardCacheEntry>&& backForwardCacheEntry)
 {
-    m_backForwardCacheEntry = WTFMove(backForwardCacheEntry);
+    m_backForwardCacheEntry = WTF::move(backForwardCacheEntry);
 }
 
 SuspendedPageProxy* WebBackForwardListItem::suspendedPage() const
@@ -240,8 +205,10 @@ void WebBackForwardListItem::setWasRestoredFromSession()
 
 WebBackForwardListFrameItem& WebBackForwardListItem::navigatedFrameItem() const
 {
-    if (RefPtr childItem = m_navigatedFrameID ? m_mainFrameItem->childItemForFrameID(*m_navigatedFrameID) : nullptr)
-        return childItem.releaseNonNull();
+    if (m_navigatedFrameID) {
+        if (auto* childItem = m_mainFrameItem->childItemForFrameID(*m_navigatedFrameID))
+            return *childItem;
+    }
     return m_mainFrameItem;
 }
 
@@ -260,11 +227,9 @@ Ref<WebBackForwardListFrameItem> WebBackForwardListItem::protectedMainFrameItem(
     return m_mainFrameItem;
 }
 
-#if !LOG_DISABLED
 String WebBackForwardListItem::loggingString()
 {
     return m_mainFrameItem->loggingString();
 }
-#endif // !LOG_DISABLED
 
 } // namespace WebKit

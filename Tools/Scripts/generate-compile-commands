@@ -46,6 +46,7 @@ parser = argparse.ArgumentParser(description='Generate compile_commands.json for
 
 parser.add_argument('built_products_dir', metavar='built-products-dir', help='path to the build directory containing generated compile commands (ex: WebKitBuild/Release)')
 parser.add_argument('--delete-invalid', action='store_true', help='Delete any invalid json file')
+parser.add_argument('--include-third-party', action='store_true', help='Include code in Source/ThirdParty')
 opts = parser.parse_args()
 
 # Change to the root of WebKit Directory
@@ -89,7 +90,7 @@ for j_file_name in glob.glob(compile_commands_dir + "/*.json"):
     j_file = open(j_file_name, "r")
     json_contents = j_file.read()
 
-    if third_party_regex.search(json_contents):
+    if not opts.include_third_party and third_party_regex.search(json_contents):
         continue
 
     # -2 gets rid of the comma at the end of the file.

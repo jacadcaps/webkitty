@@ -52,7 +52,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(NetworkLoad);
 NetworkLoad::NetworkLoad(NetworkLoadClient& client, NetworkLoadParameters&& parameters, NetworkSession& networkSession)
     : m_client(client)
     , m_networkProcess(networkSession.networkProcess())
-    , m_parameters(WTFMove(parameters))
+    , m_parameters(WTF::move(parameters))
     , m_currentRequest(m_parameters.request)
 {
     relaxAdoptionRequirement();
@@ -115,7 +115,7 @@ void NetworkLoad::cancel()
 static inline void updateRequest(ResourceRequest& currentRequest, const ResourceRequest& newRequest)
 {
 #if PLATFORM(COCOA)
-    currentRequest.updateFromDelegatePreservingOldProperties(newRequest.nsURLRequest(HTTPBodyUpdatePolicy::DoNotUpdateHTTPBody));
+    currentRequest.updateFromDelegatePreservingOldProperties(newRequest.protectedNSURLRequest(HTTPBodyUpdatePolicy::DoNotUpdateHTTPBody).get());
 #else
     currentRequest.updateFromDelegatePreservingOldProperties(newRequest);
 #endif
@@ -125,7 +125,7 @@ void NetworkLoad::updateRequestAfterRedirection(WebCore::ResourceRequest& newReq
 {
     ResourceRequest updatedRequest = m_currentRequest;
     updateRequest(updatedRequest, newRequest);
-    newRequest = WTFMove(updatedRequest);
+    newRequest = WTF::move(updatedRequest);
 }
 
 void NetworkLoad::reprioritizeRequest(ResourceLoadPriority priority)
@@ -137,13 +137,13 @@ void NetworkLoad::reprioritizeRequest(ResourceLoadPriority priority)
 
 bool NetworkLoad::shouldCaptureExtraNetworkLoadMetrics() const
 {
-    CheckedPtr client = m_client;
+    CheckedPtr client = m_client.get();
     return client && client->shouldCaptureExtraNetworkLoadMetrics();
 }
 
 bool NetworkLoad::isAllowedToAskUserForCredentials() const
 {
-    CheckedPtr client = m_client;
+    CheckedPtr client = m_client.get();
     return client && client->isAllowedToAskUserForCredentials();
 }
 
@@ -157,7 +157,7 @@ void NetworkLoad::convertTaskToDownload(PendingDownload& pendingDownload, const 
     m_currentRequest = updatedRequest;
     task->setPendingDownload(pendingDownload);
     
-    m_networkProcess->findPendingDownloadLocation(*task, WTFMove(completionHandler), response);
+    m_networkProcess->findPendingDownloadLocation(*task, WTF::move(completionHandler), response);
 }
 
 void NetworkLoad::setPendingDownloadID(DownloadID downloadID)
@@ -196,18 +196,18 @@ void NetworkLoad::willPerformHTTPRedirection(ResourceResponse&& redirectResponse
         return;
     }
 
-    CheckedPtr client = m_client;
+    RefPtr client = m_client.get();
 
     if (!client)
         return completionHandler({ });
 
     redirectResponse.setSource(ResourceResponse::Source::Network);
 
-    auto oldRequest = WTFMove(m_currentRequest);
+    auto oldRequest = WTF::move(m_currentRequest);
     request.setRequester(oldRequest.requester());
 
     m_currentRequest = request;
-    client->willSendRedirectedRequest(WTFMove(oldRequest), WTFMove(request), WTFMove(redirectResponse), [weakThis = WeakPtr { *this }, completionHandler = WTFMove(completionHandler)] (ResourceRequest&& newRequest) mutable {
+    client->willSendRedirectedRequest(WTF::move(oldRequest), WTF::move(request), WTF::move(redirectResponse), [weakThis = WeakPtr { *this }, completionHandler = WTF::move(completionHandler)] (ResourceRequest&& newRequest) mutable {
         RefPtr protectedThis = weakThis.get();
         if (!protectedThis)
             return completionHandler({ });
@@ -224,7 +224,7 @@ void NetworkLoad::willPerformHTTPRedirection(ResourceResponse&& redirectResponse
 
 void NetworkLoad::didReceiveChallenge(AuthenticationChallenge&& challenge, NegotiatedLegacyTLS negotiatedLegacyTLS, ChallengeCompletionHandler&& completionHandler)
 {
-    CheckedPtr client = m_client;
+    RefPtr client = m_client.get();
 
     if (!client) {
         completionHandler(AuthenticationChallengeDisposition::Cancel, { });
@@ -243,15 +243,15 @@ void NetworkLoad::didReceiveChallenge(AuthenticationChallenge&& challenge, Negot
     }
     
     if (RefPtr pendingDownload = m_task->pendingDownload())
-        m_networkProcess->protectedAuthenticationManager()->didReceiveAuthenticationChallenge(*pendingDownload, challenge, WTFMove(completionHandler));
+        m_networkProcess->protectedAuthenticationManager()->didReceiveAuthenticationChallenge(*pendingDownload, challenge, WTF::move(completionHandler));
     else
-        m_networkProcess->protectedAuthenticationManager()->didReceiveAuthenticationChallenge(m_task->sessionID(), m_parameters.webPageProxyID, m_parameters.topOrigin ? &m_parameters.topOrigin->data() : nullptr, challenge, negotiatedLegacyTLS, WTFMove(completionHandler));
+        m_networkProcess->protectedAuthenticationManager()->didReceiveAuthenticationChallenge(m_task->sessionID(), m_parameters.webPageProxyID, m_parameters.topOrigin ? &m_parameters.topOrigin->data() : nullptr, challenge, negotiatedLegacyTLS, WTF::move(completionHandler));
 }
 
 void NetworkLoad::didReceiveInformationalResponse(ResourceResponse&& response)
 {
-    if (CheckedPtr client = m_client)
-        client->didReceiveInformationalResponse(WTFMove(response));
+    if (RefPtr client = m_client.get())
+        client->didReceiveInformationalResponse(WTF::move(response));
 }
 
 void NetworkLoad::didReceiveResponse(ResourceResponse&& response, NegotiatedLegacyTLS negotiatedLegacyTLS, PrivateRelayed privateRelayed, ResponseCompletionHandler&& completionHandler)
@@ -259,21 +259,21 @@ void NetworkLoad::didReceiveResponse(ResourceResponse&& response, NegotiatedLega
     ASSERT(RunLoop::isMain());
 
     if (m_task && m_task->isDownload()) {
-        m_networkProcess->findPendingDownloadLocation(*m_task.get(), WTFMove(completionHandler), response);
+        m_networkProcess->findPendingDownloadLocation(*m_task.get(), WTF::move(completionHandler), response);
         return;
     }
 
     if (negotiatedLegacyTLS == NegotiatedLegacyTLS::Yes)
         m_networkProcess->protectedAuthenticationManager()->negotiatedLegacyTLS(*m_parameters.webPageProxyID);
     
-    notifyDidReceiveResponse(WTFMove(response), negotiatedLegacyTLS, privateRelayed, WTFMove(completionHandler));
+    notifyDidReceiveResponse(WTF::move(response), negotiatedLegacyTLS, privateRelayed, WTF::move(completionHandler));
 }
 
 void NetworkLoad::notifyDidReceiveResponse(ResourceResponse&& response, NegotiatedLegacyTLS, PrivateRelayed privateRelayed, ResponseCompletionHandler&& completionHandler)
 {
     ASSERT(RunLoop::isMain());
 
-    CheckedPtr client = m_client;
+    RefPtr client = m_client.get();
 
     if (!client)
         return completionHandler(WebCore::PolicyAction::Ignore);
@@ -290,12 +290,12 @@ void NetworkLoad::notifyDidReceiveResponse(ResourceResponse&& response, Negotiat
         response.includeCertificateInfo(auditToken);
     }
 
-    client->didReceiveResponse(WTFMove(response), privateRelayed, WTFMove(completionHandler));
+    client->didReceiveResponse(WTF::move(response), privateRelayed, WTF::move(completionHandler));
 }
 
 void NetworkLoad::didReceiveData(const WebCore::SharedBuffer& buffer)
 {
-    if (CheckedPtr client = m_client)
+    if (RefPtr client = m_client.get())
         client->didReceiveBuffer(buffer);
 }
 
@@ -304,7 +304,7 @@ void NetworkLoad::didCompleteWithError(const ResourceError& error, const WebCore
     if (RefPtr scheduler = std::exchange(m_scheduler, nullptr).get())
         scheduler->unschedule(*this, &networkLoadMetrics);
 
-    CheckedPtr client = m_client;
+    RefPtr client = m_client.get();
     if (!client)
         return;
 
@@ -316,31 +316,31 @@ void NetworkLoad::didCompleteWithError(const ResourceError& error, const WebCore
 
 void NetworkLoad::didSendData(uint64_t totalBytesSent, uint64_t totalBytesExpectedToSend)
 {
-    if (CheckedPtr client = m_client)
+    if (RefPtr client = m_client.get())
         client->didSendData(totalBytesSent, totalBytesExpectedToSend);
 }
 
 void NetworkLoad::wasBlocked()
 {
-    if (CheckedPtr client = m_client)
+    if (RefPtr client = m_client.get())
         client->didFailLoading(blockedError(m_currentRequest));
 }
 
 void NetworkLoad::cannotShowURL()
 {
-    if (CheckedPtr client = m_client)
+    if (RefPtr client = m_client.get())
         client->didFailLoading(cannotShowURLError(m_currentRequest));
 }
 
 void NetworkLoad::wasBlockedByRestrictions()
 {
-    if (CheckedPtr client = m_client)
+    if (RefPtr client = m_client.get())
         client->didFailLoading(wasBlockedByRestrictionsError(m_currentRequest));
 }
 
 void NetworkLoad::wasBlockedByDisabledFTP()
 {
-    if (CheckedPtr client = m_client)
+    if (RefPtr client = m_client.get())
         client->didFailLoading(ftpDisabledError(m_currentRequest));
 }
 
@@ -360,7 +360,7 @@ String NetworkLoad::description() const
 void NetworkLoad::setH2PingCallback(const URL& url, CompletionHandler<void(Expected<WTF::Seconds, WebCore::ResourceError>&&)>&& completionHandler)
 {
     if (RefPtr task = m_task)
-        task->setH2PingCallback(url, WTFMove(completionHandler));
+        task->setH2PingCallback(url, WTF::move(completionHandler));
     else
         completionHandler(makeUnexpected(internalError(url)));
 }

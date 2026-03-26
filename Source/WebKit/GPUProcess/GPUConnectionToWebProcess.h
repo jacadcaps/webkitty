@@ -34,7 +34,7 @@
 #include "RemoteAudioSessionIdentifier.h"
 #include "RemoteGPU.h"
 #include "RemoteRemoteCommandListenerIdentifier.h"
-#include "RenderingBackendIdentifier.h"
+#include "RemoteRenderingBackendIdentifier.h"
 #include "ScopedActiveMessageReceiveQueue.h"
 #include "SharedPreferencesForWebProcess.h"
 #include "WebGPUIdentifier.h"
@@ -56,7 +56,7 @@
 #endif
 
 #if ENABLE(WEBGL)
-#include "GraphicsContextGLIdentifier.h"
+#include "RemoteGraphicsContextGLIdentifier.h"
 #include <WebCore/GraphicsContextGLAttributes.h>
 #endif
 
@@ -74,6 +74,10 @@
 
 #if ENABLE(IPC_TESTING_API)
 #include "IPCTester.h"
+#endif
+
+#if ENABLE(LINEAR_MEDIA_PLAYER)
+#include <wtf/LazyUniqueRef.h>
 #endif
 
 namespace WTF {
@@ -107,6 +111,7 @@ class RemoteRenderingBackend;
 class RemoteSampleBufferDisplayLayerManager;
 class RemoteSharedResourceCache;
 class UserMediaCaptureManagerProxy;
+class VideoReceiverEndpointManager;
 struct GPUProcessConnectionParameters;
 struct MediaOverridesForTesting;
 struct RemoteAudioSessionConfiguration;
@@ -116,6 +121,7 @@ class RemoteWCLayerTreeHost;
 #endif
 
 #if ENABLE(VIDEO)
+class RemoteAudioVideoRendererProxyManager;
 class RemoteMediaPlayerManagerProxy;
 class RemoteMediaResourceManager;
 class RemoteVideoFrameObjectHeap;
@@ -128,13 +134,14 @@ class RemoteGraphicsContextGL;
 class GPUConnectionToWebProcess
     : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<GPUConnectionToWebProcess, WTF::DestructionThread::Main>
     , public WebCore::NowPlayingManagerClient
-    , IPC::Connection::Client {
+    , public IPC::Connection::Client {
     WTF_DEPRECATED_MAKE_FAST_ALLOCATED(GPUConnectionToWebProcess);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(GPUConnectionToWebProcess);
 public:
     static Ref<GPUConnectionToWebProcess> create(GPUProcess&, WebCore::ProcessIdentifier, PAL::SessionID, IPC::Connection::Handle&&, GPUProcessConnectionParameters&&);
     virtual ~GPUConnectionToWebProcess();
 
+    // IPC::Connection::Client, WebCore::NowPlayingManagerClient.
     void ref() const final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::ref(); }
     void deref() const final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::deref(); }
 
@@ -161,6 +168,8 @@ public:
     Ref<RemoteSharedResourceCache> sharedResourceCache();
 
 #if ENABLE(VIDEO)
+    RemoteAudioVideoRendererProxyManager& remoteAudioVideoRendererProxyManager();
+    Ref<RemoteAudioVideoRendererProxyManager> protectedRemoteAudioVideoRendererProxyManager();
     RemoteMediaResourceManager& remoteMediaResourceManager();
     Ref<RemoteMediaResourceManager> protectedRemoteMediaResourceManager();
 #endif
@@ -218,6 +227,9 @@ public:
     RemoteMediaPlayerManagerProxy& remoteMediaPlayerManagerProxy() { return m_remoteMediaPlayerManagerProxy.get(); }
     Ref<RemoteMediaPlayerManagerProxy> protectedRemoteMediaPlayerManagerProxy();
 #endif
+#if ENABLE(LINEAR_MEDIA_PLAYER)
+    VideoReceiverEndpointManager& videoReceiverEndpointManager();
+#endif
 #if USE(AUDIO_SESSION)
     RemoteAudioSessionProxyManager& audioSessionManager();
 #endif
@@ -235,15 +247,15 @@ public:
     void lowMemoryHandler(WTF::Critical, WTF::Synchronous);
 
 #if ENABLE(WEBGL)
-    void releaseGraphicsContextGLForTesting(GraphicsContextGLIdentifier);
+    void releaseGraphicsContextGLForTesting(RemoteGraphicsContextGLIdentifier);
 #endif
 
     static uint64_t objectCountForTesting() { return gObjectCountForTesting; }
 
-    using RemoteRenderingBackendMap = HashMap<RenderingBackendIdentifier, IPC::ScopedActiveMessageReceiveQueue<RemoteRenderingBackend>>;
+    using RemoteRenderingBackendMap = HashMap<RemoteRenderingBackendIdentifier, IPC::ScopedActiveMessageReceiveQueue<RemoteRenderingBackend>>;
     const RemoteRenderingBackendMap& remoteRenderingBackendMap() const { return m_remoteRenderingBackendMap; }
 
-    RemoteRenderingBackend* remoteRenderingBackend(RenderingBackendIdentifier);
+    RemoteRenderingBackend* remoteRenderingBackend(RemoteRenderingBackendIdentifier);
 
 #if HAVE(AUDIT_TOKEN)
     const HashMap<WebCore::PageIdentifier, CoreIPCAuditToken>& presentingApplicationAuditTokens() const { return m_presentingApplicationAuditTokens; }
@@ -260,19 +272,23 @@ public:
     void performWithMediaPlayerOnMainThread(WebCore::MediaPlayerIdentifier, Function<void(WebCore::MediaPlayer&)>&&);
 #endif
 
-#if PLATFORM(IOS_FAMILY)
-    void overridePresentingApplicationPIDIfNeeded();
-#endif
-
 #if ENABLE(EXTENSION_CAPABILITIES)
     String mediaEnvironment(WebCore::PageIdentifier);
     void setMediaEnvironment(WebCore::PageIdentifier, const String&);
+#endif
+
+#if ENABLE(IPC_TESTING_API)
+    void takeInvalidMessageStringForTesting(CompletionHandler<void(String&&)>&&);
 #endif
 
     bool isAlwaysOnLoggingAllowed() const;
 
 #if USE(AUDIO_SESSION)
     RemoteAudioSessionProxy& audioSessionProxy();
+#endif
+
+#if PLATFORM(IOS_FAMILY)
+    void providePresentingApplicationPID(WebCore::PageIdentifier) const;
 #endif
 
 private:
@@ -293,15 +309,15 @@ private:
     Ref<RemoteAudioMediaStreamTrackRendererInternalUnitManager> protectedAudioMediaStreamTrackRendererInternalUnitManager();
 #endif
 
-    void createRenderingBackend(RenderingBackendIdentifier, IPC::StreamServerConnection::Handle&&);
-    void releaseRenderingBackend(RenderingBackendIdentifier);
+    void createRenderingBackend(RemoteRenderingBackendIdentifier, IPC::StreamServerConnection::Handle&&);
+    void releaseRenderingBackend(RemoteRenderingBackendIdentifier);
 
 #if ENABLE(WEBGL)
-    void createGraphicsContextGL(GraphicsContextGLIdentifier, WebCore::GraphicsContextGLAttributes, RenderingBackendIdentifier, IPC::StreamServerConnection::Handle&&);
-    void releaseGraphicsContextGL(GraphicsContextGLIdentifier);
+    void createGraphicsContextGL(RemoteGraphicsContextGLIdentifier, WebCore::GraphicsContextGLAttributes, RemoteRenderingBackendIdentifier, IPC::StreamServerConnection::Handle&&);
+    void releaseGraphicsContextGL(RemoteGraphicsContextGLIdentifier);
 #endif
 
-    void createGPU(WebGPUIdentifier, RenderingBackendIdentifier, IPC::StreamServerConnection::Handle&&);
+    void createGPU(WebGPUIdentifier, RemoteRenderingBackendIdentifier, IPC::StreamServerConnection::Handle&&);
     void releaseGPU(WebGPUIdentifier);
 
     void clearNowPlayingInfo();
@@ -346,7 +362,7 @@ private:
     void didClose(IPC::Connection&) final;
     void didReceiveInvalidMessage(IPC::Connection&, IPC::MessageName, const Vector<uint32_t>& indicesOfObjectsFailingDecoding) final;
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
-    bool didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
+    void didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
 
     bool dispatchMessage(IPC::Connection&, IPC::Decoder&);
     bool dispatchSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&);
@@ -373,8 +389,12 @@ private:
 #endif
     RefPtr<RemoteSharedResourceCache> m_sharedResourceCache;
 #if ENABLE(VIDEO)
+    const std::unique_ptr<RemoteAudioVideoRendererProxyManager> m_remoteAudioVideoRendererProxyManager;
     RefPtr<RemoteMediaResourceManager> m_remoteMediaResourceManager WTF_GUARDED_BY_CAPABILITY(mainThread);
     Ref<RemoteMediaPlayerManagerProxy> m_remoteMediaPlayerManagerProxy;
+#endif
+#if ENABLE(LINEAR_MEDIA_PLAYER)
+    const LazyUniqueRef<GPUConnectionToWebProcess, VideoReceiverEndpointManager> m_videoReceiverEndpointManager;
 #endif
     PAL::SessionID m_sessionID;
 #if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
@@ -406,7 +426,7 @@ private:
 
     RemoteRenderingBackendMap m_remoteRenderingBackendMap;
 #if ENABLE(WEBGL)
-    using RemoteGraphicsContextGLMap = HashMap<GraphicsContextGLIdentifier, IPC::ScopedActiveMessageReceiveQueue<RemoteGraphicsContextGL>>;
+    using RemoteGraphicsContextGLMap = HashMap<RemoteGraphicsContextGLIdentifier, IPC::ScopedActiveMessageReceiveQueue<RemoteGraphicsContextGL>>;
     RemoteGraphicsContextGLMap m_remoteGraphicsContextGLMap;
 #endif
     using RemoteGPUMap = HashMap<WebGPUIdentifier, IPC::ScopedActiveMessageReceiveQueue<RemoteGPU>>;
@@ -453,7 +473,7 @@ private:
 #endif
 
 #if ENABLE(ROUTING_ARBITRATION) && HAVE(AVAUDIO_ROUTING_ARBITER)
-    std::unique_ptr<LocalAudioSessionRoutingArbitrator> m_routingArbitrator;
+    const std::unique_ptr<LocalAudioSessionRoutingArbitrator> m_routingArbitrator;
 #endif
 #if ENABLE(IPC_TESTING_API)
     const Ref<IPCTester> m_ipcTester;

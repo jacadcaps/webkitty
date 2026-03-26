@@ -37,6 +37,7 @@
 #import <WebKit/WebKitPrivate.h>
 #import <WebKit/_WKWebViewPrintFormatter.h>
 #import <wtf/RetainPtr.h>
+#import <wtf/darwin/DispatchExtras.h>
 
 @interface UIPrintFormatter ()
 - (NSInteger)_recalcPageCount;
@@ -197,7 +198,7 @@ TEST(WKWebView, PrintToPDFUsingPrintInteractionController)
 
     [printInteractionController _setupPrintPanel:nil];
     [printInteractionController _generatePrintPreview:^(NSURL *pdfURL, BOOL shouldRenderOnChosenPaper) {
-        dispatch_async(dispatch_get_main_queue(), ^{
+        dispatch_async(mainDispatchQueueSingleton(), ^{
             auto pdfData = adoptNS([[NSData alloc] initWithContentsOfURL:pdfURL]);
             pdfDataLength = [pdfData length];
 
@@ -229,7 +230,7 @@ TEST(WKWebView, PrintToPDFUsingMultiplePrintInteractionControllers)
     __block NSUInteger pdfDataLength = 0;
     [printInteractionController _setupPrintPanel:nil];
     [printInteractionController _generatePrintPreview:^(NSURL *pdfURL, BOOL shouldRenderOnChosenPaper) {
-        dispatch_async(dispatch_get_main_queue(), ^{
+        dispatch_async(mainDispatchQueueSingleton(), ^{
             auto pdfData = adoptNS([[NSData alloc] initWithContentsOfURL:pdfURL]);
             pdfDataLength = [pdfData length];
 
@@ -249,7 +250,7 @@ TEST(WKWebView, PrintToPDFUsingMultiplePrintInteractionControllers)
     __block NSUInteger pdfDataLength2 = 0;
     [printInteractionController2 _setupPrintPanel:nil];
     [printInteractionController2 _generatePrintPreview:^(NSURL *pdfURL, BOOL shouldRenderOnChosenPaper) {
-        dispatch_async(dispatch_get_main_queue(), ^{
+        dispatch_async(mainDispatchQueueSingleton(), ^{
             auto pdfData = adoptNS([[NSData alloc] initWithContentsOfURL:pdfURL]);
             pdfDataLength2 = [pdfData length];
 
@@ -283,7 +284,7 @@ TEST(WKWebView, PrintToPDFUsingPrintInteractionControllerAndPrintPageRenderer)
     __block NSUInteger printInteractionControllerPDFDataLength = 0;
     [printInteractionController _setupPrintPanel:nil];
     [printInteractionController _generatePrintPreview:^(NSURL *pdfURL, BOOL shouldRenderOnChosenPaper) {
-        dispatch_async(dispatch_get_main_queue(), ^{
+        dispatch_async(mainDispatchQueueSingleton(), ^{
             auto pdfData = adoptNS([[NSData alloc] initWithContentsOfURL:pdfURL]);
             printInteractionControllerPDFDataLength = [pdfData length];
 

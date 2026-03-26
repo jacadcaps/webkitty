@@ -21,7 +21,7 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-#if ENABLE_SWIFTUI && canImport(Testing) && compiler(>=6.0)
+#if ENABLE_SWIFTUI && canImport(Testing) && compiler(>=6.2)
 
 import Testing
 import WebKit
@@ -148,12 +148,14 @@ struct URLSchemeHandlerTests {
         var secondEvents: [WebPage.NavigationEvent] = []
 
         do {
-            for try await firstEvent in page.load(URL(string: "testing://main")) {
+            // Safety: this is actually safe; false positive is rdar://154775389
+            for try await unsafe firstEvent in page.load(URL(string: "testing://main")) {
                 firstEvents.append(firstEvent)
 
                 if firstEvent == .startedProvisionalNavigation {
                     do {
-                        for try await secondEvent in page.load(URL(string: "testing://main2")) {
+                        // Safety: this is actually safe; false positive is rdar://154775389
+                        for try await unsafe secondEvent in page.load(URL(string: "testing://main2")) {
                             secondEvents.append(secondEvent)
                         }
                     } catch {

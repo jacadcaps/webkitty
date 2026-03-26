@@ -37,6 +37,7 @@
 #import "DumpRenderTreePasteboard.h"
 #import "EventSendingController.h"
 #import <wtf/RetainPtr.h>
+#import <wtf/darwin/DispatchExtras.h>
 
 @interface DumpRenderTreeFilePromiseReceiver : NSFilePromiseReceiver {
     RetainPtr<NSArray<NSString *>> _promisedUTIs;
@@ -125,7 +126,7 @@ static std::pair<NSURL *, NSError *> copyFile(NSURL *sourceURL, NSURL *destinati
             NSURL *destinationURL;
             std::tie(destinationURL, error) = copyFile(sourceURL, destinationDirectory);
             if (destinationURL) {
-                dispatch_async(dispatch_get_main_queue(), ^{
+                dispatch_async(mainDispatchQueueSingleton(), ^{
                     [_destinationURLs addObject:destinationURL];
                 });
             }

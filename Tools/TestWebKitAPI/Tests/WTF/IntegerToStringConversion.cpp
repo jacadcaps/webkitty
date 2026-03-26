@@ -26,7 +26,6 @@
 #include "config.h"
 
 #include <limits>
-#include <wtf/StringExtras.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/WTFString.h>
 

@@ -46,8 +46,8 @@
 #include "src/gpu/ganesh/effects/GrTextureEffect.h"
 #include "src/gpu/ganesh/gl/GrGLDefines.h"
 #include "tests/CtsEnforcement.h"
-#include "tests/TestUtils.h"
-#include "tools/gpu/ProxyUtils.h"
+#include "tests/ganesh/GaneshTestUtils.h"
+#include "tools/ganesh/ProxyUtils.h"
 
 #include <cstdint>
 #include <initializer_list>

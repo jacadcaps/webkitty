@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -42,6 +42,7 @@
 #import <wtf/SafeStrerror.h>
 #import <wtf/WTFProcess.h>
 #import <wtf/spi/darwin/DataVaultSPI.h>
+#import <wtf/text/StringToIntegerConversion.h>
 
 
 #if PLATFORM(COCOA)
@@ -1804,7 +1805,7 @@ static void parallelPromiseResolveTest()
         auto* startedThreadPtr = &startedThread;
 
         JSValue *promise = [JSValue valueWithNewPromiseInContext:context fromExecutor:^(JSValue *resolve, JSValue *) {
-            thread = Thread::create("async thread"_s, ^() {
+            thread = Thread::create("async thread"_s, [shouldResolveSoonPtr, startedThreadPtr, resolve] {
                 startedThreadPtr->store(true);
                 while (!shouldResolveSoonPtr->load()) { }
                 [resolve callWithArguments:@[[NSNull null]]];
@@ -2215,6 +2216,33 @@ static void testProgramBytecodeCache()
         RELEASE_ASSERT([result isNumber]);
         checkResult(@"result of cached program is 40+42", [[result toNumber] intValue] == 40 + 42);
         JSC::Options::forceDiskCache() = false;
+
+        NSFileManager* fileManager = [NSFileManager defaultManager];
+        BOOL removedAll = [fileManager removeItemAtURL:fooCachePath error:nil];
+        checkResult(@"Removed all temp files created", removedAll);
+    }
+}
+
+static void testBytecodeCachedFunctionsDontJITImmediately()
+{
+    @autoreleasepool {
+        NSString *fooSource = @"function foo() { return $vm.llintTrue(); }; foo();";
+        NSURL *fooCachePath = cacheFileInDataVault(@"foo.js.cache");
+        JSC::Options::useDollarVM() = true;
+        JSContext *context = [[JSContext alloc] init];
+        JSScript *script = [JSScript scriptOfType:kJSScriptTypeProgram withSource:fooSource andSourceURL:[NSURL URLWithString:@"my-path"] andBytecodeCache:fooCachePath inVirtualMachine:context.virtualMachine error:nil];
+        RELEASE_ASSERT(script);
+        if (![script cacheBytecodeWithError:nil])
+            CRASH();
+
+        JSC::Options::forceDiskCache() = true;
+        JSC::Options::useConcurrentJIT() = false;
+        JSValue *result = [context evaluateJSScript:script];
+        RELEASE_ASSERT(result);
+        RELEASE_ASSERT([result isBoolean]);
+        checkResult(@"result whether a function will immediately be jitted", [result toBool] == YES);
+        JSC::Options::forceDiskCache() = false;
+        JSC::Options::useConcurrentJIT() = true;
 
         NSFileManager* fileManager = [NSFileManager defaultManager];
         BOOL removedAll = [fileManager removeItemAtURL:fooCachePath error:nil];
@@ -2962,6 +2990,11 @@ void testObjectiveCAPI(const char* filter)
 {
     NSLog(@"Testing Objective-C API");
 
+    bool skipBytecodeCacheTests = [] {
+        auto var = unsafeSpan(getenv("SkipBytecodeCacheTests"));
+        return var.data() && !!parseInteger<int>(var).value_or(0);
+    }();
+
     auto shouldRun = [&] (const char* test) -> bool {
         if (filter)
             return strcasestr(test, filter);
@@ -2979,12 +3012,15 @@ void testObjectiveCAPI(const char* filter)
     RUN(testFetchWithThreeCycle());
     RUN(testImportModuleTwice());
     RUN(testImportMetaURL());
-    RUN(testModuleBytecodeCache());
-    RUN(testProgramBytecodeCache());
-    RUN(testBytecodeCacheWithSyntaxError(kJSScriptTypeProgram));
-    RUN(testBytecodeCacheWithSyntaxError(kJSScriptTypeModule));
-    RUN(testBytecodeCacheWithSameCacheFileAndDifferentScript(false));
-    RUN(testBytecodeCacheWithSameCacheFileAndDifferentScript(true));
+    if (!skipBytecodeCacheTests) {
+        RUN(testModuleBytecodeCache());
+        RUN(testProgramBytecodeCache());
+        RUN(testBytecodeCachedFunctionsDontJITImmediately());
+        RUN(testBytecodeCacheWithSyntaxError(kJSScriptTypeProgram));
+        RUN(testBytecodeCacheWithSyntaxError(kJSScriptTypeModule));
+        RUN(testBytecodeCacheWithSameCacheFileAndDifferentScript(false));
+        RUN(testBytecodeCacheWithSameCacheFileAndDifferentScript(true));
+    }
     RUN(testProgramJSScriptException());
     RUN(testCacheFileFailsWhenItsAlreadyCached());
     RUN(testCanCacheManyFilesWithTheSameVM());

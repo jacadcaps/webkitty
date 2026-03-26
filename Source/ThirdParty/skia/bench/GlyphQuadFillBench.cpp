@@ -21,7 +21,7 @@
 #include "src/text/gpu/StrikeCache.h"
 #include "src/text/gpu/TextBlob.h"
 #include "tools/fonts/FontToolUtils.h"
-#include "tools/gpu/TestCanvas.h"
+#include "tools/ganesh/TestCanvas.h"
 #include "tools/text/gpu/TextBlobTools.h"
 
 // From Project Guttenberg. This is UTF-8 text.
@@ -94,4 +94,4 @@ private:
     std::unique_ptr<char[]> fVertices;
 };
 
-DEF_BENCH(return new DirectMaskGlyphVertexFillBenchmark{});
+DEF_BENCH(return new DirectMaskGlyphVertexFillBenchmark{})

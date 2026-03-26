@@ -18,30 +18,19 @@
 #include <stdlib.h>
 
 
-// See comment above the typedef of CRYPTO_refcount_t about these tests.
-static_assert(alignof(CRYPTO_refcount_t) == alignof(CRYPTO_atomic_u32),
-              "CRYPTO_refcount_t does not match CRYPTO_atomic_u32 alignment");
-static_assert(sizeof(CRYPTO_refcount_t) == sizeof(CRYPTO_atomic_u32),
-              "CRYPTO_refcount_t does not match CRYPTO_atomic_u32 size");
-
-static_assert((CRYPTO_refcount_t)-1 == CRYPTO_REFCOUNT_MAX,
-              "CRYPTO_REFCOUNT_MAX is incorrect");
-
-void CRYPTO_refcount_inc(CRYPTO_refcount_t *in_count) {
-  CRYPTO_atomic_u32 *count = (CRYPTO_atomic_u32 *)in_count;
-  uint32_t expected = CRYPTO_atomic_load_u32(count);
+void CRYPTO_refcount_inc(CRYPTO_refcount_t *count) {
+  uint32_t expected = count->load();
 
   while (expected != CRYPTO_REFCOUNT_MAX) {
     uint32_t new_value = expected + 1;
-    if (CRYPTO_atomic_compare_exchange_weak_u32(count, &expected, new_value)) {
+    if (count->compare_exchange_weak(expected, new_value)) {
       break;
     }
   }
 }
 
-int CRYPTO_refcount_dec_and_test_zero(CRYPTO_refcount_t *in_count) {
-  CRYPTO_atomic_u32 *count = (CRYPTO_atomic_u32 *)in_count;
-  uint32_t expected = CRYPTO_atomic_load_u32(count);
+int CRYPTO_refcount_dec_and_test_zero(CRYPTO_refcount_t *count) {
+  uint32_t expected = count->load();
 
   for (;;) {
     if (expected == 0) {
@@ -50,8 +39,7 @@ int CRYPTO_refcount_dec_and_test_zero(CRYPTO_refcount_t *in_count) {
       return 0;
     } else {
       const uint32_t new_value = expected - 1;
-      if (CRYPTO_atomic_compare_exchange_weak_u32(count, &expected,
-                                                  new_value)) {
+      if (count->compare_exchange_weak(expected, new_value)) {
         return new_value == 0;
       }
     }

@@ -27,7 +27,7 @@
 
 #if HAVE(SHAPE_DETECTION_API_IMPLEMENTATION) && HAVE(VISION)
 
-#include "TextDetectorInterface.h"
+#include <WebCore/TextDetectorInterface.h>
 #include <wtf/TZoneMalloc.h>
 
 namespace WebCore::ShapeDetection {
@@ -50,7 +50,7 @@ private:
     TextDetectorImpl& operator=(const TextDetectorImpl&) = delete;
     TextDetectorImpl& operator=(TextDetectorImpl&&) = delete;
 
-    void detect(Ref<ImageBuffer>&&, CompletionHandler<void(Vector<DetectedText>&&)>&&) final;
+    void detect(const NativeImage&, CompletionHandler<void(Vector<DetectedText>&&)>&&) final;
 };
 
 } // namespace WebCore::ShapeDetection

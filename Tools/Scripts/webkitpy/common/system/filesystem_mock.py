@@ -181,6 +181,8 @@ class MockFileSystem(object):
         return len(self.files[path])
 
     def glob(self, glob_string):
+        # Normalize the glob string to handle '..' before matching
+        glob_string = self.normpath(glob_string)
         # FIXME: This handles '*', but not '?', '[', or ']'.
         glob_string = re.escape(glob_string)
         glob_string = glob_string.replace('\\*', '[^\\/]*') + '$'

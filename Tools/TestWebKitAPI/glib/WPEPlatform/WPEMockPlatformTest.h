@@ -40,7 +40,7 @@ public:
 
     WPEDisplay* display() const { return m_display.get(); }
 
-private:
+protected:
     GRefPtr<WPEDisplay> m_display;
 };
 

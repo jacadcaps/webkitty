@@ -6,6 +6,10 @@
 
 // validationEGL.cpp: Validation functions for generic EGL entry point parameters
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include "libANGLE/validationEGL_autogen.h"
 
 #include "common/utilities.h"
@@ -1647,6 +1651,32 @@ bool ValidateCreateSyncBase(const ValidationContext *val,
             }
             break;
 
+        case EGL_SYNC_METAL_COMMANDS_SCHEDULED_ANGLE:
+            if (!attribs.isEmpty())
+            {
+                val->setError(EGL_BAD_ATTRIBUTE, "Invalid attribute");
+                return false;
+            }
+            if (!display->getExtensions().fenceSync)
+            {
+                val->setError(EGL_BAD_MATCH, "EGL_KHR_fence_sync extension is not available");
+                return false;
+            }
+            if (!display->getExtensions().mtlSyncCommandsScheduledANGLE)
+            {
+                val->setError(EGL_BAD_DISPLAY,
+                              "EGL_ANGLE_metal_shared_event_sync is not available");
+                return false;
+            }
+            if (display != currentDisplay)
+            {
+                val->setError(EGL_BAD_MATCH,
+                              "CreateSync can only be called on the current display");
+                return false;
+            }
+            ANGLE_VALIDATION_TRY(ValidateContext(val, currentDisplay, currentContext->id()));
+            break;
+
         default:
             if (isExt)
             {
@@ -1681,6 +1711,7 @@ bool ValidateGetSyncAttribBase(const ValidationContext *val,
                 case EGL_SYNC_NATIVE_FENCE_ANDROID:
                 case EGL_SYNC_GLOBAL_FENCE_ANGLE:
                 case EGL_SYNC_METAL_SHARED_EVENT_ANGLE:
+                case EGL_SYNC_METAL_COMMANDS_SCHEDULED_ANGLE:
                     break;
 
                 default:
@@ -1954,6 +1985,15 @@ bool ValidateCreateContextAttribute(const ValidationContext *val,
             }
             break;
 
+        case EGL_CONTEXT_PASSTHROUGH_SHADERS_ANGLE:
+            if (!display->getExtensions().createContextPassthroughShadersANGLE)
+            {
+                val->setError(EGL_BAD_ATTRIBUTE,
+                              "Attribute EGL_CONTEXT_PASSTHROUGH_SHADERS_ANGLE requires "
+                              "EGL_ANGLE_create_context_passthrough_shaders.");
+            }
+            break;
+
         default:
             val->setError(EGL_BAD_ATTRIBUTE, "Unknown attribute: 0x%04" PRIxPTR "X", attribute);
             return false;
@@ -2148,12 +2188,22 @@ bool ValidateCreateContextAttributeValue(const ValidationContext *val,
                 case EGL_CONTEXT_PRIORITY_MEDIUM_IMG:
                 case EGL_CONTEXT_PRIORITY_HIGH_IMG:
                     break;
+                case EGL_CONTEXT_PRIORITY_REALTIME_NV:
+                    if (!display->getExtensions().contextPriorityRealtimeNV)
+                    {
+                        val->setError(EGL_BAD_ATTRIBUTE,
+                                      "Attribute EGL_CONTEXT_PRIORITY_REALTIME_NV requires "
+                                      "extension EGL_NV_context_priority_realtime.");
+                        return false;
+                    }
+                    break;
                 default:
                     val->setError(EGL_BAD_ATTRIBUTE,
                                   "Attribute EGL_CONTEXT_PRIORITY_LEVEL_IMG "
                                   "must be one of: EGL_CONTEXT_PRIORITY_LOW_IMG, "
-                                  "EGL_CONTEXT_PRIORITY_MEDIUM_IMG, or "
-                                  "EGL_CONTEXT_PRIORITY_HIGH_IMG.");
+                                  "EGL_CONTEXT_PRIORITY_MEDIUM_IMG, "
+                                  "EGL_CONTEXT_PRIORITY_HIGH_IMG, or "
+                                  "EGL_CONTEXT_PRIORITY_REALTIME_NV.");
                     return false;
             }
             break;
@@ -2201,6 +2251,16 @@ bool ValidateCreateContextAttributeValue(const ValidationContext *val,
                 val->setError(EGL_BAD_ATTRIBUTE,
                               "EGL_CONTEXT_METAL_OWNERSHIP_IDENTITY_ANGLE must"
                               "be non-zero.");
+                return false;
+            }
+            break;
+
+        case EGL_CONTEXT_PASSTHROUGH_SHADERS_ANGLE:
+            if (value != EGL_TRUE && value != EGL_FALSE)
+            {
+                val->setError(EGL_BAD_ATTRIBUTE,
+                              "EGL_CONTEXT_PASSTHROUGH_SHADERS_ANGLE must "
+                              "be either EGL_TRUE or EGL_FALSE.");
                 return false;
             }
             break;

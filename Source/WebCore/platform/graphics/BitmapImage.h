@@ -27,8 +27,8 @@
 
 #pragma once
 
-#include "Image.h"
-#include "ImageSource.h"
+#include <WebCore/Image.h>
+#include <WebCore/ImageSource.h>
 #include <wtf/Function.h>
 
 namespace WebCore {
@@ -54,7 +54,7 @@ public:
     // Decoding
     bool isLargeForDecoding() const { return m_source->isLargeForDecoding(); }
     void stopDecodingWorkQueue() { m_source->stopDecodingWorkQueue(); }
-    void decode(Function<void(DecodingStatus)>&& decodeCallback) { m_source->decode(WTFMove(decodeCallback)); }
+    void decode(Function<void(DecodingStatus)>&& decodeCallback) { m_source->decode(WTF::move(decodeCallback)); }
 
     // Current ImageFrame
     unsigned currentFrameIndex() const { return m_source->currentFrameIndex(); }
@@ -105,6 +105,7 @@ private:
 
     // Current ImageFrame
     bool currentFrameKnownToBeOpaque() const final { return !currentFrameHasAlpha(); }
+    bool currentFrameIsComplete() const final { return m_source->currentImageFrame().isComplete(); }
 
     // Current NativeImage
     RefPtr<NativeImage> currentPreTransformedNativeImage(ImageOrientation orientation) final { return m_source->currentPreTransformedNativeImage(orientation); }
@@ -123,6 +124,10 @@ private:
 
 #if ENABLE(SPATIAL_IMAGE_DETECTION)
     bool isSpatial() const final { return m_source->isSpatial(); }
+#endif
+
+#if ENABLE(SPATIAL_IMAGE_CONTROLS)
+    bool isMaybePanoramic() const final { return m_source->isMaybePanoramic(); }
 #endif
 
     // Image methods

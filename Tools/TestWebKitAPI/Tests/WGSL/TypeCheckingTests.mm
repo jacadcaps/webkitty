@@ -102,24 +102,23 @@ TEST(WGSLTypeCheckingTests, Attributes)
     expectTypeError("@compute @workgroup_size(1, 1u, 1i) fn f6() { }"_s, "@workgroup_size arguments must be of the same type, either i32 or u32"_s);
 
 
-    // FIXME: Attribute Validator should also return upon encountering the first error
-    // attribute validation
-    // expectTypeError("@group(0) var<private> x: i32;"_s, "@group attribute must only be applied to resource variables"_s);
-    // expectTypeError("@group(-1) var<uniform> x: i32;"_s, "@group value must be non-negative"_s);
-    // expectTypeError("@binding(0) var<private> x: i32;"_s, "@binding attribute must only be applied to resource variables"_s);
-    // expectTypeError("@binding(-1) var<uniform> x: i32;"_s, "@binding value must be non-negative"_s);
-    // expectTypeError("@id(-1) var<private> y: i32;"_s, "@id attribute must only be applied to override variables"_s);
-    // expectTypeError("@id(-1) override z: i32;"_s, "@id value must be non-negative"_s);
-    // expectTypeError("@must_use fn mustUseWithoutReturnType() { }"_s, "@must_use can only be applied to functions that return a value"_s);
-    // expectTypeError("fn f1() -> @builtin(position) i32 { return 0; }"_s, "@builtin is not valid for non-entry point function types"_s);
-    // expectTypeError("fn f2() -> @location(0) i32 { return 0; }"_s, "@location is not valid for non-entry point function types"_s);
-    // expectTypeError("@fragment fn f3() -> @location(-1) i32 { return 0; }"_s, "@location value must be non-negative"_s);
-    // expectTypeError("@compute fn f4() -> @location(0) i32 { return 0; }"_s, "@location may not be used in the compute shader stage"_s);
-    // expectTypeError("@fragment fn f5() -> @location(0) bool { return false; }"_s, "@location must only be applied to declarations of numeric scalar or numeric vector type"_s);
-    // expectTypeError("fn f6() -> @interpolate(flat) i32 { return 0; }"_s, "@interpolate is only allowed on declarations that have a @location attribute"_s);
-    // expectTypeError("fn f7() -> @invariant i32 { return 0; }"_s, "@invariant is only allowed on declarations that have a @builtin(position) attribute"_s);
-    // expectTypeError("@workgroup_size(1) fn f8() { }"_s, "@workgroup_size must only be applied to compute shader entry point function"_s);
-    // expectTypeError("@workgroup_size(-1) @compute fn f9() { }"_s, "@workgroup_size argument must be at least 1"_s);
+    // Attribute validation
+    expectTypeError("@group(0) var<private> x: i32;"_s, "@group attribute must only be applied to resource variables"_s);
+    expectTypeError("@group(-1) var<uniform> x: i32;"_s, "@group value must be non-negative"_s);
+    expectTypeError("@binding(0) var<private> x: i32;"_s, "@binding attribute must only be applied to resource variables"_s);
+    expectTypeError("@binding(-1) var<uniform> x: i32;"_s, "@binding value must be non-negative"_s);
+    expectTypeError("@id(-1) var<private> y: i32;"_s, "@id attribute must only be applied to override variables"_s);
+    expectTypeError("@id(-1) override z: i32;"_s, "@id value must be non-negative"_s);
+    expectTypeError("@must_use fn mustUseWithoutReturnType() { }"_s, "@must_use can only be applied to functions that return a value"_s);
+    expectTypeError("fn f1() -> @builtin(position) i32 { return 0; }"_s, "@builtin is not valid for non-entry point function types"_s);
+    expectTypeError("fn f2() -> @location(0) i32 { return 0; }"_s, "@location is not valid for non-entry point function types"_s);
+    expectTypeError("@fragment fn f3() -> @location(-1) i32 { return 0; }"_s, "@location value must be non-negative"_s);
+    expectTypeError("@compute fn f4() -> @location(0) i32 { return 0; }"_s, "@location may not be used in the compute shader stage"_s);
+    expectTypeError("@fragment fn f5() -> @location(0) bool { return false; }"_s, "@location must only be applied to declarations of numeric scalar or numeric vector type"_s);
+    expectTypeError("fn f6() -> @interpolate(flat) i32 { return 0; }"_s, "@interpolate is only allowed on declarations that have a @location attribute"_s);
+    expectTypeError("fn f7() -> @invariant i32 { return 0; }"_s, "@invariant is only allowed on declarations that have a @builtin(position) attribute"_s);
+    expectTypeError("@workgroup_size(1) fn f8() { }"_s, "@workgroup_size must only be applied to compute shader entry point function"_s);
+    expectTypeError("@workgroup_size(-1) @compute fn f9() { }"_s, "@workgroup_size argument must be at least 1"_s);
 
     // check that we don't crash by trying to read the size of S2, which won't have been computed
     expectNoError(

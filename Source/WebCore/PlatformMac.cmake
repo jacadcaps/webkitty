@@ -179,8 +179,6 @@ list(APPEND WebCore_SOURCES
 
     loader/cocoa/PrivateClickMeasurementCocoa.mm
 
-    page/PageDebuggable.cpp
-
     page/mac/EventHandlerMac.mm
     page/mac/ServicesOverlayController.mm
     page/mac/TextIndicatorWindow.mm
@@ -242,9 +240,9 @@ list(APPEND WebCore_SOURCES
     platform/graphics/avfoundation/AVTrackPrivateAVFObjCImpl.mm
     platform/graphics/avfoundation/AudioSourceProviderAVFObjC.mm
     platform/graphics/avfoundation/CDMFairPlayStreaming.cpp
-    platform/graphics/avfoundation/CDMPrivateMediaSourceAVFObjC.mm
     platform/graphics/avfoundation/InbandMetadataTextTrackPrivateAVF.cpp
     platform/graphics/avfoundation/InbandTextTrackPrivateAVF.cpp
+    platform/graphics/avfoundation/LegacyCDMPrivateAVFObjC.mm
     platform/graphics/avfoundation/MediaPlaybackTargetCocoa.mm
     platform/graphics/avfoundation/MediaPlayerPrivateAVFoundation.cpp
     platform/graphics/avfoundation/MediaSelectionGroupAVFObjC.mm
@@ -256,7 +254,6 @@ list(APPEND WebCore_SOURCES
     platform/graphics/avfoundation/objc/CDMInstanceFairPlayStreamingAVFObjC.mm
     platform/graphics/avfoundation/objc/CDMSessionAVContentKeySession.mm
     platform/graphics/avfoundation/objc/CDMSessionAVFoundationObjC.mm
-    platform/graphics/avfoundation/objc/CDMSessionMediaSourceAVFObjC.mm
     platform/graphics/avfoundation/objc/ImageDecoderAVFObjC.mm
     platform/graphics/avfoundation/objc/InbandTextTrackPrivateAVFObjC.mm
     platform/graphics/avfoundation/objc/MediaPlayerPrivateAVFoundationObjC.mm
@@ -401,7 +398,7 @@ list(APPEND WebCore_SOURCES
 
     platform/network/cf/CertificateInfoCFNet.cpp
     platform/network/cf/DNSResolveQueueCFNet.cpp
-    platform/network/cf/FormDataStreamCFNet.cpp
+    platform/network/cf/FormDataStreamCFNet.mm
     platform/network/cf/NetworkStorageSessionCFNet.cpp
     platform/network/cf/ResourceRequestCFNet.cpp
 
@@ -631,6 +628,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/graphics/angle/ANGLEUtilities.h
 
     platform/graphics/avfoundation/AudioSourceProviderAVFObjC.h
+    platform/graphics/avfoundation/AudioVideoRendererAVFObjC.h
     platform/graphics/avfoundation/MediaPlaybackTargetCocoa.h
     platform/graphics/avfoundation/SampleBufferDisplayLayer.h
     platform/graphics/avfoundation/WebMediaSessionManagerMac.h

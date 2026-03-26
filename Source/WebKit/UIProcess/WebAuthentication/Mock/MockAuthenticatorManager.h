@@ -38,15 +38,17 @@ public:
     static Ref<MockAuthenticatorManager> create(WebCore::MockWebAuthenticationConfiguration&&);
 
     bool isMock() const final { return true; }
-    void setTestConfiguration(WebCore::MockWebAuthenticationConfiguration&& configuration) { m_testConfiguration = WTFMove(configuration); }
+    void setTestConfiguration(WebCore::MockWebAuthenticationConfiguration&& configuration) { m_testConfiguration = WTF::move(configuration); }
 
 private:
     explicit MockAuthenticatorManager(WebCore::MockWebAuthenticationConfiguration&&);
 
     Ref<AuthenticatorTransportService> createService(WebCore::AuthenticatorTransport, AuthenticatorTransportServiceObserver&) const final;
-    void respondReceivedInternal(Respond&&) final;
+    void respondReceivedInternal(Respond&&, bool shouldComplete) final;
     void filterTransports(TransportSet&) const;
     void runPresenterInternal(const TransportSet&) final { }
+
+    void validateHidExpectedCommands();
 
     WebCore::MockWebAuthenticationConfiguration m_testConfiguration;
 };

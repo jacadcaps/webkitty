@@ -28,7 +28,9 @@
 #include "config.h"
 #include "AccessibilitySVGObject.h"
 
-#include "AXObjectCache.h"
+#include "AXObjectCacheInlines.h"
+#include "AXUtilities.h"
+#include "AccessibilityObjectInlines.h"
 #include "ElementChildIteratorInlines.h"
 #include "ElementInlines.h"
 #include "EventTargetInlines.h"
@@ -56,11 +58,22 @@ AccessibilitySVGObject::AccessibilitySVGObject(AXID axID, RenderObject& renderer
     m_isSVGRoot = isSVGRoot;
 }
 
+AccessibilitySVGObject::AccessibilitySVGObject(AXID axID, Element& element, AXObjectCache& cache, bool isSVGRoot)
+    : AccessibilityRenderObject(axID, element, cache)
+{
+    m_isSVGRoot = isSVGRoot;
+}
+
 AccessibilitySVGObject::~AccessibilitySVGObject() = default;
 
 Ref<AccessibilitySVGObject> AccessibilitySVGObject::create(AXID axID, RenderObject& renderer, AXObjectCache& cache, bool isSVGRoot)
 {
     return adoptRef(*new AccessibilitySVGObject(axID, renderer, cache, isSVGRoot));
+}
+
+Ref<AccessibilitySVGObject> AccessibilitySVGObject::create(AXID axID, Element& element, AXObjectCache& cache, bool isSVGRoot)
+{
+    return adoptRef(*new AccessibilitySVGObject(axID, element, cache, isSVGRoot));
 }
 
 AccessibilityObject* AccessibilitySVGObject::targetForUseElement() const
@@ -73,7 +86,7 @@ AccessibilityObject* AccessibilitySVGObject::targetForUseElement() const
     if (href.isEmpty())
         href = getAttribute(HTMLNames::hrefAttr);
 
-    auto target = SVGURIReference::targetElementFromIRIString(href, use->treeScopeForSVGReferences());
+    auto target = SVGURIReference::targetElementFromIRIString(href, Ref { use->treeScopeForSVGReferences() });
     CheckedPtr cache = axObjectCache();
     return cache ? cache->getOrCreate(target.element.get()) : nullptr;
 }
@@ -110,18 +123,18 @@ Element* AccessibilitySVGObject::childElementWithMatchingLanguage(ChildrenType& 
     if (index < childLanguageCodes.size())
         return elements[index];
 
-    return fallback.get();
+    return fallback.unsafeGet();
 }
 
 void AccessibilitySVGObject::accessibilityText(Vector<AccessibilityText>& textOrder) const
 {
     String description = this->description();
     if (!description.isEmpty())
-        textOrder.append(AccessibilityText(WTFMove(description), AccessibilityTextSource::Alternative));
+        textOrder.append(AccessibilityText(WTF::move(description), AccessibilityTextSource::Alternative));
 
     String helptext = helpText();
     if (!helptext.isEmpty())
-        textOrder.append(AccessibilityText(WTFMove(helptext), AccessibilityTextSource::Help));
+        textOrder.append(AccessibilityText(WTF::move(helptext), AccessibilityTextSource::Help));
 }
 
 String AccessibilitySVGObject::description() const
@@ -240,8 +253,8 @@ bool AccessibilitySVGObject::computeIsIgnored() const
 
     // The SVG AAM states text elements should also be included, if they have content.
     if (m_renderer->isRenderSVGText() || m_renderer->isRenderSVGTextPath()) {
-        for (auto& child : childrenOfType<RenderText>(downcast<RenderElement>(*m_renderer))) {
-            if (!child.containsOnlyCollapsibleWhitespace())
+        for (CheckedRef child : childrenOfType<RenderText>(downcast<RenderElement>(*m_renderer))) {
+            if (!child->containsOnlyCollapsibleWhitespace())
                 return false;
         }
     }
@@ -292,7 +305,7 @@ AccessibilityRole AccessibilitySVGObject::determineAriaRoleAttribute() const
 
 AccessibilityRole AccessibilitySVGObject::determineAccessibilityRole()
 {
-    if ((m_ariaRole = determineAriaRoleAttribute()) != AccessibilityRole::Unknown)
+    if (m_ariaRole != AccessibilityRole::Unknown)
         return m_ariaRole;
 
     if (!m_renderer)
@@ -329,10 +342,9 @@ AccessibilityRole AccessibilitySVGObject::determineAccessibilityRole()
 
 AccessibilityObject* AccessibilitySVGObject::parentObject() const
 {
-
     if (m_parent) {
         // If a parent was set because this is a remote SVG resource, use that.
-        ASSERT(m_isSVGRoot);
+        AX_ASSERT(m_isSVGRoot);
         return m_parent.get();
     }
 

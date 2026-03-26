@@ -18,12 +18,13 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
-#include "absl/algorithm/container.h"
 #include "absl/functional/any_invocable.h"
 #include "absl/strings/string_view.h"
 #include "api/array_view.h"
 #include "api/candidate.h"
+#include "api/field_trials.h"
 #include "api/ice_transport_interface.h"
 #include "api/sequence_checker.h"
 #include "api/task_queue/pending_task_safety_flag.h"
@@ -50,7 +51,7 @@
 #include "rtc_base/thread.h"
 #include "rtc_base/thread_annotations.h"
 #include "rtc_base/time_utils.h"
-#include "test/explicit_key_value_config.h"
+#include "test/create_test_field_trials.h"
 
 namespace webrtc {
 using ::webrtc::SafeTask;
@@ -68,7 +69,7 @@ class FakeIceTransport : public IceTransportInternal {
       : name_(name),
         component_(component),
         network_thread_(network_thread ? network_thread : Thread::Current()),
-        field_trials_(field_trials_string) {
+        field_trials_(CreateTestFieldTrials(field_trials_string)) {
     RTC_DCHECK(network_thread_);
   }
 
@@ -149,7 +150,7 @@ class FakeIceTransport : public IceTransportInternal {
     RTC_DCHECK_RUN_ON(network_thread_);
     transport_state_ = state;
     legacy_transport_state_ = legacy_state;
-    SignalIceTransportStateChanged(this);
+    NotifyIceTransportStateChanged(this);
   }
 
   void SetConnectionCount(size_t connection_count) {
@@ -162,20 +163,20 @@ class FakeIceTransport : public IceTransportInternal {
     // In this fake transport channel, `connection_count_` determines the
     // transport state.
     if (connection_count_ < old_connection_count) {
-      SignalStateChanged(this);
+      NotifyIceTransportStateChanged(this);
     }
   }
 
   void SetCandidatesGatheringComplete() {
     RTC_DCHECK_RUN_ON(network_thread_);
-    if (gathering_state_ != webrtc::kIceGatheringComplete) {
-      gathering_state_ = webrtc::kIceGatheringComplete;
+    if (gathering_state_ != kIceGatheringComplete) {
+      gathering_state_ = kIceGatheringComplete;
       SendGatheringStateEvent();
     }
   }
 
   // Convenience functions for accessing ICE config and other things.
-  int receiving_timeout() const {
+  TimeDelta receiving_timeout() const {
     RTC_DCHECK_RUN_ON(network_thread_);
     return ice_config_.receiving_timeout_or_default();
   }
@@ -264,8 +265,8 @@ class FakeIceTransport : public IceTransportInternal {
 
   void MaybeStartGathering() override {
     RTC_DCHECK_RUN_ON(network_thread_);
-    if (gathering_state_ == webrtc::kIceGatheringNew) {
-      gathering_state_ = webrtc::kIceGatheringGathering;
+    if (gathering_state_ == kIceGatheringNew) {
+      gathering_state_ = kIceGatheringGathering;
       SendGatheringStateEvent();
     }
   }
@@ -288,13 +289,12 @@ class FakeIceTransport : public IceTransportInternal {
   }
   void RemoveRemoteCandidate(const Candidate& candidate) override {
     RTC_DCHECK_RUN_ON(network_thread_);
-    auto it = absl::c_find(remote_candidates_, candidate);
-    if (it == remote_candidates_.end()) {
+    size_t num_erased = std::erase_if(
+        remote_candidates_,
+        [&](const Candidate& c) { return candidate.MatchesForRemoval(c); });
+    if (num_erased == 0) {
       RTC_LOG(LS_INFO) << "Trying to remove a candidate which doesn't exist.";
-      return;
     }
-
-    remote_candidates_.erase(it);
   }
 
   void RemoveAllRemoteCandidates() override {
@@ -351,8 +351,8 @@ class FakeIceTransport : public IceTransportInternal {
       }
     }
 
-    SentPacketInfo sent_packet(options.packet_id, webrtc::TimeMillis());
-    SignalSentPacket(this, sent_packet);
+    SentPacketInfo sent_packet(options.packet_id, TimeMillis());
+    NotifySentPacket(this, sent_packet);
     return static_cast<int>(len);
   }
 
@@ -388,7 +388,7 @@ class FakeIceTransport : public IceTransportInternal {
     network_route_ = network_route;
     SendTask(network_thread_, [this] {
       RTC_DCHECK_RUN_ON(network_thread_);
-      SignalNetworkRouteChanged(network_route_);
+      NotifyNetworkRouteChanged(network_route_);
     });
   }
 
@@ -396,7 +396,7 @@ class FakeIceTransport : public IceTransportInternal {
   void set_packet_send_filter(
       absl::AnyInvocable<bool(const char* data,
                               size_t len,
-                              const webrtc::AsyncSocketPacketOptions& options,
+                              const AsyncSocketPacketOptions& options,
                               int /* flags */)> func) {
     RTC_DCHECK_RUN_ON(network_thread_);
     packet_send_filter_func_ = std::move(func);
@@ -434,7 +434,7 @@ class FakeIceTransport : public IceTransportInternal {
   bool SendIcePing() {
     RTC_DCHECK_RUN_ON(network_thread_);
     RTC_DLOG(LS_INFO) << name_ << ": SendIcePing()";
-    last_sent_ping_timestamp_ = webrtc::TimeMicros();
+    last_sent_ping_timestamp_ = TimeMicros();
     auto msg = std::make_unique<IceMessage>(STUN_BINDING_REQUEST);
     MaybeAddDtlsPiggybackingAttributes(msg.get());
     msg->AddFingerprint();
@@ -505,9 +505,9 @@ class FakeIceTransport : public IceTransportInternal {
     RTC_LOG(LS_INFO) << "Change writable_ to " << writable;
     writable_ = writable;
     if (writable_) {
-      SignalReadyToSend(this);
+      NotifyReadyToSend(this);
     }
-    SignalWritableState(this);
+    NotifyWritableState(this);
   }
 
   void set_receiving(bool receiving)
@@ -516,7 +516,7 @@ class FakeIceTransport : public IceTransportInternal {
       return;
     }
     receiving_ = receiving;
-    SignalReceivingState(this);
+    NotifyReceivingState(this);
   }
 
   bool SendPacketInternal(const CopyOnWriteBuffer& packet,
@@ -562,7 +562,7 @@ class FakeIceTransport : public IceTransportInternal {
 
   void ReceivePacketInternal(const CopyOnWriteBuffer& packet) {
     RTC_DCHECK_RUN_ON(network_thread_);
-    auto now = webrtc::TimeMicros();
+    auto now = TimeMicros();
     if (auto msg = GetStunMessage(packet)) {
       RTC_LOG(LS_INFO) << name_ << ": RECV STUN message: "
                        << ", data[0]: "
@@ -577,8 +577,15 @@ class FakeIceTransport : public IceTransportInternal {
                         << " attr: " << (dtls_piggyback_attr != nullptr)
                         << " ack: " << (dtls_piggyback_ack != nullptr);
       if (!dtls_stun_piggyback_callbacks_.empty()) {
-        dtls_stun_piggyback_callbacks_.recv_data(dtls_piggyback_attr,
-                                                 dtls_piggyback_ack);
+        std::optional<ArrayView<uint8_t>> piggyback_attr;
+        if (dtls_piggyback_attr) {
+          piggyback_attr = dtls_piggyback_attr->array_view();
+        }
+        std::optional<std::vector<uint32_t>> piggyback_ack;
+        if (dtls_piggyback_ack) {
+          piggyback_ack = dtls_piggyback_ack->GetUInt32Vector();
+        }
+        dtls_stun_piggyback_callbacks_.recv_data(piggyback_attr, piggyback_ack);
       }
 
       if (msg->type() == STUN_BINDING_RESPONSE) {
@@ -632,7 +639,7 @@ class FakeIceTransport : public IceTransportInternal {
   std::optional<IceTransportStateInternal> legacy_transport_state_
       RTC_GUARDED_BY(network_thread_);
   IceGatheringState gathering_state_ RTC_GUARDED_BY(network_thread_) =
-      webrtc::kIceGatheringNew;
+      kIceGatheringNew;
   bool had_connection_ RTC_GUARDED_BY(network_thread_) = false;
   bool writable_ RTC_GUARDED_BY(network_thread_) = false;
   bool receiving_ RTC_GUARDED_BY(network_thread_) = false;
@@ -656,7 +663,7 @@ class FakeIceTransport : public IceTransportInternal {
   DtlsStunPiggybackCallbacks dtls_stun_piggyback_callbacks_;
   std::map<int, int> received_stun_messages_per_type;
   int received_packets_ = 0;
-  test::ExplicitKeyValueConfig field_trials_;
+  FieldTrials field_trials_;
   bool drop_non_stun_unless_writable_ = false;
 };
 
@@ -673,15 +680,5 @@ class FakeIceTransportWrapper : public IceTransportInterface {
 
 }  //  namespace webrtc
 
-// Re-export symbols from the webrtc namespace for backwards compatibility.
-// TODO(bugs.webrtc.org/4222596): Remove once all references are updated.
-#ifdef WEBRTC_ALLOW_DEPRECATED_NAMESPACES
-namespace cricket {
-using ::webrtc::FakeIceTransport;
-using ::webrtc::FakeIceTransportWrapper;
-using ::webrtc::SafeTask;
-using ::webrtc::TimeDelta;
-}  // namespace cricket
-#endif  // WEBRTC_ALLOW_DEPRECATED_NAMESPACES
 
 #endif  // P2P_TEST_FAKE_ICE_TRANSPORT_H_

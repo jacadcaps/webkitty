@@ -29,7 +29,9 @@
 #if PLATFORM(IOS_FAMILY)
 
 #import "Logging.h"
+#import "MediaDeviceRoute.h"
 #import "MediaPlaybackTargetCocoa.h"
+#import "MediaPlaybackTargetWirelessPlayback.h"
 #import "PlatformMediaSessionManager.h"
 #import "WebCoreThreadRun.h"
 #import <AVFoundation/AVAudioSession.h>
@@ -85,9 +87,18 @@ class MediaSessionHelperIOS;
 
 @end
 
-class MediaSessionHelperIOS final : public MediaSessionHelper {
+class MediaSessionHelperIOS final
+    : public MediaSessionHelper
+#if HAVE(AVROUTING_FRAMEWORK)
+    , public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<MediaSessionHelperIOS>
+#endif
+{
 public:
     MediaSessionHelperIOS();
+
+#if HAVE(AVROUTING_FRAMEWORK)
+    WTF_ABSTRACT_THREAD_SAFE_REF_COUNTED_AND_CAN_MAKE_WEAK_PTR_IMPL;
+#endif
 
     void externalOutputDeviceAvailableDidChange();
     void updateCarPlayIsConnected();
@@ -102,7 +113,8 @@ public:
 private:
     void setIsPlayingToAutomotiveHeadUnit(bool);
 
-    void providePresentingApplicationPID(int, ShouldOverride) final;
+    std::optional<ProcessID> presentedApplicationPID() const final;
+    void providePresentingApplicationPID(ProcessID) final;
     void startMonitoringWirelessRoutesInternal() final;
     void stopMonitoringWirelessRoutesInternal() final;
 
@@ -128,6 +140,11 @@ MediaSessionHelper& MediaSessionHelper::sharedHelper()
     return *helper;
 }
 
+Ref<MediaSessionHelper> MediaSessionHelper::protectedSharedHelper()
+{
+    return sharedHelper();
+}
+
 void MediaSessionHelper::resetSharedHelper()
 {
     sharedHelperInstance() = adoptRef(*new MediaSessionHelperIOS());
@@ -135,7 +152,7 @@ void MediaSessionHelper::resetSharedHelper()
 
 void MediaSessionHelper::setSharedHelper(Ref<MediaSessionHelper>&& helper)
 {
-    sharedHelperInstance() = WTFMove(helper);
+    sharedHelperInstance() = WTF::move(helper);
 }
 
 void MediaSessionHelper::addClient(MediaSessionHelperClient& client)
@@ -152,39 +169,45 @@ void MediaSessionHelper::removeClient(MediaSessionHelperClient& client)
 
 void MediaSessionHelper::activeAudioRouteDidChange(ShouldPause shouldPause)
 {
-    for (auto& client : m_clients)
+    m_clients.forEach([&](auto& client) {
         client.activeAudioRouteDidChange(shouldPause);
+    });
 }
 
 void MediaSessionHelper::applicationWillEnterForeground(SuspendedUnderLock suspendedUnderLock)
 {
-    for (auto& client : m_clients)
+    m_clients.forEach([&](auto& client) {
         client.uiApplicationWillEnterForeground(suspendedUnderLock);
+    });
 }
 
 void MediaSessionHelper::applicationDidEnterBackground(SuspendedUnderLock suspendedUnderLock)
 {
-    for (auto& client : m_clients)
+    m_clients.forEach([&](auto& client) {
         client.uiApplicationDidEnterBackground(suspendedUnderLock);
+    });
 }
 
 void MediaSessionHelper::applicationWillBecomeInactive()
 {
-    for (auto& client : m_clients)
+    m_clients.forEach([](auto& client) {
         client.uiApplicationWillBecomeInactive();
+    });
 }
 
 void MediaSessionHelper::applicationDidBecomeActive()
 {
-    for (auto& client : m_clients)
+    m_clients.forEach([](auto& client) {
         client.uiApplicationDidBecomeActive();
+    });
 }
 
 void MediaSessionHelper::externalOutputDeviceAvailableDidChange(HasAvailableTargets hasAvailableTargets)
 {
     m_isExternalOutputDeviceAvailable = hasAvailableTargets == HasAvailableTargets::Yes;
-    for (auto& client : m_clients)
+    m_clients.forEach([&](auto& client) {
         client.externalOutputDeviceAvailableDidChange(hasAvailableTargets);
+    });
 }
 
 void MediaSessionHelper::isPlayingToAutomotiveHeadUnitDidChange(PlayingToAutomotiveHeadUnit playingToAutomotiveHeadUnit)
@@ -194,16 +217,18 @@ void MediaSessionHelper::isPlayingToAutomotiveHeadUnitDidChange(PlayingToAutomot
         return;
 
     m_isPlayingToAutomotiveHeadUnit = newValue;
-    for (auto& client : m_clients)
+    m_clients.forEach([&](auto& client) {
         client.isPlayingToAutomotiveHeadUnitDidChange(playingToAutomotiveHeadUnit);
+    });
 }
 
 void MediaSessionHelper::activeVideoRouteDidChange(SupportsAirPlayVideo supportsAirPlayVideo, Ref<MediaPlaybackTarget>&& playbackTarget)
 {
-    m_playbackTarget = WTFMove(playbackTarget);
+    m_playbackTarget = WTF::move(playbackTarget);
     m_activeVideoRouteSupportsAirPlayVideo = supportsAirPlayVideo == SupportsAirPlayVideo::Yes;
-    for (auto& client : m_clients)
+    m_clients.forEach([&](auto& client) {
         client.activeVideoRouteDidChange(supportsAirPlayVideo, *m_playbackTarget);
+    });
 }
 
 void MediaSessionHelper::activeAudioRouteSupportsSpatialPlaybackDidChange(SupportsSpatialAudioPlayback supportsSpatialPlayback)
@@ -212,8 +237,9 @@ void MediaSessionHelper::activeAudioRouteSupportsSpatialPlaybackDidChange(Suppor
         return;
 
     m_activeAudioRouteSupportsSpatialPlayback = supportsSpatialPlayback;
-    for (auto& client : m_clients)
+    m_clients.forEach([&](auto& client) {
         client.activeAudioRouteSupportsSpatialPlaybackDidChange(supportsSpatialPlayback);
+    });
 }
 
 void MediaSessionHelper::startMonitoringWirelessRoutes()
@@ -235,10 +261,19 @@ void MediaSessionHelper::stopMonitoringWirelessRoutes()
     stopMonitoringWirelessRoutesInternal();
 }
 
+std::optional<ProcessID> MediaSessionHelper::presentedApplicationPID() const
+{
+    return std::nullopt;
+}
+
+void MediaSessionHelper::providePresentingApplicationPID(ProcessID)
+{
+}
+
 void MediaSessionHelper::updateActiveAudioRouteSupportsSpatialPlayback()
 {
 #if HAVE(AVAUDIOSESSION)
-    AVAudioSession* audioSession = [PAL::getAVAudioSessionClass() sharedInstance];
+    AVAudioSession* audioSession = [PAL::getAVAudioSessionClassSingleton() sharedInstance];
     for (AVAudioSessionPortDescription* output in audioSession.currentRoute.outputs) {
         if (output.spatialAudioEnabled) {
             setActiveAudioRouteSupportsSpatialPlayback(true);
@@ -255,6 +290,18 @@ void MediaSessionHelper::setActiveAudioRouteSupportsSpatialPlayback(bool support
     activeAudioRouteSupportsSpatialPlaybackDidChange(supports ? SupportsSpatialAudioPlayback::Yes : SupportsSpatialAudioPlayback::No);
 }
 
+#if HAVE(AVROUTING_FRAMEWORK)
+void MediaSessionHelper::activeRoutesDidChange(MediaDeviceRouteController& routeController)
+{
+    if (RefPtr mostRecentActiveRoute = routeController.mostRecentActiveRoute()) {
+        activeVideoRouteDidChange(SupportsAirPlayVideo::Yes, MediaPlaybackTargetWirelessPlayback::create(*mostRecentActiveRoute));
+        return;
+    }
+
+    // FIXME: Reset the active route for local playback
+}
+#endif // HAVE(AVROUTING_FRAMEWORK)
+
 MediaSessionHelperIOS::MediaSessionHelperIOS()
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
@@ -263,12 +310,26 @@ MediaSessionHelperIOS::MediaSessionHelperIOS()
     END_BLOCK_OBJC_EXCEPTIONS
 
     updateCarPlayIsConnected();
+
+#if HAVE(AVROUTING_FRAMEWORK)
+    ASSERT(MediaDeviceRouteController::singleton().client() == nullptr);
+    MediaDeviceRouteController::singleton().setClient(this);
+#endif
 }
 
-void MediaSessionHelperIOS::providePresentingApplicationPID(int pid, ShouldOverride shouldOverride)
+std::optional<ProcessID> MediaSessionHelperIOS::presentedApplicationPID() const
 {
 #if HAVE(MEDIAEXPERIENCE_AVSYSTEMCONTROLLER)
-    if (m_presentedApplicationPID && (*m_presentedApplicationPID == pid || shouldOverride == ShouldOverride::No))
+    if (m_presentedApplicationPID)
+        return *m_presentedApplicationPID;
+#endif
+    return std::nullopt;
+}
+
+void MediaSessionHelperIOS::providePresentingApplicationPID(ProcessID pid)
+{
+#if HAVE(MEDIAEXPERIENCE_AVSYSTEMCONTROLLER)
+    if (m_presentedApplicationPID == pid)
         return;
 
     RELEASE_LOG(Media, "Setting AVSystemController_PIDToInheritApplicationStateFrom to %d", pid);
@@ -276,12 +337,11 @@ void MediaSessionHelperIOS::providePresentingApplicationPID(int pid, ShouldOverr
     m_presentedApplicationPID = pid;
 
     NSError *error = nil;
-    [[getAVSystemControllerClass() sharedAVSystemController] setAttribute:@(pid) forKey:getAVSystemController_PIDToInheritApplicationStateFrom() error:&error];
+    [[getAVSystemControllerClassSingleton() sharedAVSystemController] setAttribute:@(pid) forKey:getAVSystemController_PIDToInheritApplicationStateFromSingleton() error:&error];
     if (error)
         RELEASE_LOG_ERROR(Media, "Failed to set AVSystemController_PIDToInheritApplicationStateFrom: %@", error.localizedDescription);
 #else
     UNUSED_PARAM(pid);
-    UNUSED_PARAM(shouldOverride);
 #endif
 }
 
@@ -318,7 +378,7 @@ void MediaSessionHelperIOS::mediaServerConnectionDied()
 void MediaSessionHelperIOS::updateCarPlayIsConnected()
 {
 #if HAVE(AVAUDIOSESSION)
-    AVAudioSession *audioSession = [PAL::getAVAudioSessionClass() sharedInstance];
+    AVAudioSession *audioSession = [PAL::getAVAudioSessionClassSingleton() sharedInstance];
     for (AVAudioSessionPortDescription *output in audioSession.currentRoute.outputs) {
         if ([output.portType isEqualToString:AVAudioSessionPortCarAudio]) {
             setIsPlayingToAutomotiveHeadUnit(true);
@@ -343,9 +403,9 @@ void MediaSessionHelperIOS::activeAudioRouteDidChange(bool shouldPause)
 
 void MediaSessionHelperIOS::activeVideoRouteDidChange()
 {
-    auto target = MediaPlaybackTargetCocoa::create();
+    Ref<MediaPlaybackTarget> target = MediaPlaybackTargetCocoa::create();
     auto supportsRemoteVideoPlayback = target->supportsRemoteVideoPlayback() ? SupportsAirPlayVideo::Yes : SupportsAirPlayVideo::No;
-    MediaSessionHelper::activeVideoRouteDidChange(supportsRemoteVideoPlayback, WTFMove(target));
+    MediaSessionHelper::activeVideoRouteDidChange(supportsRemoteVideoPlayback, WTF::move(target));
 }
 #endif
 
@@ -371,25 +431,25 @@ void MediaSessionHelperIOS::externalOutputDeviceAvailableDidChange()
     _callback = callback;
 
     NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
-    [center addObserver:self selector:@selector(applicationWillEnterForeground:) name:PAL::get_UIKit_UIApplicationWillEnterForegroundNotification() object:nil];
+    [center addObserver:self selector:@selector(applicationWillEnterForeground:) name:PAL::get_UIKit_UIApplicationWillEnterForegroundNotificationSingleton() object:nil];
     [center addObserver:self selector:@selector(applicationWillEnterForeground:) name:WebUIApplicationWillEnterForegroundNotification object:nil];
-    [center addObserver:self selector:@selector(applicationDidBecomeActive:) name:PAL::get_UIKit_UIApplicationDidBecomeActiveNotification() object:nil];
+    [center addObserver:self selector:@selector(applicationDidBecomeActive:) name:PAL::get_UIKit_UIApplicationDidBecomeActiveNotificationSingleton() object:nil];
     [center addObserver:self selector:@selector(applicationDidBecomeActive:) name:WebUIApplicationDidBecomeActiveNotification object:nil];
-    [center addObserver:self selector:@selector(applicationWillResignActive:) name:PAL::get_UIKit_UIApplicationWillResignActiveNotification() object:nil];
+    [center addObserver:self selector:@selector(applicationWillResignActive:) name:PAL::get_UIKit_UIApplicationWillResignActiveNotificationSingleton() object:nil];
     [center addObserver:self selector:@selector(applicationWillResignActive:) name:WebUIApplicationWillResignActiveNotification object:nil];
-    [center addObserver:self selector:@selector(applicationDidEnterBackground:) name:PAL::get_UIKit_UIApplicationDidEnterBackgroundNotification() object:nil];
+    [center addObserver:self selector:@selector(applicationDidEnterBackground:) name:PAL::get_UIKit_UIApplicationDidEnterBackgroundNotificationSingleton() object:nil];
     [center addObserver:self selector:@selector(applicationDidEnterBackground:) name:WebUIApplicationDidEnterBackgroundNotification object:nil];
-    [center addObserver:self selector:@selector(activeOutputDeviceDidChange:) name:PAL::get_AVFoundation_AVAudioSessionRouteChangeNotification() object:nil];
-    [center addObserver:self selector:@selector(spatialPlaybackCapabilitiesChanged:) name:PAL::get_AVFoundation_AVAudioSessionSpatialPlaybackCapabilitiesChangedNotification() object:nil];
+    [center addObserver:self selector:@selector(activeOutputDeviceDidChange:) name:PAL::get_AVFoundation_AVAudioSessionRouteChangeNotificationSingleton() object:nil];
+    [center addObserver:self selector:@selector(spatialPlaybackCapabilitiesChanged:) name:PAL::get_AVFoundation_AVAudioSessionSpatialPlaybackCapabilitiesChangedNotificationSingleton() object:nil];
 
 #if HAVE(MEDIAEXPERIENCE_AVSYSTEMCONTROLLER)
-    [center addObserver:self selector:@selector(mediaServerConnectionDied:) name:getAVSystemController_ServerConnectionDiedNotification() object:nil];
+    [center addObserver:self selector:@selector(mediaServerConnectionDied:) name:getAVSystemController_ServerConnectionDiedNotificationSingleton() object:nil];
 #endif
 
     // Now playing won't work unless we turn on the delivery of remote control events.
     RunLoop::mainSingleton().dispatch([] {
         BEGIN_BLOCK_OBJC_EXCEPTIONS
-        [[PAL::getUIApplicationClass() sharedApplication] beginReceivingRemoteControlEvents];
+        [[PAL::getUIApplicationClassSingleton() sharedApplication] beginReceivingRemoteControlEvents];
         END_BLOCK_OBJC_EXCEPTIONS
     });
 

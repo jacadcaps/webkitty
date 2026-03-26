@@ -26,6 +26,8 @@
 #import "config.h"
 #import "TestWKWebView.h"
 
+#ifdef __cplusplus
+
 #import "CGImagePixelReader.h"
 #import "ClassMethodSwizzler.h"
 #import "HostWindowManager.h"
@@ -43,7 +45,9 @@
 #import <WebKit/WKWebViewPrivateForTesting.h>
 #import <WebKit/WebKitPrivate.h>
 #import <WebKit/_WKActivatedElementInfo.h>
+#import <WebKit/_WKContextMenuElementInfo.h>
 #import <WebKit/_WKFrameTreeNode.h>
+#import <WebKit/_WKJSHandle.h>
 #import <WebKit/_WKProcessPoolConfiguration.h>
 #import <WebKit/_WKTextInputContext.h>
 #import <objc/runtime.h>
@@ -55,10 +59,14 @@
 #import <wtf/WeakObjCPtr.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 
+#endif
+
 #if PLATFORM(MAC)
 #import <AppKit/AppKit.h>
 #import <Carbon/Carbon.h>
 #endif
+
+#ifdef __cplusplus
 
 #if PLATFORM(IOS_FAMILY)
 #import "UIKitSPIForTesting.h"
@@ -180,11 +188,6 @@ static NSString *overrideBundleIdentifier(id, SEL)
 }
 
 #if PLATFORM(IOS_FAMILY)
-
-- (UIView <UITextInputPrivate, UITextInputMultiDocument> *)textInputContentView
-{
-    return (UIView <UITextInputPrivate, UITextInputMultiDocument> *)[self valueForKey:@"_currentContentView"];
-}
 
 - (NSArray<_WKTextInputContext *> *)synchronouslyRequestTextInputContextsInRect:(CGRect)rect
 {
@@ -622,6 +625,21 @@ static WebEvent *unwrap(BEKeyEntry *event)
     return evalResult.autorelease();
 }
 
+- (id)objectByEvaluatingJavaScriptWithUserGesture:(NSString *)script inFrame:(WKFrameInfo *)frame
+{
+    bool callbackComplete = false;
+    RetainPtr<id> evalResult;
+    [self _evaluateJavaScript:script withSourceURL:nil inFrame:frame inContentWorld:WKContentWorld.pageWorld withUserGesture:YES completionHandler:[&](id result, NSError *error) {
+        evalResult = result;
+        callbackComplete = true;
+        EXPECT_TRUE(!error);
+        if (error)
+            NSLog(@"Encountered error: %@ while evaluating script: %@", error, script);
+    }];
+    TestWebKitAPI::Util::run(&callbackComplete);
+    return evalResult.autorelease();
+}
+
 - (id)objectByEvaluatingJavaScript:(NSString *)script inFrame:(WKFrameInfo *)frame
 {
     bool callbackComplete = false;
@@ -805,7 +823,28 @@ static IterationStatus forEachCALayer(CALayer *layer, IterationStatus(^visitor)(
     return result.autorelease();
 }
 
+- (_WKJSHandle *)querySelector:(NSString *)selector frame:(WKFrameInfo *)frame world:(WKContentWorld *)world
+{
+    RetainPtr script = [NSString stringWithFormat:@"window.webkit.createJSHandle(document.querySelector(`%@`))", selector];
+    return dynamic_objc_cast<_WKJSHandle>([self objectByEvaluatingJavaScript:script.get() inFrame:frame inContentWorld:world]);
+}
+
 @end
+
+#endif // __cplusplus
+
+@implementation WKWebView (TestWebKitAPI_NonCpp)
+
+#if PLATFORM(IOS_FAMILY)
+- (UIView <UITextInputPrivate, UITextInputMultiDocument> *)textInputContentView
+{
+    return (UIView <UITextInputPrivate, UITextInputMultiDocument> *)[self valueForKey:@"_currentContentView"];
+}
+#endif // PLATFORM(IOS_FAMILY)
+
+@end
+
+#ifdef __cplusplus
 
 @implementation TestMessageHandler {
     NSMutableDictionary<NSString *, dispatch_block_t> *_messageHandlers;
@@ -1177,6 +1216,15 @@ static UIWindowScene *windowScene()
     }];
 
     TestWebKitAPI::Util::run(&done);
+}
+
+- (void)forceLightMode
+{
+#if USE(APPKIT)
+    [self setAppearance:[NSAppearance appearanceNamed:NSAppearanceNameAqua]];
+#else
+    [self setOverrideUserInterfaceStyle:UIUserInterfaceStyleLight];
+#endif
 }
 
 - (void)forceDarkMode
@@ -1725,3 +1773,80 @@ static WKContentView *recursiveFindWKContentView(UIView *view)
 }
 
 @end
+
+
+@implementation TestWKWebView (ContextMenu)
+
+#if PLATFORM(MAC)
+
+static NSMenuItem *itemMatchingFilter(NSMenu *menu, MenuItemFilter filter)
+{
+    for (NSInteger index = 0; index < menu.numberOfItems; ++index) {
+        auto *item = [menu itemAtIndex:index];
+        if (!item)
+            continue;
+
+        if (filter(item))
+            return item;
+
+        if (item.hasSubmenu) {
+            if (auto *foundItem = itemMatchingFilter(item.submenu, filter))
+                return foundItem;
+        }
+    }
+    return nil;
+}
+
+- (void)rightClick:(NSPoint)clickLocation andSelectItemMatching:(MenuItemFilter)filter
+{
+    bool selectedItem = false;
+    RetainPtr selectItemTimer = [NSTimer timerWithTimeInterval:0.25 repeats:YES block:[&selectedItem, strongSelf = RetainPtr { self }, filter = makeBlockPtr(filter)](NSTimer *timer) {
+        NSMenu *activeMenu = [strongSelf _activeMenu];
+        if (!activeMenu)
+            return;
+
+        auto *item = itemMatchingFilter(activeMenu, filter.get());
+        if (!item)
+            return;
+
+        auto *itemMenu = item.menu;
+        [itemMenu performActionForItemAtIndex:[itemMenu indexOfItem:item]];
+        [activeMenu cancelTracking];
+        [timer invalidate];
+        selectedItem = true;
+    }];
+
+    [NSRunLoop.mainRunLoop addTimer:selectItemTimer.get() forMode:NSEventTrackingRunLoopMode];
+    [self.window orderFrontRegardless];
+    [self mouseDownAtPoint:NSMakePoint(50, 350) simulatePressure:NO withFlags:0 eventType:NSEventTypeRightMouseDown];
+    [self mouseUpAtPoint:NSMakePoint(50, 350) withFlags:0 eventType:NSEventTypeRightMouseUp];
+    TestWebKitAPI::Util::run(&selectedItem);
+}
+
+- (_WKContextMenuElementInfo *)rightClickAtPointAndWaitForContextMenu:(NSPoint)clickLocation
+{
+    RetainPtr uiDelegate = adoptNS([TestUIDelegate new]);
+
+    __block RetainPtr<_WKContextMenuElementInfo> result;
+    __block bool gotProposedMenu = false;
+    [uiDelegate setGetContextMenuFromProposedMenu:^(NSMenu *, _WKContextMenuElementInfo *elementInfo, id<NSSecureCoding>, void (^completion)(NSMenu *)) {
+        result = elementInfo;
+        gotProposedMenu = true;
+        completion(nil);
+    }];
+
+    EXPECT_NULL(self.UIDelegate);
+    self.UIDelegate = uiDelegate.get();
+    [self rightClickAtPoint:clickLocation];
+    TestWebKitAPI::Util::run(&gotProposedMenu);
+    [self waitForNextPresentationUpdate];
+
+    self.UIDelegate = nil;
+    return result.autorelease();
+}
+
+#endif
+
+@end
+
+#endif // __cplusplus

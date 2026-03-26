@@ -27,6 +27,7 @@
 #include "APINavigation.h"
 
 #include "BrowsingWarning.h"
+#include "FrameProcess.h"
 #include "WebBackForwardListFrameItem.h"
 #include "WebBackForwardListItem.h"
 #include <WebCore/RegistrableDomain.h>
@@ -44,7 +45,7 @@ using namespace WebKit;
 static constexpr Seconds navigationActivityTimeout { 30_s };
 
 SubstituteData::SubstituteData(Vector<uint8_t>&& content, const ResourceResponse& response, WebCore::SubstituteData::SessionHistoryVisibility sessionHistoryVisibility)
-    : SubstituteData(WTFMove(content), response.mimeType(), response.textEncodingName(), response.url().string(), nullptr, sessionHistoryVisibility)
+    : SubstituteData(WTF::move(content), response.mimeType(), response.textEncodingName(), response.url().string(), nullptr, sessionHistoryVisibility)
 {
 }
 
@@ -59,7 +60,7 @@ Navigation::Navigation(WebCore::ProcessIdentifier processID)
 Navigation::Navigation(WebCore::ProcessIdentifier processID, RefPtr<WebBackForwardListItem>&& currentAndTargetItem)
     : m_navigationID(WebCore::NavigationIdentifier::generate())
     , m_processID(processID)
-    , m_reloadItem(WTFMove(currentAndTargetItem))
+    , m_reloadItem(WTF::move(currentAndTargetItem))
     , m_clientNavigationActivity(ProcessThrottler::TimedActivity::create(navigationActivityTimeout))
 {
 }
@@ -67,10 +68,10 @@ Navigation::Navigation(WebCore::ProcessIdentifier processID, RefPtr<WebBackForwa
 Navigation::Navigation(WebCore::ProcessIdentifier processID, WebCore::ResourceRequest&& request, RefPtr<WebBackForwardListItem>&& fromItem)
     : m_navigationID(WebCore::NavigationIdentifier::generate())
     , m_processID(processID)
-    , m_originalRequest(WTFMove(request))
+    , m_originalRequest(WTF::move(request))
     , m_currentRequest(m_originalRequest)
     , m_redirectChain { m_originalRequest.url() }
-    , m_fromItem(WTFMove(fromItem))
+    , m_fromItem(WTF::move(fromItem))
     , m_clientNavigationActivity(ProcessThrottler::TimedActivity::create(navigationActivityTimeout))
 {
 }
@@ -80,8 +81,8 @@ Navigation::Navigation(WebCore::ProcessIdentifier processID, Ref<WebBackForwardL
     , m_processID(processID)
     , m_originalRequest(WTF::URL { targetFrameItem->protectedMainFrame()->url() })
     , m_currentRequest(m_originalRequest)
-    , m_targetFrameItem(WTFMove(targetFrameItem))
-    , m_fromItem(WTFMove(fromItem))
+    , m_targetFrameItem(WTF::move(targetFrameItem))
+    , m_fromItem(WTF::move(fromItem))
     , m_backForwardFrameLoadType(backForwardFrameLoadType)
     , m_clientNavigationActivity(ProcessThrottler::TimedActivity::create(navigationActivityTimeout))
 {
@@ -91,14 +92,14 @@ Navigation::Navigation(WebCore::ProcessIdentifier processID, std::unique_ptr<Sub
     : Navigation(processID)
 {
     ASSERT(substituteData);
-    m_substituteData = WTFMove(substituteData);
+    m_substituteData = WTF::move(substituteData);
 }
 
 Navigation::Navigation(WebCore::ProcessIdentifier processID, WebCore::ResourceRequest&& simulatedRequest, std::unique_ptr<SubstituteData>&& substituteData, RefPtr<WebKit::WebBackForwardListItem>&& fromItem)
-    : Navigation(processID, WTFMove(simulatedRequest), WTFMove(fromItem))
+    : Navigation(processID, WTF::move(simulatedRequest), WTF::move(fromItem))
 {
     ASSERT(substituteData);
-    m_substituteData = WTFMove(substituteData);
+    m_substituteData = WTF::move(substituteData);
 }
 
 Navigation::~Navigation()
@@ -110,10 +111,11 @@ void Navigation::resetRequestStart()
     m_requestStart = MonotonicTime::now();
 }
 
-void Navigation::setCurrentRequest(ResourceRequest&& request, ProcessIdentifier processIdentifier)
+void Navigation::setCurrentRequest(ResourceRequest&& request, std::optional<ProcessIdentifier> processIdentifier)
 {
-    m_currentRequest = WTFMove(request);
+    m_currentRequest = WTF::move(request);
     m_currentRequestProcessIdentifier = processIdentifier;
+    m_hasStorageForCurrentSite = false;
 }
 
 void Navigation::appendRedirectionURL(const WTF::URL& url)
@@ -148,6 +150,13 @@ void Navigation::markRequestAsFromClientInput()
         m_lastNavigationAction->isRequestFromClientOrUserInput = true;
 }
 
+WebCore::SecurityOriginData Navigation::requesterOrigin() const
+{
+    if (m_lastNavigationAction && m_lastNavigationAction->requester)
+        return m_lastNavigationAction->requester->securityOrigin->data();
+    return { };
+}
+
 void Navigation::setSafeBrowsingCheckOngoing(size_t index, bool ongoing)
 {
     if (ongoing)
@@ -173,7 +182,7 @@ RefPtr<WebKit::BrowsingWarning> Navigation::safeBrowsingWarning()
 
 void Navigation::setSafeBrowsingWarning(RefPtr<WebKit::BrowsingWarning>&& safeBrowsingWarning)
 {
-    m_safeBrowsingWarning = WTFMove(safeBrowsingWarning);
+    m_safeBrowsingWarning = WTF::move(safeBrowsingWarning);
 }
 
 size_t Navigation::redirectChainIndex(const WTF::URL& url)
@@ -182,6 +191,12 @@ size_t Navigation::redirectChainIndex(const WTF::URL& url)
     if (index == WTF::notFound)
         index = m_redirectChain.size();
     return index;
+}
+
+void Navigation::setPendingSharedProcess(FrameProcess& sharedProcess)
+{
+    // Extend the life of a shared process until the end of the current navigation.
+    m_pendingSharedProcess = sharedProcess;
 }
 
 #if !LOG_DISABLED
@@ -193,5 +208,12 @@ WTF::String Navigation::loggingString() const
 }
 
 #endif
+
+
+void Navigation::setHasStorageForCurrentSite(const WTF::URL& url, bool hasStorageForCurrentSite)
+{
+    ASSERT_UNUSED(url, url == m_currentRequest.url());
+    m_hasStorageForCurrentSite = hasStorageForCurrentSite;
+}
 
 } // namespace API

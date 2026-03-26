@@ -129,7 +129,7 @@ void JSTestStringifierReadOnlyAttributePrototype::finishCreation(VM& vm)
 const ClassInfo JSTestStringifierReadOnlyAttribute::s_info = { "TestStringifierReadOnlyAttribute"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestStringifierReadOnlyAttribute) };
 
 JSTestStringifierReadOnlyAttribute::JSTestStringifierReadOnlyAttribute(Structure* structure, JSDOMGlobalObject& globalObject, Ref<TestStringifierReadOnlyAttribute>&& impl)
-    : JSDOMWrapper<TestStringifierReadOnlyAttribute>(structure, globalObject, WTFMove(impl))
+    : JSDOMWrapper<TestStringifierReadOnlyAttribute>(structure, globalObject, WTF::move(impl))
 {
 }
 
@@ -154,7 +154,7 @@ JSValue JSTestStringifierReadOnlyAttribute::getConstructor(VM& vm, const JSGloba
 
 void JSTestStringifierReadOnlyAttribute::destroy(JSC::JSCell* cell)
 {
-    JSTestStringifierReadOnlyAttribute* thisObject = static_cast<JSTestStringifierReadOnlyAttribute*>(cell);
+    SUPPRESS_MEMORY_UNSAFE_CAST JSTestStringifierReadOnlyAttribute* thisObject = static_cast<JSTestStringifierReadOnlyAttribute*>(cell);
     thisObject->JSTestStringifierReadOnlyAttribute::~JSTestStringifierReadOnlyAttribute();
 }
 
@@ -225,7 +225,7 @@ bool JSTestStringifierReadOnlyAttributeOwner::isReachableFromOpaqueRoots(JSC::Ha
 
 void JSTestStringifierReadOnlyAttributeOwner::finalize(JSC::Handle<JSC::Unknown> handle, void* context)
 {
-    auto* jsTestStringifierReadOnlyAttribute = static_cast<JSTestStringifierReadOnlyAttribute*>(handle.slot()->asCell());
+    SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestStringifierReadOnlyAttribute = static_cast<JSTestStringifierReadOnlyAttribute*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
     uncacheWrapper(world, jsTestStringifierReadOnlyAttribute->protectedWrapped().ptr(), jsTestStringifierReadOnlyAttribute);
 }
@@ -239,7 +239,7 @@ extern "C" { extern void (*const __identifier("??_7TestStringifierReadOnlyAttrib
 extern "C" { extern void* _ZTVN7WebCore32TestStringifierReadOnlyAttributeE[]; }
 #endif
 template<std::same_as<TestStringifierReadOnlyAttribute> T>
-static inline void verifyVTable(TestStringifierReadOnlyAttribute* ptr) 
+static inline void verifyVTable(TestStringifierReadOnlyAttribute* ptr)
 {
     if constexpr (std::is_polymorphic_v<T>) {
         const void* actualVTablePointer = getVTablePointer<T>(ptr);
@@ -259,12 +259,13 @@ static inline void verifyVTable(TestStringifierReadOnlyAttribute* ptr)
 #endif
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestStringifierReadOnlyAttribute>&& impl)
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<TestStringifierReadOnlyAttribute>&& impl)
 {
+    UNUSED_PARAM(lexicalGlobalObject);
 #if ENABLE(BINDING_INTEGRITY)
     verifyVTable<TestStringifierReadOnlyAttribute>(impl.ptr());
 #endif
-    return createWrapper<TestStringifierReadOnlyAttribute>(globalObject, WTFMove(impl));
+    return createWrapper<TestStringifierReadOnlyAttribute>(globalObject, WTF::move(impl));
 }
 
 JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestStringifierReadOnlyAttribute& impl)

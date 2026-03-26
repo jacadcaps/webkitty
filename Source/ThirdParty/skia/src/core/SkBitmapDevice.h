@@ -50,7 +50,7 @@ public:
      *  valid for the bitmap to have no pixels associated with it. In that case,
      *  any drawing to this device will have no effect.
      */
-    SkBitmapDevice(const SkBitmap& bitmap);
+    explicit SkBitmapDevice(const SkBitmap& bitmap);
 
     /**
      *  Construct a new device with the specified bitmap as its backend. It is
@@ -75,7 +75,7 @@ public:
     void drawOval(const SkRect& oval, const SkPaint& paint) override;
     void drawRRect(const SkRRect& rr, const SkPaint& paint) override;
 
-    void drawPath(const SkPath&, const SkPaint&, bool pathIsMutable) override;
+    void drawPath(const SkPath&, const SkPaint&) override;
 
     void drawImageRect(const SkImage*, const SkRect* src, const SkRect& dst,
                        const SkSamplingOptions&, const SkPaint&,
@@ -85,8 +85,8 @@ public:
     // Implemented in src/sksl/SkBitmapDevice_mesh.cpp
     void drawMesh(const SkMesh&, sk_sp<SkBlender>, const SkPaint&) override;
 
-    void drawAtlas(const SkRSXform[], const SkRect[], const SkColor[], int count, sk_sp<SkBlender>,
-                   const SkPaint&) override;
+    void drawAtlas(SkSpan<const SkRSXform>, SkSpan<const SkRect>, SkSpan<const SkColor>,
+                   sk_sp<SkBlender>, const SkPaint&) override;
 
     ///////////////////////////////////////////////////////////////////////////
 
@@ -112,6 +112,8 @@ public:
     void drawCoverageMask(const SkSpecialImage*, const SkMatrix&, const SkSamplingOptions&,
                           const SkPaint&) override;
 
+    bool drawBlurredRRect(const SkRRect&, const SkPaint&, float) override;
+
     sk_sp<SkSpecialImage> snapSpecial(const SkIRect&, bool forceCopy = false) override;
 
     sk_sp<SkDevice> createDevice(const CreateInfo&, const SkPaint*) override;
@@ -125,8 +127,6 @@ public:
     SkRecorder* baseRecorder() const override { return fRecorder; }
 
 private:
-    friend class SkDraw;
-    friend class SkDrawBase;
     friend class SkDrawTiler;
     friend class SkSurface_Raster;
 
@@ -152,7 +152,7 @@ private:
     skcpu::RecorderImpl* fRecorder = nullptr;
     SkBitmap fBitmap;
     SkRasterClipStack fRCStack;
-    SkGlyphRunListPainterCPU fGlyphPainter;
+    skcpu::GlyphRunListPainter fGlyphPainter;
 };
 
 #endif // SkBitmapDevice_DEFINED

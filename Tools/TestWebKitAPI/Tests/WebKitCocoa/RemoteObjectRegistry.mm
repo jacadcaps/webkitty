@@ -57,8 +57,8 @@ TEST(RemoteObjectRegistry, Basic)
 
         isDone = false;
 
-        _WKRemoteObjectInterface *interface = remoteObjectInterface();
-        id <RemoteObjectProtocol> object = [[webView _remoteObjectRegistry] remoteObjectProxyWithInterface:interface];
+        RetainPtr interface = remoteObjectInterface();
+        id <RemoteObjectProtocol> object = [[webView _remoteObjectRegistry] remoteObjectProxyWithInterface:interface.get()];
 
         [object sayHello:@"Hello, World!"];
 
@@ -234,8 +234,8 @@ TEST(RemoteObjectRegistry, CallReplyBlockAfterOriginatingWebViewDeallocates)
         auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectZero configuration:configuration.get()]);
         weakWebViewPtr = webView.get();
 
-        _WKRemoteObjectInterface *interface = remoteObjectInterface();
-        id <RemoteObjectProtocol> object = [[webView _remoteObjectRegistry] remoteObjectProxyWithInterface:interface];
+        RetainPtr interface = remoteObjectInterface();
+        id <RemoteObjectProtocol> object = [[webView _remoteObjectRegistry] remoteObjectProxyWithInterface:interface.get()];
 
         [[webView _remoteObjectRegistry] registerExportedObject:localObject.get() interface:localObjectInterface()];
 
@@ -254,6 +254,47 @@ TEST(RemoteObjectRegistry, CallReplyBlockAfterOriginatingWebViewDeallocates)
     }
 
     localObject->completionHandlerFromWebProcess();
+}
+
+@interface StringReplyObject : NSObject<StringReplyObjectProtocol> {
+@public
+    bool calledCompletionHandler;
+}
+@end
+
+@implementation StringReplyObject
+
+- (void) methodWithInteger:(uint64_t)integer
+{
+}
+
+- (void) methodWithCompletionHandler:(void (^)(id, NSString *))completionHandler
+{
+    completionHandler(@"a", @"b");
+    calledCompletionHandler = true;
+}
+
+@end
+
+TEST(RemoteObjectRegistry, CallReplyBlockWithInvalidTypeSignature)
+{
+    auto completedReplyObject = adoptNS([[LocalObject alloc] init]);
+    auto stringReplyObject = adoptNS([[StringReplyObject alloc] init]);
+
+    auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectZero configuration:[WKWebViewConfiguration _test_configurationWithTestPlugInClassName:@"RemoteObjectRegistryPlugIn"]]);
+
+    [[webView _remoteObjectRegistry] registerExportedObject:completedReplyObject.get() interface:localObjectInterface()];
+    [[webView _remoteObjectRegistry] registerExportedObject:stringReplyObject.get() interface:stringReplyObjectInterface()];
+
+    RetainPtr interface = remoteObjectInterface();
+    id<RemoteObjectProtocol> object = [[webView _remoteObjectRegistry] remoteObjectProxyWithInterface:interface.get()];
+
+    [object callUIProcessMethodWithInvalidTypeSignature];
+    [object callUIProcessMethodWithReplyBlock];
+
+    TestWebKitAPI::Util::run(&completedReplyObject->hasCompletionHandler);
+
+    EXPECT_FALSE(stringReplyObject->calledCompletionHandler);
 }
 
 TEST(RemoteObjectRegistry, SerializeErrorWithCertificates)

@@ -24,8 +24,8 @@
 
 #pragma once
 
-#include "Node.h"
-#include "QualifiedName.h"
+#include <WebCore/Node.h>
+#include <WebCore/QualifiedName.h>
 
 namespace WebCore {
 
@@ -34,7 +34,7 @@ class CSSStyleProperties;
 class MutableStyleProperties;
 
 class Attr final : public Node {
-    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(Attr);
+    WTF_MAKE_TZONE_ALLOCATED(Attr);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(Attr);
 public:
     static Ref<Attr> create(Element&, const QualifiedName&);
@@ -73,8 +73,6 @@ private:
     Ref<Node> cloneNodeInternal(Document&, CloningOperation, CustomElementRegistry*) const final;
     SerializedNode serializeNode(CloningOperation) const final;
 
-    bool isAttributeNode() const final { return true; }
-
     void parentOrShadowHostNode() const = delete; // Call parentNode() instead.
 
     // Attr wraps either an element/name, or a name/value pair (when it's a standalone Node.)
@@ -89,5 +87,5 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::Attr)
-    static bool isType(const WebCore::Node& node) { return node.isAttributeNode(); }
+    static bool isType(const WebCore::Node& node) { return node.nodeType() == WebCore::Node::ATTRIBUTE_NODE; }
 SPECIALIZE_TYPE_TRAITS_END()

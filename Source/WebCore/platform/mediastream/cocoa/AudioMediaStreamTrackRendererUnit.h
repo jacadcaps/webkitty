@@ -27,9 +27,9 @@
 
 #if ENABLE(MEDIA_STREAM)
 
-#include "AudioMediaStreamTrackRendererInternalUnit.h"
-#include "BaseAudioMediaStreamTrackRendererUnit.h"
-#include "Timer.h"
+#include <WebCore/AudioMediaStreamTrackRendererInternalUnit.h>
+#include <WebCore/BaseAudioMediaStreamTrackRendererUnit.h>
+#include <WebCore/Timer.h>
 #include <wtf/FastMalloc.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>

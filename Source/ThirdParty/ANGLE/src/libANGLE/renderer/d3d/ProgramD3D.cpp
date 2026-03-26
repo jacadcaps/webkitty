@@ -6,6 +6,10 @@
 
 // ProgramD3D.cpp: Defines the rx::ProgramD3D class which implements rx::ProgramImpl.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include "libANGLE/renderer/d3d/ProgramD3D.h"
 
 #include "common/MemoryBuffer.h"
@@ -655,7 +659,7 @@ angle::Result ProgramD3D::linkJobImpl(d3d::Context *context,
     {
         const gl::SharedCompiledShaderState &shader =
             mState.getAttachedShader(gl::ShaderType::Compute);
-        executableD3D->mShaderHLSL[gl::ShaderType::Compute] = shader->translatedSource;
+        executableD3D->mShaderHLSL[gl::ShaderType::Compute] = *shader->translatedSource;
 
         executableD3D->mShaderSamplers[gl::ShaderType::Compute].resize(
             caps.maxShaderTextureImageUnits[gl::ShaderType::Compute]);

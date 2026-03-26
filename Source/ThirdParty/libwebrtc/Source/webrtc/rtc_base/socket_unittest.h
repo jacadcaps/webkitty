@@ -14,6 +14,7 @@
 #include <cstddef>
 
 #include "absl/strings/string_view.h"
+#include "api/environment/environment.h"
 #include "rtc_base/ip_address.h"
 #include "rtc_base/socket_factory.h"
 #include "test/gtest.h"
@@ -25,10 +26,8 @@ namespace webrtc {
 // socketserver, and call the SocketTest test methods.
 class SocketTest : public ::testing::Test {
  protected:
-  explicit SocketTest(SocketFactory* socket_factory)
-      : kIPv4Loopback(INADDR_LOOPBACK),
-        kIPv6Loopback(in6addr_loopback),
-        socket_factory_(socket_factory) {}
+  explicit SocketTest(SocketFactory* socket_factory);
+
   void TestConnectIPv4();
   void TestConnectIPv6();
   void TestConnectWithDnsLookupIPv4();
@@ -101,6 +100,7 @@ class SocketTest : public ::testing::Test {
   void UdpSocketRecvTimestampUseRtcEpoch(const IPAddress& loopback);
   void SocketSendRecvWithEcn(const IPAddress& loopback);
 
+  const Environment env_;
   SocketFactory* socket_factory_;
 };
 
@@ -110,13 +110,5 @@ bool IsUnspecOrEmptyIP(const IPAddress& address);
 
 }  //  namespace webrtc
 
-// Re-export symbols from the webrtc namespace for backwards compatibility.
-// TODO(bugs.webrtc.org/4222596): Remove once all references are updated.
-#ifdef WEBRTC_ALLOW_DEPRECATED_NAMESPACES
-namespace rtc {
-using ::webrtc::IsUnspecOrEmptyIP;
-using ::webrtc::SocketTest;
-}  // namespace rtc
-#endif  // WEBRTC_ALLOW_DEPRECATED_NAMESPACES
 
 #endif  // RTC_BASE_SOCKET_UNITTEST_H_

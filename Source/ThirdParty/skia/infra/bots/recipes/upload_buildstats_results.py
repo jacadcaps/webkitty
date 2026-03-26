@@ -5,7 +5,6 @@
 
 # Recipe for uploading buildstats results to Perf.
 
-PYTHON_VERSION_COMPATIBILITY = "PY3"
 
 DEPS = [
   'recipe_engine/context',
@@ -55,7 +54,7 @@ def RunSteps(api):
 
 
 def GenTests(api):
-  builder = 'BuildStats-Debian10-EMCC-wasm-Release-PathKit'
+  builder = 'BuildStats-Ubuntu24.04-Clang-x86_64-Release'
   yield (
     api.test('normal_bot') +
     api.properties(buildername=builder,

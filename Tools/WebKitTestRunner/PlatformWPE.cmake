@@ -31,20 +31,17 @@ list(APPEND WebKitTestRunner_INCLUDE_DIRECTORIES
     ${FORWARDING_HEADERS_DIR}
 )
 
-list(APPEND WebKitTestRunner_SYSTEM_INCLUDE_DIRECTORIES
-    ${GLIB_INCLUDE_DIRS}
-    ${LIBXKBCOMMON_INCLUDE_DIRS}
-)
-
 list(APPEND WebKitTestRunner_PRIVATE_LIBRARIES
-    WebKit::WPEToolingBackends
-    ${GLIB_LIBRARIES}
-    ${LIBXKBCOMMON_LIBRARIES}
+    GLib::GLib
 )
 
 list(APPEND TestRunnerInjectedBundle_LIBRARIES
-    ${GLIB_LIBRARIES}
+    GLib::GLib
 )
+
+if (ENABLE_WPE_LEGACY_API)
+    list(APPEND WebKitTestRunner_PRIVATE_LIBRARIES WebKit::WPEToolingBackends)
+endif ()
 
 list(APPEND TestRunnerInjectedBundle_SOURCES
     InjectedBundle/atspi/AccessibilityControllerAtspi.cpp
@@ -59,7 +56,6 @@ list(APPEND TestRunnerInjectedBundle_SOURCES
 
 list(APPEND TestRunnerInjectedBundle_INCLUDE_DIRECTORIES
     ${CMAKE_SOURCE_DIR}/Source
-    ${GLIB_INCLUDE_DIRS}
     ${WebKitTestRunner_DIR}/InjectedBundle/atspi
     ${WebKitTestRunner_DIR}/InjectedBundle/glib
     ${WebKitTestRunner_DIR}/InjectedBundle/wpe

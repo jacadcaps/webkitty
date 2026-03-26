@@ -30,7 +30,11 @@
     #FakeLoadURLC(String url)
     # FakeLoadURLD(String url)
 
-[ExceptionForEnabledBy]
+[
+    ExceptionForDispatchedFrom,
+    ExceptionForDispatchedTo,
+    ExceptionForEnabledBy
+]
 messages -> TestWithoutAttributes {
     LoadURL(String url)
 #if ENABLE(TOUCH_EVENTS)
@@ -62,6 +66,8 @@ messages -> TestWithoutAttributes {
     TemplateTest(HashMap<String, std::pair<String, uint64_t>> a)
 
     SetVideoLayerID(WebCore::PlatformLayerIdentifier videoLayerID)
+
+    OpaqueTypeSecurityAssertion(NotDispatchableFromWebContent ping) -> (NotDispatchableFromWebContent pong)
 
 #if PLATFORM(MAC)
     DidCreateWebProcessConnection(MachSendRight connectionIdentifier, OptionSet<WebKit::SelectionFlags> flags)

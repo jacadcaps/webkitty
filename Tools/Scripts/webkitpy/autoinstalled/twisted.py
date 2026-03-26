@@ -1,4 +1,4 @@
-# Copyright (C) 2020-2023 Apple Inc. All rights reserved.
+# Copyright (C) 2020-2025 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -25,14 +25,11 @@ import sys
 
 from webkitscmpy import AutoInstall, Package, Version
 
-AutoInstall.install(Package('constantly', Version(15, 1, 0), pypi_name='constantly'))
+AutoInstall.install(Package('constantly', Version(23, 10, 4), pypi_name='constantly'))
 AutoInstall.install(Package('hyperlink', Version(21, 0, 0), pypi_name='hyperlink'))
 AutoInstall.install(Package('incremental', Version(21, 3, 0), pypi_name='incremental'))
 
-if sys.version_info >= (3, 11):
-    AutoInstall.install(Package('twisted', Version(22, 10, 0), pypi_name='Twisted', implicit_deps=['pyparsing']))
-else:
-    AutoInstall.install(Package('twisted', Version(20, 3, 0), pypi_name='Twisted', implicit_deps=['pyparsing']))
+AutoInstall.install(Package('twisted', Version(23, 10, 0), pypi_name='Twisted', implicit_deps=['pyparsing']))
 
 # There are no prebuilt binaries for arm-32 of 'bcrypt' and building it requires cargo/rust
 # Since this dep is not really needed for the current arm-32 bots we skip it instead of

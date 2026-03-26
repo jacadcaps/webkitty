@@ -166,6 +166,12 @@ void Seat::processEvents()
 void Seat::processEvent(struct libinput_event* event)
 {
     switch (libinput_event_get_type(event)) {
+    case LIBINPUT_EVENT_DEVICE_ADDED:
+        handleDeviceEvent(libinput_event_get_device(event), DeviceEventType::Added);
+        break;
+    case LIBINPUT_EVENT_DEVICE_REMOVED:
+        handleDeviceEvent(libinput_event_get_device(event), DeviceEventType::Removed);
+        break;
     case LIBINPUT_EVENT_POINTER_MOTION:
         handlePointerMotionEvent(libinput_event_get_pointer_event(event));
         break;
@@ -199,6 +205,47 @@ void Seat::processEvent(struct libinput_event* event)
     default:
         break;
     }
+}
+
+WPEAvailableInputDevices Seat::availableInputDevices() const
+{
+    uint32_t capabilities = WPE_AVAILABLE_INPUT_DEVICE_NONE;
+    if (m_pointer.deviceCount)
+        capabilities |= WPE_AVAILABLE_INPUT_DEVICE_MOUSE;
+    if (m_keyboard.deviceCount)
+        capabilities |= WPE_AVAILABLE_INPUT_DEVICE_KEYBOARD;
+    if (m_touch.deviceCount)
+        capabilities |= WPE_AVAILABLE_INPUT_DEVICE_TOUCHSCREEN;
+    return static_cast<WPEAvailableInputDevices>(capabilities);
+}
+
+void Seat::handleDeviceEvent(struct libinput_device* device, DeviceEventType eventType)
+{
+    bool changed = false;
+    if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_POINTER)) {
+        if (eventType == DeviceEventType::Added)
+            m_pointer.deviceCount++;
+        else
+            m_pointer.deviceCount--;
+        changed = true;
+    }
+    if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_KEYBOARD)) {
+        if (eventType == DeviceEventType::Added)
+            m_keyboard.deviceCount++;
+        else
+            m_keyboard.deviceCount--;
+        changed = true;
+    }
+    if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_TOUCH)) {
+        if (eventType == DeviceEventType::Added)
+            m_touch.deviceCount++;
+        else
+            m_touch.deviceCount--;
+        changed = true;
+    }
+
+    if (changed && m_capabilitiesChangedCallback)
+        m_capabilitiesChangedCallback(availableInputDevices());
 }
 
 void Seat::handlePointerMotionEvent(struct libinput_event_pointer* event)

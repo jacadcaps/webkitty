@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,6 +30,7 @@
 #import "PasteboardUtilities.h"
 #import "PlatformUtilities.h"
 #import "TestWKWebView.h"
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <WebKit/WKPreferencesPrivate.h>
 #import <WebKit/WKPreferencesRefPrivate.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
@@ -268,8 +269,8 @@ TEST(PasteWebArchive, WebArchiveTypeIdentifier)
     auto archive = adoptNS([[WebArchive alloc] initWithMainResource:mainResource.get() subresources:nil subframeArchives:nil]);
 
     NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
-    [pasteboard declareTypes:@[(__bridge NSString *)kUTTypeWebArchive] owner:nil];
-    [pasteboard setData:[archive data] forType:(__bridge NSString *)kUTTypeWebArchive];
+    [pasteboard declareTypes:@[UTTypeWebArchive.identifier] owner:nil];
+    [pasteboard setData:[archive data] forType:UTTypeWebArchive.identifier];
 
     auto webView = createWebViewWithCustomPasteboardDataEnabled();
     [webView synchronouslyLoadTestPageNamed:@"paste-rtfd"];
@@ -279,6 +280,34 @@ TEST(PasteWebArchive, WebArchiveTypeIdentifier)
     [webView evaluateJavaScript:@"docment.body.innerHTML = clipboardData.values[0]" completionHandler:nil];
     EXPECT_WK_STREQ("This is some text to copy.", [webView stringByEvaluatingJavaScript:@"document.querySelector('strong').textContent"]);
     EXPECT_WK_STREQ("rgb(255, 0, 0)", [webView stringByEvaluatingJavaScript:@"getComputedStyle(document.querySelector('strong')).color"]);
+}
+
+TEST(PasteWebArchive, DestinationUsesDarkMode)
+{
+    RetainPtr url = [NSURL URLWithString:@"file:///some-file.html"];
+    RetainPtr markup = @"<p class='p1'><span class='s1'>Test</span></p>";
+
+    RetainPtr mainResource = adoptNS([[WebResource alloc] initWithData:[markup dataUsingEncoding:NSUTF8StringEncoding] URL:url.get() MIMEType:@"text/html" textEncodingName:@"utf-8" frameName:nil]);
+    RetainPtr archive = adoptNS([[WebArchive alloc] initWithMainResource:mainResource.get() subresources:nil subframeArchives:nil]);
+
+    RetainPtr pasteboard = [NSPasteboard generalPasteboard];
+    [pasteboard declareTypes:@[UTTypeWebArchive.identifier] owner:nil];
+    [pasteboard setData:[archive data] forType:UTTypeWebArchive.identifier];
+
+    RetainPtr webView = createWebViewWithCustomPasteboardDataEnabled();
+    [webView forceDarkMode];
+    [webView _setEditable:YES];
+    [webView synchronouslyLoadHTMLString:@"<html><head><style> :root { color-scheme: light dark; } </style></head><body><br><div id='AppleMailSignature' dir='ltr'>Sent from my iPhone</div></body></html>"];
+
+    [webView stringByEvaluatingJavaScript:@"document.body.focus()"];
+    [webView paste:nil];
+
+    EXPECT_WK_STREQ("rgb(255, 255, 255)", [webView stringByEvaluatingJavaScript:@"getComputedStyle(document.querySelector('.s1')).color"]);
+
+    [webView forceLightMode];
+    [webView waitForNextPresentationUpdate];
+
+    EXPECT_WK_STREQ("rgb(0, 0, 0)", [webView stringByEvaluatingJavaScript:@"getComputedStyle(document.querySelector('.s1')).color"]);
 }
 
 #if ENABLE(DATA_DETECTION)

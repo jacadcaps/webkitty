@@ -40,7 +40,7 @@
 
 namespace WebCore {
 
-WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(ImageBufferCairoImageSurfaceBackend);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ImageBufferCairoImageSurfaceBackend);
 
 IntSize ImageBufferCairoImageSurfaceBackend::calculateSafeBackendSize(const Parameters& parameters)
 {
@@ -75,7 +75,7 @@ size_t ImageBufferCairoImageSurfaceBackend::calculateMemoryCost(const Parameters
 
 std::unique_ptr<ImageBufferCairoImageSurfaceBackend> ImageBufferCairoImageSurfaceBackend::create(const Parameters& parameters, const ImageBufferCreationContext&)
 {
-    ASSERT(parameters.bufferFormat.pixelFormat == ImageBufferPixelFormat::BGRA8);
+    ASSERT(parameters.bufferFormat.pixelFormat == PixelFormat::BGRA8);
 
     static cairo_user_data_key_t s_surfaceDataKey;
 
@@ -95,7 +95,7 @@ std::unique_ptr<ImageBufferCairoImageSurfaceBackend> ImageBufferCairoImageSurfac
     if (cairo_surface_status(surface.get()) != CAIRO_STATUS_SUCCESS)
         return nullptr;
 
-    return std::unique_ptr<ImageBufferCairoImageSurfaceBackend>(new ImageBufferCairoImageSurfaceBackend(parameters, WTFMove(surface)));
+    return std::unique_ptr<ImageBufferCairoImageSurfaceBackend>(new ImageBufferCairoImageSurfaceBackend(parameters, WTF::move(surface)));
 }
 
 std::unique_ptr<ImageBufferCairoImageSurfaceBackend> ImageBufferCairoImageSurfaceBackend::create(const Parameters& parameters, const GraphicsContext&)
@@ -104,7 +104,7 @@ std::unique_ptr<ImageBufferCairoImageSurfaceBackend> ImageBufferCairoImageSurfac
 }
 
 ImageBufferCairoImageSurfaceBackend::ImageBufferCairoImageSurfaceBackend(const Parameters& parameters, RefPtr<cairo_surface_t>&& surface)
-    : ImageBufferCairoSurfaceBackend(parameters, WTFMove(surface))
+    : ImageBufferCairoSurfaceBackend(parameters, WTF::move(surface))
 {
     ASSERT(cairo_surface_get_type(m_surface.get()) == CAIRO_SURFACE_TYPE_IMAGE);
 }

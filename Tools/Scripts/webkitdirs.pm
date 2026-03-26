@@ -8,13 +8,13 @@
 # are met:
 #
 # 1.  Redistributions of source code must retain the above copyright
-#     notice, this list of conditions and the following disclaimer. 
+#     notice, this list of conditions and the following disclaimer.
 # 2.  Redistributions in binary form must reproduce the above copyright
 #     notice, this list of conditions and the following disclaimer in the
-#     documentation and/or other materials provided with the distribution. 
+#     documentation and/or other materials provided with the distribution.
 # 3.  Neither the name of Apple Inc. ("Apple") nor the names of
 #     its contributors may be used to endorse or promote products derived
-#     from this software without specific prior written permission. 
+#     from this software without specific prior written permission.
 #
 # THIS SOFTWARE IS PROVIDED BY APPLE AND ITS CONTRIBUTORS "AS IS" AND ANY
 # EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
@@ -95,7 +95,6 @@ BEGIN {
        &configuration
        &configuredXcodeWorkspace
        &coverageIsEnabled
-       &fuzzilliIsEnabled
        &currentPerlPath
        &currentSVNRevision
        &debugMiniBrowser
@@ -110,6 +109,7 @@ BEGIN {
        &extractNonMacOSHostConfiguration
        &forceOptimizationLevel
        &formatBuildTime
+       &fuzzilliIsEnabled
        &generateBuildSystemFromCMakeProject
        &getCrossTargetName
        &getJhbuildPath
@@ -146,6 +146,7 @@ BEGIN {
        &libFuzzerIsEnabled
        &ltoMode
        &markBaseProductDirectoryAsCreatedByXcodeBuildSystem
+       &maybeUseContainerSDKRootDir
        &maxCPULoad
        &nativeArchitecture
        &nmPath
@@ -166,7 +167,6 @@ BEGIN {
        &runIOSWebKitApp
        &runInCrossTargetEnvironment
        &runInFlatpak
-       &runInFlatpakIfAvailable
        &runMacWebKitApp
        &runMiniBrowser
        &runSwiftBrowser
@@ -327,7 +327,7 @@ sub determineSourceDir
     $sourceDir = $FindBin::Bin;
     $sourceDir =~ s|/+$||; # Remove trailing '/' as we would die later
 
-    # walks up path checking each directory to see if it is the main WebKit project dir, 
+    # walks up path checking each directory to see if it is the main WebKit project dir,
     # defined by containing Sources, WebCore, and JavaScriptCore.
     until ((-d File::Spec->catdir($sourceDir, "Source") && -d File::Spec->catdir($sourceDir, "Source", "WebCore") && -d File::Spec->catdir($sourceDir, "Source", "JavaScriptCore")) || (-d File::Spec->catdir($sourceDir, "Internal") && -d File::Spec->catdir($sourceDir, "OpenSource")))
     {
@@ -538,6 +538,7 @@ sub determineNativeArchitecture($)
         $output = "arm64";
     }
 
+    $output = "arm64" if $output =~ m/^aarch64$/;
     $output = "arm" if $output =~ m/^armv[78]l$/;
     $nativeArchitectureMap{@{$remotes}} = $output;
 }
@@ -603,13 +604,13 @@ sub determineXcodeDestination
     return if !isAppleCocoaWebKit();
     determineXcodeSDKPlatformName();
     determineArchitecture();
-    
+
     # Use a generic destination ("Any Mac", etc.) when there are multiple architectures, or when building to
     # a device.
-    
+
     my @architectures = split(' ', $architecture);
     my $generic = $xcodeSDKPlatformName =~ /os$/ || (scalar @architectures) > 1;
-    
+
     if (willUseIOSDeviceSDK()) {
         $destination .= 'platform=iOS';
     } elsif (willUseIOSSimulatorSDK()) {
@@ -632,7 +633,7 @@ sub determineXcodeDestination
         $destination .= ',arch=' . $architectures[0] unless $generic;
         $destination .= ',variant=Mac Catalyst' if willUseMacCatalystSDK();
     }
-        
+
     if (!$generic && $xcodeSDKPlatformName =~ /simulator$/) {
         # Two goals:
         # 1. Find a simulator device to build for, to avoid building multiple architectures.
@@ -648,7 +649,7 @@ sub determineXcodeDestination
         if ($prevBuildRequest && !$prevUDID) {
             warn "Can't find UDID in previous $xcodeSDKPlatformName build request, builds may not be incremental.\n";
         }
-        
+
         # Sort the list of devices to match the ordering in Xcode's UI.
         my @devices = sort { $a->{name} cmp $b->{name} } iOSSimulatorDevices();
         my $prevDevice = first { $prevUDID && $_->{UDID} eq $prevUDID } @devices;
@@ -656,7 +657,7 @@ sub determineXcodeDestination
             warn "Simulator with UDID '$prevUDID' not found, falling back to another available simulator. " .
                 "This build may not be incremental.\n";
         }
-        
+
         # If we found the previous device, check that the runtime being built has not changed (e.g. due to a
         # major SDK update). If it has changed, or if no previous device is available, fall back to the first
         # eligible device in the list.
@@ -667,7 +668,7 @@ sub determineXcodeDestination
         } else {
             $device = first { $_->{runtime} eq $runtime } @devices;
         }
-        
+
         if ($device) {
             $destination .= ',id=' . $device->{UDID};
         } else {
@@ -676,7 +677,7 @@ sub determineXcodeDestination
             $generic = 1;
         }
     }
-    
+
     $destination = 'generic/' . $destination if $generic;
 }
 
@@ -964,7 +965,7 @@ sub determineCrossTarget {
 sub determineXcodeSDKPlatformName {
     return if defined $xcodeSDKPlatformName;
     my $sdk;
-    
+
     # Mac Catalyst is a platform but not an sdk, so it preempts an
     # explicitly-provided sdk, unlike other platform flags.
     if (checkForArgumentAndRemoveFromARGV("--maccatalyst")) {
@@ -1407,18 +1408,15 @@ sub XcodeOptions
     push @options, @baseProductDirOption;
     push @options, "ARCHS=$architecture" if $didUserSpecifyArchitecture;
     push @options, "SDKROOT=$xcodeSDK" if $xcodeSDK;
-    if (xcodeVersion() lt "15.0") {
-        push @options, "TAPI_USE_SRCROOT=YES" if $ENV{UseSRCROOTSupportForTAPI};
-    }
 
     my @features = webkitperl::FeatureList::getFeatureOptionList();
     foreach (@features) {
         if (checkForArgumentAndRemoveFromARGV("--no-$_->{option}")) {
             push @options, "$_->{define}=";
-        } 
+        }
         if (checkForArgumentAndRemoveFromARGV("--$_->{option}")) {
             push @options, "$_->{define}=$_->{define}";
-        }   
+        }
     }
 
     # When this environment variable is set Tools/Scripts/check-for-weak-vtables-and-externals
@@ -1621,15 +1619,15 @@ sub checkBuild
 {
     return if isAnyWindows();
 
-    # First check if the directory where the expected build products should be exists. 
-    
+    # First check if the directory where the expected build products should be exists.
+
     my $productDir = productDir();
     if (!-d $productDir) {
         print "No build products could be found for specified build:\n";
         print "  configuration: \"$configuration\" [$configurationExplanation]\n";
         print "  platform:      \"$xcodeSDKPlatformName\" [$xcodeSDKPlatformNameExplanation]" if isEmbeddedWebKit() || isMacCatalystWebKit();
-        print "  products:      $productDir\n\n"; 
-        
+        print "  products:      $productDir\n\n";
+
         my $buildWebKitCommand = scriptPathForName("build-webkit") . ' ' . join(' ', argumentsForConfiguration());
         die "To build this configuration, use the command `$buildWebKitCommand`.\n\nOnce that completes, re-run this command.\n";
     }
@@ -1646,9 +1644,9 @@ sub checkBuild
             print "A dylib, \"$framework\", needed to run this command is missing for specified build:\n";
             print "  configuration: \"$configuration\" [$configurationExplanation]\n";
             print "  platform:      \"$xcodeSDKPlatformName\" [$xcodeSDKPlatformNameExplanation]" if isEmbeddedWebKit() || isMacCatalystWebKit();
-            print "  products:      $productDir\n\n"; 
+            print "  products:      $productDir\n\n";
 
-            print "  dylib:         $dylibPath\n\n"; 
+            print "  dylib:         $dylibPath\n\n";
 
             my $buildWebKitCommand = scriptPathForName("build-webkit") . ' ' . join(' ', argumentsForConfiguration());
             die "To build this configuration, use the command `$buildWebKitCommand`.\n\nOnce that completes, re-run this command.\n";
@@ -1721,7 +1719,7 @@ sub findMatchingArguments($$)
             push(@matchingIndices, $index);
         }
     }
-    return @matchingIndices; 
+    return @matchingIndices;
 }
 
 sub hasArgument($$)
@@ -1933,6 +1931,10 @@ sub isARM64()
 
 sub isCrossCompilation()
 {
+    if (isPlayStation()) {
+        return 1;
+    }
+
     my $compiler = "";
     $compiler = $ENV{'CC'} if (defined($ENV{'CC'}));
     if ($compiler =~ /gcc/) {
@@ -2373,7 +2375,7 @@ sub buildXcodeScheme($$@)
     if ($clean) {
         push @extraOptions, "clean";
     }
-    
+
     return system "xcodebuild", "-scheme", $scheme, @extraOptions;
 }
 
@@ -2523,6 +2525,39 @@ sub runInCrossTargetEnvironment(@)
     exec @prefix, @command, argumentsForConfiguration(), @ARGV or die;
 }
 
+sub maybeUseContainerSDKRootDir()
+{
+    return if not isLinux();
+    return if (shouldUseFlatpak() or shouldBuildForCrossTarget() or inCrossTargetEnvironment());
+    return if ($ENV{'WEBKIT_CONTAINER_SDK'} // '') ne '1';
+    return if ($ENV{'WEBKIT_CONTAINER_SDK_INSIDE_MOUNT_NAMESPACE'} // '') eq '1';
+
+    my $sourceDir = sourceDir();
+    my @wrapperScript = (File::Spec->catfile($sourceDir, "Tools", "Scripts", "container-sdk-rootdir-wrapper"));
+
+    if (system(@wrapperScript, "--create-symlink") != 0) {
+        print STDERR "WARNING: Unable to create symlink at /sdk/webkit. Skipping setting up SDK common root dir feature\n";
+        return 1;
+    }
+
+    my @checkCommand = ('test', '-f', '/sdk/webkit/Tools/Scripts/build-webkit');
+    my $command = $0;
+    if (system(@wrapperScript, @checkCommand) == 0) {
+        if (index($command, $sourceDir) == 0) {
+            $command = '/sdk/webkit' . substr($command, length($sourceDir));
+        }
+        print "Running in private mount namespace at /sdk/webkit\n";
+        exec @wrapperScript, $command, argumentsForConfiguration(), @ARGV or die;
+    }
+    print STDERR "WARNING: Unable to create /sdk/webkit private mount namespace. Continuing only with symlink support.\n";
+    if ($command =~ /\/build-webkit$/) {
+        # This can allow remote ccache to hit even when the bind-mount was not possible, however it won't work for sccache.
+        $ENV{"CFLAGS"} = "-ffile-prefix-map=$sourceDir=/sdk/webkit" . ($ENV{"CFLAGS"} || "");
+        $ENV{"CXXFLAGS"} = "-ffile-prefix-map=$sourceDir=/sdk/webkit" . ($ENV{"CXXFLAGS"} || "");
+    }
+}
+
+
 sub runInFlatpak(@)
 {
     if (isGtk() && checkForArgumentAndRemoveFromARGV("--update-gtk")) {
@@ -2551,29 +2586,6 @@ sub runInFlatpak(@)
     }
 
     exec @command, argumentsForConfiguration(), @flatpakArgs, "--command", @_, argumentsForConfiguration(), @filteredArgv or die;
-}
-
-sub runInFlatpakIfAvailable(@)
-{
-    my $prefix = wrapperPrefixIfNeeded();
-    if (defined($prefix)) {
-        return 0;
-    }
-
-    if (inFlatpakSandbox()) {
-        return 0;
-    }
-
-    my @command = (File::Spec->catfile(sourceDir(), "Tools", "Scripts", "webkit-flatpak"));
-    if (system(@command, "--available") != 0) {
-        return 0;
-    }
-
-    if (! -e getUserFlatpakPath()) {
-      return 0;
-    }
-
-    runInFlatpak(@_)
 }
 
 sub jhbuildWrapperPrefix()
@@ -3019,15 +3031,15 @@ sub vcpkgArgsFromFeatures(\@;$)
         if ($featureName) {
             my $featureValue = ${$_->{value}}; # Undef to let the build system use its default.
             if (defined($featureValue)) {
-                if ($featureName eq "USE_AVIF") { 
+                if ($featureName eq "USE_AVIF") {
                     $avif = $featureValue;
-                } elsif ($featureName eq "USE_JPEGXL") { 
+                } elsif ($featureName eq "USE_JPEGXL") {
                     $jpegxl = $featureValue;
                 } elsif ($featureName eq "USE_LCMS") {
                     $lcms = $featureValue;
-                } elsif ($featureName eq "USE_SKIA") { 
+                } elsif ($featureName eq "USE_SKIA") {
                     $skia = $featureValue;
-                } elsif ($featureName eq "USE_WOFF2") { 
+                } elsif ($featureName eq "USE_WOFF2") {
                     $woff2 = $featureValue;
                 }
             }
@@ -3299,11 +3311,11 @@ sub relaunchIOSSimulator($)
     my ($simulatedDevice) = @_;
     shutDownIOSSimulatorDevice($simulatedDevice);
 
-    chomp(my $developerDirectory = $ENV{DEVELOPER_DIR} || `xcode-select --print-path`); 
+    chomp(my $developerDirectory = $ENV{DEVELOPER_DIR} || `xcode-select --print-path`);
     my $iosSimulatorPath = File::Spec->catfile($developerDirectory, "Applications", "Simulator.app");
     # Simulator.app needs to be running before the simulator is booted to have it visible.
-    system("open", "-a", $iosSimulatorPath, "--args", "-CurrentDeviceUDID", $simulatedDevice->{UDID}) == 0 or die "Failed to open $iosSimulatorPath: $!"; 
-    system("xcrun", "simctl", "boot", $simulatedDevice->{UDID}) == 0 or die "Failed to boot simulator $simulatedDevice->{UDID}: $!"; 
+    system("open", "-a", $iosSimulatorPath, "--args", "-CurrentDeviceUDID", $simulatedDevice->{UDID}) == 0 or die "Failed to open $iosSimulatorPath: $!";
+    system("xcrun", "simctl", "boot", $simulatedDevice->{UDID}) == 0 or die "Failed to boot simulator $simulatedDevice->{UDID}: $!";
 
     waitUntilIOSSimulatorDeviceIsInState($simulatedDevice->{UDID}, SIMULATOR_DEVICE_STATE_BOOTED);
     waitUntilProcessNotRunning("com.apple.datamigrator");
@@ -3332,7 +3344,7 @@ sub iosSimulatorDeviceByUDID($)
     while ((my $runtime, my $devicesForRuntime) = each %$runtimes) {
         next if not @$devicesForRuntime;
         die "Multiple devices found for UDID $simulatedDeviceUDID: $output" if scalar(@$devicesForRuntime) > 1;
-        return simulatorDeviceFromJSON($runtime, @$devicesForRuntime[0]);        
+        return simulatorDeviceFromJSON($runtime, @$devicesForRuntime[0]);
     }
     return undef;
 }
@@ -3349,7 +3361,15 @@ sub simulatorRuntime($)
 
     my $output = `xcrun --sdk $xcodeSDK simctl list runtimes $platformName --json` or die "Failed to run find simulator runtime";
     for my $runtime (@{decode_json($output)->{runtimes}}) {
-        return $runtime->{identifier} if $runtime->{version} eq $xcodeSDKVersion;
+        if ($runtime->{version} eq $xcodeSDKVersion) {
+            return $runtime->{identifier};
+        }
+        if ($runtime->{version} =~ /^$xcodeSDKVersion/) {
+            my $runtime_version = $runtime->{version};
+            my $runtime_id = $runtime->{identifier};
+            warn "WARNING: Fuzzy-matched $platformName SDK version $xcodeSDKVersion to runtime $runtime_id with version $runtime_version.";
+            return $runtime_id;
+        }
     }
 }
 
@@ -3601,7 +3621,7 @@ sub debugMiniBrowser
     if (isAppleMacWebKit()) {
         execMacWebKitAppForDebugging(File::Spec->catfile(productDir(), "MiniBrowser.app", "Contents", "MacOS", "MiniBrowser"));
     }
-    
+
     return 1;
 }
 
@@ -3684,7 +3704,7 @@ sub runGitUpdate()
 {
     # This will die if branch.$BRANCHNAME.merge isn't set, which is
     # almost certainly what we want.
-    system("git", "pull") == 0 or die;
+    system("git", "pull", "--autostash") == 0 or die;
 }
 
 1;

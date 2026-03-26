@@ -25,6 +25,11 @@
 
 #pragma once
 
+// FIXME: Remove the `__has_feature(modules)` condition when possible.
+#if !__has_feature(modules)
+
+#include <wtf/Platform.h>
+
 #if USE(MEDIATOOLBOX)
 
 #include <pal/spi/cocoa/MediaToolboxSPI.h>
@@ -43,7 +48,7 @@ SOFT_LINK_FUNCTION_MAY_FAIL_FOR_HEADER(PAL, MediaToolbox, MT_GetShouldPlayHDRVid
 #define MT_GetShouldPlayHDRVideoNotificationSingleton PAL::softLinkMediaToolboxMT_GetShouldPlayHDRVideoNotificationSingleton
 
 SOFT_LINK_CONSTANT_MAY_FAIL_FOR_HEADER(PAL, MediaToolbox, kMTSupportNotification_ShouldPlayHDRVideoChanged, CFStringRef)
-#define kMTSupportNotification_ShouldPlayHDRVideoChanged PAL::get_MediaToolbox_kMTSupportNotification_ShouldPlayHDRVideoChanged()
+#define kMTSupportNotification_ShouldPlayHDRVideoChanged PAL::get_MediaToolbox_kMTSupportNotification_ShouldPlayHDRVideoChangedSingleton()
 
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, MediaToolbox, MTAudioProcessingTapGetStorage, void*, (MTAudioProcessingTapRef tap), (tap))
 #define MTAudioProcessingTapGetStorage softLink_MediaToolbox_MTAudioProcessingTapGetStorage
@@ -55,3 +60,5 @@ SOFT_LINK_FUNCTION_MAY_FAIL_FOR_HEADER(PAL, MediaToolbox, MTAudioProcessingTapCr
 #define MTAudioProcessingTapCreate softLink_MediaToolbox_MTAudioProcessingTapCreate
 
 #endif // USE(MEDIATOOLBOX)
+
+#endif // !__has_feature(modules)

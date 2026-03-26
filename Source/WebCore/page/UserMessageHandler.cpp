@@ -35,9 +35,9 @@
 
 namespace WebCore {
 
-UserMessageHandler::UserMessageHandler(LocalFrame& frame, UserMessageHandlerDescriptor& descriptor)
+UserMessageHandler::UserMessageHandler(LocalFrame& frame, const UserMessageHandlerDescriptor& descriptor)
     : FrameDestructionObserver(&frame)
-    , m_descriptor(&descriptor)
+    , m_descriptor(descriptor)
 {
 }
 
@@ -47,12 +47,13 @@ ExceptionOr<void> UserMessageHandler::postMessage(JSC::JSGlobalObject& globalObj
 {
     // Check to see if the descriptor has been removed. This can happen if the host application has
     // removed the named message handler at the WebKit2 API level.
-    if (!m_descriptor) {
+    RefPtr descriptor = m_descriptor;
+    if (!descriptor) {
         promise->reject(Exception { ExceptionCode::InvalidAccessError });
         return Exception { ExceptionCode::InvalidAccessError };
     }
 
-    m_descriptor->didPostMessage(*this, globalObject, value, [promise = WTFMove(promise)](JSC::JSValue result, const String& errorMessage) {
+    descriptor->didPostMessage(*this, globalObject, value, [promise = WTF::move(promise)](JSC::JSValue result, const String& errorMessage) {
         if (errorMessage.isNull())
             return promise->resolveWithJSValue(result);
 
@@ -63,6 +64,14 @@ ExceptionOr<void> UserMessageHandler::postMessage(JSC::JSGlobalObject& globalObj
         promise->reject<IDLAny>(JSC::createError(globalObject, errorMessage));
     });
     return { };
+}
+
+JSC::JSValue UserMessageHandler::postLegacySynchronousMessage(JSC::JSGlobalObject& globalObject, JSC::JSValue value)
+{
+    RefPtr descriptor = m_descriptor;
+    if (!descriptor)
+        return JSC::jsUndefined();
+    return descriptor->didPostLegacySynchronousMessage(*this, globalObject, value);
 }
 
 } // namespace WebCore

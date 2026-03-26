@@ -39,12 +39,12 @@ Ref<WebImage> WebImage::createEmpty()
     return adoptRef(*new WebImage(nullptr));
 }
 
-Ref<WebImage> WebImage::create(const IntSize& size, ImageOptions options, const DestinationColorSpace& colorSpace, ChromeClient* client)
+Ref<WebImage> WebImage::create(const FloatSize& size, ImageOptions options, const DestinationColorSpace& colorSpace, ChromeClient* client)
 {
-    auto pixelFormat = ImageBufferPixelFormat::BGRA8;
+    auto pixelFormat = PixelFormat::BGRA8;
 #if ENABLE(PIXEL_FORMAT_RGBA16F)
     if (options.contains(ImageOption::AllowHDR) && colorSpace.usesExtendedRange())
-        pixelFormat = ImageBufferPixelFormat::RGBA16F;
+        pixelFormat = PixelFormat::RGBA16F;
 #endif
 
     if (client) {
@@ -73,17 +73,17 @@ Ref<WebImage> WebImage::create(std::optional<ParametersAndHandle>&& parametersAn
 {
     if (!parametersAndHandle)
         return createEmpty();
-    auto [parameters, handle] = WTFMove(*parametersAndHandle);
+    auto [parameters, handle] = WTF::move(*parametersAndHandle);
 
     // FIXME: These should be abstracted as a encodable image buffer handle.
     auto backendParameters = ImageBuffer::backendParameters(parameters);
-    auto backend = ImageBufferShareableBitmapBackend::create(backendParameters, WTFMove(handle));
+    auto backend = ImageBufferShareableBitmapBackend::create(backendParameters, WTF::move(handle));
     if (!backend)
         return createEmpty();
     
     auto info = ImageBuffer::populateBackendInfo<ImageBufferShareableBitmapBackend>(backendParameters);
 
-    auto buffer = ImageBuffer::create(WTFMove(parameters), info, { }, WTFMove(backend));
+    auto buffer = ImageBuffer::create(WTF::move(parameters), info, { }, WTF::move(backend));
     if (!buffer)
         return createEmpty();
 
@@ -92,11 +92,11 @@ Ref<WebImage> WebImage::create(std::optional<ParametersAndHandle>&& parametersAn
 
 Ref<WebImage> WebImage::create(Ref<ImageBuffer>&& buffer)
 {
-    return adoptRef(*new WebImage(WTFMove(buffer)));
+    return adoptRef(*new WebImage(WTF::move(buffer)));
 }
 
 WebImage::WebImage(RefPtr<ImageBuffer>&& buffer)
-    : m_buffer(WTFMove(buffer))
+    : m_buffer(WTF::move(buffer))
 {
 }
 
@@ -121,7 +121,7 @@ auto WebImage::parametersAndHandle() const -> std::optional<ParametersAndHandle>
     if (!handle)
         return std::nullopt;
     RELEASE_ASSERT(m_buffer);
-    return { { m_buffer->parameters(), WTFMove(*handle) } };
+    return { { m_buffer->parameters(), WTF::move(*handle) } };
 }
 
 GraphicsContext* WebImage::context() const
@@ -166,7 +166,7 @@ std::optional<ShareableBitmap::Handle> WebImage::createHandle(SharedMemory::Prot
     if (!backendHandle || !std::holds_alternative<ShareableBitmap::Handle>(*backendHandle))
         return { };
 
-    return std::get<ShareableBitmap::Handle>(WTFMove(*backendHandle));
+    return std::get<ShareableBitmap::Handle>(WTF::move(*backendHandle));
 }
 
 std::optional<ImageBufferBackendHandle> WebImage::createImageBufferBackendHandle(SharedMemory::Protection protection) const

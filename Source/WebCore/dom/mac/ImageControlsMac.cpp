@@ -31,12 +31,16 @@
 #include "CommonAtomStrings.h"
 #include "ContainerNodeInlines.h"
 #include "ContextMenuController.h"
+#include "DocumentEventLoop.h"
+#include "DocumentPage.h"
+#include "DocumentView.h"
 #include "ElementInlines.h"
 #include "ElementRareData.h"
 #include "Event.h"
 #include "EventHandler.h"
 #include "EventLoop.h"
 #include "EventNames.h"
+#include "FrameDestructionObserverInlines.h"
 #include "HTMLAttachmentElement.h"
 #include "HTMLButtonElement.h"
 #include "HTMLDivElement.h"
@@ -46,6 +50,7 @@
 #include "MouseEvent.h"
 #include "RenderAttachment.h"
 #include "RenderImage.h"
+#include "Settings.h"
 #include "ShadowRoot.h"
 #include "TreeScopeInlines.h"
 #include "UserAgentParts.h"
@@ -113,9 +118,9 @@ void createImageControls(HTMLElement& element)
     static MainThreadNeverDestroyed<const String> shadowStyle(StringImpl::createWithoutCopying(imageControlsMacUserAgentStyleSheet));
     Ref style = HTMLStyleElement::create(HTMLNames::styleTag, document.get(), false);
     style->setTextContent(String { shadowStyle });
-    shadowRoot->appendChild(WTFMove(style));
+    shadowRoot->appendChild(WTF::move(style));
     
-    Ref button = HTMLButtonElement::create(HTMLNames::buttonTag, element.document(), nullptr);
+    Ref button = HTMLButtonElement::create(HTMLNames::buttonTag, element.protectedDocument(), nullptr);
     button->setIdAttribute(imageControlsButtonIdentifier());
     controlLayer->appendChild(button);
     controlLayer->setUserAgentPart(UserAgentParts::appleAttachmentControlsContainer());
@@ -236,7 +241,7 @@ void destroyImageControls(HTMLElement& element)
         shadowRoot->removeChild(*htmlElement);
     }
 
-    auto* renderObject = element.renderer();
+    CheckedPtr renderObject = element.renderer();
     if (!renderObject)
         return;
 

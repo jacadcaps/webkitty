@@ -25,6 +25,9 @@
 
 #pragma once
 
+// FIXME: Remove the `__has_feature(modules)` condition when possible.
+#if !__has_feature(modules)
+
 DECLARE_SYSTEM_HEADER
 
 #import <objc/runtime.h>
@@ -60,13 +63,6 @@ IGNORE_WARNINGS_END
 #import <AVFoundation/AVStreamDataParser.h>
 #endif
 #endif
-
-NS_ASSUME_NONNULL_BEGIN
-@interface AVOutputContext(WKSecureCoding)
-- (NSDictionary *)_webKitPropertyListData;
-- (instancetype)_initWithWebKitPropertyListData:(NSDictionary *)plist;
-@end
-NS_ASSUME_NONNULL_END
 
 #import <AVFoundation/AVAudioSession_Private.h>
 
@@ -142,8 +138,6 @@ typedef NS_OPTIONS(NSUInteger, AVOutputDeviceFeatures) {
 @property (nonatomic, readonly) NSString *name;
 @property (nonatomic, readonly) NSString *deviceName;
 @property (nonatomic, readonly) AVOutputDeviceFeatures deviceFeatures;
-@property (nonatomic, readonly) BOOL supportsHeadTrackedSpatialAudio;
-- (BOOL)allowsHeadTrackedSpatialAudio;
 @end
 
 #if !PLATFORM(IOS_FAMILY)
@@ -190,8 +184,7 @@ NS_ASSUME_NONNULL_END
 #pragma mark -
 #pragma mark AVStreamDataParser
 
-@protocol AVStreamDataParserOutputHandling <NSObject>
-@end
+@protocol AVStreamDataParserOutputHandling;
 
 typedef int32_t CMPersistentTrackID;
 
@@ -270,14 +263,6 @@ typedef NS_ENUM(NSInteger, AVExternalContentProtectionStatus) {
 @end
 #endif // HAVE(AVCONTENTKEYREQUEST_PENDING_PROTECTION_STATUS)
 
-#if HAVE(AVCONTENTKEYREQUEST_COMPATABILITIY_MODE)
-NS_ASSUME_NONNULL_BEGIN
-@interface AVContentKeyRequest (AVContentKeyRequest_WebKitCompatibilityMode)
-+ (instancetype)contentKeySessionWithLegacyWebKitCompatibilityModeAndKeySystem:(AVContentKeySystem)keySystem storageDirectoryAtURL:(NSURL *)storageURL;
-@end
-NS_ASSUME_NONNULL_END
-#endif
-
 #endif // HAVE(AVCONTENTKEYSESSION)
 
 #endif // USE(APPLE_INTERNAL_SDK)
@@ -335,7 +320,6 @@ NS_ASSUME_NONNULL_END
 NS_ASSUME_NONNULL_BEGIN
 @interface AVSampleBufferDisplayLayer (VideoPerformanceMetrics)
 - (AVVideoPerformanceMetrics *)videoPerformanceMetrics;
-- (void)prerollDecodeWithCompletionHandler:(void (^)(BOOL success))block;
 @end
 NS_ASSUME_NONNULL_END
 #else
@@ -355,7 +339,6 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)requestMediaDataWhenReadyOnQueue:(dispatch_queue_t)queue usingBlock:(void (^)(void))block;
 - (void)stopRequestingMediaData;
 - (AVVideoPerformanceMetrics *)videoPerformanceMetrics;
-- (void)prerollDecodeWithCompletionHandler:(void (^)(BOOL success))block;
 @end
 NS_ASSUME_NONNULL_END
 #endif // __has_include(<AVFoundation/AVSampleBufferDisplayLayer.h>)
@@ -402,7 +385,6 @@ NS_ASSUME_NONNULL_END
 NS_ASSUME_NONNULL_BEGIN
 @interface AVSampleBufferVideoRenderer (SPI)
 - (AVVideoPerformanceMetrics *)videoPerformanceMetrics;
-- (void)prerollDecodeWithCompletionHandler:(void (^)(BOOL success))block;
 @property (nonatomic) BOOL preventsDisplaySleepDuringVideoPlayback;
 @property (nonatomic) BOOL preventsAutomaticBackgroundingDuringVideoPlayback;
 @end
@@ -505,3 +487,12 @@ NS_ASSUME_NONNULL_END
 @property (nonatomic, copy, nullable, getter=_STSLabel) NSString *STSLabel SPI_AVAILABLE(ios(15.0)) API_UNAVAILABLE(macos, tvos, watchos);
 @end
 #endif
+
+NS_ASSUME_NONNULL_BEGIN
+@interface AVOutputContext(WKSecureCoding)
+- (NSDictionary *)_webKitPropertyListData;
+- (instancetype)_initWithWebKitPropertyListData:(NSDictionary *)plist;
+@end
+NS_ASSUME_NONNULL_END
+
+#endif // !__has_feature(modules)

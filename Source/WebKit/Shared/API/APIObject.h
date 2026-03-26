@@ -30,6 +30,7 @@
 #include <wtf/Platform.h>
 #include <wtf/RefCounted.h>
 #include <wtf/RefPtr.h>
+#include <wtf/RetainReleaseSwift.h>
 #include <wtf/ThreadSafeRefCounted.h>
 
 #if PLATFORM(COCOA)
@@ -98,7 +99,6 @@ public:
         Rect,
         
         // UIProcess types
-        ApplicationCacheManager,
 #if ENABLE(APPLICATION_MANIFEST)
         ApplicationManifest,
 #endif
@@ -112,6 +112,7 @@ public:
         ContentRuleListAction,
         ContentRuleListStore,
         ContentWorld,
+        ContentWorldConfiguration,
 #if PLATFORM(IOS_FAMILY)
         ContextMenuElementInfo,
 #endif
@@ -134,6 +135,7 @@ public:
         GeolocationPermissionRequest,
         HTTPCookieStore,
         HitTestResult,
+        JSHandle,
         GeolocationPosition,
         GrammarDetail,
         IconDatabase,
@@ -142,6 +144,7 @@ public:
 #if ENABLE(INSPECTOR_EXTENSIONS)
         InspectorExtension,
 #endif
+        JSBuffer,
         KeyValueStorageManager,
         MediaCacheManager,
         MessageListener,
@@ -149,7 +152,6 @@ public:
         NavigationAction,
         NavigationData,
         NavigationResponse,
-        NodeInfo,
         Notification,
         NotificationManager,
         NotificationPermissionRequest,
@@ -171,6 +173,7 @@ public:
         RunJavaScriptAlertResultListener,
         RunJavaScriptConfirmResultListener,
         RunJavaScriptPromptResultListener,
+        ScriptMessage,
         SerializedNode,
         SpeechRecognitionPermissionCallback,
         TextChecker,
@@ -283,7 +286,7 @@ private:
 
     CFTypeRef m_wrapper;
 #endif // DELEGATE_REF_COUNTING_TO_COCOA
-};
+} SWIFT_SHARED_REFERENCE(refObject, derefObject);
 
 template <Object::Type ArgumentType>
 class ObjectImpl : public Object {
@@ -316,6 +319,24 @@ inline API::Object* Object::unwrap(void* object)
 #endif
 
 } // namespace API
+
+inline void refObject(API::Object* WTF_NONNULL obj)
+{
+#if DELEGATE_REF_COUNTING_TO_COCOA
+    obj->ref();
+#else
+    WTF::ref(obj);
+#endif
+}
+
+inline void derefObject(API::Object* WTF_NONNULL obj)
+{
+#if DELEGATE_REF_COUNTING_TO_COCOA
+    obj->deref();
+#else
+    WTF::deref(obj);
+#endif
+}
 
 #undef DELEGATE_REF_COUNTING_TO_COCOA
 

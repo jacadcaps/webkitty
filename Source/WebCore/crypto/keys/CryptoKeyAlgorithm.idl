@@ -24,7 +24,8 @@
  */
 
 [
-    JSGenerateToJSObject
+    JSGenerateToJSObject,
+    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary CryptoKeyAlgorithm {
     required DOMString name;
 };

@@ -3,9 +3,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
-// TracePerf:
+// TracePerfTest.cpp:
 //   Performance test for ANGLE replaying traces.
 //
+
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
 
 #include "tests/perf_tests/TracePerfTest.h"
 #include <gtest/gtest.h>
@@ -1314,8 +1318,13 @@ TracePerfTest::TracePerfTest(std::unique_ptr<const TracePerfParams> params)
         addExtensionPrerequisite("GL_OES_framebuffer_object");
     }
 
-    // glDebugMessageControlKHR and glDebugMessageCallbackKHR crash on ARM GLES1.
-    if (IsARM() && mParams->traceInfo.contextClientMajorVersion == 1)
+    if (traceNameIs("minecraft_vibrant_visuals"))
+    {
+        addIntegerPrerequisite(GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS, 1024);
+    }
+
+    // GL_KHR_debug does not work on Android for GLES1
+    if (IsAndroid() && mParams->traceInfo.contextClientMajorVersion == 1)
     {
         mEnableDebugCallback = false;
     }
@@ -1620,8 +1629,13 @@ void TracePerfTest::drawBenchmark()
 
     startGpuTimer();
     atraceCounter("TraceFrameIndex", mCurrentFrame);
+
     mTraceReplay->replayFrame(mCurrentFrame);
-    stopGpuTimer();
+
+    if (!gAddSwapIntoGPUTime)
+    {
+        stopGpuTimer();
+    }
 
     updatePerfCounters();
 
@@ -1731,6 +1745,14 @@ void TracePerfTest::drawBenchmark()
         bindFramebuffer(GL_FRAMEBUFFER, 0);
         saveScreenshotIfEnabled(ScreenshotType::kFrame);
         getGLWindow()->swap();
+    }
+
+    if (gAddSwapIntoGPUTime)
+    {
+        stopGpuTimer();
+        // Need this flush to submit the timestamp query to the GPU right now, instead of delaying
+        // it until some time later in the next frame.
+        glFlush();
     }
 
     endInternalTraceEvent(frameName);

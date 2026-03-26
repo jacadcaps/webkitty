@@ -25,7 +25,7 @@
 
 #pragma once
 
-#if ENABLE(IPC_TESTING_API)
+#if ENABLE(IPC_TESTING_API) && !ENABLE(IPC_TESTING_SWIFT)
 
 #include "MessageReceiver.h"
 
@@ -39,7 +39,6 @@ namespace WebKit {
 class IPCTesterReceiver final : public IPC::MessageReceiver, public RefCounted<IPCTesterReceiver> {
 public:
     static Ref<IPCTesterReceiver> create();
-    ~IPCTesterReceiver() = default;
 
     void ref() const final { RefCounted::ref(); }
     void deref() const final { RefCounted::deref(); }

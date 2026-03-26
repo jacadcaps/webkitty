@@ -36,13 +36,13 @@ namespace WebKit {
 class NetworkRTCTCPSocketCocoa final : public NetworkRTCProvider::Socket {
     WTF_MAKE_TZONE_ALLOCATED(NetworkRTCTCPSocketCocoa);
 public:
-    static std::unique_ptr<NetworkRTCProvider::Socket> createClientTCPSocket(WebCore::LibWebRTCSocketIdentifier, NetworkRTCProvider&, const webrtc::SocketAddress&, int options, const String& attributedBundleIdentifier, bool isFirstParty, bool isRelayDisabled, const WebCore::RegistrableDomain&, Ref<IPC::Connection>&&);
+    static std::unique_ptr<NetworkRTCProvider::Socket> createClientTCPSocket(WebCore::LibWebRTCSocketIdentifier, NetworkRTCProvider&, const webrtc::SocketAddress&, int options, const String& attributedBundleIdentifier, RTCSocketCreationFlags, const WebCore::RegistrableDomain&, Ref<IPC::Connection>&&);
 
-    NetworkRTCTCPSocketCocoa(WebCore::LibWebRTCSocketIdentifier, NetworkRTCProvider&, const webrtc::SocketAddress&, int options, const String& attributedBundleIdentifier, bool isFirstParty, bool isRelayDisabled, const WebCore::RegistrableDomain&, Ref<IPC::Connection>&&);
+    NetworkRTCTCPSocketCocoa(WebCore::LibWebRTCSocketIdentifier, NetworkRTCProvider&, const webrtc::SocketAddress&, int options, const String& attributedBundleIdentifier, RTCSocketCreationFlags, const WebCore::RegistrableDomain&, Ref<IPC::Connection>&&);
     ~NetworkRTCTCPSocketCocoa();
 
     using NamePromise = NativePromise<String, void>;
-    static Ref<NamePromise> getInterfaceName(NetworkRTCProvider&, const URL&, const String& attributedBundleIdentifier, bool isFirstParty, bool isRelayDisabled, const WebCore::RegistrableDomain&);
+    static Ref<NamePromise> getInterfaceName(NetworkRTCProvider&, const URL&, const String& attributedBundleIdentifier, RTCSocketCreationFlags, const WebCore::RegistrableDomain&);
 
 private:
     // NetworkRTCProvider::Socket.
@@ -59,6 +59,7 @@ private:
     const Ref<IPC::Connection> m_connection;
     RetainPtr<nw_connection_t> m_nwConnection;
     bool m_isSTUN { false };
+    bool m_enableServiceClass { false };
 #if ASSERT_ENABLED
     bool m_isClosed { false };
 #endif

@@ -110,7 +110,7 @@ public:
                 ASSERT(options.surface);
                 surface = options.surface;
             }
-            m_textures.append(WTFMove(surface));
+            m_textures.append(WTF::move(surface));
         });
 
         options.textureMapper.bindSurface(options.surface.get());
@@ -387,7 +387,7 @@ void TextureMapperLayer::setDamage(Damage&& damage)
     if (m_damageInLayerCoordinateSpace)
         m_damageInLayerCoordinateSpace->add(damage);
     else
-        m_damageInLayerCoordinateSpace = WTFMove(damage);
+        m_damageInLayerCoordinateSpace = WTF::move(damage);
 }
 
 void TextureMapperLayer::collectDamage(TextureMapper& textureMapper, Damage& damage)
@@ -490,7 +490,7 @@ void TextureMapperLayer::collectDamageSelf(TextureMapperPaintOptions& options, D
         return;
     }
 
-    if (m_contentsLayer) {
+    if (m_contentsLayer && (!m_damageInLayerCoordinateSpace || m_damageInLayerCoordinateSpace->isEmpty())) {
         // Layers with content layer are fully damaged for now.
         // FIXME: Remove that special case.
         damageWholeLayer();
@@ -1293,7 +1293,7 @@ void TextureMapperLayer::removeFromParent()
 
 void TextureMapperLayer::removeAllChildren()
 {
-    auto oldChildren = WTFMove(m_children);
+    auto oldChildren = WTF::move(m_children);
     for (auto* child : oldChildren)
         child->m_parent = nullptr;
 }
@@ -1479,7 +1479,7 @@ bool TextureMapperLayer::descendantsOrSelfHaveRunningAnimations() const
     if (m_animations.hasRunningAnimations())
         return true;
 
-    return std::any_of(m_children.begin(), m_children.end(),
+    return std::ranges::any_of(m_children,
         [](TextureMapperLayer* child) {
             return child->descendantsOrSelfHaveRunningAnimations();
         });
@@ -1519,6 +1519,11 @@ bool TextureMapperLayer::syncAnimations(MonotonicTime time)
     m_animations.apply(futureApplicationResults, time + 50_ms, TextureMapperAnimation::KeepInternalState::Yes);
     m_layerTransforms.futureLocalTransform = futureApplicationResults.transform.value_or(m_layerTransforms.localTransform);
 #endif
+
+    // If the layer is invisible because of opacity and there's no opacity animation, the content won't
+    // be visible ever, so triggering repaints doesn't make sense.
+    if (!m_state.opacity && !applicationResults.opacity)
+        return false;
 
     return applicationResults.hasRunningAnimations;
 }

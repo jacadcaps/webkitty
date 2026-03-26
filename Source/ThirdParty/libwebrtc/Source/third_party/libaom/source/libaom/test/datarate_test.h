@@ -30,6 +30,17 @@ class DatarateTest : public ::libaom_test::EncoderTest {
  protected:
   ~DatarateTest() override = default;
 
+  virtual void SetUpCBR() {
+    cfg_.rc_buf_initial_sz = 500;
+    cfg_.rc_buf_optimal_sz = 500;
+    cfg_.rc_buf_sz = 1000;
+    cfg_.rc_dropframe_thresh = 1;
+    cfg_.rc_min_quantizer = 0;
+    cfg_.rc_max_quantizer = 63;
+    cfg_.rc_end_usage = AOM_CBR;
+    cfg_.g_lag_in_frames = 0;
+  }
+
   virtual void ResetModel() {
     last_pts_ = 0;
     bits_in_buffer_model_ = cfg_.rc_target_bitrate * cfg_.rc_buf_initial_sz;
@@ -57,6 +68,7 @@ class DatarateTest : public ::libaom_test::EncoderTest {
       bits_total_dynamic_[i] = 0;
       effective_datarate_dynamic_[i] = 0.0;
     }
+    avif_mode_ = 0;
   }
 
   void PreEncodeFrameHook(::libaom_test::VideoSource *video,
@@ -89,6 +101,21 @@ class DatarateTest : public ::libaom_test::EncoderTest {
         encoder->Control(AV1E_SET_TUNE_CONTENT, AOM_CONTENT_SCREEN);
         encoder->Control(AV1E_SET_ENABLE_PALETTE, 1);
         encoder->Control(AV1E_SET_ENABLE_INTRABC, 0);
+      }
+      if (avif_mode_) {
+        encoder->Control(AV1E_SET_COEFF_COST_UPD_FREQ, 0);
+        encoder->Control(AV1E_SET_MODE_COST_UPD_FREQ, 0);
+        encoder->Control(AV1E_SET_MV_COST_UPD_FREQ, 0);
+#if !CONFIG_REALTIME_ONLY
+        encoder->Control(AV1E_SET_DELTAQ_MODE, 3);
+#endif
+#if CONFIG_QUANT_MATRIX
+        encoder->Control(AV1E_SET_ENABLE_QM, 1);
+#endif
+        encoder->Control(AOME_SET_SHARPNESS, 1);
+        encoder->Control(AV1E_SET_ENABLE_CHROMA_DELTAQ, 1);
+        encoder->Control(AOME_SET_CQ_LEVEL, 0);
+        encoder->Control(AV1E_SET_AQ_MODE, (aq_mode_ > 0) ? 1 : 0);
       }
     }
 
@@ -195,6 +222,34 @@ class DatarateTest : public ::libaom_test::EncoderTest {
     }
   }
 
+  void RunBasicRateTargetingTest(::libaom_test::VideoSource *video,
+                                 const int bitrate, double low_rate_err_limit,
+                                 double high_rate_err_limit) {
+    cfg_.rc_target_bitrate = bitrate;
+    ResetModel();
+    ASSERT_NO_FATAL_FAILURE(RunLoop(video));
+    ASSERT_GE(effective_datarate_, cfg_.rc_target_bitrate * low_rate_err_limit)
+        << " The datarate for the file is lower than target by too much!";
+    ASSERT_LE(effective_datarate_, cfg_.rc_target_bitrate * high_rate_err_limit)
+        << " The datarate for the file is greater than target by too much!";
+  }
+
+  void RunBasicRateTargetingTestReversed(::libaom_test::VideoSource *video,
+                                         const int bitrate,
+                                         double low_rate_err_limit,
+                                         double high_rate_err_limit) {
+    cfg_.rc_target_bitrate = bitrate;
+    ResetModel();
+    ASSERT_NO_FATAL_FAILURE(RunLoop(video));
+    ASSERT_GE(static_cast<double>(cfg_.rc_target_bitrate),
+              effective_datarate_ * low_rate_err_limit)
+        << " The datarate for the file exceeds the target by too much!";
+    ASSERT_LE(static_cast<double>(cfg_.rc_target_bitrate),
+              effective_datarate_ * high_rate_err_limit)
+        << " The datarate for the file missed the target!"
+        << cfg_.rc_target_bitrate << " " << effective_datarate_;
+  }
+
   aom_codec_pts_t last_pts_;
   double timebase_;
   int frame_number_;      // Counter for number of non-dropped/encoded frames.
@@ -227,6 +282,7 @@ class DatarateTest : public ::libaom_test::EncoderTest {
   double effective_datarate_dynamic_[3];
   int64_t bits_total_dynamic_[3];
   int frame_number_dynamic_[3];
+  int avif_mode_;
 };
 
 }  // namespace

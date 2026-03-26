@@ -36,14 +36,14 @@ static bool dumpHashingSpeedComparison = false;
 
 TEST(WTF, StringHasher)
 {
-    auto generateLCharArray = [&](size_t size) {
-        auto array = std::unique_ptr<LChar[]>(new LChar[size]);
+    auto generateLatin1Array = [&](size_t size) {
+        auto array = std::unique_ptr<Latin1Character[]>(new Latin1Character[size]);
         for (size_t i = 0; i < size; i++)
             array[i] = i;
         return array;
     };
 
-    auto generateUCharArray = [&](size_t size) {
+    auto generateUTF16Array = [&](size_t size) {
         auto array = std::unique_ptr<char16_t[]>(new char16_t[size]);
         for (size_t i = 0; i < size; i++)
             array[i] = i;
@@ -53,8 +53,8 @@ TEST(WTF, StringHasher)
     StringHasher hash;
     unsigned max8Bit = std::numeric_limits<uint8_t>::max();
     for (size_t size = 0; size <= max8Bit; size++) {
-        std::unique_ptr<const LChar[]> arr1 = generateLCharArray(size);
-        std::unique_ptr<const char16_t[]> arr2 = generateUCharArray(size);
+        std::unique_ptr<const Latin1Character[]> arr1 = generateLatin1Array(size);
+        std::unique_ptr<const char16_t[]> arr2 = generateUTF16Array(size);
         unsigned left = StringHasher::computeHashAndMaskTop8Bits(std::span { arr1.get(), size });
         unsigned right = StringHasher::computeHashAndMaskTop8Bits(std::span { arr2.get(), size });
         ASSERT_EQ(left, right);
@@ -94,9 +94,9 @@ TEST(WTF, StringHasher_SuperFastHash_VS_WYHash)
         dataLogLn("STH ", size, " -> ", MonotonicTime::now() - start);
     }
 
-    dataLogLn("LChar");
+    dataLogLn("Latin1Character");
     for (size_t size = 2; size < (1 << 16); size *= 2) {
-        Vector<LChar> vector(size, [](size_t index) {
+        Vector<Latin1Character> vector(size, [](size_t index) {
             return index & 0x7f;
         });
         sum += SuperFastHash::computeHashAndMaskTop8Bits(vector.span());

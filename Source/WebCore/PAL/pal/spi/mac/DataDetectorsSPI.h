@@ -25,6 +25,10 @@
 
 #pragma once
 
+#ifdef __cplusplus
+
+#include <wtf/Compiler.h>
+
 DECLARE_SYSTEM_HEADER
 
 #import <wtf/Platform.h>
@@ -32,7 +36,6 @@ DECLARE_SYSTEM_HEADER
 #if ENABLE(DATA_DETECTION)
 
 #import <pal/spi/cocoa/DataDetectorsCoreSPI.h>
-#import <wtf/SoftLinking.h>
 
 #if PLATFORM(MAC)
 
@@ -136,3 +139,4 @@ using WKDDActionContext = DDActionContext;
 
 #endif // ENABLE(DATA_DETECTION)
 
+#endif // __cplusplus

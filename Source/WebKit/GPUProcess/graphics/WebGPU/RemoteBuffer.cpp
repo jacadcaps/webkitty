@@ -43,7 +43,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteBuffer);
 RemoteBuffer::RemoteBuffer(WebCore::WebGPU::Buffer& buffer, WebGPU::ObjectHeap& objectHeap, Ref<IPC::StreamServerConnection>&& streamConnection, RemoteGPU& gpu, bool mappedAtCreation, WebGPUIdentifier identifier)
     : m_backing(buffer)
     , m_objectHeap(objectHeap)
-    , m_streamConnection(WTFMove(streamConnection))
+    , m_streamConnection(WTF::move(streamConnection))
     , m_gpu(gpu)
     , m_identifier(identifier)
     , m_isMapped(mappedAtCreation)
@@ -64,7 +64,7 @@ void RemoteBuffer::mapAsync(WebCore::WebGPU::MapModeFlags mapModeFlags, WebCore:
     m_isMapped = true;
     m_mapModeFlags = mapModeFlags;
 
-    protectedBacking()->mapAsync(mapModeFlags, offset, size, [protectedThis = Ref<RemoteBuffer>(*this), callback = WTFMove(callback)] (bool success) mutable {
+    protectedBacking()->mapAsync(mapModeFlags, offset, size, [protectedThis = Ref<RemoteBuffer>(*this), callback = WTF::move(callback)] (bool success) mutable {
         if (!success) {
             callback(false);
             return;
@@ -109,7 +109,7 @@ void RemoteBuffer::copyWithCopy(Vector<uint8_t>&& data, uint64_t offset)
 
 void RemoteBuffer::copy(std::optional<WebCore::SharedMemoryHandle>&& dataHandle, uint64_t offset, CompletionHandler<void(bool)>&& completionHandler)
 {
-    auto sharedData = dataHandle ? WebCore::SharedMemory::map(WTFMove(*dataHandle), WebCore::SharedMemory::Protection::ReadOnly) : nullptr;
+    auto sharedData = dataHandle ? WebCore::SharedMemory::map(WTF::move(*dataHandle), WebCore::SharedMemory::Protection::ReadOnly) : nullptr;
     auto data = sharedData ? sharedData->span() : std::span<const uint8_t> { };
     if (!m_isMapped || !m_mapModeFlags.contains(WebCore::WebGPU::MapMode::Write)) {
         completionHandler(false);
@@ -150,7 +150,7 @@ void RemoteBuffer::destruct()
 
 void RemoteBuffer::setLabel(String&& label)
 {
-    protectedBacking()->setLabel(WTFMove(label));
+    protectedBacking()->setLabel(WTF::move(label));
 }
 
 Ref<WebCore::WebGPU::Buffer> RemoteBuffer::protectedBacking()

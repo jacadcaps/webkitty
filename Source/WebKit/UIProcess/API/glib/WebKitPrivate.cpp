@@ -25,12 +25,19 @@
 #include "WebKitError.h"
 
 #if PLATFORM(GTK)
-#include <WebCore/GtkVersioning.h>
+#include "GtkVersioning.h"
 #elif PLATFORM(WPE)
+#include "WPEUtilities.h"
+#if USE(LIBWPE)
 #include <wpe/wpe.h>
+#endif
+#if ENABLE(WPE_PLATFORM)
+#include <wpe/wpe-platform.h>
+#endif
 #endif
 
 #if ENABLE(WK_WEB_EXTENSIONS)
+#include "WebExtension.h"
 #include "WebExtensionMatchPattern.h"
 #endif
 
@@ -54,6 +61,23 @@ unsigned toPlatformModifiers(OptionSet<WebKit::WebEventModifier> wkModifiers)
 unsigned toPlatformModifiers(OptionSet<WebKit::WebEventModifier> wkModifiers)
 {
     unsigned modifiers = 0;
+#if ENABLE(WPE_PLATFORM)
+    if (WKWPE::isUsingWPEPlatformAPI()) {
+        if (wkModifiers.contains(WebKit::WebEventModifier::ShiftKey))
+            modifiers |= WPE_MODIFIER_KEYBOARD_SHIFT;
+        if (wkModifiers.contains(WebKit::WebEventModifier::ControlKey))
+            modifiers |= WPE_MODIFIER_KEYBOARD_CONTROL;
+        if (wkModifiers.contains(WebKit::WebEventModifier::AltKey))
+            modifiers |= WPE_MODIFIER_KEYBOARD_ALT;
+        if (wkModifiers.contains(WebKit::WebEventModifier::MetaKey))
+            modifiers |= WPE_MODIFIER_KEYBOARD_META;
+        if (wkModifiers.contains(WebKit::WebEventModifier::CapsLockKey))
+            modifiers |= WPE_MODIFIER_KEYBOARD_CAPS_LOCK;
+        return modifiers;
+    }
+#endif
+
+#if USE(LIBWPE)
     if (wkModifiers.contains(WebKit::WebEventModifier::ShiftKey))
         modifiers |= wpe_input_keyboard_modifier_shift;
     if (wkModifiers.contains(WebKit::WebEventModifier::ControlKey))
@@ -62,6 +86,7 @@ unsigned toPlatformModifiers(OptionSet<WebKit::WebEventModifier> wkModifiers)
         modifiers |= wpe_input_keyboard_modifier_alt;
     if (wkModifiers.contains(WebKit::WebEventModifier::MetaKey))
         modifiers |= wpe_input_keyboard_modifier_meta;
+#endif
     return modifiers;
 }
 #endif
@@ -98,6 +123,10 @@ unsigned toWebKitMouseButton(WebKit::WebMouseEventButton button)
         return 2;
     case WebKit::WebMouseEventButton::Right:
         return 3;
+    case WebKit::WebMouseEventButton::Back:
+        return 4;
+    case WebKit::WebMouseEventButton::Forward:
+        return 5;
     }
     ASSERT_NOT_REACHED();
     return 0;
@@ -155,6 +184,35 @@ unsigned toWebKitError(unsigned webCoreError)
 }
 
 #if ENABLE(WK_WEB_EXTENSIONS)
+#if ENABLE(2022_GLIB_API)
+unsigned toWebKitWebExtensionError(unsigned apiError)
+{
+    auto error = static_cast<WebKit::WebExtension::APIError>(apiError);
+
+    switch (error) {
+    case WebKit::WebExtension::APIError::ResourceNotFound:
+        return WEBKIT_WEB_EXTENSION_ERROR_RESOURCE_NOT_FOUND;
+    case WebKit::WebExtension::APIError::InvalidResourceCodeSignature:
+        return WEBKIT_WEB_EXTENSION_ERROR_INVALID_RESOURCE_CODE_SIGNATURE;
+    case WebKit::WebExtension::APIError::InvalidManifest:
+        return WEBKIT_WEB_EXTENSION_ERROR_INVALID_MANIFEST;
+    case WebKit::WebExtension::APIError::UnsupportedManifestVersion:
+        return WEBKIT_WEB_EXTENSION_ERROR_UNSUPPORTED_MANIFEST_VERSION;
+    case WebKit::WebExtension::APIError::InvalidManifestEntry:
+        return WEBKIT_WEB_EXTENSION_ERROR_INVALID_MANIFEST_ENTRY;
+    case WebKit::WebExtension::APIError::InvalidDeclarativeNetRequestEntry:
+        return WEBKIT_WEB_EXTENSION_ERROR_INVALID_DECLARATIVE_NET_REQUEST_ENTRY;
+    case WebKit::WebExtension::APIError::InvalidBackgroundPersistence:
+        return WEBKIT_WEB_EXTENSION_ERROR_INVALID_BACKGROUND_PERSISTENCE;
+    case WebKit::WebExtension::APIError::InvalidArchive:
+        return WEBKIT_WEB_EXTENSION_ERROR_INVALID_ARCHIVE;
+    case WebKit::WebExtension::APIError::Unknown:
+        return WEBKIT_WEB_EXTENSION_ERROR_UNKNOWN;
+    }
+
+    return WEBKIT_WEB_EXTENSION_ERROR_UNKNOWN;
+}
+#endif // ENABLE(2022_GLIB_API)
 unsigned toWebKitWebExtensionMatchPatternError(unsigned apiError)
 {
     auto error = static_cast<WebKit::WebExtensionMatchPattern::Error>(apiError);
@@ -171,7 +229,7 @@ unsigned toWebKitWebExtensionMatchPatternError(unsigned apiError)
         return WEBKIT_WEB_EXTENSION_MATCH_PATTERN_ERROR_UNKNOWN;
     }
 }
-#endif
+#endif // ENABLE(WK_WEB_EXTENSIONS)
 
 unsigned toWebCoreError(unsigned webKitError)
 {

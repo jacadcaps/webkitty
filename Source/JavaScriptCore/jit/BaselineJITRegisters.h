@@ -25,10 +25,12 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if ENABLE(JIT)
 
-#include "GPRInfo.h"
-#include "JITOperations.h"
+#include <JavaScriptCore/GPRInfo.h>
+#include <JavaScriptCore/JITOperations.h>
 
 namespace JSC {
 
@@ -117,7 +119,8 @@ namespace ResolveScope {
     static constexpr GPRReg scopeGPR { GPRInfo::regT0 };
     static constexpr GPRReg bytecodeOffsetGPR { GPRInfo::regT3 };
     static constexpr GPRReg scratch1GPR { GPRInfo::regT5 };
-    static_assert(noOverlap(metadataGPR, scopeGPR, bytecodeOffsetGPR, scratch1GPR), "Required for call to CTI thunk");
+    static constexpr GPRReg scratch2GPR { GPRInfo::regT1 };
+    static_assert(noOverlap(metadataGPR, scopeGPR, bytecodeOffsetGPR, scratch1GPR, scratch2GPR), "Required for call to CTI thunk");
 }
 
 namespace GetFromScope {

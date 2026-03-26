@@ -386,13 +386,10 @@ TEST_P(PerAEADTest, TestVectorScatterGather) {
         out.size(), out_tag.data(), out_tag.size(), ad.data(), ad.size());
 
     // Skip decryption for AEADs that don't implement open_gather().
-    if (!ret) {
-      uint32_t err = ERR_peek_error();
-      if (ERR_GET_LIB(err) == ERR_LIB_CIPHER &&
-          ERR_GET_REASON(err) == CIPHER_R_CTRL_NOT_IMPLEMENTED) {
-        t->SkipCurrent();
-        return;
-      }
+    if (!ret && ERR_equals(ERR_peek_error(), ERR_LIB_CIPHER,
+                           CIPHER_R_CTRL_NOT_IMPLEMENTED)) {
+      t->SkipCurrent();
+      return;
     }
 
     if (t->HasAttribute("FAILS")) {
@@ -458,13 +455,13 @@ TEST_P(PerAEADTest, CleanupAfterInitFailure) {
   EVP_AEAD_CTX ctx;
   ASSERT_FALSE(EVP_AEAD_CTX_init(
       &ctx, aead(), key, key_len,
-      9999 /* a silly tag length to trigger an error */, NULL /* ENGINE */));
+      9999 /* a silly tag length to trigger an error */, nullptr /* ENGINE */));
   ERR_clear_error();
 
   // Running a second, failed _init should not cause a memory leak.
   ASSERT_FALSE(EVP_AEAD_CTX_init(
       &ctx, aead(), key, key_len,
-      9999 /* a silly tag length to trigger an error */, NULL /* ENGINE */));
+      9999 /* a silly tag length to trigger an error */, nullptr /* ENGINE */));
   ERR_clear_error();
 
   // Calling _cleanup on an |EVP_AEAD_CTX| after a failed _init should be a
@@ -490,7 +487,7 @@ TEST_P(PerAEADTest, TruncatedTags) {
   const size_t tag_len = MinimumTagLength(GetParam().flags);
   bssl::ScopedEVP_AEAD_CTX ctx;
   ASSERT_TRUE(EVP_AEAD_CTX_init(ctx.get(), aead(), key, key_len, tag_len,
-                                NULL /* ENGINE */));
+                                nullptr /* ENGINE */));
 
   const uint8_t plaintext[1] = {'A'};
 

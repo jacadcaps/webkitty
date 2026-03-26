@@ -45,7 +45,7 @@ using namespace WebKit;
 WTF_MAKE_TZONE_ALLOCATED_IMPL(WebExtensionSQLiteDatabase);
 
 WebExtensionSQLiteDatabase::WebExtensionSQLiteDatabase(const URL& url, Ref<WorkQueue>&& queue)
-    : m_queue(WTFMove(queue))
+    : m_queue(WTF::move(queue))
 {
     ASSERT(url.protocolIsFile());
 
@@ -97,7 +97,7 @@ void WebExtensionSQLiteDatabase::reportErrorWithCode(int errorCode, sqlite3_stmt
         }
     }
 
-    reportErrorWithCode(errorCode, { }, outError);
+    reportErrorWithCode(errorCode, emptyString(), outError);
 }
 
 RefPtr<API::Error> WebExtensionSQLiteDatabase::errorWithSQLiteErrorCode(int errorCode)

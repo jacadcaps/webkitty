@@ -69,6 +69,7 @@ namespace WebKit {
 class NetworkConnectionToWebProcess;
 class NetworkSession;
 struct RTCPacketOptions;
+struct RTCSocketCreationFlags;
 
 struct SocketComparator {
     bool operator()(const WebCore::LibWebRTCSocketIdentifier& a, const WebCore::LibWebRTCSocketIdentifier& b) const
@@ -132,14 +133,14 @@ private:
     explicit NetworkRTCProvider(NetworkConnectionToWebProcess&);
     void startListeningForIPC();
 
-    void createUDPSocket(WebCore::LibWebRTCSocketIdentifier, const RTCNetwork::SocketAddress&, uint16_t, uint16_t, WebPageProxyIdentifier, bool isFirstParty, bool isRelayDisabled, WebCore::RegistrableDomain&&);
-    void createClientTCPSocket(WebCore::LibWebRTCSocketIdentifier, const RTCNetwork::SocketAddress&, const RTCNetwork::SocketAddress&, String&& userAgent, int, WebPageProxyIdentifier, bool isFirstParty, bool isRelayDisabled, WebCore::RegistrableDomain&&);
+    void createUDPSocket(WebCore::LibWebRTCSocketIdentifier, const RTCNetwork::SocketAddress&, uint16_t, uint16_t, WebPageProxyIdentifier, RTCSocketCreationFlags, WebCore::RegistrableDomain&&);
+    void createClientTCPSocket(WebCore::LibWebRTCSocketIdentifier, const RTCNetwork::SocketAddress&, const RTCNetwork::SocketAddress&, String&& userAgent, int, WebPageProxyIdentifier, RTCSocketCreationFlags, WebCore::RegistrableDomain&&);
     void sendToSocket(WebCore::LibWebRTCSocketIdentifier, std::span<const uint8_t>, RTCNetwork::SocketAddress&&, RTCPacketOptions&&);
     void setSocketOption(WebCore::LibWebRTCSocketIdentifier, int option, int value);
 
     void createResolver(LibWebRTCResolverIdentifier, String&&);
     void stopResolver(LibWebRTCResolverIdentifier);
-    void getInterfaceName(URL&&, WebPageProxyIdentifier, bool isFirstParty, bool isRelayDisabled, WebCore::RegistrableDomain&&, CompletionHandler<void(String&&)>&&);
+    void getInterfaceName(URL&&, WebPageProxyIdentifier, RTCSocketCreationFlags, WebCore::RegistrableDomain&&, CompletionHandler<void(String&&)>&&);
 
     void addSocket(WebCore::LibWebRTCSocketIdentifier, std::unique_ptr<Socket>&&);
 

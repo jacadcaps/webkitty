@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2011 Google Inc. All rights reserved.
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -625,7 +625,7 @@ WI.CSSKeywordCompletions._propertyKeywordMap = {
         "-webkit-control", "status-bar", "italic", "oblique", "small-caps", "normal", "bold", "bolder", "lighter",
         "100", "200", "300", "400", "500", "600", "700", "800", "900", "xx-small", "x-small", "small", "medium",
         "large", "x-large", "xx-large", "xxx-large", "smaller", "larger", "serif", "sans-serif", "cursive",
-        "fantasy", "monospace", "-webkit-body", "-webkit-pictograph", "-apple-system",
+        "fantasy", "monospace", "math", "-webkit-body", "-webkit-pictograph", "-apple-system",
         "-apple-system-headline", "-apple-system-body", "-apple-system-subheadline", "-apple-system-footnote",
         "-apple-system-caption1", "-apple-system-caption2", "-apple-system-short-headline", "-apple-system-short-body",
         "-apple-system-short-subheadline", "-apple-system-short-footnote", "-apple-system-short-caption1",
@@ -683,7 +683,7 @@ WI.CSSKeywordCompletions._propertyKeywordMap = {
         "repeat", "stretch", "space", "round"
     ],
     "font-family": [
-        "serif", "sans-serif", "cursive", "fantasy", "monospace", "-webkit-body", "-webkit-pictograph",
+        "serif", "sans-serif", "cursive", "fantasy", "monospace", "math", "-webkit-body", "-webkit-pictograph",
         "-apple-system", "-apple-system-headline", "-apple-system-body",
         "-apple-system-subheadline", "-apple-system-footnote", "-apple-system-caption1", "-apple-system-caption2",
         "-apple-system-short-headline", "-apple-system-short-body", "-apple-system-short-subheadline",
@@ -1228,7 +1228,7 @@ WI.CSSKeywordCompletions._propertyKeywordMap = {
         "ltr", "rtl",
     ],
     "display": [
-        "none", "inline", "block", "list-item", "compact", "inline-block", "table", "inline-table", "table-row-group", "table-header-group", "table-footer-group", "table-row", "table-column-group", "table-column", "table-cell", "table-caption", "-webkit-box", "-webkit-inline-box", "flex", "-webkit-flex", "inline-flex", "-webkit-inline-flex", "contents", "grid", "inline-grid",
+        "none", "inline", "block", "list-item", "compact", "inline-block", "table", "inline-table", "table-row-group", "table-header-group", "table-footer-group", "table-row", "table-column-group", "table-column", "table-cell", "table-caption", "-webkit-box", "-webkit-inline-box", "flex", "-webkit-flex", "inline-flex", "-webkit-inline-flex", "contents", "grid", "inline-grid", "grid-lanes", "inline-grid-lanes",
     ],
     "dominant-baseline": [
         "middle", "auto", "alphabetic", "central", "text-before-edge", "text-after-edge", "ideographic", "hanging", "mathematical", "use-script", "no-change", "reset-size",
@@ -1411,6 +1411,6 @@ WI.CSSKeywordCompletions._propertyKeywordMap = {
         "normal", "break-word",
     ],
     "writing-mode": [
-        "lr", "rl", "tb", "lr-tb", "rl-tb", "tb-rl", "horizontal-tb", "vertical-rl", "vertical-lr", "horizontal-bt",
+        "lr", "rl", "tb", "lr-tb", "rl-tb", "tb-rl", "horizontal-tb", "vertical-rl", "vertical-lr", "horizontal-bt", "sideways-rl", "sideways-lr",
     ],
 };

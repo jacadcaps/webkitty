@@ -46,13 +46,26 @@
 #include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
 #include <JavaScriptCore/SlotVisitorMacros.h>
 #include <JavaScriptCore/SubspaceInlines.h>
+#include <type_traits>
 #include <wtf/GetPtr.h>
+#include <wtf/IsIncreasing.h>
 #include <wtf/PointerPreparations.h>
 #include <wtf/URL.h>
 #include <wtf/text/MakeString.h>
 
 namespace WebCore {
 using namespace JSC;
+
+IGNORE_WARNINGS_BEGIN("invalid-offsetof")
+
+static_assert(std::is_aggregate_v<TestPromiseRejectionEvent::Init>);
+static_assert(IsIncreasing<
+      0
+    , offsetof(TestPromiseRejectionEvent::Init, promise)
+    , offsetof(TestPromiseRejectionEvent::Init, reason)
+>);
+
+IGNORE_WARNINGS_END
 
 template<> ConversionResult<IDLDictionary<TestPromiseRejectionEvent::Init>> convertDictionary<TestPromiseRejectionEvent::Init>(JSGlobalObject& lexicalGlobalObject, JSValue value)
 {
@@ -64,7 +77,6 @@ template<> ConversionResult<IDLDictionary<TestPromiseRejectionEvent::Init>> conv
         throwTypeError(&lexicalGlobalObject, throwScope);
         return ConversionResultException { };
     }
-    TestPromiseRejectionEvent::Init result;
     JSValue bubblesValue;
     if (isNullOrUndefined)
         bubblesValue = jsUndefined();
@@ -75,7 +87,6 @@ template<> ConversionResult<IDLDictionary<TestPromiseRejectionEvent::Init>> conv
     auto bubblesConversionResult = convertOptionalWithDefault<IDLBoolean>(lexicalGlobalObject, bubblesValue, [&]() -> ConversionResult<IDLBoolean> { return Converter<IDLBoolean>::ReturnType { false }; });
     if (bubblesConversionResult.hasException(throwScope)) [[unlikely]]
         return ConversionResultException { };
-    result.bubbles = bubblesConversionResult.releaseReturnValue();
     JSValue cancelableValue;
     if (isNullOrUndefined)
         cancelableValue = jsUndefined();
@@ -86,7 +97,6 @@ template<> ConversionResult<IDLDictionary<TestPromiseRejectionEvent::Init>> conv
     auto cancelableConversionResult = convertOptionalWithDefault<IDLBoolean>(lexicalGlobalObject, cancelableValue, [&]() -> ConversionResult<IDLBoolean> { return Converter<IDLBoolean>::ReturnType { false }; });
     if (cancelableConversionResult.hasException(throwScope)) [[unlikely]]
         return ConversionResultException { };
-    result.cancelable = cancelableConversionResult.releaseReturnValue();
     JSValue composedValue;
     if (isNullOrUndefined)
         composedValue = jsUndefined();
@@ -97,7 +107,6 @@ template<> ConversionResult<IDLDictionary<TestPromiseRejectionEvent::Init>> conv
     auto composedConversionResult = convertOptionalWithDefault<IDLBoolean>(lexicalGlobalObject, composedValue, [&]() -> ConversionResult<IDLBoolean> { return Converter<IDLBoolean>::ReturnType { false }; });
     if (composedConversionResult.hasException(throwScope)) [[unlikely]]
         return ConversionResultException { };
-    result.composed = composedConversionResult.releaseReturnValue();
     JSValue promiseValue;
     if (isNullOrUndefined)
         promiseValue = jsUndefined();
@@ -112,7 +121,6 @@ template<> ConversionResult<IDLDictionary<TestPromiseRejectionEvent::Init>> conv
     auto promiseConversionResult = convert<IDLPromise<IDLAny>>(lexicalGlobalObject, promiseValue);
     if (promiseConversionResult.hasException(throwScope)) [[unlikely]]
         return ConversionResultException { };
-    result.promise = promiseConversionResult.releaseReturnValue();
     JSValue reasonValue;
     if (isNullOrUndefined)
         reasonValue = jsUndefined();
@@ -123,8 +131,15 @@ template<> ConversionResult<IDLDictionary<TestPromiseRejectionEvent::Init>> conv
     auto reasonConversionResult = convertOptionalWithDefault<IDLAny>(lexicalGlobalObject, reasonValue, [&]() -> ConversionResult<IDLAny> { return Converter<IDLAny>::ReturnType { jsUndefined() }; });
     if (reasonConversionResult.hasException(throwScope)) [[unlikely]]
         return ConversionResultException { };
-    result.reason = reasonConversionResult.releaseReturnValue();
-    return result;
+    return TestPromiseRejectionEvent::Init {
+        EventInit {
+            bubblesConversionResult.releaseReturnValue(),
+            cancelableConversionResult.releaseReturnValue(),
+            composedConversionResult.releaseReturnValue(),
+        },
+        promiseConversionResult.releaseReturnValue(),
+        reasonConversionResult.releaseReturnValue(),
+    };
 }
 
 // Attributes
@@ -187,7 +202,7 @@ template<> EncodedJSValue JSC_HOST_CALL_ATTRIBUTES JSTestPromiseRejectionEventDO
     if constexpr (IsExceptionOr<decltype(object)>)
         RETURN_IF_EXCEPTION(throwScope, { });
     static_assert(TypeOrExceptionOrUnderlyingType<decltype(object)>::isRef);
-    auto jsValue = toJSNewlyCreated<IDLInterface<TestPromiseRejectionEvent>>(*lexicalGlobalObject, *castedThis->globalObject(), throwScope, WTFMove(object));
+    auto jsValue = toJSNewlyCreated<IDLInterface<TestPromiseRejectionEvent>>(*lexicalGlobalObject, *castedThis->globalObject(), throwScope, WTF::move(object));
     if constexpr (IsExceptionOr<decltype(object)>)
         RETURN_IF_EXCEPTION(throwScope, { });
     setSubclassStructureIfNeeded<TestPromiseRejectionEvent>(lexicalGlobalObject, callFrame, asObject(jsValue));
@@ -232,7 +247,7 @@ void JSTestPromiseRejectionEventPrototype::finishCreation(VM& vm)
 const ClassInfo JSTestPromiseRejectionEvent::s_info = { "TestPromiseRejectionEvent"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestPromiseRejectionEvent) };
 
 JSTestPromiseRejectionEvent::JSTestPromiseRejectionEvent(Structure* structure, JSDOMGlobalObject& globalObject, Ref<TestPromiseRejectionEvent>&& impl)
-    : JSEvent(structure, globalObject, WTFMove(impl))
+    : JSEvent(structure, globalObject, WTF::move(impl))
 {
 }
 
@@ -324,7 +339,7 @@ extern "C" { extern void (*const __identifier("??_7TestPromiseRejectionEvent@Web
 extern "C" { extern void* _ZTVN7WebCore25TestPromiseRejectionEventE[]; }
 #endif
 template<std::same_as<TestPromiseRejectionEvent> T>
-static inline void verifyVTable(TestPromiseRejectionEvent* ptr) 
+static inline void verifyVTable(TestPromiseRejectionEvent* ptr)
 {
     if constexpr (std::is_polymorphic_v<T>) {
         const void* actualVTablePointer = getVTablePointer<T>(ptr);
@@ -344,12 +359,13 @@ static inline void verifyVTable(TestPromiseRejectionEvent* ptr)
 #endif
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestPromiseRejectionEvent>&& impl)
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<TestPromiseRejectionEvent>&& impl)
 {
+    UNUSED_PARAM(lexicalGlobalObject);
 #if ENABLE(BINDING_INTEGRITY)
     verifyVTable<TestPromiseRejectionEvent>(impl.ptr());
 #endif
-    return createWrapper<TestPromiseRejectionEvent>(globalObject, WTFMove(impl));
+    return createWrapper<TestPromiseRejectionEvent>(globalObject, WTF::move(impl));
 }
 
 JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestPromiseRejectionEvent& impl)

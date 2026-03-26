@@ -34,33 +34,43 @@
 
 namespace WebCore {
 
-WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(ImageBufferCGPDFDocumentBackend);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ImageBufferCGPDFDocumentBackend);
 
 size_t ImageBufferCGPDFDocumentBackend::calculateMemoryCost(const Parameters& parameters)
 {
     // FIXME: This is fairly meaningless, because we don't actually have a bitmap, and
     // should really be based on the PDF document size.
-    return ImageBufferBackend::calculateMemoryCost(parameters.backendSize, calculateBytesPerRow(parameters.backendSize));
+    return ImageBufferBackend::calculateMemoryCost(parameters.backendSize, calculateBytesPerRow(parameters.backendSize, parameters.bufferFormat.pixelFormat));
 }
 
 std::unique_ptr<ImageBufferCGPDFDocumentBackend> ImageBufferCGPDFDocumentBackend::create(const Parameters& parameters, const ImageBufferCreationContext&)
 {
+    IntSize backendSize = parameters.backendSize;
+    if (backendSize.isEmpty())
+        return nullptr;
+
     auto data = adoptCF(CFDataCreateMutable(kCFAllocatorDefault, 0));
+    if (!data)
+        return nullptr;
 
     auto dataConsumer = adoptCF(CGDataConsumerCreateWithCFData(data.get()));
+    if (!dataConsumer)
+        return nullptr;
 
-    auto backendSize = parameters.backendSize;
     auto mediaBox = CGRectMake(0, 0, backendSize.width(), backendSize.height());
 
     auto pdfContext = adoptCF(CGPDFContextCreate(dataConsumer.get(), &mediaBox, nullptr));
+    if (!pdfContext)
+        return nullptr;
+
     auto context = makeUnique<GraphicsContextCG>(pdfContext.get());
 
-    return std::unique_ptr<ImageBufferCGPDFDocumentBackend>(new ImageBufferCGPDFDocumentBackend(parameters, WTFMove(data), WTFMove(context)));
+    return std::unique_ptr<ImageBufferCGPDFDocumentBackend>(new ImageBufferCGPDFDocumentBackend(parameters, WTF::move(data), WTF::move(context)));
 }
 
 ImageBufferCGPDFDocumentBackend::ImageBufferCGPDFDocumentBackend(const Parameters& parameters, RetainPtr<CFDataRef>&& data, std::unique_ptr<GraphicsContextCG>&& context)
-    : ImageBufferCGBackend(parameters, WTFMove(context))
-    , m_data(WTFMove(data))
+    : ImageBufferCGBackend(parameters, WTF::move(context))
+    , m_data(WTF::move(data))
 {
     ASSERT(m_data);
     ASSERT(m_context);

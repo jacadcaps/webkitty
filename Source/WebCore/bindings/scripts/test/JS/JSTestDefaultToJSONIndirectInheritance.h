@@ -20,9 +20,9 @@
 
 #pragma once
 
-#include "JSDOMWrapper.h"
 #include "JSTestDefaultToJSONInherit.h"
 #include "TestDefaultToJSONIndirectInheritance.h"
+#include <WebCore/JSDOMWrapper.h>
 
 namespace WebCore {
 
@@ -33,7 +33,7 @@ public:
     static JSTestDefaultToJSONIndirectInheritance* create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestDefaultToJSONIndirectInheritance>&& impl)
     {
         SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
-        JSTestDefaultToJSONIndirectInheritance* ptr = new (NotNull, JSC::allocateCell<JSTestDefaultToJSONIndirectInheritance>(vm)) JSTestDefaultToJSONIndirectInheritance(structure, *globalObject, WTFMove(impl));
+        JSTestDefaultToJSONIndirectInheritance* ptr = new (NotNull, JSC::allocateCell<JSTestDefaultToJSONIndirectInheritance>(vm)) JSTestDefaultToJSONIndirectInheritance(structure, *globalObject, WTF::move(impl));
         ptr->finishCreation(vm);
         return ptr;
     }
@@ -70,6 +70,9 @@ protected:
     DECLARE_DEFAULT_FINISH_CREATION;
 };
 
+JSC::JSValue toJS(JSC::JSGlobalObject*, JSDOMGlobalObject*, TestDefaultToJSONIndirectInheritance&);
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject*, Ref<TestDefaultToJSONIndirectInheritance>&&);
+ALWAYS_INLINE JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestDefaultToJSONIndirectInheritance& impl) { return toJSNewlyCreated(lexicalGlobalObject, globalObject, Ref { impl }); }
 
 template<> struct JSDOMWrapperConverterTraits<TestDefaultToJSONIndirectInheritance> {
     using WrapperClass = JSTestDefaultToJSONIndirectInheritance;

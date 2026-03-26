@@ -26,7 +26,7 @@
 
 // Version number for shader translation API.
 // It is incremented every time the API changes.
-#define ANGLE_SH_VERSION 378
+#define ANGLE_SH_VERSION 383
 
 enum ShShaderSpec
 {
@@ -157,8 +157,8 @@ struct ShPixelLocalStorageOptions
 struct ShCompileOptions
 {
     ShCompileOptions();
-    ShCompileOptions(const ShCompileOptions &other);
-    ShCompileOptions &operator=(const ShCompileOptions &other);
+    ShCompileOptions(const ShCompileOptions &other)            = default;
+    ShCompileOptions &operator=(const ShCompileOptions &other) = default;
 
     // Translates intermediate tree to glsl, hlsl, msl, or SPIR-V binary.  Can be queried by
     // calling sh::GetObjectCode().
@@ -469,6 +469,12 @@ struct ShCompileOptions
     // Ensure all loops execute side-effects or terminate.
     uint64_t ensureLoopForwardProgress : 1;
 
+    // Do not preform any shader validation or perform any shader transformations. Shader state can
+    // still be reflected.
+    uint64_t skipAllValidationAndTransforms : 1;
+
+    uint64_t transformFloatUniformTo16Bits : 1;
+
     ShCompileOptionsMetal metal;
     ShPixelLocalStorageOptions pls;
 };
@@ -484,8 +490,8 @@ using ShHashFunction64 = khronos_uint64_t (*)(const char *, size_t);
 struct ShBuiltInResources
 {
     ShBuiltInResources();
-    ShBuiltInResources(const ShBuiltInResources &other);
-    ShBuiltInResources &operator=(const ShBuiltInResources &other);
+    ShBuiltInResources(const ShBuiltInResources &)            = default;
+    ShBuiltInResources &operator=(const ShBuiltInResources &) = default;
 
     // Constants.
     int MaxVertexAttribs;
@@ -496,6 +502,10 @@ struct ShBuiltInResources
     int MaxTextureImageUnits;
     int MaxFragmentUniformVectors;
     int MaxDrawBuffers;
+    int ShadingRateFlag2VerticalPixelsEXT;
+    int ShadingRateFlag4VerticalPixelsEXT;
+    int ShadingRateFlag2HorizontalPixelsEXT;
+    int ShadingRateFlag4HorizontalPixelsEXT;
 
     // Extensions.
     // Set to 1 to enable the extension, else 0.
@@ -511,7 +521,6 @@ struct ShBuiltInResources
     int EXT_shader_texture_lod;
     int EXT_shader_framebuffer_fetch;
     int EXT_shader_framebuffer_fetch_non_coherent;
-    int NV_shader_framebuffer_fetch;
     int NV_shader_noperspective_interpolation;
     int ARM_shader_framebuffer_fetch;
     int ARM_shader_framebuffer_fetch_depth_stencil;
@@ -519,6 +528,8 @@ struct ShBuiltInResources
     int OVR_multiview2;
     int EXT_multisampled_render_to_texture;
     int EXT_multisampled_render_to_texture2;
+    int EXT_fragment_shading_rate;
+    int EXT_fragment_shading_rate_primitive;
     int EXT_YUV_target;
     int EXT_geometry_shader;
     int OES_geometry_shader;
@@ -589,6 +600,11 @@ struct ShBuiltInResources
     // Set a 64 bit hash function to enable user-defined name hashing.
     // Default is NULL.
     ShHashFunction64 HashFunction;
+
+    // User defined variables are prefixed with '_' and UserVariableNamePrefix. If UserVariableName
+    // is the null character, no prefixing is done and collisions between user variables and
+    // variables introduced during translation is possible.
+    char UserVariableNamePrefix;
 
     // The maximum complexity an expression can be when limitExpressionComplexity is turned on.
     int MaxExpressionComplexity;
@@ -962,7 +978,7 @@ inline bool IsWebGLBasedSpec(ShShaderSpec spec)
 // Can't prefix with just _ because then we might introduce a double underscore, which is not safe
 // in GLSL (ESSL 3.00.6 section 3.8: All identifiers containing a double underscore are reserved for
 // use by the underlying implementation). u is short for user-defined.
-extern const char kUserDefinedNamePrefix[];
+extern const char kUserDefinedNamePrefix;
 
 enum class MetadataFlags
 {
@@ -1131,6 +1147,15 @@ enum ReservedIds
     kIdInputAttachment7 = kIdInputAttachment0 + 7,
     kIdDepthInputAttachment,
     kIdStencilInputAttachment,
+
+    // 16-bit storage extension
+    kIdFloat16,
+    kIdFloat16Vec2,
+    kIdFloat16Vec3,
+    kIdFloat16Vec4,
+    kIdFloat16Mat2,
+    kIdFloat16Mat3,
+    kIdFloat16Mat4,
 
     kIdFirstUnreserved,
 };

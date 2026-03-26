@@ -27,6 +27,7 @@
 
 #import "DeprecatedGlobalValues.h"
 #import "PlatformUtilities.h"
+#import "SiteIsolationUtilities.h"
 #import "Test.h"
 #import <WebKit/WKProcessPoolPrivate.h>
 #import <WebKit/WKUserContentControllerPrivate.h>
@@ -58,6 +59,11 @@ TEST(IndexedDB, IndexedDBInPageCache)
     [[configuration userContentController] addScriptMessageHandler:handler.get() name:@"testHandler"];
 
     auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+
+    // FIXME: Page cache is currently disabled under site isolation; see rdar://161762363.
+    // This test relies on the back forward cache. Once it is enabled in site isolation, remove this early return.
+    if (isSiteIsolationEnabled(webView.get()))
+        return;
 
     // Load page that holds open database connection.
     NSURLRequest *request = [NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"IndexedDBInPageCache" withExtension:@"html"]];

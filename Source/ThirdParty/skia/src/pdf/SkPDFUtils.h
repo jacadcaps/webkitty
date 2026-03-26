@@ -9,6 +9,7 @@
 
 #include "include/core/SkMatrix.h"
 #include "include/core/SkPaint.h"
+#include "include/core/SkPathTypes.h"
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkScalar.h"
 #include "include/core/SkStream.h"
@@ -30,7 +31,6 @@ class SkPDFDict;
 class SkPath;
 class SkShader;
 enum class SkBlendMode;
-enum class SkPathFillType;
 struct SkRect;
 
 namespace SkPDF { struct DateTime; }
@@ -66,12 +66,10 @@ std::unique_ptr<SkPDFArray> MatrixToArray(const SkMatrix& matrix);
 void MoveTo(SkScalar x, SkScalar y, SkWStream* content);
 void AppendLine(SkScalar x, SkScalar y, SkWStream* content);
 void AppendRectangle(const SkRect& rect, SkWStream* content);
-void EmitPath(const SkPath& path, SkPaint::Style paintStyle,
-              bool doConsumeDegerates, SkWStream* content, SkScalar tolerance = 0.25f);
-inline void EmitPath(const SkPath& path, SkPaint::Style paintStyle,
-                     SkWStream* content, SkScalar tolerance = 0.25f) {
-    SkPDFUtils::EmitPath(path, paintStyle, true, content, tolerance);
-}
+enum class EmptyPath : bool { Discard, Preserve };
+enum class EmptyVerb : bool { Discard, Preserve };
+[[nodiscard]] bool EmitPath(const SkPath&, SkPaint::Style, EmptyPath, EmptyVerb,
+                            SkWStream* content, SkScalar tolerance = 0.25f);
 void ClosePath(SkWStream* content);
 void PaintPath(SkPaint::Style style, SkPathFillType fill, SkWStream* content);
 void StrokePath(SkWStream* content);

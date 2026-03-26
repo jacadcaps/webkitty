@@ -25,6 +25,7 @@
 
 #include <wtf/glib/GUniquePtr.h>
 #include <wtf/text/CString.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/WTFString.h>
 
 #if !OS(WINDOWS)
@@ -67,13 +68,26 @@ CString currentExecutablePath()
     if (result == -1)
         return { };
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // Linux port
-    return CString({ readLinkBuffer, static_cast<size_t>(result) });
+    return CString(std::span { readLinkBuffer, static_cast<size_t>(result) });
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 }
 #elif OS(HURD)
 CString currentExecutablePath()
 {
     return { };
+}
+#elif OS(QNX)
+#include <fcntl.h>
+
+CString currentExecutablePath()
+{
+    static char readBuffer[PATH_MAX];
+    int selfFd = open("/proc/self/exefile", O_RDONLY);
+    ssize_t result = read(selfFd, readBuffer, sizeof(readBuffer));
+    close(selfFd);
+    if (result == -1)
+        return { };
+    return CString(unsafeMakeSpan(readBuffer, static_cast<size_t>(result)));
 }
 #elif OS(UNIX)
 CString currentExecutablePath()
@@ -116,6 +130,19 @@ String userCacheDirectory()
 String userDataDirectory()
 {
     return stringFromFileSystemRepresentation(g_get_user_data_dir());
+}
+
+String createTemporaryDirectory(const String& directoryPrefix)
+{
+    String newTempDir = makeString(directoryPrefix, "XXXXXX"_s);
+    GUniqueOutPtr<GError> error;
+    GUniquePtr<char> tempDir(g_dir_make_tmp(newTempDir.utf8().data(), &error.outPtr()));
+    if (!tempDir) {
+        g_warning("Creating temporary directory at %s failed: %s", directoryPrefix.utf8().data(), error->message);
+        return { };
+    }
+
+    return stringFromFileSystemRepresentation(tempDir.get());
 }
 
 #if ENABLE(DEVELOPER_MODE)

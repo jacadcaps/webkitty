@@ -59,7 +59,7 @@ WK_OBJECT_DISABLE_DISABLE_KVC_IVAR_ACCESS;
 {
     Ref world = API::ContentWorld::sharedWorldWithName(name);
     checkContentWorldOptions(world, nil);
-    return wrapper(WTFMove(world)).autorelease();
+    return wrapper(WTF::move(world)).autorelease();
 }
 
 - (void)dealloc
@@ -67,7 +67,7 @@ WK_OBJECT_DISABLE_DISABLE_KVC_IVAR_ACCESS;
     if (WebCoreObjCScheduleDeallocateOnMainRunLoop(WKContentWorld.class, self))
         return;
 
-    _contentWorld->~ContentWorld();
+    SUPPRESS_UNCOUNTED_ARG _contentWorld->~ContentWorld();
 
     [super dealloc];
 }
@@ -109,11 +109,15 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         optionSet.add(WebKit::ContentWorldOption::AllowElementUserInfo);
     if (configuration.disableLegacyBuiltinOverrides)
         optionSet.add(WebKit::ContentWorldOption::DisableLegacyBuiltinOverrides);
-    if (configuration.allowNodeInfo)
-        optionSet.add(WebKit::ContentWorldOption::AllowNodeInfo);
+    if (configuration.allowJSHandleCreation)
+        optionSet.add(WebKit::ContentWorldOption::AllowJSHandleCreation);
+    if (configuration.allowNodeSerialization)
+        optionSet.add(WebKit::ContentWorldOption::AllowNodeSerialization);
+    if (configuration.isInspectable)
+        optionSet.add(WebKit::ContentWorldOption::Inspectable);
     Ref world = API::ContentWorld::sharedWorldWithName(configuration.name, optionSet);
     checkContentWorldOptions(world, configuration);
-    return wrapper(WTFMove(world)).autorelease();
+    return wrapper(WTF::move(world)).autorelease();
 }
 
 @end

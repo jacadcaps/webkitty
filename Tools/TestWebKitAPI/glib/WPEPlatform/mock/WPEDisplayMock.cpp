@@ -26,6 +26,8 @@
 #include "config.h"
 #include "WPEDisplayMock.h"
 
+#include "WPEScreenMock.h"
+#include "WPEToplevelMock.h"
 #include "WPEViewMock.h"
 #include <gio/gio.h>
 #include <gmodule.h>
@@ -39,10 +41,13 @@ struct _WPEDisplayMock {
     WPEDisplay parent;
 
     gboolean isConnected;
-    gboolean useFakeDMABufFormats;
+    gboolean useFakeBufferFormats;
     gboolean useExplicitSync;
     WPEDRMDevice* fakeDRMDevice;
     WPEDRMDevice* fakeDisplayDevice;
+
+    WPEScreen* mainScreen;
+    WPEScreen* secondaryScreen;
 
     unsigned inputDevices;
 };
@@ -52,11 +57,16 @@ G_DEFINE_DYNAMIC_TYPE(WPEDisplayMock, wpe_display_mock, WPE_TYPE_DISPLAY)
 static void wpeDisplayMockConstructed(GObject* object)
 {
     G_OBJECT_CLASS(wpe_display_mock_parent_class)->constructed(object);
+
+    auto* mock = WPE_DISPLAY_MOCK(object);
+    mock->mainScreen = WPE_SCREEN(g_object_new(WPE_TYPE_SCREEN_MOCK, "id", 1, "x", 0, "y", 0, "width", 800, "height", 600, "refresh-rate", 60000, nullptr));
 }
 
 static void wpeDisplayMockDispose(GObject* object)
 {
     auto* mock = WPE_DISPLAY_MOCK(object);
+    g_clear_object(&mock->mainScreen);
+    g_clear_object(&mock->secondaryScreen);
     g_clear_pointer(&mock->fakeDRMDevice, wpe_drm_device_unref);
     g_clear_pointer(&mock->fakeDisplayDevice, wpe_drm_device_unref);
 
@@ -79,6 +89,11 @@ static WPEView* wpeDisplayMockCreateView(WPEDisplay* display)
     return WPE_VIEW(g_object_new(WPE_TYPE_VIEW_MOCK, "display", display, nullptr));
 }
 
+static WPEToplevel* wpeDisplayMockCreateToplevel(WPEDisplay* display, guint maxViews)
+{
+    return WPE_TOPLEVEL(g_object_new(WPE_TYPE_TOPLEVEL_MOCK, "display", display, "max-views", maxViews, nullptr));
+}
+
 static WPEInputMethodContext* wpeDisplayMockCreateInputMethodContext(WPEDisplay* display, WPEView*)
 {
     return nullptr;
@@ -95,38 +110,48 @@ static WPEKeymap* wpeDisplayMockGetKeymap(WPEDisplay* display)
     return nullptr;
 }
 
-static WPEBufferDMABufFormats* wpeDisplayMockGetPreferredDMABufFormats(WPEDisplay* display)
+static WPEBufferFormats* wpeDisplayMockGetPreferredBufferFormats(WPEDisplay* display)
 {
     auto* mock = WPE_DISPLAY_MOCK(display);
-    if (!mock->useFakeDMABufFormats)
+    if (!mock->useFakeBufferFormats)
         return nullptr;
 
-    auto* builder = wpe_buffer_dma_buf_formats_builder_new(mock->fakeDRMDevice);
+    auto* builder = wpe_buffer_formats_builder_new(mock->fakeDRMDevice);
     if (!mock->fakeDisplayDevice)
         mock->fakeDisplayDevice = wpe_drm_device_new("/dev/dri/mock1", nullptr);
-    wpe_buffer_dma_buf_formats_builder_append_group(builder, mock->fakeDisplayDevice, WPE_BUFFER_DMA_BUF_FORMAT_USAGE_SCANOUT);
+    wpe_buffer_formats_builder_append_group(builder, mock->fakeDisplayDevice, WPE_BUFFER_FORMAT_USAGE_SCANOUT);
 #if USE(LIBDRM)
-    wpe_buffer_dma_buf_formats_builder_append_format(builder, DRM_FORMAT_XRGB8888, DRM_FORMAT_MOD_VIVANTE_SUPER_TILED);
-    wpe_buffer_dma_buf_formats_builder_append_format(builder, DRM_FORMAT_XRGB8888, DRM_FORMAT_MOD_VIVANTE_TILED);
+    wpe_buffer_formats_builder_append_format(builder, DRM_FORMAT_XRGB8888, DRM_FORMAT_MOD_VIVANTE_SUPER_TILED);
+    wpe_buffer_formats_builder_append_format(builder, DRM_FORMAT_XRGB8888, DRM_FORMAT_MOD_VIVANTE_TILED);
 #endif
-    wpe_buffer_dma_buf_formats_builder_append_group(builder, nullptr, WPE_BUFFER_DMA_BUF_FORMAT_USAGE_RENDERING);
+    wpe_buffer_formats_builder_append_group(builder, nullptr, WPE_BUFFER_FORMAT_USAGE_RENDERING);
 #if USE(LIBDRM)
-    wpe_buffer_dma_buf_formats_builder_append_format(builder, DRM_FORMAT_XRGB8888, DRM_FORMAT_MOD_LINEAR);
-    wpe_buffer_dma_buf_formats_builder_append_format(builder, DRM_FORMAT_ARGB8888, DRM_FORMAT_MOD_LINEAR);
+    wpe_buffer_formats_builder_append_format(builder, DRM_FORMAT_XRGB8888, DRM_FORMAT_MOD_LINEAR);
+    wpe_buffer_formats_builder_append_format(builder, DRM_FORMAT_ARGB8888, DRM_FORMAT_MOD_LINEAR);
 #endif
-    auto* formats = wpe_buffer_dma_buf_formats_builder_end(builder);
-    wpe_buffer_dma_buf_formats_builder_unref(builder);
+    auto* formats = wpe_buffer_formats_builder_end(builder);
+    wpe_buffer_formats_builder_unref(builder);
 
     return formats;
 }
 
 static guint wpeDisplayMockGetNScreens(WPEDisplay* display)
 {
-    return 0;
+    auto* mock = WPE_DISPLAY_MOCK(display);
+    return mock->secondaryScreen ? 2 : 1;
 }
 
 static WPEScreen* wpeDisplayMockGetScreen(WPEDisplay* display, guint index)
 {
+    auto* mock = WPE_DISPLAY_MOCK(display);
+    switch (index) {
+    case 0:
+        return mock->mainScreen;
+    case 1:
+        if (mock->secondaryScreen)
+            return mock->secondaryScreen;
+        break;
+    }
     return nullptr;
 }
 
@@ -149,10 +174,11 @@ static void wpe_display_mock_class_init(WPEDisplayMockClass* displayMockClass)
     WPEDisplayClass* displayClass = WPE_DISPLAY_CLASS(displayMockClass);
     displayClass->connect = wpeDisplayMockConnect;
     displayClass->create_view = wpeDisplayMockCreateView;
+    displayClass->create_toplevel = wpeDisplayMockCreateToplevel;
     displayClass->create_input_method_context = wpeDisplayMockCreateInputMethodContext;
     displayClass->get_egl_display = wpeDisplayMockGetEGLDisplay;
     displayClass->get_keymap = wpeDisplayMockGetKeymap;
-    displayClass->get_preferred_dma_buf_formats = wpeDisplayMockGetPreferredDMABufFormats;
+    displayClass->get_preferred_buffer_formats = wpeDisplayMockGetPreferredBufferFormats;
     displayClass->get_n_screens = wpeDisplayMockGetNScreens;
     displayClass->get_screen = wpeDisplayMockGetScreen;
     displayClass->get_drm_device = wpeDisplayMockGetDRMDevice;
@@ -184,6 +210,14 @@ void wpeDisplayMockRegister(GIOModule* ioModule)
     g_io_extension_point_implement(WPE_DISPLAY_EXTENSION_POINT_NAME, WPE_TYPE_DISPLAY_MOCK, "wpe-display-mock", G_MAXINT32);
 }
 
+void wpeDisplayMockDisconnect(WPEDisplayMock* mock)
+{
+    mock->isConnected = FALSE;
+    GError* error = g_error_new_literal(WPE_DISPLAY_ERROR, WPE_DISPLAY_ERROR_CONNECTION_LOST, "Display disconnected");
+    wpe_display_disconnected(WPE_DISPLAY(mock), error);
+    g_error_free(error);
+}
+
 void wpeDisplayMockUseFakeDRMNodes(WPEDisplayMock* mock, gboolean useFakeDRMNodes)
 {
     if (!useFakeDRMNodes) {
@@ -195,9 +229,9 @@ void wpeDisplayMockUseFakeDRMNodes(WPEDisplayMock* mock, gboolean useFakeDRMNode
         mock->fakeDRMDevice = wpe_drm_device_new("/dev/dri/mock0", "/dev/dri/mockD128");
 }
 
-void wpeDisplayMockUseFakeDMABufFormats(WPEDisplayMock* mock, gboolean useFakeDMABufFormats)
+void wpeDisplayMockUseFakeBufferFormats(WPEDisplayMock* mock, gboolean useFakeBufferFormats)
 {
-    mock->useFakeDMABufFormats = useFakeDMABufFormats;
+    mock->useFakeBufferFormats = useFakeBufferFormats;
 }
 
 void wpeDisplayMockSetUseExplicitSync(WPEDisplayMock* mock, gboolean useExplicitSync)
@@ -221,4 +255,23 @@ void wpeDisplayMockRemoveInputDevice(WPEDisplayMock* mock, WPEAvailableInputDevi
 {
     mock->inputDevices &= ~devices;
     wpe_display_set_available_input_devices(WPE_DISPLAY(mock), static_cast<WPEAvailableInputDevices>(mock->inputDevices));
+}
+
+void wpeDisplayMockAddSecondaryScreen(WPEDisplayMock* mock)
+{
+    if (mock->secondaryScreen)
+        return;
+
+    mock->secondaryScreen = WPE_SCREEN(g_object_new(WPE_TYPE_SCREEN_MOCK, "id", 2, "x", 0, "y", 0, "width", 1024, "height", 768, "scale", 2., "refresh-rate", 120000, nullptr));
+    wpe_display_screen_added(WPE_DISPLAY(mock), mock->secondaryScreen);
+}
+
+void wpeDisplayMockRemoveSecondaryScreen(WPEDisplayMock* mock)
+{
+    if (!mock->secondaryScreen)
+        return;
+
+    auto* screen = std::exchange(mock->secondaryScreen, nullptr);
+    wpe_display_screen_removed(WPE_DISPLAY(mock), screen);
+    g_object_unref(screen);
 }

@@ -25,8 +25,8 @@
 
 #pragma once
 
-#include "AnimationFrameRate.h"
-#include "DisplayRefreshMonitorClient.h"
+#include <WebCore/AnimationFrameRate.h>
+#include <WebCore/DisplayRefreshMonitorClient.h>
 #include <wtf/Seconds.h>
 #include <wtf/TZoneMalloc.h>
 
@@ -64,10 +64,10 @@ private:
 
     void triggerRenderingUpdate();
 
-    Page& m_page;
+    WeakRef<Page> m_page;
     std::unique_ptr<Timer> m_refreshTimer;
     unsigned m_rescheduledRenderingUpdateCount { 0 };
     bool m_useTimer { false };
 };
 
-}
+} // namespace WebCore

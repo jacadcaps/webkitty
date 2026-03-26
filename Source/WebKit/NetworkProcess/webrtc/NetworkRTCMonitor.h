@@ -30,6 +30,8 @@
 #include "RTCNetwork.h"
 #include "SharedPreferencesForWebProcess.h"
 #include <wtf/CheckedRef.h>
+#include <wtf/CompletionHandler.h>
+#include <wtf/CrossThreadCopier.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebKit {
@@ -66,6 +68,13 @@ public:
     void deref();
 
     std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess(IPC::Connection&) const;
+    static std::optional<RTCNetwork::IPAddress> getDefaultIPAddress(bool useIPv4);
+    static HashMap<String, RTCNetwork> gatherNetworkMap();
+    static bool hasNetworkChanged(const RTCNetwork&, const RTCNetwork&);
+    static bool sortNetworks(const RTCNetwork &, const RTCNetwork &);
+    static bool isEqual(const RTCNetwork::InterfaceAddress&, const RTCNetwork::InterfaceAddress&);
+    static bool isEqual(const RTCNetwork::IPAddress&, const RTCNetwork::IPAddress&);
+    static bool isEqual(const Vector<RTCNetwork::InterfaceAddress>&, const Vector<RTCNetwork::InterfaceAddress>&);
 
 private:
     void startUpdatingIfNeeded();
@@ -75,6 +84,34 @@ private:
     bool m_isStarted { false };
 #endif
 };
+
+class IPAddressCallbackAggregator final : public ThreadSafeRefCounted<IPAddressCallbackAggregator, WTF::DestructionThread::MainRunLoop> {
+public:
+    using Callback = CompletionHandler<void(RTCNetwork::IPAddress&&, RTCNetwork::IPAddress&&, HashMap<String, RTCNetwork>&&)>;
+    static Ref<IPAddressCallbackAggregator> create(Callback&& callback) { return adoptRef(*new IPAddressCallbackAggregator(WTF::move(callback))); }
+
+    ~IPAddressCallbackAggregator()
+    {
+        m_callback(WTF::move(m_ipv4), WTF::move(m_ipv6), WTF::move(m_networkMap));
+    }
+
+    void setIPv4(RTCNetwork::IPAddress&& ipv4) { m_ipv4 = WTF::move(ipv4); }
+    void setIPv6(RTCNetwork::IPAddress&& ipv6) { m_ipv6 = WTF::move(ipv6); }
+    void setNetworkMap(HashMap<String, RTCNetwork>&& networkMap) { m_networkMap = crossThreadCopy(WTF::move(networkMap)); }
+
+private:
+    explicit IPAddressCallbackAggregator(Callback&& callback)
+        : m_callback(WTF::move(callback))
+    {
+    }
+
+    Callback m_callback;
+
+    HashMap<String, RTCNetwork> m_networkMap;
+    RTCNetwork::IPAddress m_ipv4;
+    RTCNetwork::IPAddress m_ipv6;
+};
+
 
 } // namespace WebKit
 

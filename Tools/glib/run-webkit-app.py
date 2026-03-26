@@ -58,9 +58,6 @@ def main():
     output_dir = finder.path_from_webkit_outputdir()
     subdir = options.configuration or get_default_configuration(output_dir)
 
-    if not os.environ.get('WEBKIT_BUILD_USE_SYSTEM_LIBRARIES', 0):
-        sys.exit('ERROR: This command is not supported when using flatpak.')
-
     if not options.executable:
         parser.print_help()
         print('')

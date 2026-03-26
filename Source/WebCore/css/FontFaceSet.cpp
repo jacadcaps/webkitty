@@ -26,10 +26,12 @@
 #include "config.h"
 #include "FontFaceSet.h"
 
+#include "ContextDestructionObserverInlines.h"
 #include "DOMPromiseProxy.h"
-#include "Document.h"
-#include "DocumentInlines.h"
+#include "DocumentQuirks.h"
+#include "DocumentView.h"
 #include "EventLoop.h"
+#include "EventNames.h"
 #include "FontFace.h"
 #include "FrameDestructionObserverInlines.h"
 #include "FrameLoader.h"
@@ -37,13 +39,12 @@
 #include "JSDOMPromiseDeferred.h"
 #include "JSFontFace.h"
 #include "JSFontFaceSet.h"
-#include "Quirks.h"
 #include "ScriptExecutionContext.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(FontFaceSet);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(FontFaceSet);
 
 Ref<FontFaceSet> FontFaceSet::create(ScriptExecutionContext& context, const Vector<Ref<FontFace>>& initialFaces)
 {
@@ -96,11 +97,11 @@ RefPtr<FontFace> FontFaceSet::Iterator::next()
 {
     if (m_index >= m_target->size())
         return nullptr;
-    return m_target->backing()[m_index++].wrapper(m_target->scriptExecutionContext());
+    return m_target->backing()[m_index++].wrapper(m_target->protectedScriptExecutionContext().get());
 }
 
 FontFaceSet::PendingPromise::PendingPromise(LoadPromise&& promise)
-    : promise(makeUniqueRef<LoadPromise>(WTFMove(promise)))
+    : promise(makeUniqueRef<LoadPromise>(WTF::move(promise)))
 {
 }
 
@@ -166,28 +167,29 @@ void FontFaceSet::load(ScriptExecutionContext& context, const String& font, cons
     for (auto& face : matchingFaces)
         face.get().load();
 
-    auto* document = dynamicDowncast<Document>(scriptExecutionContext());
-    if (document && document->quirks().shouldEnableFontLoadingAPIQuirk()) {
-        // HBOMax.com expects that loading fonts will succeed, and will totally break when it doesn't. But when lockdown mode is enabled, fonts
-        // fail to load, because that's the whole point of lockdown mode.
-        //
-        // This is a bit of a hack to say "When lockdown mode is enabled, and lockdown mode has removed all the remote fonts, then just pretend
-        // that the fonts loaded successfully." If there are any non-remote fonts still present, don't make any behavior change.
-        //
-        // See also: https://github.com/w3c/csswg-drafts/issues/7680
+    if (auto document = dynamicDowncast<Document>(scriptExecutionContext())) {
+        if (document->quirks().shouldEnableFontLoadingAPIQuirk()) {
+            // HBOMax.com expects that loading fonts will succeed, and will totally break when it doesn't. But when lockdown mode is enabled, fonts
+            // fail to load, because that's the whole point of lockdown mode.
+            //
+            // This is a bit of a hack to say "When lockdown mode is enabled, and lockdown mode has removed all the remote fonts, then just pretend
+            // that the fonts loaded successfully." If there are any non-remote fonts still present, don't make any behavior change.
+            //
+            // See also: https://github.com/w3c/csswg-drafts/issues/7680
 
-        bool hasSource = false;
-        for (auto& face : matchingFaces) {
-            if (face.get().sourceCount()) {
-                hasSource = true;
-                break;
+            bool hasSource = false;
+            for (auto& face : matchingFaces) {
+                if (face.get().sourceCount()) {
+                    hasSource = true;
+                    break;
+                }
             }
-        }
-        if (!hasSource) {
-            promise.resolve(matchingFaces.map([scriptExecutionContext = scriptExecutionContext()] (const auto& matchingFace) {
-                return matchingFace.get().wrapper(scriptExecutionContext);
-            }));
-            return;
+            if (!hasSource) {
+                promise.resolve(matchingFaces.map([scriptExecutionContext = CheckedPtr { scriptExecutionContext() }] (const auto& matchingFace) {
+                    return matchingFace.get().wrapper(scriptExecutionContext.get());
+                }));
+                return;
+            }
         }
     }
 
@@ -198,11 +200,11 @@ void FontFaceSet::load(ScriptExecutionContext& context, const String& font, cons
         }
     }
 
-    auto pendingPromise = PendingPromise::create(WTFMove(promise));
+    auto pendingPromise = PendingPromise::create(WTF::move(promise));
     bool waiting = false;
 
     for (auto& face : matchingFaces) {
-        pendingPromise->faces.append(face.get().wrapper(scriptExecutionContext()));
+        pendingPromise->faces.append(face.get().wrapper(protectedScriptExecutionContext().get()));
         if (face.get().status() == CSSFontFace::Status::Success)
             continue;
         waiting = true;
@@ -261,7 +263,9 @@ void FontFaceSet::faceFinished(CSSFontFace& face, CSSFontFace::Status newStatus)
 
 void FontFaceSet::startedLoading()
 {
-    // FIXME: Fire a "loading" event asynchronously.
+    if (m_readyPromise->isFulfilled())
+        m_readyPromise = makeUniqueRef<ReadyPromise>(*this, &FontFaceSet::readyPromiseResolve);
+    queueTaskToDispatchEvent(*this, TaskSource::DOMManipulation, Event::create(eventNames().loadingEvent, Event::CanBubble::No, Event::IsCancelable::No));
 }
 
 void FontFaceSet::documentDidFinishLoading()
@@ -281,5 +285,11 @@ FontFaceSet& FontFaceSet::readyPromiseResolve()
 {
     return *this;
 }
+
+ScriptExecutionContext* FontFaceSet::scriptExecutionContext() const
+{
+    return ActiveDOMObject::scriptExecutionContext();
+}
+
 
 }

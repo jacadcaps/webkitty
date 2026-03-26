@@ -117,8 +117,8 @@ public:
     SkMatrix totalMatrix() const { return SkMatrix::Concat(fCTM, fTotalLocalMatrix); }
 
     /** Gets the inverse of totalMatrix(), if invertible. */
-    [[nodiscard]] bool totalInverse(SkMatrix* out) const {
-        return this->totalMatrix().invert(out);
+    std::optional<SkMatrix> totalInverse() const {
+        return this->totalMatrix().invert();
     }
 
     /** Is there a transform that has not yet been applied by a parent shader? */
@@ -186,6 +186,8 @@ class SkShaderBase : public SkShader {
 public:
     ~SkShaderBase() override;
 
+    uint32_t uniqueID() const { return fUniqueID; }
+
     sk_sp<SkShader> makeInvertAlpha() const;
     sk_sp<SkShader> makeWithCTM(const SkMatrix&) const;  // owns its own ctm
 
@@ -250,7 +252,7 @@ public:
         SkPoint     fPoint[2];                 //!< Type specific, see above.
         SkScalar    fRadius[2];                //!< Type specific, see above.
         SkTileMode  fTileMode;
-        uint32_t    fGradientFlags = 0;        //!< see SkGradientShader::Flags
+        bool        fPremulInterp;
     };
 
     virtual GradientType asGradient(GradientInfo* info    = nullptr,
@@ -321,12 +323,10 @@ public:
         // Reference to shader, so we don't have to dupe information.
         const SkShaderBase& fShader;
 
-        uint8_t         getPaintAlpha() const { return fPaintAlpha; }
-        const SkMatrix& getTotalInverse() const { return fTotalInverse; }
+        uint8_t getPaintAlpha() const { return fPaintAlpha; }
 
     private:
-        SkMatrix    fTotalInverse;
-        uint8_t     fPaintAlpha;
+        uint8_t fPaintAlpha;
     };
 
     /**
@@ -407,6 +407,9 @@ protected:
     virtual bool onAsLuminanceColor(SkColor4f*) const {
         return false;
     }
+
+private:
+    const uint32_t fUniqueID;
 
     friend class SkShaders::MatrixRec;
 };

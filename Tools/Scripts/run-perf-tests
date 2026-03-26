@@ -32,15 +32,9 @@
 import logging
 import sys
 
-if sys.platform.startswith('linux'):
-    import os
-    top_level_directory = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..'))
-    sys.path.insert(0, os.path.join(top_level_directory, 'Tools', 'flatpak'))
-
-    import flatpakutils
-    flatpakutils.run_in_sandbox_if_available(sys.argv)
-
 from webkitpy.performance_tests.perftestsrunner import PerfTestsRunner
+from webkitpy.port.linux_container_sdk_utils import maybe_use_container_sdk_root_dir
+maybe_use_container_sdk_root_dir()
 
 if '__main__' == __name__:
     logging.basicConfig(level=logging.INFO, format="%(message)s")

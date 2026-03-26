@@ -10,28 +10,38 @@
 
 #include "audio/voip/audio_ingress.h"
 
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+
+#include "api/array_view.h"
+#include "api/audio/audio_frame.h"
+#include "api/audio/audio_mixer.h"
+#include "api/audio_codecs/audio_decoder_factory.h"
+#include "api/audio_codecs/audio_encoder_factory.h"
+#include "api/audio_codecs/audio_format.h"
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
 #include "api/audio_codecs/builtin_audio_encoder_factory.h"
-#include "api/call/transport.h"
 #include "api/environment/environment.h"
 #include "api/environment/environment_factory.h"
-#include "api/task_queue/default_task_queue_factory.h"
+#include "api/rtp_headers.h"
+#include "api/scoped_refptr.h"
 #include "api/units/time_delta.h"
+#include "api/units/timestamp.h"
 #include "audio/voip/audio_egress.h"
 #include "modules/audio_mixer/sine_wave_generator.h"
+#include "modules/rtp_rtcp/include/receive_statistics.h"
 #include "modules/rtp_rtcp/source/rtp_rtcp_impl2.h"
+#include "modules/rtp_rtcp/source/rtp_rtcp_interface.h"
 #include "rtc_base/event.h"
-#include "rtc_base/logging.h"
 #include "test/gmock.h"
 #include "test/gtest.h"
 #include "test/mock_transport.h"
-#include "test/run_loop.h"
 #include "test/time_controller/simulated_time_controller.h"
 
 namespace webrtc {
 namespace {
 
-using ::testing::Invoke;
 using ::testing::NiceMock;
 using ::testing::Unused;
 
@@ -120,7 +130,7 @@ TEST_F(AudioIngressTest, GetAudioFrameAfterRtpReceived) {
     event.Set();
     return true;
   };
-  EXPECT_CALL(transport_, SendRtp).WillRepeatedly(Invoke(handle_rtp));
+  EXPECT_CALL(transport_, SendRtp).WillRepeatedly(handle_rtp);
   egress_->SendAudioData(GetAudioFrame(0));
   egress_->SendAudioData(GetAudioFrame(1));
   time_controller_.AdvanceTime(TimeDelta::Zero());
@@ -152,7 +162,7 @@ TEST_F(AudioIngressTest, TestSpeechOutputLevelAndEnergyDuration) {
     }
     return true;
   };
-  EXPECT_CALL(transport_, SendRtp).WillRepeatedly(Invoke(handle_rtp));
+  EXPECT_CALL(transport_, SendRtp).WillRepeatedly(handle_rtp);
   for (int i = 0; i < kNumRtp * 2; i++) {
     egress_->SendAudioData(GetAudioFrame(i));
     time_controller_.AdvanceTime(TimeDelta::Millis(10));
@@ -181,7 +191,7 @@ TEST_F(AudioIngressTest, PreferredSampleRate) {
     event.Set();
     return true;
   };
-  EXPECT_CALL(transport_, SendRtp).WillRepeatedly(Invoke(handle_rtp));
+  EXPECT_CALL(transport_, SendRtp).WillRepeatedly(handle_rtp);
   egress_->SendAudioData(GetAudioFrame(0));
   egress_->SendAudioData(GetAudioFrame(1));
   time_controller_.AdvanceTime(TimeDelta::Zero());
@@ -212,7 +222,7 @@ TEST_F(AudioIngressTest, GetMutedAudioFrameAfterRtpReceivedAndStopPlay) {
     }
     return true;
   };
-  EXPECT_CALL(transport_, SendRtp).WillRepeatedly(Invoke(handle_rtp));
+  EXPECT_CALL(transport_, SendRtp).WillRepeatedly(handle_rtp);
   for (int i = 0; i < kNumRtp * 2; i++) {
     egress_->SendAudioData(GetAudioFrame(i));
     time_controller_.AdvanceTime(TimeDelta::Millis(10));

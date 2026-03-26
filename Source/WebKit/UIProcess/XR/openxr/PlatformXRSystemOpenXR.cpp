@@ -23,37 +23,36 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#if ENABLE(WEBXR) && USE(OPENXR)
-
 #include "config.h"
 #include "PlatformXRSystem.h"
+
+#if ENABLE(WEBXR) && USE(OPENXR)
 
 #include "PlatformXROpenXR.h"
 #include "WebPageProxy.h"
 #include <wtf/NeverDestroyed.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 
 PlatformXRCoordinator* PlatformXRSystem::xrCoordinator()
 {
-    static LazyNeverDestroyed<OpenXRCoordinator> xrCoordinator;
-    static std::once_flag once;
-    std::call_once(once, [] {
-        xrCoordinator.construct();
-    });
+    static NeverDestroyed<OpenXRCoordinator> xrCoordinator;
     return &xrCoordinator.get();
 }
 
-void PlatformXRSystem::createLayerProjection(IPC::Connection&, uint32_t width, uint32_t height, bool alpha)
+void PlatformXRSystem::createLayerProjection(IPC::Connection&, uint32_t width, uint32_t height, bool alpha, CompletionHandler<void(std::optional<PlatformXR::LayerHandle>)>&& reply)
 {
     ASSERT(RunLoop::isMain());
 
     RefPtr page = m_page.get();
-    if (!page)
+    if (!page) {
+        reply(std::nullopt);
         return;
+    }
 
     if (auto* xrCoordinator = PlatformXRSystem::xrCoordinator())
-        xrCoordinator->createLayerProjection(width, height, alpha);
+        xrCoordinator->createLayerProjection(width, height, alpha, WTF::move(reply));
 }
 
 } // namespace WebKit

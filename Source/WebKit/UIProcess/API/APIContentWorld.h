@@ -32,6 +32,7 @@
 #include <wtf/text/WTFString.h>
 
 namespace WebKit {
+class WebProcessProxy;
 class WebUserContentControllerProxy;
 }
 
@@ -39,8 +40,9 @@ namespace API {
 
 class ContentWorld final : public API::ObjectImpl<API::Object::Type::ContentWorld>, public CanMakeWeakPtr<ContentWorld> {
 public:
+    static OptionSet<WebKit::ContentWorldOption> defaultOptions();
     static ContentWorld* worldForIdentifier(WebKit::ContentWorldIdentifier);
-    static Ref<ContentWorld> sharedWorldWithName(const WTF::String&, OptionSet<WebKit::ContentWorldOption> options = { });
+    static Ref<ContentWorld> sharedWorldWithName(const WTF::String&, OptionSet<WebKit::ContentWorldOption> = defaultOptions() );
     static ContentWorld& pageContentWorldSingleton();
     static ContentWorld& defaultClientWorldSingleton();
 
@@ -48,7 +50,7 @@ public:
 
     WebKit::ContentWorldIdentifier identifier() const { return m_identifier; }
     const WTF::String& name() const { return m_name; }
-    WebKit::ContentWorldData worldData() const { return { m_identifier, m_name, m_options }; }
+    WebKit::ContentWorldData worldDataForProcess(WebKit::WebProcessProxy&) const;
 
     bool allowAccessToClosedShadowRoots() const { return m_options.contains(WebKit::ContentWorldOption::AllowAccessToClosedShadowRoots); }
     void setAllowAccessToClosedShadowRoots(bool value) { m_options.add(WebKit::ContentWorldOption::AllowAccessToClosedShadowRoots); }
@@ -62,20 +64,22 @@ public:
     bool disableLegacyBuiltinOverrides() const { return m_options.contains(WebKit::ContentWorldOption::DisableLegacyBuiltinOverrides); }
     void setDisableLegacyBuiltinOverrides(bool value) { m_options.add(WebKit::ContentWorldOption::DisableLegacyBuiltinOverrides); }
 
-    bool allowNodeInfo() const { return m_options.contains(WebKit::ContentWorldOption::AllowNodeInfo); }
-    void setNodeInfoEnabled() { m_options.add(WebKit::ContentWorldOption::AllowNodeInfo); }
+    bool allowJSHandleCreation() const { return m_options.contains(WebKit::ContentWorldOption::AllowJSHandleCreation); }
+    void setAllowJSHandleCreation() { m_options.add(WebKit::ContentWorldOption::AllowJSHandleCreation); }
+
+    bool allowNodeSerialization() const { return m_options.contains(WebKit::ContentWorldOption::AllowNodeSerialization); }
+    void setAllowNodeSerialization() { m_options.add(WebKit::ContentWorldOption::AllowNodeSerialization); }
 
     void addAssociatedUserContentControllerProxy(WebKit::WebUserContentControllerProxy&);
-    void userContentControllerProxyDestroyed(WebKit::WebUserContentControllerProxy&);
 
 private:
     explicit ContentWorld(const WTF::String&, OptionSet<WebKit::ContentWorldOption>);
     explicit ContentWorld(WebKit::ContentWorldIdentifier);
 
-    WebKit::ContentWorldIdentifier m_identifier;
-    WTF::String m_name;
+    const WebKit::ContentWorldIdentifier m_identifier;
+    const WTF::String m_name;
     OptionSet<WebKit::ContentWorldOption> m_options;
-    WeakHashSet<WebKit::WebUserContentControllerProxy> m_associatedContentControllerProxies;
+    mutable WeakHashSet<WebKit::WebProcessProxy> m_processes;
 };
 
 } // namespace API

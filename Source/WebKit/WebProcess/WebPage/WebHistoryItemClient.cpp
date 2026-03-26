@@ -29,11 +29,14 @@
 #include "MessageSenderInlines.h"
 #include "SessionState.h"
 #include "SessionStateConversion.h"
+#include "WebBackForwardListMessages.h"
 #include "WebPage.h"
 #include "WebPageProxyMessages.h"
 #include <WebCore/HistoryItem.h>
 
 namespace WebKit {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebHistoryItemClient);
 
 WebHistoryItemClient::WebHistoryItemClient(WebPage& page)
     : m_page(page)
@@ -53,7 +56,7 @@ void WebHistoryItemClient::historyItemChanged(const WebCore::HistoryItem& item)
     if (m_shouldIgnoreChanges)
         return;
     if (RefPtr page = m_page.get())
-        page->send(Messages::WebPageProxy::BackForwardUpdateItem(toFrameState(item)));
+        page->send(Messages::WebBackForwardList::BackForwardUpdateItem(toFrameState(item)));
 }
 
 void WebHistoryItemClient::clearChildren(const WebCore::HistoryItem& item) const
@@ -61,7 +64,7 @@ void WebHistoryItemClient::clearChildren(const WebCore::HistoryItem& item) const
     if (m_shouldIgnoreChanges)
         return;
     if (RefPtr page = m_page.get())
-        page->send(Messages::WebPageProxy::BackForwardClearChildren(item.itemID(), item.frameItemID()));
+        page->send(Messages::WebBackForwardList::BackForwardClearChildren(item.itemID(), item.frameItemID()));
 }
 
 }

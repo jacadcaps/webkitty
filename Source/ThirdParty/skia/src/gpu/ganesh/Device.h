@@ -190,15 +190,15 @@ public:
     void drawRegion(const SkRegion& r, const SkPaint& paint) override;
     void drawOval(const SkRect& oval, const SkPaint& paint) override;
     void drawArc(const SkArc& arc, const SkPaint& paint) override;
-    void drawPath(const SkPath& path, const SkPaint& paint, bool pathIsMutable) override;
+    void drawPath(const SkPath& path, const SkPaint& paint) override;
 
     void drawVertices(const SkVertices*, sk_sp<SkBlender>, const SkPaint&, bool) override;
     void drawMesh(const SkMesh&, sk_sp<SkBlender>, const SkPaint&) override;
 #if !defined(SK_ENABLE_OPTIMIZE_SIZE)
     void drawShadow(SkCanvas*, const SkPath&, const SkDrawShadowRec&) override;
 #endif
-    void drawAtlas(const SkRSXform[], const SkRect[], const SkColor[], int count, sk_sp<SkBlender>,
-                   const SkPaint&) override;
+    void drawAtlas(SkSpan<const SkRSXform>, SkSpan<const SkRect>, SkSpan<const SkColor>,
+                   sk_sp<SkBlender>, const SkPaint&) override;
 
     void drawImageRect(const SkImage*, const SkRect* src, const SkRect& dst,
                        const SkSamplingOptions&, const SkPaint&,

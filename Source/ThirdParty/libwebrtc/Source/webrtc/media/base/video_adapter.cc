@@ -73,19 +73,19 @@ Fraction FindScale(int input_width,
 
   // Don't scale up original.
   if (target_pixels >= input_pixels)
-    return Fraction{1, 1};
+    return {.numerator = 1, .denominator = 1};
 
-  Fraction current_scale = Fraction{1, 1};
-  Fraction best_scale = Fraction{1, 1};
+  Fraction current_scale = {.numerator = 1, .denominator = 1};
+  Fraction best_scale = {.numerator = 1, .denominator = 1};
 
   // Start scaling down by 2/3 depending on `input_width` and `input_height`.
   if (input_width % 3 == 0 && input_height % 3 == 0) {
     // 2/3 (then alternates 3/4, 2/3, 3/4,...).
-    current_scale = Fraction{6, 6};
+    current_scale = {.numerator = 6, .denominator = 6};
   }
   if (input_width % 9 == 0 && input_height % 9 == 0) {
     // 2/3, 2/3 (then alternates 3/4, 2/3, 3/4,...).
-    current_scale = Fraction{36, 36};
+    current_scale = {.numerator = 36, .denominator = 36};
   }
 
   // The minimum (absolute) difference between the number of output pixels and
@@ -374,8 +374,8 @@ void VideoAdapter::OnSinkWants(const VideoSinkWants& sink_wants) {
   max_framerate_request_ = sink_wants.max_framerate_fps;
   resolution_alignment_ =
       std::lcm(source_resolution_alignment_, sink_wants.resolution_alignment);
-  // Convert from std::optional<webrtc::VideoSinkWants::FrameSize> to
-  // std::optional<webrtc::Resolution>. Both are {int,int}.
+  // Convert from std::optional<VideoSinkWants::FrameSize> to
+  // std::optional<Resolution>. Both are {int,int}.
   scale_resolution_down_to_ = std::nullopt;
   if (sink_wants.requested_resolution.has_value()) {
     scale_resolution_down_to_ = {

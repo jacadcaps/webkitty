@@ -24,7 +24,8 @@
  */
 
 [
-    JSGenerateToJSObject
+    JSGenerateToJSObject,
+    LegacyNativeDictionaryRequiredInterfaceNullability,
 ] dictionary CryptoAesKeyAlgorithm : CryptoKeyAlgorithm {
     // The length, in bits, of the key.
     required unsigned short length;

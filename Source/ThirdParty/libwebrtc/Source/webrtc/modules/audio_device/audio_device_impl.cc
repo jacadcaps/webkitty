@@ -10,8 +10,6 @@
 
 #include "modules/audio_device/audio_device_impl.h"
 
-#include <stddef.h>
-
 #include <cstdint>
 #include <memory>
 #include <utility>
@@ -22,17 +20,13 @@
 #include "api/environment/environment.h"
 #include "api/make_ref_counted.h"
 #include "api/scoped_refptr.h"
-#include "api/task_queue/task_queue_factory.h"
-#include "modules/audio_device/audio_device_config.h"  // IWYU pragma: keep
 #include "modules/audio_device/audio_device_generic.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
 #include "system_wrappers/include/metrics.h"
 
-#if defined(_WIN32)
-#if defined(WEBRTC_WINDOWS_CORE_AUDIO_BUILD)
+#if defined(WEBRTC_WIN)
 #include "modules/audio_device/win/audio_device_core_win.h"
-#endif
 #elif defined(WEBRTC_ANDROID)
 #include <stdlib.h>
 #include "webkit_sdk/android/native_api/audio_device_module/audio_device_android.h"
@@ -92,8 +86,7 @@ AudioDeviceModuleImpl::Create(const Environment& env, AudioLayer audio_layer) {
   }
 
   // Create the generic reference counted (platform independent) implementation.
-  auto audio_device = make_ref_counted<AudioDeviceModuleImpl>(
-      audio_layer, &env.task_queue_factory());
+  auto audio_device = make_ref_counted<AudioDeviceModuleImpl>(env, audio_layer);
 
   // Ensure that the current platform is supported.
   if (audio_device->CheckPlatform() == -1) {
@@ -114,20 +107,19 @@ AudioDeviceModuleImpl::Create(const Environment& env, AudioLayer audio_layer) {
   return audio_device;
 }
 
-AudioDeviceModuleImpl::AudioDeviceModuleImpl(
-    AudioLayer audio_layer,
-    TaskQueueFactory* task_queue_factory)
-    : audio_layer_(audio_layer), audio_device_buffer_(task_queue_factory) {
+AudioDeviceModuleImpl::AudioDeviceModuleImpl(const Environment& env,
+                                             AudioLayer audio_layer)
+    : audio_layer_(audio_layer), audio_device_buffer_(env) {
   RTC_DLOG(LS_INFO) << __FUNCTION__;
 }
 
 AudioDeviceModuleImpl::AudioDeviceModuleImpl(
+    const Environment& env,
     AudioLayer audio_layer,
     std::unique_ptr<AudioDeviceGeneric> audio_device,
-    TaskQueueFactory* task_queue_factory,
     bool create_detached)
     : audio_layer_(audio_layer),
-      audio_device_buffer_(task_queue_factory, create_detached),
+      audio_device_buffer_(env, create_detached),
       audio_device_(std::move(audio_device)) {
   RTC_DLOG(LS_INFO) << __FUNCTION__;
 }
@@ -189,8 +181,8 @@ int32_t AudioDeviceModuleImpl::CreatePlatformSpecificObjects(
 // Real (non-dummy) ADM implementations.
 #else
   AudioLayer audio_layer(PlatformAudioLayer());
-// Windows ADM implementation.
-#if defined(WEBRTC_WINDOWS_CORE_AUDIO_BUILD)
+#if defined(WEBRTC_WIN)
+  // Windows ADM implementation.
   if ((audio_layer == kWindowsCoreAudio) ||
       (audio_layer == kPlatformDefaultAudio)) {
     RTC_LOG(LS_INFO) << "Attempting to use the Windows Core Audio APIs...";
@@ -199,7 +191,7 @@ int32_t AudioDeviceModuleImpl::CreatePlatformSpecificObjects(
       RTC_LOG(LS_INFO) << "Windows Core Audio APIs will be utilized";
     }
   }
-#endif  // defined(WEBRTC_WINDOWS_CORE_AUDIO_BUILD)
+#endif
 
 // Linux ADM implementation.
 // Note that, WEBRTC_ENABLE_LINUX_ALSA is always defined by default when

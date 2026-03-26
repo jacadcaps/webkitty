@@ -73,7 +73,7 @@
 
 - (id)draggingSource
 {
-    return _source.get().get();
+    return _source.get().unsafeGet();
 }
 
 - (void)setDraggingSource:(id)draggingSource
@@ -96,13 +96,16 @@
         return;
     }
 
+    RetainPtr externalPromisedFiles = [_dragAndDropSimulator externalPromisedFiles];
+    if (!externalPromisedFiles)
+        return;
+
     BOOL stop = NO;
     for (Class classObject in classes) {
         if (classObject != NSFilePromiseReceiver.class)
             continue;
 
         RetainPtr promisedTypeIdentifiers = dynamic_objc_cast<NSArray>([_pasteboard propertyListForType:NSFilesPromisePboardType]);
-        RetainPtr externalPromisedFiles = [_dragAndDropSimulator externalPromisedFiles];
         RELEASE_ASSERT([promisedTypeIdentifiers count] == [externalPromisedFiles count]);
 
         for (id object in promisedTypeIdentifiers.get())
@@ -110,16 +113,22 @@
 
         NSUInteger itemIndex = 0;
         for (NSURL *promisedFileURL in externalPromisedFiles.get()) {
-            RetainPtr receiver = adoptNS([[TestFilePromiseReceiver alloc] initWithTypeIdentifier:[promisedTypeIdentifiers objectAtIndex:itemIndex] fileURL:promisedFileURL]);
-            [receiver setDraggingSource:_source.get().get()];
-            [_filePromiseReceivers addObject:receiver.get()];
+            RetainPtr receiver = [&] -> RetainPtr<NSFilePromiseReceiver> {
+                if (itemIndex < [_filePromiseReceivers count])
+                    return [_filePromiseReceivers objectAtIndex:itemIndex];
+
+                RetainPtr receiver = adoptNS([[TestFilePromiseReceiver alloc] initWithTypeIdentifier:[promisedTypeIdentifiers objectAtIndex:itemIndex] fileURL:promisedFileURL]);
+                [receiver setDraggingSource:_source.get().get()];
+                [_filePromiseReceivers addObject:receiver.get()];
+                return receiver.autorelease();
+            }();
 
 #if HAVE(DRAGGING_ITEM_INIT_WITH_PASTEBOARD_ITEM)
             RetainPtr item = adoptNS([[NSDraggingItem alloc] _initWithPasteboardItem:receiver.get() localItem:nil]);
 #else
             RetainPtr item = adoptNS([[NSDraggingItem alloc] _initWithItem:receiver.get()]);
 #endif
-            block(item.get(), 0, &stop);
+            block(item.get(), itemIndex, &stop);
             if (stop)
                 break;
 

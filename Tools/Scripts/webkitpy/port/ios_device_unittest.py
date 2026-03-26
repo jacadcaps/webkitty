@@ -117,22 +117,23 @@ class IOSDeviceTest(ios_testcase.IOSTest):
             search_path = port.default_baseline_search_path()
 
         self.assertEqual(search_path, [
-            f'/additional_testing_path/ios-device-add-ios{major_os_version}-wk1',
-            f'/mock-checkout/LayoutTests/platform/ios-device-{major_os_version}-wk1',
+            f'/additional_testing_path/ios-device-add-ios{major_os_version}-wk2',
+            f'/mock-checkout/LayoutTests/platform/ios-device-{major_os_version}-wk2',
             f'/additional_testing_path/ios-device-add-ios{major_os_version}',
             f'/mock-checkout/LayoutTests/platform/ios-device-{major_os_version}',
-            '/additional_testing_path/ios-device-wk1',
-            '/mock-checkout/LayoutTests/platform/ios-device-wk1',
+            '/additional_testing_path/ios-device-wk2',
+            '/mock-checkout/LayoutTests/platform/ios-device-wk2',
             '/additional_testing_path/ios-device',
             '/mock-checkout/LayoutTests/platform/ios-device',
-            f'/additional_testing_path/ios-add-ios{major_os_version}-wk1',
-            f'/mock-checkout/LayoutTests/platform/ios-{major_os_version}-wk1',
+            f'/additional_testing_path/ios-add-ios{major_os_version}-wk2',
+            f'/mock-checkout/LayoutTests/platform/ios-{major_os_version}-wk2',
             f'/additional_testing_path/ios-add-ios{major_os_version}',
             f'/mock-checkout/LayoutTests/platform/ios-{major_os_version}',
-            '/additional_testing_path/ios-wk1',
-            '/mock-checkout/LayoutTests/platform/ios-wk1',
+            '/additional_testing_path/ios-wk2',
+            '/mock-checkout/LayoutTests/platform/ios-wk2',
             '/additional_testing_path/ios',
             '/mock-checkout/LayoutTests/platform/ios',
+            '/mock-checkout/LayoutTests/platform/wk2',
         ])
 
     def test_layout_test_searchpath_without_apple_additions(self):

@@ -54,6 +54,7 @@
 #import <wtf/Vector.h>
 #import <wtf/WeakObjCPtr.h>
 #import <wtf/cocoa/SpanCocoa.h>
+#import <wtf/darwin/DispatchExtras.h>
 #import <wtf/text/MakeString.h>
 #import <wtf/text/StringHash.h>
 #import <wtf/text/StringToIntegerConversion.h>
@@ -129,7 +130,7 @@
 {
     int64_t deferredWaitTime = 100 * NSEC_PER_MSEC;
     dispatch_time_t when = dispatch_time(DISPATCH_TIME_NOW, deferredWaitTime);
-    dispatch_after(when, dispatch_get_main_queue(), ^{
+    dispatch_after(when, mainDispatchQueueSingleton(), ^{
         decisionHandler(WKNavigationActionPolicyAllow);
     });
 
@@ -139,17 +140,22 @@
 {
     int64_t deferredWaitTime = 100 * NSEC_PER_MSEC;
     dispatch_time_t when = dispatch_time(DISPATCH_TIME_NOW, deferredWaitTime);
-    dispatch_after(when, dispatch_get_main_queue(), ^{
+    dispatch_after(when, mainDispatchQueueSingleton(), ^{
         decisionHandler(WKNavigationResponsePolicyAllow);
     });
 }
 @end
 
 
-static const char mainBytes[] =
-"<html>" \
-"<img src='testing:image'>" \
-"</html>";
+static constexpr auto mainBytes = u8""
+"<html>"
+"<img src='testing:image'>"
+"</html>"_span;
+
+static RetainPtr<NSData> mainBytesData()
+{
+    return toNSData(byteCast<uint8_t>(mainBytes));
+}
 
 TEST(URLSchemeHandler, Basic)
 {
@@ -157,7 +163,7 @@ TEST(URLSchemeHandler, Basic)
 
     RetainPtr<WKWebViewConfiguration> configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
 
-    RetainPtr<SchemeHandler> handler = adoptNS([[SchemeHandler alloc] initWithData:toNSDataNoCopy(unsafeSpan8IncludingNullTerminator(mainBytes),  FreeWhenDone::No).get() mimeType:@"text/html"]);
+    RetainPtr<SchemeHandler> handler = adoptNS([[SchemeHandler alloc] initWithData:mainBytesData().get() mimeType:@"text/html"]);
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"testing"];
 
     RetainPtr<WKWebView> webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
@@ -180,7 +186,7 @@ TEST(URLSchemeHandler, BasicWithHTTPS)
     done = false;
 
     HTTPServer httpsServer({
-        { "/"_s, { { { "Content-Type"_s, "text/html"_s } }, String::fromUTF8(mainBytes) } },
+        { "/"_s, { { { "Content-Type"_s, "text/html"_s } }, mainBytes } },
     }, HTTPServer::Protocol::HttpsProxy);
 
     auto storeConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] init]);
@@ -192,7 +198,7 @@ TEST(URLSchemeHandler, BasicWithHTTPS)
     auto configuration = adoptNS([WKWebViewConfiguration new]);
     [configuration setWebsiteDataStore:dataStore.get()];
 
-    RetainPtr<SchemeHandler> handler = adoptNS([[SchemeHandler alloc] initWithData:toNSDataNoCopy(unsafeSpan8IncludingNullTerminator(mainBytes),  FreeWhenDone::No).get() mimeType:@"text/html"]);
+    RetainPtr<SchemeHandler> handler = adoptNS([[SchemeHandler alloc] initWithData:mainBytesData().get() mimeType:@"text/html"]);
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"testing"];
 
     auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
@@ -218,7 +224,7 @@ TEST(URLSchemeHandler, BasicWithAsyncPolicyDelegate)
 
     RetainPtr<WKWebViewConfiguration> configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
 
-    RetainPtr<SchemeHandler> handler = adoptNS([[SchemeHandler alloc] initWithData:toNSDataNoCopy(unsafeSpan8IncludingNullTerminator(mainBytes),  FreeWhenDone::No).get() mimeType:@"text/html"]);
+    RetainPtr<SchemeHandler> handler = adoptNS([[SchemeHandler alloc] initWithData:mainBytesData().get() mimeType:@"text/html"]);
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"testing"];
 
     RetainPtr<WKWebView> webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
@@ -245,7 +251,7 @@ TEST(URLSchemeHandler, NoMIMEType)
 
     RetainPtr<WKWebViewConfiguration> configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
 
-    RetainPtr<SchemeHandler> handler = adoptNS([[SchemeHandler alloc] initWithData:toNSDataNoCopy(unsafeSpan8IncludingNullTerminator(mainBytes),  FreeWhenDone::No).get() mimeType:nil]);
+    RetainPtr<SchemeHandler> handler = adoptNS([[SchemeHandler alloc] initWithData:mainBytesData().get() mimeType:nil]);
     handler.get().shouldFinish = NO;
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"testing"];
 
@@ -413,7 +419,7 @@ enum class Command {
     if (!self)
         return nil;
     
-    self->commands = WTFMove(commandVector);
+    self->commands = WTF::move(commandVector);
     self->expectedException = expected;
     
     return self;
@@ -465,7 +471,7 @@ static void checkCallSequence(Vector<Command>&& commands, ShouldRaiseException s
 {
     done = false;
     auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
-    auto handler = adoptNS([[TaskSchemeHandler alloc] initWithCommands:WTFMove(commands) expectedException:shouldRaiseException == ShouldRaiseException::Yes]);
+    auto handler = adoptNS([[TaskSchemeHandler alloc] initWithCommands:WTF::move(commands) expectedException:shouldRaiseException == ShouldRaiseException::Yes]);
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"testing"];
     auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"testing:///initial"]]];
@@ -500,7 +506,7 @@ TEST(URLSchemeHandler, Exceptions)
 
 struct SchemeResourceInfo {
     RetainPtr<NSString> mimeType;
-    const char* data;
+    ASCIILiteral data;
     bool shouldRespond;
 };
 
@@ -531,8 +537,7 @@ static bool receivedStop;
     
     RetainPtr<NSURLResponse> response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:entry->value.mimeType.get() expectedContentLength:1 textEncodingName:nil]);
     [task didReceiveResponse:response.get()];
-
-    [task didReceiveData:toNSDataNoCopy(unsafeSpan8(entry->value.data), FreeWhenDone::No).get()];
+    [task didReceiveData:toNSData(entry->value.data.span8()).get()];
     [task didFinish];
 
     if (entry->key == "syncxhr://host/test.dat"_s)
@@ -564,7 +569,7 @@ static bool receivedMessage;
 }
 @end
 
-static const char syncMainBytes[] = R"SYNCRESOURCE(
+constexpr auto syncMainBytes = R"SYNCRESOURCE(
 <script>
 
 var req = new XMLHttpRequest();
@@ -580,9 +585,9 @@ catch (e)
 }
 
 </script>
-)SYNCRESOURCE";
+)SYNCRESOURCE"_s;
 
-static const char syncXHRBytes[] = "My XHR text!";
+constexpr auto syncXHRBytes = "My XHR text!"_s;
 
 TEST(URLSchemeHandler, SyncXHR)
 {
@@ -630,9 +635,9 @@ TEST(URLSchemeHandler, SyncXHR)
 - (void)webView:(WKWebView *)webView startURLSchemeTask:(id <WKURLSchemeTask>)task
 {
     if ([task.request.URL.absoluteString isEqualToString:@"syncerror:///main.html"]) {
-        static const char* bytes = "<script>var xhr=new XMLHttpRequest();xhr.open('GET','subresource',false);try{xhr.send(null);alert('no error')}catch(e){alert(e)}</script>";
-        [task didReceiveResponse:adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:strlen(bytes) textEncodingName:nil]).get()];
-        [task didReceiveData:[NSData dataWithBytes:bytes length:strlen(bytes)]];
+        constexpr auto bytes = "<script>var xhr=new XMLHttpRequest();xhr.open('GET','subresource',false);try{xhr.send(null);alert('no error')}catch(e){alert(e)}</script>"_s;
+        [task didReceiveResponse:adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:bytes.length() textEncodingName:nil]).get()];
+        [task didReceiveData:toNSData(bytes.span8()).get()];
         [task didFinish];
     } else {
         EXPECT_STREQ(task.request.URL.absoluteString.UTF8String, "syncerror:///subresource");

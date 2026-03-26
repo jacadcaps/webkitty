@@ -23,8 +23,11 @@
 #include "api/async_dns_resolver.h"
 #include "api/candidate.h"
 #include "api/field_trials_view.h"
+#include "api/local_network_access_permission.h"
 #include "api/packet_socket_factory.h"
 #include "api/transport/stun.h"
+#include "api/units/time_delta.h"
+#include "api/units/timestamp.h"
 #include "p2p/base/connection.h"
 #include "p2p/base/p2p_constants.h"
 #include "p2p/base/port.h"
@@ -42,24 +45,27 @@
 #include "rtc_base/socket.h"
 #include "rtc_base/socket_address.h"
 #include "rtc_base/strings/string_builder.h"
-#include "rtc_base/time_utils.h"
+#include "system_wrappers/include/metrics.h"
 
 namespace webrtc {
-
+namespace {
 // TODO(?): Move these to a common place (used in relayport too)
-const int RETRY_TIMEOUT = 50 * 1000;  // 50 seconds
+constexpr TimeDelta kRetryTimeout = TimeDelta::Seconds(50);
 
 // Stop logging errors in UDPPort::SendTo after we have logged
 // `kSendErrorLogLimit` messages. Start again after a successful send.
-const int kSendErrorLogLimit = 5;
+constexpr int kSendErrorLogLimit = 5;
+
+}  // namespace
 
 // Handles a binding request sent to the STUN server.
 class StunBindingRequest : public StunRequest {
  public:
   StunBindingRequest(UDPPort* port,
                      const SocketAddress& addr,
-                     int64_t start_time)
-      : StunRequest(port->request_manager(),
+                     Timestamp start_time)
+      : StunRequest(port->env(),
+                    port->request_manager(),
                     std::make_unique<StunMessage>(STUN_BINDING_REQUEST)),
         port_(port),
         server_addr_(addr),
@@ -83,10 +89,10 @@ class StunBindingRequest : public StunRequest {
     }
 
     // The keep-alive requests will be stopped after its lifetime has passed.
-    if (WithinLifetime(TimeMillis())) {
-      port_->request_manager_.SendDelayed(
-          new StunBindingRequest(port_, server_addr_, start_time_),
-          port_->stun_keepalive_delay());
+    if (WithinLifetime(env().clock().CurrentTime())) {
+      port_->request_manager_.Send(std::make_unique<StunBindingRequest>(
+                                       port_, server_addr_, start_time_),
+                                   /*delay=*/port_->stun_keepalive_delay());
     }
   }
 
@@ -106,11 +112,11 @@ class StunBindingRequest : public StunRequest {
         attr ? attr->reason()
              : "STUN binding response with no error code attribute.");
 
-    int64_t now = TimeMillis();
-    if (WithinLifetime(now) && TimeDiff(now, start_time_) < RETRY_TIMEOUT) {
-      port_->request_manager_.SendDelayed(
-          new StunBindingRequest(port_, server_addr_, start_time_),
-          port_->stun_keepalive_delay());
+    Timestamp now = env().clock().CurrentTime();
+    if (WithinLifetime(now) && now - start_time_ < kRetryTimeout) {
+      port_->request_manager_.Send(std::make_unique<StunBindingRequest>(
+                                       port_, server_addr_, start_time_),
+                                   /*delay=*/port_->stun_keepalive_delay());
     }
   }
   void OnTimeout() override {
@@ -123,17 +129,15 @@ class StunBindingRequest : public StunRequest {
   }
 
  private:
-  // Returns true if `now` is within the lifetime of the request (a negative
-  // lifetime means infinite).
-  bool WithinLifetime(int64_t now) const {
-    int lifetime = port_->stun_keepalive_lifetime();
-    return lifetime < 0 || TimeDiff(now, start_time_) <= lifetime;
+  // Returns true if `now` is within the lifetime of the request.
+  bool WithinLifetime(Timestamp now) const {
+    return now - start_time_ <= port_->stun_keepalive_lifetime();
   }
 
   UDPPort* port_;
   const SocketAddress server_addr_;
 
-  int64_t start_time_;
+  Timestamp start_time_;
 };
 
 UDPPort::AddressResolver::AddressResolver(
@@ -186,7 +190,7 @@ UDPPort::UDPPort(const PortParametersRef& args,
       socket_(socket),
       error_(0),
       ready_(false),
-      stun_keepalive_delay_(STUN_KEEPALIVE_INTERVAL),
+      stun_keepalive_delay_(kStunKeepaliveInterval),
       dscp_(DSCP_NO_CHANGE),
       emit_local_for_anyaddress_(emit_local_for_anyaddress) {}
 
@@ -204,7 +208,7 @@ UDPPort::UDPPort(const PortParametersRef& args,
       socket_(nullptr),
       error_(0),
       ready_(false),
-      stun_keepalive_delay_(STUN_KEEPALIVE_INTERVAL),
+      stun_keepalive_delay_(kStunKeepaliveInterval),
       dscp_(DSCP_NO_CHANGE),
       emit_local_for_anyaddress_(emit_local_for_anyaddress) {}
 
@@ -212,8 +216,10 @@ bool UDPPort::Init() {
   stun_keepalive_lifetime_ = GetStunKeepaliveLifetime();
   if (!SharedSocket()) {
     RTC_DCHECK(socket_ == nullptr);
-    socket_ = socket_factory()->CreateUdpSocket(
-        SocketAddress(Network()->GetBestIP(), 0), min_port(), max_port());
+    owned_socket_ = socket_factory()->CreateUdpSocket(
+        env(), SocketAddress(Network()->GetBestIP(), 0), min_port(),
+        max_port());
+    socket_ = owned_socket_.get();
     if (!socket_) {
       RTC_LOG(LS_WARNING) << ToString() << ": UDP socket creation failed";
       return false;
@@ -229,10 +235,7 @@ bool UDPPort::Init() {
   return true;
 }
 
-UDPPort::~UDPPort() {
-  if (!SharedSocket())
-    delete socket_;
-}
+UDPPort::~UDPPort() = default;
 
 void UDPPort::PrepareAddress() {
   RTC_DCHECK(request_manager_.empty());
@@ -285,7 +288,7 @@ Connection* UDPPort::CreateConnection(const Candidate& address,
              mdns_name_registration_status() !=
                  MdnsNameRegistrationStatus::kNotStarted);
 
-  Connection* conn = new ProxyConnection(NewWeakPtr(), 0, address);
+  Connection* conn = new ProxyConnection(env(), NewWeakPtr(), 0, address);
   AddOrReplaceConnection(conn);
   return conn;
 }
@@ -359,8 +362,8 @@ void UDPPort::GetStunStats(std::optional<StunStats>* stats) {
   *stats = stats_;
 }
 
-void UDPPort::set_stun_keepalive_delay(const std::optional<int>& delay) {
-  stun_keepalive_delay_ = delay.value_or(STUN_KEEPALIVE_INTERVAL);
+void UDPPort::set_stun_keepalive_delay(const std::optional<TimeDelta>& delay) {
+  stun_keepalive_delay_ = delay.value_or(kStunKeepaliveInterval);
 }
 
 void UDPPort::OnLocalAddressReady(AsyncPacketSocket* /* socket */,
@@ -395,9 +398,7 @@ void UDPPort::OnReadPacket(AsyncPacketSocket* socket,
   // we already cleared the request when we got the first response.
   if (server_addresses_.find(packet.source_address()) !=
       server_addresses_.end()) {
-    request_manager_.CheckResponse(
-        reinterpret_cast<const char*>(packet.payload().data()),
-        packet.payload().size());
+    request_manager_.CheckResponse(packet.payload());
     return;
   }
 
@@ -410,7 +411,7 @@ void UDPPort::OnReadPacket(AsyncPacketSocket* socket,
 
 void UDPPort::OnSentPacket(AsyncPacketSocket* /* socket */,
                            const SentPacketInfo& sent_packet) {
-  PortInterface::SignalSentPacket(sent_packet);
+  NotifySentPacket(sent_packet);
 }
 
 void UDPPort::OnReadyToSend(AsyncPacketSocket* /* socket */) {
@@ -443,7 +444,7 @@ void UDPPort::ResolveStunAddress(const SocketAddress& stun_addr) {
 
   RTC_LOG(LS_INFO) << ToString() << ": Starting STUN host lookup for "
                    << stun_addr.ToSensitiveString();
-  resolver_->Resolve(stun_addr, Network()->family(), field_trials());
+  resolver_->Resolve(stun_addr, Network()->family(), env().field_trials());
 }
 
 void UDPPort::OnResolveResult(const SocketAddress& input, int error) {
@@ -471,23 +472,44 @@ void UDPPort::OnResolveResult(const SocketAddress& input, int error) {
 void UDPPort::SendStunBindingRequest(const SocketAddress& stun_addr) {
   if (stun_addr.IsUnresolvedIP()) {
     ResolveStunAddress(stun_addr);
-
-  } else if (socket_->GetState() == AsyncPacketSocket::STATE_BOUND) {
-    // Check if `server_addr_` is compatible with the port's ip.
-    if (IsCompatibleAddress(stun_addr)) {
-      request_manager_.Send(
-          new StunBindingRequest(this, stun_addr, TimeMillis()));
-    } else {
-      // Since we can't send stun messages to the server, we should mark this
-      // port ready. This is not an error but similar to ignoring
-      // a mismatch of th address family when pairing candidates.
-      RTC_LOG(LS_WARNING) << ToString()
-                          << ": STUN server address is incompatible.";
-      OnStunBindingOrResolveRequestFailed(
-          stun_addr, STUN_ERROR_NOT_AN_ERROR,
-          "STUN server address is incompatible.");
-    }
+    return;
   }
+
+  if (socket_->GetState() != AsyncPacketSocket::STATE_BOUND) {
+    return;
+  }
+
+  // Check if `server_addr_` is compatible with the port's ip.
+  if (!IsCompatibleAddress(stun_addr)) {
+    // Since we can't send stun messages to the server, we should mark this
+    // port ready. This is not an error but similar to ignoring
+    // a mismatch of the address family when pairing candidates.
+    RTC_LOG(LS_WARNING) << ToString()
+                        << ": STUN server address is incompatible.";
+    OnStunBindingOrResolveRequestFailed(stun_addr, STUN_ERROR_NOT_AN_ERROR,
+                                        "STUN server address is incompatible.");
+    return;
+  }
+
+  RTC_HISTOGRAM_ENUMERATION("WebRTC.PeerConnection.Stun.ServerAddressType",
+                            static_cast<int>(stun_addr.GetIPAddressType()),
+                            static_cast<int>(IPAddressType::kMaxValue));
+
+  MaybeRequestLocalNetworkAccessPermission(
+      stun_addr, [this, stun_addr](LocalNetworkAccessPermissionStatus status) {
+        if (status != LocalNetworkAccessPermissionStatus::kGranted) {
+          RTC_LOG(LS_WARNING)
+              << ToString() << ": Permission denied to connect to STUN server "
+              << stun_addr.HostAsSensitiveURIString();
+          OnStunBindingOrResolveRequestFailed(
+              stun_addr, STUN_ERROR_NOT_AN_ERROR,
+              "Not allowed to connecto to STUN server.");
+          return;
+        }
+
+        request_manager_.Send(std::make_unique<StunBindingRequest>(
+            this, stun_addr, env().clock().CurrentTime()));
+      });
 }
 
 bool UDPPort::MaybeSetDefaultLocalAddress(SocketAddress* addr) const {
@@ -508,9 +530,10 @@ bool UDPPort::MaybeSetDefaultLocalAddress(SocketAddress* addr) const {
 }
 
 void UDPPort::OnStunBindingRequestSucceeded(
-    int rtt_ms,
+    TimeDelta rtt,
     const SocketAddress& stun_server_addr,
     const SocketAddress& stun_reflected_addr) {
+  int rtt_ms = rtt.ms();
   RTC_DCHECK(stats_.stun_binding_responses_received <
              stats_.stun_binding_requests_sent);
   stats_.stun_binding_responses_received++;
@@ -551,10 +574,9 @@ void UDPPort::OnStunBindingOrResolveRequestFailed(
   if (error_code != STUN_ERROR_NOT_AN_ERROR) {
     StringBuilder url;
     url << "stun:" << stun_server_addr.ToString();
-    SignalCandidateError(
-        this, IceCandidateErrorEvent(
-                  GetLocalAddress().HostAsSensitiveURIString(),
-                  GetLocalAddress().port(), url.str(), error_code, reason));
+    SendCandidateError(IceCandidateErrorEvent(
+        GetLocalAddress().HostAsSensitiveURIString(), GetLocalAddress().port(),
+        url.str(), error_code, reason));
   }
   if (bind_request_failed_servers_.find(stun_server_addr) !=
       bind_request_failed_servers_.end()) {
@@ -587,11 +609,11 @@ void UDPPort::MaybeSetPortCompleteOrError() {
 
   // The port is "completed" if there is no stun server provided, or the bind
   // request succeeded for any stun server, or the socket is shared.
-  if (server_addresses_.empty() || bind_request_succeeded_servers_.size() > 0 ||
+  if (server_addresses_.empty() || !bind_request_succeeded_servers_.empty() ||
       SharedSocket()) {
-    SignalPortComplete(this);
+    NotifyPortComplete(this);
   } else {
-    SignalPortError(this);
+    NotifyPortError(this);
   }
 }
 
@@ -625,7 +647,7 @@ std::unique_ptr<StunPort> StunPort::Create(
     uint16_t min_port,
     uint16_t max_port,
     const ServerAddresses& servers,
-    std::optional<int> stun_keepalive_interval) {
+    std::optional<TimeDelta> stun_keepalive_interval) {
   // Using `new` to access a non-public constructor.
   auto port = absl::WrapUnique(new StunPort(args, min_port, max_port, servers));
   port->set_stun_keepalive_delay(stun_keepalive_interval);

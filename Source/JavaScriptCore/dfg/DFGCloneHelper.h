@@ -288,7 +288,7 @@ BasicBlock* CloneHelper::cloneBlock(BasicBlock* const block, const CustomizeSucc
     CLONE_STATUS(MultiPutByOffset, Special) \
     CLONE_STATUS(NewArray, Common) \
     CLONE_STATUS(NewArrayBuffer, Common) \
-    CLONE_STATUS(NewArrayWithConstantSize, Common) \
+    CLONE_STATUS(NewArrayWithButterfly, Common) \
     CLONE_STATUS(NewArrayWithSize, Common) \
     CLONE_STATUS(NewArrayWithSpread, Common) \
     CLONE_STATUS(NewFunction, Common) \
@@ -314,7 +314,7 @@ BasicBlock* CloneHelper::cloneBlock(BasicBlock* const block, const CustomizeSucc
     CLONE_STATUS(PutByIdWithThis, Common) \
     CLONE_STATUS(PutByOffset, Common) \
     CLONE_STATUS(PutByVal, Common) \
-    CLONE_STATUS(PutByValAlias, Common) \
+    CLONE_STATUS(PutByValDirectResolved, Common) \
     CLONE_STATUS(PutByValDirect, Common) \
     CLONE_STATUS(PutByValWithThis, Common) \
     CLONE_STATUS(PutClosureVar, Common) \

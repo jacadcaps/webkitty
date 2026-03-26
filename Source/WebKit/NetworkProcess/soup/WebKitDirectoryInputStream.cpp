@@ -43,6 +43,7 @@ struct _WebKitDirectoryInputStreamPrivate {
 
 WEBKIT_DEFINE_TYPE(WebKitDirectoryInputStream, webkit_directory_input_stream, G_TYPE_INPUT_STREAM)
 
+IGNORE_CLANG_WARNINGS_BEGIN("unsafe-buffer-usage-in-libc-call")
 static GBytes* webkitDirectoryInputStreamCreateHeader(WebKitDirectoryInputStream *stream)
 {
     char* header = g_strdup_printf(
@@ -112,6 +113,7 @@ static GBytes* webkitDirectoryInputStreamCreateRow(WebKitDirectoryInputStream *s
         formattedSize ? formattedSize.get() : "", g_date_time_to_unix(modificationTime.get()), formattedTime.get(), formattedDate.get());
     return g_bytes_new_with_free_func(row, strlen(row), g_free, row);
 }
+IGNORE_CLANG_WARNINGS_END
 
 static GBytes* webkitDirectoryInputStreamReadNextFile(WebKitDirectoryInputStream* stream, GCancellable* cancellable, GError** error)
 {
@@ -186,8 +188,8 @@ webkit_directory_input_stream_class_init(WebKitDirectoryInputStreamClass* klass)
 GRefPtr<GInputStream> webkitDirectoryInputStreamNew(GRefPtr<GFileEnumerator>&& enumerator, CString&& uri)
 {
     auto* stream = WEBKIT_DIRECTORY_INPUT_STREAM(g_object_new(WEBKIT_TYPE_DIRECTORY_INPUT_STREAM, nullptr));
-    stream->priv->enumerator = WTFMove(enumerator);
-    stream->priv->uri = WTFMove(uri);
+    stream->priv->enumerator = WTF::move(enumerator);
+    stream->priv->uri = WTF::move(uri);
     stream->priv->buffer = adoptGRef(webkitDirectoryInputStreamCreateHeader(stream));
 
     return adoptGRef(G_INPUT_STREAM((stream)));

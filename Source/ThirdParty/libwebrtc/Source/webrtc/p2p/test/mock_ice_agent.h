@@ -11,9 +11,8 @@
 #ifndef P2P_TEST_MOCK_ICE_AGENT_H_
 #define P2P_TEST_MOCK_ICE_AGENT_H_
 
-#include <cstdint>
-
 #include "api/array_view.h"
+#include "api/units/timestamp.h"
 #include "p2p/base/connection.h"
 #include "p2p/base/ice_agent_interface.h"
 #include "p2p/base/ice_switch_reason.h"
@@ -26,34 +25,27 @@ class MockIceAgent : public IceAgentInterface {
  public:
   ~MockIceAgent() override = default;
 
-  MOCK_METHOD(int64_t, GetLastPingSentMs, (), (override, const));
+  MOCK_METHOD(Timestamp, GetLastPingSent, (), (override, const));
   MOCK_METHOD(IceRole, GetIceRole, (), (override, const));
   MOCK_METHOD(void, OnStartedPinging, (), (override));
   MOCK_METHOD(void, UpdateConnectionStates, (), (override));
   MOCK_METHOD(void, UpdateState, (), (override));
   MOCK_METHOD(void,
               ForgetLearnedStateForConnections,
-              (webrtc::ArrayView<const webrtc::Connection* const>),
+              (ArrayView<const Connection* const>),
               (override));
-  MOCK_METHOD(void, SendPingRequest, (const webrtc::Connection*), (override));
+  MOCK_METHOD(void, SendPingRequest, (const Connection*), (override));
   MOCK_METHOD(void,
               SwitchSelectedConnection,
-              (const webrtc::Connection*, webrtc::IceSwitchReason),
+              (const Connection*, IceSwitchReason),
               (override));
   MOCK_METHOD(bool,
               PruneConnections,
-              (webrtc::ArrayView<const webrtc::Connection* const>),
+              (ArrayView<const Connection* const>),
               (override));
 };
 
 }  //  namespace webrtc
 
-// Re-export symbols from the webrtc namespace for backwards compatibility.
-// TODO(bugs.webrtc.org/4222596): Remove once all references are updated.
-#ifdef WEBRTC_ALLOW_DEPRECATED_NAMESPACES
-namespace cricket {
-using ::webrtc::MockIceAgent;
-}  // namespace cricket
-#endif  // WEBRTC_ALLOW_DEPRECATED_NAMESPACES
 
 #endif  // P2P_TEST_MOCK_ICE_AGENT_H_

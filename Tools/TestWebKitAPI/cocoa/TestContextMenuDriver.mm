@@ -35,7 +35,7 @@
 
 - (id<_UIClickInteractionDriverDelegate>)delegate
 {
-    return _delegate.get().get();
+    return _delegate.getAutoreleased();
 }
 
 - (void)setDelegate:(id<_UIClickInteractionDriverDelegate>)delegate
@@ -45,7 +45,7 @@
 
 - (UIView *)view
 {
-    return _view.get().get();
+    return _view.get().unsafeGet();
 }
 
 - (void)setView:(UIView *)view
@@ -95,9 +95,9 @@
 - (void)begin:(void(^)(BOOL))completionHandler
 {
     auto completionBlock = makeBlockPtr(completionHandler);
-    [self.delegate clickDriver:(id<_UIClickInteractionDriving>)self shouldBegin:^(BOOL result) {
+    [self.delegate clickDriver:(id<_UIClickInteractionDriving>)self shouldBegin:^(_UIClickInteractionShouldBeginResult result) {
         [self.delegate clickDriver:(id<_UIClickInteractionDriving>)self didPerformEvent:_UIClickInteractionEventBegan];
-        completionBlock(result);
+        completionBlock(result == _UIClickInteractionShouldBeginResultBegin);
     }];
 }
 

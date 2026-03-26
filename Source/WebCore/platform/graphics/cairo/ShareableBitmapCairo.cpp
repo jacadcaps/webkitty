@@ -86,6 +86,13 @@ void ShareableBitmap::paint(GraphicsContext& context, float scaleFactor, const I
     Cairo::drawSurface(*context.platformContext(), surface.get(), destRect, srcRect, state.imageInterpolationQuality(), state.alpha(), Cairo::ShadowState(state));
 }
 
+PlatformImagePtr ShareableBitmap::createPlatformImage(BackingStoreCopy, ShouldInterpolate)
+{
+    // FIXME: Implement and remove createPersistentCairoSurface(), createCairoSurface().
+    ASSERT_NOT_REACHED();
+    return nullptr;
+}
+
 RefPtr<cairo_surface_t> ShareableBitmap::createPersistentCairoSurface()
 {
     return createSurfaceFromData(mutableSpan().data(), size());
@@ -112,7 +119,7 @@ RefPtr<Image> ShareableBitmap::createImage()
     if (!surface)
         return nullptr;
 
-    return BitmapImage::create(WTFMove(surface));
+    return BitmapImage::create(WTF::move(surface));
 }
 
 void ShareableBitmap::setOwnershipOfMemory(const ProcessIdentity&)

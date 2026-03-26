@@ -48,6 +48,7 @@
 #import <WebCore/Image.h>
 #import <WebCore/ThreadCheck.h>
 #import <WebCore/WebCoreJITOperations.h>
+#import <WebCore/WebCoreMainThread.h>
 #import <WebCore/WebCoreObjCExtras.h>
 #import <wtf/Assertions.h>
 #import <wtf/MainThread.h>
@@ -125,11 +126,7 @@ void WKNotifyHistoryItemChanged()
 
 + (void)initialize
 {
-#if !PLATFORM(IOS_FAMILY)
-    JSC::initialize();
-    WTF::initializeMainThread();
-    WebCore::populateJITOperations();
-#endif
+    WebCore::initializeMainThreadIfNeeded();
 }
 
 - (instancetype)init
@@ -141,7 +138,7 @@ void WKNotifyHistoryItemChanged()
 {
     WebCoreThreadViolationCheckRoundOne();
 
-    WebHistoryItem *item = [self initWithWebCoreHistoryItem:HistoryItem::create(LegacyHistoryItemClient::singleton(), URLString, title)];
+    SUPPRESS_UNRETAINED_LOCAL auto item = [self initWithWebCoreHistoryItem:HistoryItem::create(LegacyHistoryItemClient::singleton(), URLString, title)];
     item->_private->_lastVisitedTime = time;
 
     return item;
@@ -173,19 +170,19 @@ void WKNotifyHistoryItemChanged()
 // FIXME: Need to decide if this class ever returns URLs and decide on the name of this method
 - (NSString *)URLString
 {
-    return nsStringNilIfEmpty(core(_private)->urlString());
+    return nsStringNilIfEmpty(core(_private)->urlString()).autorelease();
 }
 
 // The first URL we loaded to get to where this history item points.  Includes both client
 // and server redirects.
 - (NSString *)originalURLString
 {
-    return nsStringNilIfEmpty(core(_private)->originalURLString());
+    return nsStringNilIfEmpty(core(_private)->originalURLString()).autorelease();
 }
 
 - (NSString *)title
 {
-    return nsStringNilIfEmpty(core(_private)->title());
+    return nsStringNilIfEmpty(core(_private)->title()).autorelease();
 }
 
 - (void)setAlternateTitle:(NSString *)alternateTitle
@@ -195,7 +192,7 @@ void WKNotifyHistoryItemChanged()
 
 - (NSString *)alternateTitle
 {
-    return nsStringNilIfEmpty(core(_private)->alternateTitle());
+    return nsStringNilIfEmpty(core(_private)->alternateTitle()).autorelease();
 }
 
 #if !PLATFORM(IOS_FAMILY)
@@ -228,7 +225,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 - (NSString *)description
 {
     HistoryItem* coreItem = core(_private);
-    NSMutableString *result = [NSMutableString stringWithFormat:@"%@ %@", [super description], coreItem->urlString().createNSString().get()];
+    RetainPtr result = [NSMutableString stringWithFormat:@"%@ %@", [super description], coreItem->urlString().createNSString().get()];
     if (!coreItem->target().isEmpty())
         [result appendFormat:@" in \"%@\"", coreItem->target().createNSString().get()];
     if (coreItem->isTargetItem())
@@ -236,22 +233,22 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (coreItem->formData()) {
         [result appendString:@" *POST*"];
     }
-    
+
     if (coreItem->children().size()) {
         const auto& children = coreItem->children();
         int currPos = [result length];
-        unsigned size = children.size();        
+        unsigned size = children.size();
         for (unsigned i = 0; i < size; ++i) {
-            WebHistoryItem *child = kit(const_cast<HistoryItem*>(children[i].ptr()));
+            RetainPtr child = kit(const_cast<HistoryItem*>(children[i].ptr()));
             [result appendString:@"\n"];
-            [result appendString:[child description]];
+            [result appendString:[child.get() description]];
         }
         // shift all the contents over.  A bit slow, but hey, this is for debugging.
-        NSRange replRange = { static_cast<NSUInteger>(currPos), [result length] - currPos };
+        NSRange replRange = { static_cast<NSUInteger>(currPos), [result.get() length] - currPos };
         [result replaceOccurrencesOfString:@"\n" withString:@"\n    " options:0 range:replRange];
     }
-    
-    return result;
+
+    return result.autorelease();
 }
 
 HistoryItem* core(WebHistoryItem *item)
@@ -266,8 +263,8 @@ WebHistoryItem *kit(HistoryItem* item)
 {
     if (!item)
         return nil;
-    if (auto wrapper = historyItemWrappers().get(*item))
-        return retainPtr(wrapper).autorelease();
+    if (RetainPtr<WebHistoryItem> wrapper = historyItemWrappers().get(*item))
+        return wrapper.autorelease();
     return adoptNS([[WebHistoryItem alloc] initWithWebCoreHistoryItem:*item]).autorelease();
 }
 
@@ -278,7 +275,7 @@ WebHistoryItem *kit(HistoryItem* item)
 
 - (id)initWithURLString:(NSString *)URLString title:(NSString *)title displayTitle:(NSString *)displayTitle lastVisitedTimeInterval:(NSTimeInterval)time
 {
-    auto item = [self initWithWebCoreHistoryItem:HistoryItem::create(LegacyHistoryItemClient::singleton(), URLString, title, displayTitle)];
+    SUPPRESS_UNRETAINED_LOCAL auto item = [self initWithWebCoreHistoryItem:HistoryItem::create(LegacyHistoryItemClient::singleton(), URLString, title, displayTitle)];
     if (!item)
         return nil;
     item->_private->_lastVisitedTime = time;
@@ -293,7 +290,7 @@ WebHistoryItem *kit(HistoryItem* item)
         return nil;
 
     _private = [[WebHistoryItemPrivate alloc] init];
-    _private->_historyItem = WTFMove(item);
+    _private->_historyItem = WTF::move(item);
 
     ASSERT(!historyItemWrappers().get(*core(_private)));
     historyItemWrappers().set(*core(_private), self);
@@ -444,7 +441,7 @@ WebHistoryItem *kit(HistoryItem* item)
 
 - (NSString *)target
 {
-    return nsStringNilIfEmpty(core(_private)->target());
+    return nsStringNilIfEmpty(core(_private)->target()).autorelease();
 }
 
 - (BOOL)isTargetItem
@@ -454,7 +451,7 @@ WebHistoryItem *kit(HistoryItem* item)
 
 - (NSString *)RSSFeedReferrer
 {
-    return nsStringNilIfEmpty(core(_private)->referrer());
+    return nsStringNilIfEmpty(core(_private)->referrer()).autorelease();
 }
 
 - (void)setRSSFeedReferrer:(NSString *)referrer

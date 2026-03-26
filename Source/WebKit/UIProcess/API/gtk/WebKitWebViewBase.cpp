@@ -36,6 +36,10 @@
 #include "DrawingAreaProxyCoordinatedGraphics.h"
 #include "DropTarget.h"
 #include "EditorState.h"
+#include "GRefPtrGtk.h"
+#include "GUniquePtrGtk.h"
+#include "GtkUtilities.h"
+#include "GtkVersioning.h"
 #include "InputMethodFilter.h"
 #include "KeyAutoRepeatHandler.h"
 #include "KeyBindingTranslator.h"
@@ -64,13 +68,9 @@
 #include "WebProcessPool.h"
 #include "WebUserContentControllerProxy.h"
 #include <WebCore/ActivityState.h>
-#include <WebCore/GRefPtrGtk.h>
-#include <WebCore/GUniquePtrGtk.h>
-#include <WebCore/GtkUtilities.h>
-#include <WebCore/GtkVersioning.h>
+#include <WebCore/Image.h>
 #include <WebCore/NativeImage.h>
 #include <WebCore/NotImplemented.h>
-#include <WebCore/PlatformKeyboardEvent.h>
 #include <WebCore/PlatformMouseEvent.h>
 #include <WebCore/PointerEvent.h>
 #include <WebCore/RefPtrCairo.h>
@@ -88,6 +88,7 @@
 #include <wtf/Compiler.h>
 #include <wtf/HashMap.h>
 #include <wtf/MathExtras.h>
+#include <wtf/NeverDestroyed.h>
 #include <wtf/NotFound.h>
 #include <wtf/glib/GRefPtr.h>
 #include <wtf/glib/RunLoopSourcePriority.h>
@@ -214,8 +215,8 @@ struct MotionEvent {
     }
 
     MotionEvent(FloatPoint&& position, FloatPoint&& globalPosition, GdkModifierType state)
-        : position(WTFMove(position))
-        , globalPosition(WTFMove(globalPosition))
+        : position(WTF::move(position))
+        , globalPosition(WTF::move(globalPosition))
     {
         setState(state);
     }
@@ -242,6 +243,14 @@ struct MotionEvent {
         if (state & GDK_BUTTON3_MASK) {
             button = WebMouseEventButton::Right;
             buttons |= 2;
+        }
+        if (state & GDK_BUTTON4_MASK) {
+            button = WebMouseEventButton::Back;
+            buttons |= 8;
+        }
+        if (state & GDK_BUTTON5_MASK) {
+            button = WebMouseEventButton::Forward;
+            buttons |= 16;
         }
     }
 
@@ -516,8 +525,8 @@ static void webkitWebViewBaseUpdateVisibility(WebKitWebViewBase* webViewBase)
 
 void webkitWebViewBaseToplevelWindowStateChanged(WebKitWebViewBase* webViewBase, uint32_t changedMask, uint32_t state)
 {
-    WebKitWebViewBasePrivate* priv = webViewBase->priv;
 #if ENABLE(FULLSCREEN_API)
+    WebKitWebViewBasePrivate* priv = webViewBase->priv;
 #if USE(GTK4)
     bool changedFullscreen = changedMask & GDK_TOPLEVEL_STATE_FULLSCREEN;
     bool fullscreen = state & GDK_TOPLEVEL_STATE_FULLSCREEN;
@@ -1403,14 +1412,17 @@ static void webkitWebViewBaseButtonPressed(WebKitWebViewBase* webViewBase, int c
     auto* sequence = gtk_gesture_single_get_current_sequence(GTK_GESTURE_SINGLE(gesture));
     gtk_gesture_set_sequence_state(gesture, sequence, GTK_EVENT_SEQUENCE_CLAIMED);
 
-    auto button = gtk_gesture_single_get_current_button(GTK_GESTURE_SINGLE(gesture));
     auto* event = gtk_gesture_get_last_event(gesture, sequence);
+
+#if ENABLE(CONTEXT_MENUS)
+    auto button = gtk_gesture_single_get_current_button(GTK_GESTURE_SINGLE(gesture));
 
     // If it's a right click event save it as a possible context menu event.
     if (button == GDK_BUTTON_SECONDARY)
         priv->contextMenuEvent = event;
+#endif
 
-    priv->pageProxy->handleMouseEvent(NativeWebMouseEvent(event, { clampToInteger(x), clampToInteger(y) }, clickCount, std::nullopt));
+    priv->pageProxy->handleMouseEvent(NativeWebMouseEvent(event, DoublePoint(x, y), clickCount, std::nullopt));
 }
 
 static void webkitWebViewBaseButtonReleased(WebKitWebViewBase* webViewBase, int clickCount, double x, double y, GtkGesture* gesture)
@@ -1426,7 +1438,7 @@ static void webkitWebViewBaseButtonReleased(WebKitWebViewBase* webViewBase, int 
     auto* sequence = gtk_gesture_single_get_current_sequence(GTK_GESTURE_SINGLE(gesture));
     gtk_gesture_set_sequence_state(gesture, sequence, GTK_EVENT_SEQUENCE_CLAIMED);
 
-    priv->pageProxy->handleMouseEvent(NativeWebMouseEvent(gtk_gesture_get_last_event(gesture, sequence), { clampToInteger(x), clampToInteger(y) }, clickCount, std::nullopt));
+    priv->pageProxy->handleMouseEvent(NativeWebMouseEvent(gtk_gesture_get_last_event(gesture, sequence), DoublePoint(x, y), clickCount, std::nullopt));
 }
 #endif
 
@@ -1476,7 +1488,7 @@ static gboolean webkitWebViewBaseScrollEvent(GtkWidget* widget, GdkEventScroll* 
             return GDK_EVENT_STOP;
     }
 
-    auto phase = gdk_event_is_scroll_stop_event(event) ? WebWheelEvent::Phase::PhaseEnded : WebWheelEvent::Phase::PhaseChanged;
+    auto phase = gdk_event_is_scroll_stop_event(event) ? WebWheelEvent::Phase::Ended : WebWheelEvent::Phase::Changed;
     double x, y;
     gdk_event_get_coords(event, &x, &y);
     IntPoint position(clampToInteger(x), clampToInteger(y));
@@ -1529,7 +1541,7 @@ static gboolean webkitWebViewBaseScrollEvent(GtkWidget* widget, GdkEventScroll* 
 
     FloatSize delta = wheelTicks.scaled(stepX, stepY);
 
-    priv->pageProxy->handleNativeWheelEvent(NativeWebWheelEvent(event, position, globalPosition, delta, wheelTicks, phase, WebWheelEvent::Phase::PhaseNone, hasPreciseScrollingDeltas));
+    priv->pageProxy->handleNativeWheelEvent(NativeWebWheelEvent(event, position, globalPosition, delta, wheelTicks, phase, WebWheelEvent::Phase::None, hasPreciseScrollingDeltas));
 
     return GDK_EVENT_STOP;
 }
@@ -1569,7 +1581,7 @@ static gboolean handleScroll(WebKitWebViewBase* webViewBase, double deltaX, doub
     if (!event)
         return GDK_EVENT_PROPAGATE;
 
-    auto phase = gdk_event_get_event_type(event) != GDK_SCROLL || gdk_scroll_event_is_stop(event) ? WebWheelEvent::Phase::PhaseEnded : WebWheelEvent::Phase::PhaseChanged;
+    auto phase = gdk_event_get_event_type(event) != GDK_SCROLL || gdk_scroll_event_is_stop(event) ? WebWheelEvent::Phase::Ended : WebWheelEvent::Phase::Changed;
     IntPoint position;
     if (priv->lastMotionEvent)
         position = IntPoint(priv->lastMotionEvent->position);
@@ -1605,7 +1617,7 @@ static gboolean handleScroll(WebKitWebViewBase* webViewBase, double deltaX, doub
     delta = wheelTicks.scaled(stepX, stepY);
 #endif
 
-    priv->pageProxy->handleNativeWheelEvent(NativeWebWheelEvent(event, position, position, delta, wheelTicks, phase, WebWheelEvent::Phase::PhaseNone, hasPreciseScrollingDeltas));
+    priv->pageProxy->handleNativeWheelEvent(NativeWebWheelEvent(event, position, position, delta, wheelTicks, phase, WebWheelEvent::Phase::None, hasPreciseScrollingDeltas));
 
     return GDK_EVENT_STOP;
 }
@@ -1721,7 +1733,7 @@ static gboolean webkitWebViewBaseCrossingNotifyEvent(GtkWidget* widget, GdkEvent
 #endif
 
 #if USE(GTK4)
-static void webkitWebViewBaseEnter(WebKitWebViewBase* webViewBase, double x, double y, GdkCrossingMode, GtkEventController*)
+static void webkitWebViewBaseEnter(WebKitWebViewBase* webViewBase, double x, double y, GtkEventController*)
 {
     WebKitWebViewBasePrivate* priv = webViewBase->priv;
     if (priv->dialog)
@@ -1735,7 +1747,7 @@ static void webkitWebViewBaseEnter(WebKitWebViewBase* webViewBase, double x, dou
         return;
 #endif
 
-    priv->pageProxy->handleMouseEvent(NativeWebMouseEvent({ clampToInteger(x), clampToInteger(y) }));
+    priv->pageProxy->handleMouseEvent(NativeWebMouseEvent(DoublePoint(x, y)));
 }
 
 static gboolean webkitWebViewBaseMotion(WebKitWebViewBase* webViewBase, double x, double y, GtkEventController* controller)
@@ -1754,14 +1766,14 @@ static gboolean webkitWebViewBaseMotion(WebKitWebViewBase* webViewBase, double x
     MotionEvent motionEvent(FloatPoint(x, y), FloatPoint(x, y), gdk_event_get_modifier_state(event));
     if (priv->lastMotionEvent)
         movementDelta = motionEvent.position - priv->lastMotionEvent->position;
-    priv->lastMotionEvent = WTFMove(motionEvent);
+    priv->lastMotionEvent = WTF::move(motionEvent);
 
-    webViewBase->priv->pageProxy->handleMouseEvent(NativeWebMouseEvent(event, { clampToInteger(x), clampToInteger(y) }, 0, movementDelta));
+    webViewBase->priv->pageProxy->handleMouseEvent(NativeWebMouseEvent(event, DoublePoint(x, y), 0, movementDelta));
 
     return GDK_EVENT_PROPAGATE;
 }
 
-static void webkitWebViewBaseLeave(WebKitWebViewBase* webViewBase, GdkCrossingMode, GtkEventController*)
+static void webkitWebViewBaseLeave(WebKitWebViewBase* webViewBase, GtkEventController*)
 {
     WebKitWebViewBasePrivate* priv = webViewBase->priv;
     if (priv->dialog)
@@ -1793,16 +1805,16 @@ static void webkitWebViewBaseLeave(WebKitWebViewBase* webViewBase, GdkCrossingMo
     int yDistanceFromBottomEdge = height - previousY;
 
     if (previousX <= xDistanceFromRightEdge && previousX <= previousY && previousX <= yDistanceFromBottomEdge)
-        priv->pageProxy->handleMouseEvent(NativeWebMouseEvent({ -1, previousY }));
+        priv->pageProxy->handleMouseEvent(NativeWebMouseEvent(DoublePoint(-1, previousY)));
     else if (xDistanceFromRightEdge <= previousX && xDistanceFromRightEdge <= previousY && xDistanceFromRightEdge <= yDistanceFromBottomEdge)
-        priv->pageProxy->handleMouseEvent(NativeWebMouseEvent({ width, previousY }));
+        priv->pageProxy->handleMouseEvent(NativeWebMouseEvent(DoublePoint(width, previousY)));
     else if (previousY <= previousX && previousY <= xDistanceFromRightEdge && previousY <= yDistanceFromBottomEdge)
-        priv->pageProxy->handleMouseEvent(NativeWebMouseEvent({ previousX, -1 }));
+        priv->pageProxy->handleMouseEvent(NativeWebMouseEvent(DoublePoint(previousX, -1)));
     else {
         ASSERT(yDistanceFromBottomEdge <= previousX);
         ASSERT(yDistanceFromBottomEdge <= previousY);
         ASSERT(yDistanceFromBottomEdge <= xDistanceFromRightEdge);
-        priv->pageProxy->handleMouseEvent(NativeWebMouseEvent({ previousX, height }));
+        priv->pageProxy->handleMouseEvent(NativeWebMouseEvent(DoublePoint(previousX, height)));
     }
 }
 #endif
@@ -1886,7 +1898,7 @@ static gboolean webkitWebViewBaseTouchEvent(GtkWidget* widget, GdkEventTouch* ev
 #else
         GUniquePtr<GdkEvent> event(gdk_event_copy(touchEvent));
 #endif
-        priv->touchEvents.add(sequence, WTFMove(event));
+        priv->touchEvents.add(sequence, WTF::move(event));
         break;
     }
     case GDK_TOUCH_UPDATE: {
@@ -1914,7 +1926,7 @@ static gboolean webkitWebViewBaseTouchEvent(GtkWidget* widget, GdkEventTouch* ev
 
     Vector<WebPlatformTouchPoint> touchPoints;
     webkitWebViewBaseGetTouchPointsForEvent(webViewBase, touchEvent, touchPoints);
-    priv->pageProxy->handleTouchEvent(nullptr, NativeWebTouchEvent(reinterpret_cast<GdkEvent*>(event), WTFMove(touchPoints)));
+    priv->pageProxy->handleTouchEvent(nullptr, NativeWebTouchEvent(reinterpret_cast<GdkEvent*>(event), WTF::move(touchPoints)));
 
 #if USE(GTK4)
     return GDK_EVENT_PROPAGATE;
@@ -2532,12 +2544,12 @@ void webkitWebViewBaseCreateWebPage(WebKitWebViewBase* webkitWebViewBase, Ref<AP
     WebKitWebViewBasePrivate* priv = webkitWebViewBase->priv;
 
     WebProcessPool& processPool = configuration->processPool();
-    priv->pageProxy = processPool.createWebPage(*priv->pageClient, WTFMove(configuration));
+    priv->pageProxy = processPool.createWebPage(*priv->pageClient, WTF::move(configuration));
     priv->pageProxy->setIntrinsicDeviceScaleFactor(gtk_widget_get_scale_factor(GTK_WIDGET(webkitWebViewBase)));
     priv->acceleratedBackingStore = AcceleratedBackingStore::create(*priv->pageProxy);
 
     auto& pageConfiguration = priv->pageProxy->configuration();
-    priv->pageProxy->initializeWebPage(pageConfiguration.openedSite(), pageConfiguration.initialSandboxFlags());
+    priv->pageProxy->initializeWebPage(pageConfiguration.openedSite(), pageConfiguration.initialSandboxFlags(), pageConfiguration.initialReferrerPolicy());
 
     if (priv->displayID)
         priv->pageProxy->windowScreenDidChange(priv->displayID);
@@ -2585,7 +2597,7 @@ void webkitWebViewBaseStartDrag(WebKitWebViewBase* webViewBase, SelectionData&& 
     if (!priv->dragSource)
         priv->dragSource = makeUnique<DragSource>(GTK_WIDGET(webViewBase));
 
-    priv->dragSource->begin(WTFMove(selectionData), dragOperationMask, WTFMove(image), WTFMove(dragImageHotspot));
+    priv->dragSource->begin(WTF::move(selectionData), dragOperationMask, WTF::move(image), WTF::move(dragImageHotspot));
 
 #if !USE(GTK4)
     // A drag starting should prevent a double-click from happening. This might
@@ -2743,7 +2755,7 @@ GRefPtr<GdkEvent> webkitWebViewBaseTakeContextMenuEvent(WebKitWebViewBase* webki
 #else
 GUniquePtr<GdkEvent> webkitWebViewBaseTakeContextMenuEvent(WebKitWebViewBase* webkitWebViewBase)
 {
-    return WTFMove(webkitWebViewBase->priv->contextMenuEvent);
+    return WTF::move(webkitWebViewBase->priv->contextMenuEvent);
 }
 #endif
 #endif // ENABLE(CONTEXT_MENUS)
@@ -2856,7 +2868,7 @@ bool webkitWebViewBaseIsInWindow(WebKitWebViewBase* webViewBase)
 
 void webkitWebViewBaseSetInputMethodState(WebKitWebViewBase* webkitWebViewBase, std::optional<InputMethodState>&& state)
 {
-    webkitWebViewBase->priv->inputMethodFilter.setState(WTFMove(state));
+    webkitWebViewBase->priv->inputMethodFilter.setState(WTF::move(state));
 }
 
 void webkitWebViewBaseUpdateTextInputState(WebKitWebViewBase* webkitWebViewBase)
@@ -2960,7 +2972,7 @@ RefPtr<WebKit::ViewSnapshot> webkitWebViewBaseTakeViewSnapshot(WebKitWebViewBase
     }
     webkitWebViewBaseDraw(GTK_WIDGET(webkitWebViewBase), cr.get());
 
-    return ViewSnapshot::create(WTFMove(surface));
+    return ViewSnapshot::create(WTF::move(surface));
 #else
     WebKitWebViewBasePrivate* priv = webkitWebViewBase->priv;
     auto* renderer = gtk_native_get_renderer(GTK_NATIVE(priv->toplevelOnScreenWindow->window()));
@@ -2991,7 +3003,7 @@ RefPtr<WebKit::ViewSnapshot> webkitWebViewBaseTakeViewSnapshot(WebKitWebViewBase
     graphene_rect_t viewport = { { 0, 0 }, { static_cast<float>(size.width()), static_cast<float>(size.height()) } };
     GRefPtr<GdkTexture> texture = adoptGRef(gsk_renderer_render_texture(renderer, renderNode.get(), &viewport));
 
-    return ViewSnapshot::create(WTFMove(texture));
+    return ViewSnapshot::create(WTF::move(texture));
 #endif
 }
 
@@ -3072,7 +3084,7 @@ void webkitWebViewBaseShowEmojiChooser(WebKitWebViewBase* webkitWebViewBase, con
         g_signal_connect_swapped(priv->emojiChooser, "closed", G_CALLBACK(emojiChooserClosed), webkitWebViewBase);
     }
 
-    priv->emojiChooserCompletionHandler = WTFMove(completionHandler);
+    priv->emojiChooserCompletionHandler = WTF::move(completionHandler);
 
     GdkRectangle gdkCaretRect = caretRect;
     gtk_popover_set_pointing_to(GTK_POPOVER(priv->emojiChooser), &gdkCaretRect);
@@ -3123,7 +3135,7 @@ WebKitInputMethodContext* webkitWebViewBaseGetInputMethodContext(WebKitWebViewBa
 
 void webkitWebViewBaseSynthesizeCompositionKeyPress(WebKitWebViewBase* webViewBase, const String& text, std::optional<Vector<CompositionUnderline>>&& underlines, std::optional<EditingRange>&& selectionRange)
 {
-    webViewBase->priv->pageProxy->handleKeyboardEvent(NativeWebKeyboardEvent(text, WTFMove(underlines), WTFMove(selectionRange)));
+    webViewBase->priv->pageProxy->handleKeyboardEvent(NativeWebKeyboardEvent(text, WTF::move(underlines), WTF::move(selectionRange)));
 }
 
 static inline OptionSet<WebEventModifier> toWebKitModifiers(unsigned modifiers)
@@ -3178,6 +3190,12 @@ void webkitWebViewBaseSynthesizeMouseEvent(WebKitWebViewBase* webViewBase, Mouse
     case GDK_BUTTON_SECONDARY:
         webEventButton = WebMouseEventButton::Right;
         break;
+    case 8:
+        webEventButton = WebMouseEventButton::Back;
+        break;
+    case 9:
+        webEventButton = WebMouseEventButton::Forward;
+        break;
     }
 
     unsigned short webEventButtons = 0;
@@ -3187,6 +3205,10 @@ void webkitWebViewBaseSynthesizeMouseEvent(WebKitWebViewBase* webViewBase, Mouse
         webEventButtons |= 4;
     if (buttons & GDK_BUTTON3_MASK)
         webEventButtons |= 2;
+    if (buttons & GDK_BUTTON4_MASK)
+        webEventButtons |= 8;
+    if (buttons & GDK_BUTTON5_MASK)
+        webEventButtons |= 16;
 
     std::optional<FloatSize> movementDelta;
     WebEventType webEventType;
@@ -3210,7 +3232,7 @@ void webkitWebViewBaseSynthesizeMouseEvent(WebKitWebViewBase* webViewBase, Mouse
             gdk_window_get_root_coords(event->button.window, x, y, &xRoot, &yRoot);
             event->button.x_root = xRoot;
             event->button.y_root = yRoot;
-            priv->contextMenuEvent = WTFMove(event);
+            priv->contextMenuEvent = WTF::move(event);
         }
 #endif
         if (!gtk_widget_has_focus(GTK_WIDGET(webViewBase)) && gtk_widget_is_focus(GTK_WIDGET(webViewBase)))
@@ -3229,6 +3251,10 @@ void webkitWebViewBaseSynthesizeMouseEvent(WebKitWebViewBase* webViewBase, Mouse
             webEventButton = WebMouseEventButton::Middle;
         else if (buttons & GDK_BUTTON3_MASK)
             webEventButton = WebMouseEventButton::Right;
+        else if (buttons & GDK_BUTTON4_MASK)
+            webEventButton = WebMouseEventButton::Back;
+        else if (buttons & GDK_BUTTON5_MASK)
+            webEventButton = WebMouseEventButton::Forward;
 
         if (priv->lastMotionEvent)
             movementDelta = FloatPoint(x, y) - priv->lastMotionEvent->globalPosition;
@@ -3236,7 +3262,7 @@ void webkitWebViewBaseSynthesizeMouseEvent(WebKitWebViewBase* webViewBase, Mouse
         break;
     }
 
-    priv->pageProxy->handleMouseEvent(NativeWebMouseEvent(webEventType, webEventButton, webEventButtons, { x, y },
+    priv->pageProxy->handleMouseEvent(NativeWebMouseEvent(webEventType, webEventButton, webEventButtons, DoublePoint(x, y),
         widgetRootCoords(GTK_WIDGET(webViewBase), x, y), clickCount, toWebKitModifiers(modifiers), movementDelta,
         primaryPointerForType(pointerType), pointerType.isNull() ? mousePointerEventType() : pointerType, isTouchEvent));
 }
@@ -3290,7 +3316,7 @@ void webkitWebViewBaseSynthesizeKeyEvent(WebKitWebViewBase* webViewBase, KeyEven
             event->key.keyval = keyval;
             event->key.state = modifiers;
             gdk_event_set_device(event.get(), gdk_seat_get_keyboard(gdk_display_get_default_seat(gtk_widget_get_display(GTK_WIDGET(webViewBase)))));
-            priv->contextMenuEvent = WTFMove(event);
+            priv->contextMenuEvent = WTF::move(event);
             priv->pageProxy->handleContextMenuKeyEvent();
             return;
         }
@@ -3336,11 +3362,11 @@ void webkitWebViewBaseSynthesizeKeyEvent(WebKitWebViewBase* webViewBase, KeyEven
         if (!filterResult.handled) {
             priv->pageProxy->handleKeyboardEvent(NativeWebKeyboardEvent(
                 WebEventType::KeyDown,
-                filterResult.keyText.isNull() ? PlatformKeyboardEvent::singleCharacterString(keyval) : filterResult.keyText,
-                PlatformKeyboardEvent::keyValueForGdkKeyCode(keyval),
-                PlatformKeyboardEvent::keyCodeForHardwareKeyCode(keycode),
-                PlatformKeyboardEvent::keyIdentifierForGdkKeyCode(keyval),
-                PlatformKeyboardEvent::windowsKeyCodeForGdkKeyCode(keyval),
+                filterResult.keyText.isNull() ? WebKeyboardEvent::singleCharacterStringForGdkKeyval(keyval) : filterResult.keyText,
+                WebKeyboardEvent::keyValueStringForGdkKeyval(keyval),
+                WebKeyboardEvent::keyCodeStringForGdkKeycode(keycode),
+                WebKeyboardEvent::keyIdentifierForGdkKeyval(keyval),
+                WebKeyboardEvent::windowsKeyCodeForGdkKeyval(keyval),
                 static_cast<int>(keyval),
                 priv->keyBindingTranslator.commandsForKeyval(keyval, modifiers),
                 isAutoRepeat,
@@ -3353,11 +3379,11 @@ void webkitWebViewBaseSynthesizeKeyEvent(WebKitWebViewBase* webViewBase, KeyEven
         if (!priv->inputMethodFilter.filterKeyEvent(GDK_KEY_RELEASE, keyval, keycode, modifiers).handled) {
             priv->pageProxy->handleKeyboardEvent(NativeWebKeyboardEvent(
                 WebEventType::KeyUp,
-                PlatformKeyboardEvent::singleCharacterString(keyval),
-                PlatformKeyboardEvent::keyValueForGdkKeyCode(keyval),
-                PlatformKeyboardEvent::keyCodeForHardwareKeyCode(keycode),
-                PlatformKeyboardEvent::keyIdentifierForGdkKeyCode(keyval),
-                PlatformKeyboardEvent::windowsKeyCodeForGdkKeyCode(keyval),
+                WebKeyboardEvent::singleCharacterStringForGdkKeyval(keyval),
+                WebKeyboardEvent::keyValueStringForGdkKeyval(keyval),
+                WebKeyboardEvent::keyCodeStringForGdkKeycode(keycode),
+                WebKeyboardEvent::keyIdentifierForGdkKeyval(keyval),
+                WebKeyboardEvent::windowsKeyCodeForGdkKeyval(keyval),
                 static_cast<int>(keyval),
                 { },
                 false,
@@ -3374,17 +3400,17 @@ static inline WebWheelEvent::Phase toWebKitWheelEventPhase(WheelEventPhase phase
 {
     switch (phase) {
     case WheelEventPhase::NoPhase:
-        return WebWheelEvent::Phase::PhaseNone;
+        return WebWheelEvent::Phase::None;
     case WheelEventPhase::Began:
-        return WebWheelEvent::Phase::PhaseBegan;
+        return WebWheelEvent::Phase::Began;
     case WheelEventPhase::Changed:
-        return WebWheelEvent::Phase::PhaseChanged;
+        return WebWheelEvent::Phase::Changed;
     case WheelEventPhase::Ended:
-        return WebWheelEvent::Phase::PhaseEnded;
+        return WebWheelEvent::Phase::Ended;
     case WheelEventPhase::Cancelled:
-        return WebWheelEvent::Phase::PhaseCancelled;
+        return WebWheelEvent::Phase::Cancelled;
     case WheelEventPhase::MayBegin:
-        return WebWheelEvent::Phase::PhaseMayBegin;
+        return WebWheelEvent::Phase::MayBegin;
     }
 
     RELEASE_ASSERT_NOT_REACHED();
@@ -3434,7 +3460,7 @@ void webkitWebViewBaseSetShouldNotifyFocusEvents(WebKitWebViewBase* webViewBase,
 
 void webkitWebViewBaseCallAfterNextPresentationUpdate(WebKitWebViewBase* webViewBase, CompletionHandler<void()>&& callback)
 {
-    webViewBase->priv->nextPresentationUpdateCallbacks.insert(0, WTFMove(callback));
+    webViewBase->priv->nextPresentationUpdateCallbacks.insert(0, WTF::move(callback));
 }
 
 #if USE(GTK4)
@@ -3563,3 +3589,163 @@ SkImage* webkitWebViewBaseSnapshotForTesting(WebKitWebViewBase* webViewBase)
     return webkitWebViewBaseSnapshotFromWidget(GTK_WIDGET(webViewBase));
 }
 #endif
+
+#if USE(GTK4)
+static GRefPtr<GdkCursor> fallbackCursor()
+{
+    static NeverDestroyed<GRefPtr<GdkCursor>> cursor(adoptGRef(gdk_cursor_new_from_name("default", nullptr)));
+    return cursor;
+}
+#endif
+
+static const char* cursorName(const Cursor& cursor)
+{
+    switch (cursor.type()) {
+    case Cursor::Type::Pointer:
+        return "default";
+    case Cursor::Type::Cross:
+        return "crosshair";
+    case Cursor::Type::Hand:
+        return "pointer";
+    case Cursor::Type::IBeam:
+        return "text";
+    case Cursor::Type::Wait:
+        return "wait";
+    case Cursor::Type::Help:
+        return "help";
+    case Cursor::Type::Move:
+    case Cursor::Type::MiddlePanning:
+        return "move";
+    case Cursor::Type::EastResize:
+    case Cursor::Type::EastPanning:
+        return "e-resize";
+    case Cursor::Type::NorthResize:
+    case Cursor::Type::NorthPanning:
+        return "n-resize";
+    case Cursor::Type::NorthEastResize:
+    case Cursor::Type::NorthEastPanning:
+        return "ne-resize";
+    case Cursor::Type::NorthWestResize:
+    case Cursor::Type::NorthWestPanning:
+        return "nw-resize";
+    case Cursor::Type::SouthResize:
+    case Cursor::Type::SouthPanning:
+        return "s-resize";
+    case Cursor::Type::SouthEastResize:
+    case Cursor::Type::SouthEastPanning:
+        return "se-resize";
+    case Cursor::Type::SouthWestResize:
+    case Cursor::Type::SouthWestPanning:
+        return "sw-resize";
+    case Cursor::Type::WestResize:
+    case Cursor::Type::WestPanning:
+        return "w-resize";
+    case Cursor::Type::NorthSouthResize:
+        return "ns-resize";
+    case Cursor::Type::EastWestResize:
+        return "ew-resize";
+    case Cursor::Type::NorthEastSouthWestResize:
+        return "nesw-resize";
+    case Cursor::Type::NorthWestSouthEastResize:
+        return "nwse-resize";
+    case Cursor::Type::ColumnResize:
+        return "col-resize";
+    case Cursor::Type::RowResize:
+        return "row-resize";
+    case Cursor::Type::VerticalText:
+        return "vertical-text";
+    case Cursor::Type::Cell:
+        return "cell";
+    case Cursor::Type::ContextMenu:
+        return "context-menu";
+    case Cursor::Type::Alias:
+        return "alias";
+    case Cursor::Type::Progress:
+        return "progress";
+    case Cursor::Type::NoDrop:
+        return "no-drop";
+    case Cursor::Type::NotAllowed:
+        return "not-allowed";
+    case Cursor::Type::Copy:
+        return "copy";
+    case Cursor::Type::None:
+        return "none";
+    case Cursor::Type::ZoomIn:
+        return "zoom-in";
+    case Cursor::Type::ZoomOut:
+        return "zoom-out";
+    case Cursor::Type::Grab:
+        return "grab";
+    case Cursor::Type::Grabbing:
+        return "grabbing";
+    case Cursor::Type::Custom:
+        return nullptr;
+    case Cursor::Type::Invalid:
+        break;
+    }
+    RELEASE_ASSERT_NOT_REACHED();
+}
+
+void webkitWebViewBaseSetCursor(WebKitWebViewBase* webViewBase, const Cursor& cursor)
+{
+    if (cursor.type() == Cursor::Type::Invalid)
+        return;
+
+    // [GTK] Widget::setCursor() gets called frequently
+    // http://bugs.webkit.org/show_bug.cgi?id=16388
+    // Setting the cursor may be an expensive operation in some backends,
+    // so don't re-set the cursor if it's already set to the target value.
+
+#if USE(GTK4)
+    GdkCursor* currentCursor = gtk_widget_get_cursor(GTK_WIDGET(webViewBase));
+#else
+    GdkWindow* window = gtk_widget_get_window(GTK_WIDGET(webViewBase));
+    GdkCursor* currentCursor = gdk_window_get_cursor(window);
+#endif
+
+    if (const char* name = cursorName(cursor)) {
+#if USE(GTK4)
+        if (currentCursor && !g_strcmp0(name, gdk_cursor_get_name(currentCursor)))
+            return;
+        GRefPtr<GdkCursor> newCursor = adoptGRef(gdk_cursor_new_from_name(name, fallbackCursor().get()));
+        gtk_widget_set_cursor(GTK_WIDGET(webViewBase), newCursor.get());
+#else
+        if (!currentCursor && cursor.type() == Cursor::Type::Pointer)
+            return;
+        GRefPtr<GdkCursor> newCursor = adoptGRef(gdk_cursor_new_from_name(gtk_widget_get_display(GTK_WIDGET(webViewBase)), name));
+        gdk_window_set_cursor(window, newCursor.get());
+#endif
+        return;
+    }
+
+    RefPtr nativeImage = cursor.image()->currentNativeImage();
+    if (!nativeImage)
+        return;
+
+    IntPoint effectiveHotSpot = determineHotSpot(cursor.image().get(), cursor.hotSpot());
+    auto& platformImage = nativeImage->platformImage();
+
+#if USE(GTK4)
+#if USE(CAIRO)
+    auto texture = cairoSurfaceToGdkTexture(platformImage.get());
+#elif USE(SKIA)
+    auto texture = skiaImageToGdkTexture(*platformImage.get());
+#endif
+    if (!texture)
+        return;
+
+    GRefPtr<GdkCursor> newCursor = adoptGRef(gdk_cursor_new_from_texture(texture.get(), effectiveHotSpot.x(), effectiveHotSpot.y(), fallbackCursor().get()));
+    gtk_widget_set_cursor(GTK_WIDGET(webViewBase), newCursor.get());
+#else
+#if USE(CAIRO)
+    auto pixbuf = cairoSurfaceToGdkPixbuf(platformImage.get());
+#elif USE(SKIA)
+    auto pixbuf = skiaImageToGdkPixbuf(*platformImage.get());
+#endif
+    if (!pixbuf)
+        return;
+
+    GRefPtr<GdkCursor> newCursor = adoptGRef(gdk_cursor_new_from_pixbuf(gtk_widget_get_display(GTK_WIDGET(webViewBase)), pixbuf.get(), effectiveHotSpot.x(), effectiveHotSpot.y()));
+    gdk_window_set_cursor(window, newCursor.get());
+#endif // USE(GTK4)
+}

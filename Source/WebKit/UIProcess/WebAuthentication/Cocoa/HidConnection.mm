@@ -32,6 +32,7 @@
 #import <wtf/BlockPtr.h>
 #import <wtf/RunLoop.h>
 #import <wtf/TZoneMallocInlines.h>
+#import <wtf/darwin/DispatchExtras.h>
 
 namespace WebKit {
 using namespace fido;
@@ -76,7 +77,7 @@ void HidConnection::initialize()
 {
 #if HAVE(SECURITY_KEY_API)
     IOHIDDeviceOpen(m_device.get(), kIOHIDOptionsTypeSeizeDevice);
-    IOHIDDeviceScheduleWithRunLoop(m_device.get(), CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
+    IOHIDDeviceScheduleWithRunLoop(m_device.get(), retainPtr(CFRunLoopGetCurrent()).get(), kCFRunLoopDefaultMode);
     m_inputBuffer.resize(kHidMaxPacketSize);
     IOHIDDeviceRegisterInputReportCallback(m_device.get(), m_inputBuffer.mutableSpan().data(), m_inputBuffer.size(), &reportReceived, this);
 #endif
@@ -87,7 +88,7 @@ void HidConnection::terminate()
 {
 #if HAVE(SECURITY_KEY_API)
     IOHIDDeviceRegisterInputReportCallback(m_device.get(), m_inputBuffer.mutableSpan().data(), m_inputBuffer.size(), nullptr, nullptr);
-    IOHIDDeviceUnscheduleFromRunLoop(m_device.get(), CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
+    IOHIDDeviceUnscheduleFromRunLoop(m_device.get(), retainPtr(CFRunLoopGetCurrent()).get(), kCFRunLoopDefaultMode);
     IOHIDDeviceClose(m_device.get(), kIOHIDOptionsTypeNone);
 #endif
     m_isInitialized = false;
@@ -111,7 +112,7 @@ auto HidConnection::sendSync(const Vector<uint8_t>& data) -> DataSent
 void HidConnection::send(Vector<uint8_t>&& data, DataSentCallback&& callback)
 {
     ASSERT(m_isInitialized);
-    auto task = makeBlockPtr([device = m_device, data = WTFMove(data), callback = WTFMove(callback)]() mutable {
+    auto task = makeBlockPtr([device = m_device, data = WTF::move(data), callback = WTF::move(callback)]() mutable {
         ASSERT(!RunLoop::isMain());
 
 #if HAVE(SECURITY_KEY_API)
@@ -124,18 +125,18 @@ void HidConnection::send(Vector<uint8_t>&& data, DataSentCallback&& callback)
 #else
         DataSent sent = DataSent::No;
 #endif
-        RunLoop::mainSingleton().dispatch([callback = WTFMove(callback), sent]() mutable {
+        RunLoop::mainSingleton().dispatch([callback = WTF::move(callback), sent]() mutable {
             callback(sent);
         });
     });
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), task.get());
+    dispatch_async(globalDispatchQueueSingleton(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), task.get());
 }
 
 void HidConnection::registerDataReceivedCallback(DataReceivedCallback&& callback)
 {
     ASSERT(m_isInitialized);
     ASSERT(!m_inputCallback);
-    m_inputCallback = WTFMove(callback);
+    m_inputCallback = WTF::move(callback);
     consumeReports();
     registerDataReceivedCallbackInternal();
 }
@@ -147,7 +148,7 @@ void HidConnection::unregisterDataReceivedCallback()
 
 void HidConnection::receiveReport(Vector<uint8_t>&& report)
 {
-    m_inputReports.append(WTFMove(report));
+    m_inputReports.append(WTF::move(report));
     consumeReports();
 }
 

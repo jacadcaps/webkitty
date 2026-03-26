@@ -35,6 +35,7 @@
 #import <pal/spi/mac/NSSharingServiceSPI.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/NeverDestroyed.h>
+#import <wtf/darwin/DispatchExtras.h>
 
 namespace WebKit {
 
@@ -45,7 +46,7 @@ ServicesController& ServicesController::singleton()
 }
 
 ServicesController::ServicesController()
-    : m_refreshQueue(dispatch_queue_create("com.apple.WebKit.ServicesController", DISPATCH_QUEUE_SERIAL))
+    : m_refreshQueue(adoptOSObject(dispatch_queue_create("com.apple.WebKit.ServicesController", DISPATCH_QUEUE_SERIAL)))
     , m_hasPendingRefresh(false)
     , m_hasImageServices(false)
     , m_hasSelectionServices(false)
@@ -69,7 +70,7 @@ static void hasCompatibleServicesForItems(dispatch_group_t group, NSArray *items
     NSSharingServiceMask servicesMask = NSSharingServiceMaskViewer | NSSharingServiceMaskEditor;
 
     dispatch_group_enter(group);
-    [NSSharingService getSharingServicesForItems:items mask:servicesMask completion:makeBlockPtr([completionHandler = WTFMove(completionHandler), group = retainPtr(group)](NSArray *services) {
+    [NSSharingService getSharingServicesForItems:items mask:servicesMask completion:makeBlockPtr([completionHandler = WTF::move(completionHandler), group = retainPtr(group)](NSArray *services) {
         completionHandler(services.count);
         dispatch_group_leave(group.get());
     }).get()];
@@ -83,7 +84,7 @@ void ServicesController::refreshExistingServices(bool refreshImmediately)
     m_hasPendingRefresh = true;
 
     auto refreshTime = dispatch_time(DISPATCH_TIME_NOW, refreshImmediately ? 0 : (int64_t)(1 * NSEC_PER_SEC));
-    dispatch_after(refreshTime, m_refreshQueue, ^{
+    dispatch_after(refreshTime, m_refreshQueue.get(), ^{
         auto serviceLookupGroup = adoptOSObject(dispatch_group_create());
 
         static NeverDestroyed<RetainPtr<NSImage>> image = adoptNS([[NSImage alloc] init]);
@@ -96,24 +97,24 @@ void ServicesController::refreshExistingServices(bool refreshImmediately)
             m_hasSelectionServices = hasServices;
         });
 
-        static NeverDestroyed<RetainPtr<NSAttributedString>> attributedStringWithRichContent;
-        static std::once_flag attributedStringWithRichContentOnceFlag;
-        std::call_once(attributedStringWithRichContentOnceFlag, [&] {
+        static NeverDestroyed<RetainPtr<NSAttributedString>> attributedStringWithRichContent = [&] {
+            RetainPtr<NSAttributedString> result;
             WorkQueue::mainSingleton().dispatchSync([&] {
                 auto attachment = adoptNS([[NSTextAttachment alloc] init]);
                 auto cell = adoptNS([[NSTextAttachmentCell alloc] initImageCell:image.get().get()]);
                 [attachment setAttachmentCell:cell.get()];
                 auto richString = adoptNS([[NSAttributedString attributedStringWithAttachment:attachment.get()] mutableCopy]);
                 [richString appendAttributedString:attributedString.get().get()];
-                attributedStringWithRichContent.get() = WTFMove(richString);
+                result = WTF::move(richString);
             });
-        });
+            return result;
+        }();
 
         hasCompatibleServicesForItems(serviceLookupGroup.get(), @[ attributedStringWithRichContent.get().get() ], [this] (bool hasServices) {
             m_hasRichContentServices = hasServices;
         });
 
-        dispatch_group_notify(serviceLookupGroup.get(), dispatch_get_main_queue(), makeBlockPtr([this] {
+        dispatch_group_notify(serviceLookupGroup.get(), mainDispatchQueueSingleton(), makeBlockPtr([this] {
             bool availableServicesChanged = (m_lastSentHasImageServices != m_hasImageServices) || (m_lastSentHasSelectionServices != m_hasSelectionServices) || (m_lastSentHasRichContentServices != m_hasRichContentServices);
 
             m_lastSentHasSelectionServices = m_hasSelectionServices;

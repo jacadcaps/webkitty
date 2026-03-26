@@ -151,7 +151,7 @@ void JSTestSetLikeWithOverriddenOperationsPrototype::finishCreation(VM& vm)
 const ClassInfo JSTestSetLikeWithOverriddenOperations::s_info = { "TestSetLikeWithOverriddenOperations"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestSetLikeWithOverriddenOperations) };
 
 JSTestSetLikeWithOverriddenOperations::JSTestSetLikeWithOverriddenOperations(Structure* structure, JSDOMGlobalObject& globalObject, Ref<TestSetLikeWithOverriddenOperations>&& impl)
-    : JSDOMWrapper<TestSetLikeWithOverriddenOperations>(structure, globalObject, WTFMove(impl))
+    : JSDOMWrapper<TestSetLikeWithOverriddenOperations>(structure, globalObject, WTF::move(impl))
 {
 }
 
@@ -176,7 +176,7 @@ JSValue JSTestSetLikeWithOverriddenOperations::getConstructor(VM& vm, const JSGl
 
 void JSTestSetLikeWithOverriddenOperations::destroy(JSC::JSCell* cell)
 {
-    JSTestSetLikeWithOverriddenOperations* thisObject = static_cast<JSTestSetLikeWithOverriddenOperations*>(cell);
+    SUPPRESS_MEMORY_UNSAFE_CAST JSTestSetLikeWithOverriddenOperations* thisObject = static_cast<JSTestSetLikeWithOverriddenOperations*>(cell);
     thisObject->JSTestSetLikeWithOverriddenOperations::~JSTestSetLikeWithOverriddenOperations();
 }
 
@@ -375,7 +375,7 @@ bool JSTestSetLikeWithOverriddenOperationsOwner::isReachableFromOpaqueRoots(JSC:
 
 void JSTestSetLikeWithOverriddenOperationsOwner::finalize(JSC::Handle<JSC::Unknown> handle, void* context)
 {
-    auto* jsTestSetLikeWithOverriddenOperations = static_cast<JSTestSetLikeWithOverriddenOperations*>(handle.slot()->asCell());
+    SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestSetLikeWithOverriddenOperations = static_cast<JSTestSetLikeWithOverriddenOperations*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
     uncacheWrapper(world, jsTestSetLikeWithOverriddenOperations->protectedWrapped().ptr(), jsTestSetLikeWithOverriddenOperations);
 }
@@ -389,7 +389,7 @@ extern "C" { extern void (*const __identifier("??_7TestSetLikeWithOverriddenOper
 extern "C" { extern void* _ZTVN7WebCore35TestSetLikeWithOverriddenOperationsE[]; }
 #endif
 template<std::same_as<TestSetLikeWithOverriddenOperations> T>
-static inline void verifyVTable(TestSetLikeWithOverriddenOperations* ptr) 
+static inline void verifyVTable(TestSetLikeWithOverriddenOperations* ptr)
 {
     if constexpr (std::is_polymorphic_v<T>) {
         const void* actualVTablePointer = getVTablePointer<T>(ptr);
@@ -409,12 +409,13 @@ static inline void verifyVTable(TestSetLikeWithOverriddenOperations* ptr)
 #endif
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestSetLikeWithOverriddenOperations>&& impl)
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<TestSetLikeWithOverriddenOperations>&& impl)
 {
+    UNUSED_PARAM(lexicalGlobalObject);
 #if ENABLE(BINDING_INTEGRITY)
     verifyVTable<TestSetLikeWithOverriddenOperations>(impl.ptr());
 #endif
-    return createWrapper<TestSetLikeWithOverriddenOperations>(globalObject, WTFMove(impl));
+    return createWrapper<TestSetLikeWithOverriddenOperations>(globalObject, WTF::move(impl));
 }
 
 JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, TestSetLikeWithOverriddenOperations& impl)

@@ -39,7 +39,7 @@ namespace WebKit {
 
 ProcessLauncher::ProcessLauncher(Client* client, LaunchOptions&& launchOptions)
     : m_client(client)
-    , m_launchOptions(WTFMove(launchOptions))
+    , m_launchOptions(WTF::move(launchOptions))
 {
     tracePoint(ProcessLaunchStart, m_launchOptions.processIdentifier.toUInt64());
     launchProcess();
@@ -51,11 +51,6 @@ ProcessLauncher::~ProcessLauncher()
 
     if (m_isLaunching)
         tracePoint(ProcessLaunchEnd, m_launchOptions.processIdentifier.toUInt64(), static_cast<uint64_t>(m_launchOptions.processType));
-}
-
-auto ProcessLauncher::checkedClient() const -> CheckedPtr<Client>
-{
-    return m_client;
 }
 
 #if !PLATFORM(COCOA)
@@ -71,7 +66,7 @@ void ProcessLauncher::didFinishLaunchingProcess(ProcessID processIdentifier, IPC
 
     tracePoint(ProcessLaunchEnd, m_launchOptions.processIdentifier.toUInt64(), static_cast<uint64_t>(m_launchOptions.processType), static_cast<uint64_t>(m_processID));
 
-    CheckedPtr client = m_client;
+    RefPtr client = m_client.get();
     if (!client) {
 #if OS(DARWIN) && !USE(UNIX_DOMAIN_SOCKETS)
         // FIXME: Release port rights/connections in the Connection::Identifier destructor.
@@ -81,7 +76,7 @@ void ProcessLauncher::didFinishLaunchingProcess(ProcessID processIdentifier, IPC
         return;
     }
 
-    client->didFinishLaunching(this, WTFMove(identifier));
+    client->didFinishLaunching(this, WTF::move(identifier));
 }
 
 void ProcessLauncher::invalidate()

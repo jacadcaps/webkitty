@@ -88,7 +88,7 @@ template<typename T, size_t inlineCapacity, typename OverflowHandler, size_t min
             decoder >> element;
             if (!element)
                 return std::nullopt;
-            vector.append(WTFMove(*element));
+            vector.append(WTF::move(*element));
         }
         vector.shrinkToFit();
         return vector;
@@ -127,7 +127,7 @@ template<> struct Coder<WTF::URL> {
         decoder >> string;
         if (!string)
             return std::nullopt;
-        return { WTF::URL(WTFMove(*string)) };
+        return { WTF::URL(WTF::move(*string)) };
     }
 };
 
@@ -146,7 +146,7 @@ template<> struct Coder<WTF::String> {
         encoder << string.length() << is8Bit;
 
         if (is8Bit)
-            encoder.encodeFixedLengthData(string.span8());
+            encoder.encodeFixedLengthData(byteCast<uint8_t>(string.span8()));
         else
             encoder.encodeFixedLengthData(asBytes(string.span16()));
     }
@@ -185,7 +185,7 @@ template<> struct Coder<WTF::String> {
             return std::nullopt;
 
         if (*is8Bit)
-            return decodeStringText<LChar>(decoder, *length);
+            return decodeStringText<Latin1Character>(decoder, *length);
         return decodeStringText<char16_t>(decoder, *length);
     }
 };

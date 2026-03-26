@@ -45,10 +45,21 @@
 #import <objc/runtime.h>
 
 static const NSString * const kURLArgumentString = @"--url";
+static const NSString * const kSiteIsolationArgumentString = @"--force-site-isolation";
+static const NSString * const kWebInspectorArgumentString = @"--web-inspector";
+
+static NSString *sTargetURL = nil;
+
+// Force MiniBrowser to run with or without site isolation.
+static BOOL sForceSiteIsolationSetting = NO;
+static BOOL sShouldEnableSiteIsolation = NO;
+
+static BOOL sOpenWebInspector = NO;
 
 enum {
     WebKit1NewWindowTag = 1,
     WebKit2NewWindowTag = 2,
+    WebKit2NewSiteIsolationWindowTag = 5,
     WebKit1NewEditorTag = 3,
     WebKit2NewEditorTag = 4
 };
@@ -244,6 +255,29 @@ static NSNumber *_currentBadge;
                                                        andSelector:@selector(_handleURLEvent:withReplyEvent:)
                                                      forEventClass:'WWW!'
                                                         andEventID:'OURL'];
+    [self _parseArguments];
+}
+
+- (void)_parseArguments
+{
+    NSArray *args = [[NSProcessInfo processInfo] arguments];
+
+    const NSUInteger targetURLIndex = [args indexOfObject:kURLArgumentString];
+    if (targetURLIndex != NSNotFound && targetURLIndex + 1 < [args count])
+        sTargetURL = [args objectAtIndex:targetURLIndex + 1];
+
+    const NSUInteger siteIsolationIndex = [args indexOfObject:kSiteIsolationArgumentString];
+    sForceSiteIsolationSetting = (siteIsolationIndex != NSNotFound && siteIsolationIndex + 1 < [args count]);
+    if (sForceSiteIsolationSetting) {
+        sShouldEnableSiteIsolation = [[args objectAtIndex:siteIsolationIndex + 1] isEqualToString: @"YES"];
+        if (sShouldEnableSiteIsolation)
+            NSLog(@"Force enabling Site Isolation.");
+        else
+            NSLog(@"Force disabling Site Isolation.");
+    }
+
+    const NSUInteger webInspectorIndex = [args indexOfObject:kWebInspectorArgumentString];
+    sOpenWebInspector = (webInspectorIndex != NSNotFound);
 }
 
 - (WKWebViewConfiguration *)defaultConfiguration
@@ -280,6 +314,9 @@ static NSNumber *_currentBadge;
         configuration.preferences._notificationsEnabled = YES;
         configuration.preferences._notificationEventEnabled = YES;
         configuration.preferences._appBadgeEnabled = YES;
+
+        if (sForceSiteIsolationSetting)
+            configuration.preferences._siteIsolationEnabled = sShouldEnableSiteIsolation;
     }
 
     configuration.suppressesIncrementalRendering = _settingsController.incrementalRenderingSuppressed;
@@ -288,6 +325,21 @@ static NSNumber *_currentBadge;
     configuration._attachmentWideLayoutEnabled = _settingsController.attachmentElementEnabled == AttachmentElementEnabledStateWideLayoutEnabled ? YES : NO;
     configuration._allowUniversalAccessFromFileURLs = _settingsController.allowUniversalAccessFromFileURLs;
 
+    return configuration;
+}
+
+- (WKWebViewConfiguration *)defaultConfigurationForcingSiteIsolation:(BOOL)forceSiteIsolation
+{
+    if (!forceSiteIsolation)
+        return self.defaultConfiguration;
+
+    WKWebViewConfiguration *configuration = self.defaultConfiguration;
+    if (configuration.preferences._siteIsolationEnabled)
+        return configuration;
+
+    configuration = configuration.copy;
+    configuration.preferences = configuration.preferences.copy;
+    configuration.preferences._siteIsolationEnabled = YES;
     return configuration;
 }
 
@@ -301,6 +353,7 @@ static NSNumber *_currentBadge;
     BrowserWindowController *controller = nil;
     BOOL useWebKit2 = NO;
     BOOL makeEditable = NO;
+    BOOL forcesSiteIsolation = NO;
 
     BOOL hasNSIntegerTag = NO;
     if ([sender respondsToSelector:@selector(tag)]) {
@@ -316,14 +369,15 @@ static NSNumber *_currentBadge;
         makeEditable = _settingsController.createEditorByDefault;
     } else {
         NSInteger senderTag = (NSInteger)[sender performSelector:@selector(tag)];
-        useWebKit2 = senderTag == WebKit2NewWindowTag || senderTag == WebKit2NewEditorTag;
+        useWebKit2 = senderTag == WebKit2NewWindowTag || senderTag == WebKit2NewEditorTag || senderTag == WebKit2NewSiteIsolationWindowTag;
+        forcesSiteIsolation = senderTag == WebKit2NewSiteIsolationWindowTag;
         makeEditable = senderTag == WebKit1NewEditorTag || senderTag == WebKit2NewEditorTag;
     }
 
     if (!useWebKit2)
         controller = [[WK1BrowserWindowController alloc] initWithWindowNibName:@"BrowserWindow"];
     else
-        controller = [[WK2BrowserWindowController alloc] initWithConfiguration:[self defaultConfiguration]];
+        controller = [[WK2BrowserWindowController alloc] initWithConfiguration:[self defaultConfigurationForcingSiteIsolation:forcesSiteIsolation]];
 
     if (makeEditable)
         controller.editable = YES;
@@ -336,18 +390,15 @@ static NSNumber *_currentBadge;
     return controller;
 }
 
-- (NSString *)targetURLOrDefaultURL
+- (NSString *)targetURL
 {
-    NSArray *args = [[NSProcessInfo processInfo] arguments];
-    const NSUInteger targetURLIndex = [args indexOfObject:kURLArgumentString];
-    NSString *targetURL = nil;
+    NSString *url = sTargetURL;
+    sTargetURL = nil;
 
-    if (targetURLIndex != NSNotFound && targetURLIndex + 1 < [args count])
-        targetURL = [args objectAtIndex:targetURLIndex + 1];
+    if (!url || [url isEqualToString:@""])
+        url = _settingsController.defaultURL;
 
-    if (!targetURL || [targetURL isEqualToString:@""])
-        return _settingsController.defaultURL;
-    return targetURL;
+    return url;
 }
 
 - (IBAction)newWindow:(id)sender
@@ -357,7 +408,10 @@ static NSNumber *_currentBadge;
         return;
 
     [[controller window] makeKeyAndOrderFront:sender];
-    [controller loadURLString:[self targetURLOrDefaultURL]];
+    [controller loadURLString:[self targetURL]];
+
+    if (sOpenWebInspector)
+        [controller showHideWebInspector:sender];
 }
 
 - (IBAction)newPrivateWindow:(id)sender
@@ -370,7 +424,10 @@ static NSNumber *_currentBadge;
     [[controller window] makeKeyAndOrderFront:sender];
     [_browserWindowControllers addObject:controller];
 
-    [controller loadURLString:_settingsController.defaultURL];
+    [controller loadURLString:[self targetURL]];
+
+    if (sOpenWebInspector)
+        [controller showHideWebInspector:sender];
 }
 
 - (IBAction)newEditorWindow:(id)sender
@@ -381,6 +438,41 @@ static NSNumber *_currentBadge;
 
     [[controller window] makeKeyAndOrderFront:sender];
     [controller loadHTMLString:@"<html><body></body></html>"];
+}
+
+- (IBAction)newTab:(id)sender
+{
+    NSWindow *keyWindow = [NSApp keyWindow];
+    BrowserWindowController *currentController = nil;
+
+    if ([keyWindow.delegate isKindOfClass:[BrowserWindowController class]])
+        currentController = (BrowserWindowController *)keyWindow.delegate;
+
+    if (!currentController) {
+        // No current window, create a new window instead
+        [self newWindow:sender];
+        return;
+    }
+
+    // Create new controller matching current window's type (WK1 vs WK2)
+    BrowserWindowController *newController = nil;
+    if ([currentController isKindOfClass:[WK2BrowserWindowController class]]) {
+        WK2BrowserWindowController *wk2Controller = (WK2BrowserWindowController *)currentController;
+        // Copy configuration from current window (preserves private browsing, site isolation, etc.)
+        WKWebViewConfiguration *config = [wk2Controller.webView.configuration copy];
+        newController = [[WK2BrowserWindowController alloc] initWithConfiguration:config];
+    } else
+        newController = [[WK1BrowserWindowController alloc] initWithWindowNibName:@"BrowserWindow"];
+
+    if (!newController)
+        return;
+
+    [_browserWindowControllers addObject:newController];
+
+    // Add as tab to current window
+    [keyWindow addTabbedWindow:[newController window] ordered:NSWindowAbove];
+    [[newController window] makeKeyAndOrderFront:sender];
+    [newController loadURLString:[self targetURL]];
 }
 
 - (void)didCreateBrowserWindowController:(BrowserWindowController *)controller
@@ -437,6 +529,10 @@ static NSNumber *_currentBadge;
 
     [controller.window makeKeyAndOrderFront:self];
     [controller loadURLString:url.absoluteString];
+
+    if (sOpenWebInspector)
+        [controller showHideWebInspector:nil];
+
     _openNewWindowAtStartup = false;
     return YES;
 }
@@ -453,6 +549,9 @@ static NSNumber *_currentBadge;
 
             NSURL *url = [openPanel.URLs objectAtIndex:0];
             [browserWindowController loadURLString:[url absoluteString]];
+
+            if (sOpenWebInspector)
+                [browserWindowController showHideWebInspector:sender];
         }];
         return;
     }
@@ -467,6 +566,9 @@ static NSNumber *_currentBadge;
 
         NSURL *url = [openPanel.URLs objectAtIndex:0];
         [controller loadURLString:[url absoluteString]];
+
+        if (sOpenWebInspector)
+            [controller showHideWebInspector:sender];
     }];
 }
 
@@ -483,17 +585,20 @@ static NSNumber *_currentBadge;
 {
     NSEventModifierFlags webKit1Flags = _settingsController.useWebKit2ByDefault ? NSEventModifierFlagOption : 0;
     NSEventModifierFlags webKit2Flags = _settingsController.useWebKit2ByDefault ? 0 : NSEventModifierFlagOption;
+    NSEventModifierFlags siteIsolationWebKit2Flags = webKit2Flags | NSEventModifierFlagControl;
 
     NSString *normalWindowEquivalent = _settingsController.createEditorByDefault ? @"N" : @"n";
     NSString *editorEquivalent = _settingsController.createEditorByDefault ? @"n" : @"N";
 
     _newWebKit1WindowItem.keyEquivalentModifierMask = NSEventModifierFlagCommand | webKit1Flags;
     _newWebKit2WindowItem.keyEquivalentModifierMask = NSEventModifierFlagCommand | webKit2Flags;
+    _newWebKit2SiteIsolateWindowItem.keyEquivalentModifierMask = NSEventModifierFlagCommand | siteIsolationWebKit2Flags;
     _newWebKit1EditorItem.keyEquivalentModifierMask = NSEventModifierFlagCommand | webKit1Flags;
     _newWebKit2EditorItem.keyEquivalentModifierMask = NSEventModifierFlagCommand | webKit2Flags;
 
     _newWebKit1WindowItem.keyEquivalent = normalWindowEquivalent;
     _newWebKit2WindowItem.keyEquivalent = normalWindowEquivalent;
+    _newWebKit2SiteIsolateWindowItem.keyEquivalent = normalWindowEquivalent;
     _newWebKit1EditorItem.keyEquivalent = editorEquivalent;
     _newWebKit2EditorItem.keyEquivalent = editorEquivalent;
 }

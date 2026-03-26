@@ -43,6 +43,7 @@
 #import <pal/spi/mac/NSTextInputContextSPI.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/RetainPtr.h>
+#import <wtf/darwin/DispatchExtras.h>
 
 @interface SlowTextInputContext : NSTextInputContext
 @property (nonatomic) BlockPtr<void()> handledInputMethodEventBlock;
@@ -53,7 +54,7 @@
 - (void)handleEventByInputMethod:(NSEvent *)event completionHandler:(void(^)(BOOL handled))completionHandler
 {
     [super handleEventByInputMethod:event completionHandler:^(BOOL handled) {
-        dispatch_async(dispatch_get_main_queue(), ^() {
+        dispatch_async(mainDispatchQueueSingleton(), ^() {
             completionHandler(handled);
             if (_handledInputMethodEventBlock)
                 _handledInputMethodEventBlock();
@@ -64,7 +65,7 @@
 - (void)handleEvent:(NSEvent *)event completionHandler:(void(^)(BOOL handled))completionHandler
 {
     [super handleEvent:event completionHandler:^(BOOL handled) {
-        dispatch_async(dispatch_get_main_queue(), ^() {
+        dispatch_async(mainDispatchQueueSingleton(), ^() {
             completionHandler(handled);
         });
     }];
@@ -133,7 +134,7 @@
         MockTextInputContextAction *lastItem = _actions.lastObject;
         [_actions removeLastObject];
         double delay = lastItem ? lastItem.delay : 10;
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), mainDispatchQueueSingleton(), ^{
             if (lastItem)
                 [self.client setMarkedText:lastItem.markedText selectedRange:lastItem.selectedRange replacementRange:lastItem.replacementRange];
             completionHandler(!!lastItem);

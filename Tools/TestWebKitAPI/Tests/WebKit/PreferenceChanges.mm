@@ -34,8 +34,8 @@
 #import "TestWKWebView.h"
 #import <WebKit/PreferenceObserver.h>
 #import <WebKit/WKWebViewPrivate.h>
-
 #import <wtf/ObjCRuntimeExtras.h>
+#import <wtf/darwin/DispatchExtras.h>
 
 static bool receivedPreferenceNotification = false;
 
@@ -70,7 +70,7 @@ static constexpr Seconds preferenceQuerySleepTime = 1_s;
 static void waitForPreferenceSynchronization()
 {
     __block bool didSynchronize = false;
-    dispatch_async(dispatch_get_main_queue(), ^{
+    dispatch_async(mainDispatchQueueSingleton(), ^{
         didSynchronize = true;
     });
     TestWebKitAPI::Util::run(&didSynchronize);
@@ -190,6 +190,9 @@ TEST(WebKit, PreferenceChangesWithSuspendedProcess)
         return [webView stringByEvaluatingJavaScript:js].intValue;
     };
 
+    unsigned tries = 0;
+    while (preferenceValue() != 1 && ++tries < 50)
+        TestWebKitAPI::Util::runFor(100_ms);
     EXPECT_EQ(preferenceValue(), 1);
 
     CLEAR_DEFAULTS();
@@ -323,8 +326,8 @@ TEST(WebKit, PreferenceChangesArray)
 
     RetainPtr<NSObject> object;
     for (unsigned i = 0; i < preferenceQueryMaxCount && ![object isEqual:changedArray]; i++) {
-        auto encodedString = preferenceValue();
-        auto encodedData = adoptNS([[NSData alloc] initWithBase64EncodedString:encodedString options:0]);
+        RetainPtr encodedString = preferenceValue();
+        auto encodedData = adoptNS([[NSData alloc] initWithBase64EncodedString:encodedString.get() options:0]);
         ASSERT_TRUE(encodedData);
         NSError *err = nil;
         object = retainPtr([NSKeyedUnarchiver unarchivedObjectOfClass:[NSObject class] fromData:encodedData.get() error:&err]);
@@ -373,8 +376,8 @@ TEST(WebKit, PreferenceChangesDictionary)
 
     RetainPtr<NSObject> object;
     for (unsigned i = 0; i < preferenceQueryMaxCount && ![object isEqual:changedDict]; i++) {
-        auto encodedString = preferenceValue();
-        auto encodedData = adoptNS([[NSData alloc] initWithBase64EncodedString:encodedString options:0]);
+        RetainPtr encodedString = preferenceValue();
+        auto encodedData = adoptNS([[NSData alloc] initWithBase64EncodedString:encodedString.get() options:0]);
         ASSERT_TRUE(encodedData);
         NSError *err = nil;
         object = retainPtr([NSKeyedUnarchiver unarchivedObjectOfClass:[NSObject class] fromData:encodedData.get() error:&err]);
@@ -416,8 +419,8 @@ TEST(WebKit, PreferenceChangesData)
 
     RetainPtr<NSObject> object;
     for (unsigned i = 0; i < preferenceQueryMaxCount && ![object isEqual:changedData]; i++) {
-        auto encodedString = preferenceValue();
-        auto encodedData = adoptNS([[NSData alloc] initWithBase64EncodedString:encodedString options:0]);
+        RetainPtr encodedString = preferenceValue();
+        auto encodedData = adoptNS([[NSData alloc] initWithBase64EncodedString:encodedString.get() options:0]);
         ASSERT_TRUE(encodedData);
         NSError *err = nil;
         object = retainPtr([NSKeyedUnarchiver unarchivedObjectOfClass:[NSObject class] fromData:encodedData.get() error:&err]);
@@ -459,8 +462,8 @@ TEST(WebKit, PreferenceChangesDate)
 
     RetainPtr<NSObject> object;
     for (unsigned i = 0; i < preferenceQueryMaxCount && ![object isEqual:changedDate]; i++) {
-        auto encodedString = preferenceValue();
-        auto encodedData = adoptNS([[NSData alloc] initWithBase64EncodedString:encodedString options:0]);
+        RetainPtr encodedString = preferenceValue();
+        auto encodedData = adoptNS([[NSData alloc] initWithBase64EncodedString:encodedString.get() options:0]);
         ASSERT_TRUE(encodedData);
         NSError *err = nil;
         object = retainPtr([NSKeyedUnarchiver unarchivedObjectOfClass:[NSObject class] fromData:encodedData.get() error:&err]);

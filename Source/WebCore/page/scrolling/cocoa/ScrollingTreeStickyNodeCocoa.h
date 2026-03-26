@@ -25,11 +25,9 @@
 
 #pragma once
 
-#if ENABLE(ASYNC_SCROLLING)
-
-#include "ScrollingConstraints.h"
-#include "ScrollingTree.h"
-#include "ScrollingTreeStickyNode.h"
+#include <WebCore/ScrollingConstraints.h>
+#include <WebCore/ScrollingTree.h>
+#include <WebCore/ScrollingTreeStickyNode.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/TZoneMalloc.h>
 
@@ -60,5 +58,3 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_SCROLLING_NODE(ScrollingTreeStickyNodeCocoa, isStickyNode())
-
-#endif // ENABLE(ASYNC_SCROLLING)

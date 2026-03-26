@@ -23,6 +23,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#import <wtf/Platform.h>
+
 #if PLATFORM(COCOA) && HAVE(AVKIT)
 
 #import <pal/spi/cocoa/AVKitSPI.h>
@@ -49,7 +51,10 @@ class PlaybackSessionInterfaceIOS;
 
 - (void)setAllowsPictureInPicture:(BOOL)allowsPictureInPicture;
 
+#if !__has_feature(modules)
 @property (retain) AVPlayerController *playerControllerProxy;
+#endif
+
 @property (assign, nullable /*weak*/) WebCore::PlaybackSessionModel* delegate;
 @property (assign, nullable /*weak*/) WebCore::PlaybackSessionInterfaceIOS* playbackSessionInterface;
 
@@ -139,7 +144,7 @@ class PlaybackSessionInterfaceIOS;
 
 @end
 
-Class webAVPlayerControllerClass();
+Class webAVPlayerControllerClassSingleton();
 RetainPtr<WebAVPlayerController> createWebAVPlayerController();
 
 NS_ASSUME_NONNULL_END

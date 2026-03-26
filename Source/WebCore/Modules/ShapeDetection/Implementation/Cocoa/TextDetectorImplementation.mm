@@ -43,24 +43,18 @@ TextDetectorImpl::TextDetectorImpl() = default;
 
 TextDetectorImpl::~TextDetectorImpl() = default;
 
-void TextDetectorImpl::detect(Ref<ImageBuffer>&& imageBuffer, CompletionHandler<void(Vector<DetectedText>&&)>&& completionHandler)
+void TextDetectorImpl::detect(const NativeImage& image, CompletionHandler<void(Vector<DetectedText>&&)>&& completionHandler)
 {
-    auto nativeImage = imageBuffer->copyNativeImage();
-    if (!nativeImage) {
-        completionHandler({ });
-        return;
-    }
-
-    auto platformImage = nativeImage->platformImage();
+    auto platformImage = image.platformImage();
     if (!platformImage) {
         completionHandler({ });
         return;
     }
 
-    auto request = adoptNS([PAL::allocVNRecognizeTextRequestInstance() init]);
+    RetainPtr request = adoptNS([PAL::allocVNRecognizeTextRequestInstance() init]);
     configureRequestToUseCPUOrGPU(request.get());
 
-    auto imageRequestHandler = adoptNS([PAL::allocVNImageRequestHandlerInstance() initWithCGImage:platformImage.get() options:@{ }]);
+    RetainPtr imageRequestHandler = adoptNS([PAL::allocVNImageRequestHandlerInstance() initWithCGImage:platformImage.get() options:@{ }]);
 
     NSError *error = nil;
     auto result = [imageRequestHandler performRequests:@[request.get()] error:&error];
@@ -69,17 +63,18 @@ void TextDetectorImpl::detect(Ref<ImageBuffer>&& imageBuffer, CompletionHandler<
         return;
     }
 
+    auto imageSize = image.size();
     Vector<DetectedText> results;
     results.reserveInitialCapacity(request.get().results.count);
     for (VNRecognizedTextObservation *observation in request.get().results) {
         results.append({
-            convertRectFromVisionToWeb(nativeImage->size(), observation.boundingBox),
+            convertRectFromVisionToWeb(imageSize, observation.boundingBox),
             [observation topCandidates:1][0].string,
-            convertCornerPoints(nativeImage->size(), observation),
+            convertCornerPoints(imageSize, observation),
         });
     }
 
-    completionHandler(WTFMove(results));
+    completionHandler(WTF::move(results));
 }
 
 } // namespace WebCore::ShapeDetection

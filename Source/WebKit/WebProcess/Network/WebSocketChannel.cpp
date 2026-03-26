@@ -34,13 +34,12 @@
 #include <WebCore/AdvancedPrivacyProtections.h>
 #include <WebCore/Blob.h>
 #include <WebCore/ClientOrigin.h>
-#include <WebCore/Document.h>
 #include <WebCore/DocumentInlines.h>
 #include <WebCore/DocumentLoader.h>
+#include <WebCore/DocumentPage.h>
 #include <WebCore/ExceptionCode.h>
 #include <WebCore/FrameDestructionObserverInlines.h>
-#include <WebCore/LocalFrame.h>
-#include <WebCore/Page.h>
+#include <WebCore/LocalFrameInlines.h>
 #include <WebCore/ThreadableWebSocketChannel.h>
 #include <WebCore/WebSocketChannelClient.h>
 #include <wtf/CheckedArithmetic.h>
@@ -60,9 +59,9 @@ void WebSocketChannel::notifySendFrame(WebSocketFrame::OpCode opCode, std::span<
     m_inspector.didSendWebSocketFrame(frame);
 }
 
-NetworkSendQueue WebSocketChannel::createMessageQueue(Document& document, WebSocketChannel& channel)
+Ref<NetworkSendQueue> WebSocketChannel::createMessageQueue(Document& document, WebSocketChannel& channel)
 {
-    return { document, [weakChannel = WeakPtr { channel }](auto& utf8String) {
+    return NetworkSendQueue::create(document, [weakChannel = WeakPtr { channel }](auto& utf8String) {
         RefPtr channel = weakChannel.get();
         if (!channel)
             return;
@@ -82,7 +81,7 @@ NetworkSendQueue WebSocketChannel::createMessageQueue(Document& document, WebSoc
         auto code = static_cast<int>(exceptionCode);
         channel->fail(makeString("Failed to load Blob: exception code = "_s, code));
         return NetworkSendQueue::Continue::No;
-    } };
+    });
 }
 
 WebSocketChannel::WebSocketChannel(WebPageProxyIdentifier webPageProxyID, Document& document, WebSocketChannelClient& client)
@@ -145,14 +144,13 @@ WebSocketChannel::ConnectStatus WebSocketChannel::connect(const URL& url, const 
 
     OptionSet<AdvancedPrivacyProtections> advancedPrivacyProtections;
     bool allowPrivacyProxy { true };
-    std::optional<FrameIdentifier> frameID;
     std::optional<PageIdentifier> pageID;
     StoredCredentialsPolicy storedCredentialsPolicy { StoredCredentialsPolicy::Use };
     RefPtr frame = document->frame();
     RefPtr mainFrame = document->localMainFrame();
     if (!mainFrame)
         return ConnectStatus::KO;
-    frameID = mainFrame->frameID();
+    auto frameID = frame ? std::optional(frame->frameID()) : std::nullopt;
     pageID = mainFrame->pageID();
     if (RefPtr policySourceDocumentLoader = mainFrame->document() ? mainFrame->protectedDocument()->loader() : nullptr) {
         if (!policySourceDocumentLoader->request().url().hasSpecialScheme() && frame->document()->url().protocolIsInHTTPFamily())
@@ -206,7 +204,7 @@ template<typename T> void WebSocketChannel::sendMessageInternal(T&& message, siz
     CompletionHandler<void()> completionHandler = [this, protectedThis = Ref { *this }, byteLength] {
         decreaseBufferedAmount(byteLength);
     };
-    sendWithAsyncReply(std::forward<T>(message), WTFMove(completionHandler));
+    sendWithAsyncReply(std::forward<T>(message), WTF::move(completionHandler));
 }
 
 void WebSocketChannel::send(CString&& message)
@@ -214,7 +212,7 @@ void WebSocketChannel::send(CString&& message)
     if (!increaseBufferedAmount(message.length()))
         return;
 
-    m_messageQueue.enqueue(WTFMove(message));
+    m_messageQueue->enqueue(WTF::move(message));
 }
 
 void WebSocketChannel::send(const JSC::ArrayBuffer& binaryData, unsigned byteOffset, unsigned byteLength)
@@ -222,7 +220,7 @@ void WebSocketChannel::send(const JSC::ArrayBuffer& binaryData, unsigned byteOff
     if (!increaseBufferedAmount(byteLength))
         return;
 
-    m_messageQueue.enqueue(binaryData, byteOffset, byteLength);
+    m_messageQueue->enqueue(binaryData, byteOffset, byteLength);
 }
 
 void WebSocketChannel::send(Blob& blob)
@@ -234,7 +232,7 @@ void WebSocketChannel::send(Blob& blob)
     if (!increaseBufferedAmount(byteLength))
         return;
 
-    m_messageQueue.enqueue(blob);
+    m_messageQueue->enqueue(blob);
 }
 
 void WebSocketChannel::close(int code, const String& reason)
@@ -274,7 +272,7 @@ void WebSocketChannel::disconnect()
 {
     m_client = nullptr;
     m_document = nullptr;
-    m_messageQueue.clear();
+    m_messageQueue->clear();
 
     m_inspector.didCloseWebSocket();
 
@@ -290,8 +288,8 @@ void WebSocketChannel::didConnect(String&& subprotocol, String&& extensions)
     if (!client)
         return;
 
-    m_subprotocol = WTFMove(subprotocol);
-    m_extensions = WTFMove(extensions);
+    m_subprotocol = WTF::move(subprotocol);
+    m_extensions = WTF::move(extensions);
     client->didConnect();
 }
 
@@ -301,7 +299,7 @@ void WebSocketChannel::didReceiveText(String&& message)
         return;
 
     if (RefPtr client = m_client.get())
-        client->didReceiveMessage(WTFMove(message));
+        client->didReceiveMessage(WTF::move(message));
 }
 
 void WebSocketChannel::didReceiveBinaryData(std::span<const uint8_t> data)
@@ -350,7 +348,7 @@ void WebSocketChannel::didReceiveMessageError(String&& errorMessage)
         return;
 
     logErrorMessage(errorMessage);
-    client->didReceiveMessageError(WTFMove(errorMessage));
+    client->didReceiveMessageError(WTF::move(errorMessage));
 }
 
 void WebSocketChannel::networkProcessCrashed()
@@ -369,13 +367,13 @@ void WebSocketChannel::resume()
 void WebSocketChannel::didSendHandshakeRequest(ResourceRequest&& request)
 {
     m_inspector.willSendWebSocketHandshakeRequest(request);
-    m_handshakeRequest = WTFMove(request);
+    m_handshakeRequest = WTF::move(request);
 }
 
 void WebSocketChannel::didReceiveHandshakeResponse(ResourceResponse&& response)
 {
     m_inspector.didReceiveWebSocketHandshakeResponse(response);
-    m_handshakeResponse = WTFMove(response);
+    m_handshakeResponse = WTF::move(response);
 }
 
 } // namespace WebKit

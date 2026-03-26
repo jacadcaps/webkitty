@@ -25,8 +25,9 @@
 
 #import "WebKitFullScreenListener.h"
 
-#import <WebCore/DocumentInlines.h>
 #import <WebCore/Element.h>
+#import <WebCore/ExceptionOr.h>
+#import <WebCore/NodeDocument.h>
 
 #if ENABLE(FULLSCREEN_API)
 
@@ -42,8 +43,8 @@ using namespace WebCore;
         return nil;
 
     _element = element;
-    _initialCompletionHandler = WTFMove(initialCompletionHandler);
-    _finalCompletionHandler = WTFMove(finalCompletionHandler);
+    _initialCompletionHandler = WTF::move(initialCompletionHandler);
+    _finalCompletionHandler = WTF::move(finalCompletionHandler);
     return self;
 }
 

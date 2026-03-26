@@ -26,7 +26,7 @@
 #import "config.h"
 #import "ScrollingTreeScrollingNodeDelegateMac.h"
 
-#if ENABLE(ASYNC_SCROLLING) && PLATFORM(MAC)
+#if PLATFORM(MAC)
 
 #import "Logging.h"
 #import "ScrollExtents.h"
@@ -117,6 +117,9 @@ void ScrollingTreeScrollingNodeDelegateMac::updateFromStateNode(const ScrollingS
     if (scrollingStateNode.hasChangedProperty(ScrollingStateNode::Property::MouseActivityState))
         m_scrollerPair->mouseMovedInContentArea(scrollingStateNode.mouseLocationState());
 
+    if (scrollingStateNode.hasChangedProperty(ScrollingStateNode::Property::ScrollbarColor))
+        m_scrollerPair->scrollbarColorChanged(scrollingStateNode.scrollbarColor());
+
     m_scrollerPair->updateValues();
 
     ThreadedScrollingTreeScrollingNodeDelegate::updateFromStateNode(scrollingStateNode);
@@ -134,7 +137,7 @@ bool ScrollingTreeScrollingNodeDelegateMac::handleWheelEvent(const PlatformWheel
     if (wasInMomentumPhase != m_inMomentumPhase)
         m_scrollerPair->setUsePresentationValues(m_inMomentumPhase);
 
-    auto deferrer = ScrollingTreeWheelEventTestMonitorCompletionDeferrer { *scrollingTree(), scrollingNode().scrollingNodeID(), WheelEventTestMonitor::DeferReason::HandlingWheelEvent };
+    auto deferrer = ScrollingTreeWheelEventTestMonitorCompletionDeferrer { *scrollingTree(), scrollingNode()->scrollingNodeID(), WheelEventTestMonitor::DeferReason::HandlingWheelEvent };
 
     updateUserScrollInProgressForEvent(wheelEvent);
 
@@ -289,40 +292,29 @@ bool ScrollingTreeScrollingNodeDelegateMac::isPinnedOnSide(BoxSide side) const
 
 RectEdges<bool> ScrollingTreeScrollingNodeDelegateMac::edgePinnedState() const
 {
-    return scrollingNode().edgePinnedState();
+    return scrollingNode()->edgePinnedState();
 }
 
 bool ScrollingTreeScrollingNodeDelegateMac::shouldRubberBandOnSide(BoxSide side) const
 {
-    return scrollingNode().shouldRubberBandOnSide(side, edgePinnedState());
+    return scrollingNode()->shouldRubberBandOnSide(side, edgePinnedState());
 }
 
 void ScrollingTreeScrollingNodeDelegateMac::didStopRubberBandAnimation()
 {
     // Since the rubberband timer has stopped, totalContentsSizeForRubberBand can be synchronized with totalContentsSize.
-    scrollingNode().setTotalContentsSizeForRubberBand(totalContentsSize());
+    scrollingNode()->setTotalContentsSizeForRubberBand(totalContentsSize());
 }
 
 void ScrollingTreeScrollingNodeDelegateMac::rubberBandingStateChanged(bool inRubberBand)
 {
-    scrollingTree()->setRubberBandingInProgressForNode(scrollingNode().scrollingNodeID(), inRubberBand);
+    scrollingTree()->setRubberBandingInProgressForNode(scrollingNode()->scrollingNodeID(), inRubberBand);
 }
 
 void ScrollingTreeScrollingNodeDelegateMac::updateScrollbarPainters()
 {
-    if (m_inMomentumPhase && m_scrollerPair->hasScrollerImp() && m_scrollerPair->isUsingPresentationValues()) {
-        BEGIN_BLOCK_OBJC_EXCEPTIONS
-        [CATransaction lock];
-
-        auto horizontalValues = m_scrollerPair->valuesForOrientation(ScrollbarOrientation::Horizontal);
-        m_scrollerPair->setHorizontalScrollbarPresentationValue(horizontalValues.value);
-
-        auto verticalValues = m_scrollerPair->valuesForOrientation(ScrollbarOrientation::Vertical);
-        m_scrollerPair->setVerticalScrollbarPresentationValue(verticalValues.value);
-
-        [CATransaction unlock];
-        END_BLOCK_OBJC_EXCEPTIONS
-    }
+    if (m_inMomentumPhase && m_scrollerPair->hasScrollerImp() && m_scrollerPair->isUsingPresentationValues())
+        m_scrollerPair->updateScrollbarPainters();
 }
 
 void ScrollingTreeScrollingNodeDelegateMac::initScrollbars()
@@ -362,4 +354,4 @@ String ScrollingTreeScrollingNodeDelegateMac::scrollbarStateForOrientation(Scrol
 
 } // namespace WebCore
 
-#endif // PLATFORM(MAC) && ENABLE(ASYNC_SCROLLING)
+#endif // PLATFORM(MAC)

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,6 +31,7 @@
 #import "TestWKWebView.h"
 #import "UIKitSPIForTesting.h"
 #import <CoreServices/CoreServices.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <WebCore/LegacyNSPasteboardTypes.h>
 #import <WebKit/WKPreferencesPrivate.h>
 #import <WebKit/WKWebsiteDataStoreRef.h>
@@ -119,7 +120,7 @@ static void writeMultipleObjectsToPlatformPasteboard()
     RetainPtr firstItem = adoptNS([[NSItemProvider alloc] initWithObject:@"Hello"]);
     RetainPtr secondItem = adoptNS([[NSItemProvider alloc] initWithObject:[NSURL URLWithString:@"https://apple.com/"]]);
     RetainPtr thirdItem = adoptNS([[NSItemProvider alloc] init]);
-    [thirdItem registerDataRepresentationForTypeIdentifier:(__bridge NSString *)kUTTypeHTML visibility:NSItemProviderRepresentationVisibilityAll loadHandler:[&] (void (^completionHandler)(NSData *, NSError *)) -> NSProgress * {
+    [thirdItem registerDataRepresentationForTypeIdentifier:UTTypeHTML.identifier visibility:NSItemProviderRepresentationVisibilityAll loadHandler:[&] (void (^completionHandler)(NSData *, NSError *)) -> NSProgress * {
         completionHandler([@"<strong style='color: rgb(0, 255, 0);'>Hello world</strong>" dataUsingEncoding:NSUTF8StringEncoding], nil);
         return nil;
     }];
@@ -127,7 +128,7 @@ static void writeMultipleObjectsToPlatformPasteboard()
     RetainPtr fourthItem = adoptNS([[NSItemProvider alloc] init]);
     [fourthItem registerObject:@"WebKit" visibility:NSItemProviderRepresentationVisibilityAll];
     [fourthItem registerObject:[NSURL URLWithString:@"https://webkit.org/"] visibility:NSItemProviderRepresentationVisibilityAll];
-    [fourthItem registerDataRepresentationForTypeIdentifier:(__bridge NSString *)kUTTypeHTML visibility:NSItemProviderRepresentationVisibilityAll loadHandler:[&] (void (^completionHandler)(NSData *, NSError *)) -> NSProgress * {
+    [fourthItem registerDataRepresentationForTypeIdentifier:UTTypeHTML.identifier visibility:NSItemProviderRepresentationVisibilityAll loadHandler:[&] (void (^completionHandler)(NSData *, NSError *)) -> NSProgress * {
         completionHandler([@"<a href='https://webkit.org/'>Hello world</a>" dataUsingEncoding:NSUTF8StringEncoding], nil);
         return nil;
     }];
@@ -139,15 +140,16 @@ static void writeMultipleObjectsToPlatformPasteboard()
 static RetainPtr<NSString> readMarkupFromPasteboard()
 {
 #if PLATFORM(MAC)
-    NSData *rawData = [NSPasteboard.generalPasteboard dataForType:WebCore::legacyHTMLPasteboardType()];
+    NSData *rawData = [NSPasteboard.generalPasteboard dataForType:WebCore::legacyHTMLPasteboardTypeSingleton()];
 #else
-    NSData *rawData = [UIPasteboard.generalPasteboard dataForPasteboardType:(__bridge NSString *)kUTTypeHTML];
+    NSData *rawData = [UIPasteboard.generalPasteboard dataForPasteboardType:UTTypeHTML.identifier];
 #endif
     return adoptNS([[NSString alloc] initWithData:rawData encoding:NSUTF8StringEncoding]);
 }
 
 // rdar://138144869
-#if PLATFORM(IOS) && !defined(NDEBUG)
+// rdar://159421461 (Release)
+#if PLATFORM(IOS)
 TEST(ClipboardTests, DISABLED_ReadMultipleItems)
 #else
 TEST(ClipboardTests, ReadMultipleItems)

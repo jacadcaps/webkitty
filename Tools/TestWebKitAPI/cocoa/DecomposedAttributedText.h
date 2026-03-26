@@ -39,11 +39,27 @@ struct _DecomposedAttributedTextOrderedList;
 struct _DecomposedAttributedTextUnorderedList;
 
 struct DecomposedAttributedText {
-    enum class ListMarker: uint8_t {
-        Circle,
-        Decimal,
-        Disc,
-        LowercaseRoman,
+    struct ListMarker {
+        enum class Type: uint8_t {
+            Circle,
+            Decimal,
+            Disc,
+            LowercaseRoman,
+        };
+
+        using enum Type;
+
+        ListMarker(Type type)
+            : data(type)
+        {
+        }
+
+        explicit ListMarker(String&& string)
+            : data(string)
+        {
+        }
+
+        Variant<Type, String> data;
     };
 
     enum class ListIDTag { };
@@ -90,7 +106,14 @@ struct _DecomposedAttributedTextOrderedList {
 
     _DecomposedAttributedTextOrderedList(int startingItemNumber, DecomposedAttributedText::ListMarker marker, Vector<DecomposedAttributedText::Element>&& children)
         : marker(marker)
-        , startingItemNumber(startingItemNumber), children(children)
+        , startingItemNumber(startingItemNumber)
+        , children(children)
+    {
+    }
+
+    _DecomposedAttributedTextOrderedList(int startingItemNumber, Vector<DecomposedAttributedText::Element>&& children)
+        : startingItemNumber(startingItemNumber)
+        , children(children)
     {
     }
 
@@ -135,6 +158,8 @@ TextStream& operator<<(TextStream&, const DecomposedAttributedText::OrderedList&
 TextStream& operator<<(TextStream&, const DecomposedAttributedText::UnorderedList&);
 
 TextStream& operator<<(TextStream&, const DecomposedAttributedText&);
+
+bool operator==(const DecomposedAttributedText::ListMarker&, const DecomposedAttributedText::ListMarker&);
 
 bool operator==(const DecomposedAttributedText::Bold&, const DecomposedAttributedText::Bold&);
 

@@ -32,16 +32,64 @@ internal import WebKit_Internal
 
 // FIXME: Adopt `@objc @implementation` when support for macOS Sonoma is no longer needed.
 // FIXME: (rdar://110719676) Remove all `@objc deinit`s when support for macOS Sonoma is no longer needed.
-
 @_objcImplementation
 extension WKTextExtractionItem {
     let rectInWebView: CGRect
     let children: [WKTextExtractionItem]
+    let eventListeners: WKTextExtractionEventListenerTypes
+    let ariaAttributes: [String: String]
+    let accessibilityRole: String
+    let nodeIdentifier: String?
 
     @objc
-    fileprivate init(with rectInWebView: CGRect, children: [WKTextExtractionItem]) {
+    fileprivate init(
+        with rectInWebView: CGRect,
+        children: [WKTextExtractionItem],
+        eventListeners: WKTextExtractionEventListenerTypes,
+        ariaAttributes: [String: String],
+        accessibilityRole: String,
+        nodeIdentifier: String?
+    ) {
         self.rectInWebView = rectInWebView
         self.children = children
+        self.eventListeners = eventListeners
+        self.nodeIdentifier = nodeIdentifier
+        self.ariaAttributes = ariaAttributes
+        self.accessibilityRole = accessibilityRole
+    }
+
+    #if compiler(<6.0)
+    @objc
+    deinit {}
+    #endif
+}
+
+@_objcImplementation
+extension WKTextExtractionFormItem {
+    let autocomplete: String
+    let name: String
+
+    init(
+        autocomplete: String,
+        name: String,
+        rectInWebView: CGRect,
+        children: [WKTextExtractionItem],
+        eventListeners: WKTextExtractionEventListenerTypes,
+        ariaAttributes: [String: String],
+        accessibilityRole: String,
+        nodeIdentifier: String?
+    ) {
+        self.autocomplete = autocomplete
+        self.name = name
+        super
+            .init(
+                with: rectInWebView,
+                children: children,
+                eventListeners: eventListeners,
+                ariaAttributes: ariaAttributes,
+                accessibilityRole: accessibilityRole,
+                nodeIdentifier: nodeIdentifier
+            )
     }
 
     #if compiler(<6.0)
@@ -54,9 +102,154 @@ extension WKTextExtractionItem {
 extension WKTextExtractionContainerItem {
     let container: WKTextExtractionContainer
 
-    init(container: WKTextExtractionContainer, rectInWebView: CGRect, children: [WKTextExtractionItem]) {
+    init(
+        container: WKTextExtractionContainer,
+        rectInWebView: CGRect,
+        children: [WKTextExtractionItem],
+        eventListeners: WKTextExtractionEventListenerTypes,
+        ariaAttributes: [String: String],
+        accessibilityRole: String,
+        nodeIdentifier: String?
+    ) {
         self.container = container
-        super.init(with: rectInWebView, children: children)
+        super
+            .init(
+                with: rectInWebView,
+                children: children,
+                eventListeners: eventListeners,
+                ariaAttributes: ariaAttributes,
+                accessibilityRole: accessibilityRole,
+                nodeIdentifier: nodeIdentifier
+            )
+    }
+
+    #if compiler(<6.0)
+    @objc
+    deinit {}
+    #endif
+}
+
+@_objcImplementation
+extension WKTextExtractionContentEditableItem {
+    fileprivate let contentEditableType: WKTextExtractionEditableType
+
+    @nonobjc
+    private let backingIsFocused: Bool
+    @objc(focused)
+    var isFocused: Bool {
+        @objc(isFocused)
+        get { backingIsFocused }
+    }
+
+    init(
+        contentEditableType: WKTextExtractionEditableType,
+        isFocused: Bool,
+        rectInWebView: CGRect,
+        children: [WKTextExtractionItem],
+        eventListeners: WKTextExtractionEventListenerTypes,
+        ariaAttributes: [String: String],
+        accessibilityRole: String,
+        nodeIdentifier: String?
+    ) {
+        self.contentEditableType = contentEditableType
+        self.backingIsFocused = isFocused
+        super
+            .init(
+                with: rectInWebView,
+                children: children,
+                eventListeners: eventListeners,
+                ariaAttributes: ariaAttributes,
+                accessibilityRole: accessibilityRole,
+                nodeIdentifier: nodeIdentifier
+            )
+    }
+
+    #if compiler(<6.0)
+    @objc
+    deinit {}
+    #endif
+}
+
+@_objcImplementation
+extension WKTextExtractionTextFormControlItem {
+    fileprivate let editable: WKTextExtractionEditable
+
+    @objc(secure)
+    var isSecure: Bool {
+        editable.isSecure
+    }
+
+    @objc(focused)
+    var isFocused: Bool {
+        editable.isFocused
+    }
+
+    @objc
+    var label: String {
+        editable.label
+    }
+
+    @objc
+    var placeholder: String {
+        editable.placeholder
+    }
+
+    let controlType: String
+    let autocomplete: String
+
+    @nonobjc
+    private let backingIsReadonly: Bool
+    @objc(readonly)
+    var isReadonly: Bool {
+        @objc(isReadonly)
+        get { backingIsReadonly }
+    }
+
+    @nonobjc
+    private let backingIsDisabled: Bool
+    @objc(disabled)
+    var isDisabled: Bool {
+        @objc(isDisabled)
+        get { backingIsDisabled }
+    }
+
+    @nonobjc
+    private let backingIsChecked: Bool
+    @objc(checked)
+    var isChecked: Bool {
+        @objc(isChecked)
+        get { backingIsChecked }
+    }
+
+    init(
+        editable: WKTextExtractionEditable,
+        controlType: String,
+        autocomplete: String,
+        isReadonly: Bool,
+        isDisabled: Bool,
+        isChecked: Bool,
+        rectInWebView: CGRect,
+        children: [WKTextExtractionItem],
+        eventListeners: WKTextExtractionEventListenerTypes,
+        ariaAttributes: [String: String],
+        accessibilityRole: String,
+        nodeIdentifier: String?
+    ) {
+        self.editable = editable
+        self.controlType = controlType
+        self.autocomplete = autocomplete
+        self.backingIsReadonly = isReadonly
+        self.backingIsDisabled = isDisabled
+        self.backingIsChecked = isChecked
+        super
+            .init(
+                with: rectInWebView,
+                children: children,
+                eventListeners: eventListeners,
+                ariaAttributes: ariaAttributes,
+                accessibilityRole: accessibilityRole,
+                nodeIdentifier: nodeIdentifier
+            )
     }
 
     #if compiler(<6.0)
@@ -102,6 +295,43 @@ extension WKTextExtractionEditable {
 }
 
 @_objcImplementation
+extension WKTextExtractionLinkItem {
+    let target: String
+    @nonobjc
+    private let backingURL: NSURL?
+
+    var url: URL? { backingURL as URL? }
+
+    init(
+        target: String,
+        url: URL?,
+        rectInWebView: CGRect,
+        children: [WKTextExtractionItem],
+        eventListeners: WKTextExtractionEventListenerTypes,
+        ariaAttributes: [String: String],
+        accessibilityRole: String,
+        nodeIdentifier: String?
+    ) {
+        self.target = target
+        self.backingURL = url as NSURL?
+        super
+            .init(
+                with: rectInWebView,
+                children: children,
+                eventListeners: eventListeners,
+                ariaAttributes: ariaAttributes,
+                accessibilityRole: accessibilityRole,
+                nodeIdentifier: nodeIdentifier
+            )
+    }
+
+    #if compiler(<6.0)
+    @objc
+    deinit {}
+    #endif
+}
+
+@_objcImplementation
 extension WKTextExtractionLink {
     // Used to workaround the fact that `@_objcImplementation` does not support stored properties whose size can change
     // due to Library Evolution. Do not use this property directly.
@@ -125,9 +355,40 @@ extension WKTextExtractionLink {
 }
 
 @_objcImplementation
+extension WKTextExtractionIFrameItem {
+    let origin: String
+
+    init(
+        origin: String,
+        rectInWebView: CGRect,
+        children: [WKTextExtractionItem],
+        eventListeners: WKTextExtractionEventListenerTypes,
+        ariaAttributes: [String: String],
+        accessibilityRole: String,
+        nodeIdentifier: String?
+    ) {
+        self.origin = origin
+        super
+            .init(
+                with: rectInWebView,
+                children: children,
+                eventListeners: eventListeners,
+                ariaAttributes: ariaAttributes,
+                accessibilityRole: accessibilityRole,
+                nodeIdentifier: nodeIdentifier
+            )
+    }
+
+    #if compiler(<6.0)
+    @objc
+    deinit {}
+    #endif
+}
+
+@_objcImplementation
 extension WKTextExtractionTextItem {
-    let content: String
-    let selectedRange: NSRange
+    var content: String
+    var selectedRange: NSRange
     let links: [WKTextExtractionLink]
     let editable: WKTextExtractionEditable?
 
@@ -137,13 +398,25 @@ extension WKTextExtractionTextItem {
         links: [WKTextExtractionLink],
         editable: WKTextExtractionEditable?,
         rectInWebView: CGRect,
-        children: [WKTextExtractionItem]
+        children: [WKTextExtractionItem],
+        eventListeners: WKTextExtractionEventListenerTypes,
+        ariaAttributes: [String: String],
+        accessibilityRole: String,
+        nodeIdentifier: String?
     ) {
         self.content = content
         self.selectedRange = selectedRange
         self.links = links
         self.editable = editable
-        super.init(with: rectInWebView, children: children)
+        super
+            .init(
+                with: rectInWebView,
+                children: children,
+                eventListeners: eventListeners,
+                ariaAttributes: ariaAttributes,
+                accessibilityRole: accessibilityRole,
+                nodeIdentifier: nodeIdentifier
+            )
     }
 
     #if compiler(<6.0)
@@ -156,9 +429,59 @@ extension WKTextExtractionTextItem {
 extension WKTextExtractionScrollableItem {
     let contentSize: CGSize
 
-    init(contentSize: CGSize, rectInWebView: CGRect, children: [WKTextExtractionItem]) {
+    init(
+        contentSize: CGSize,
+        rectInWebView: CGRect,
+        children: [WKTextExtractionItem],
+        eventListeners: WKTextExtractionEventListenerTypes,
+        ariaAttributes: [String: String],
+        accessibilityRole: String,
+        nodeIdentifier: String?
+    ) {
         self.contentSize = contentSize
-        super.init(with: rectInWebView, children: children)
+        super
+            .init(
+                with: rectInWebView,
+                children: children,
+                eventListeners: eventListeners,
+                ariaAttributes: ariaAttributes,
+                accessibilityRole: accessibilityRole,
+                nodeIdentifier: nodeIdentifier
+            )
+    }
+
+    #if compiler(<6.0)
+    @objc
+    deinit {}
+    #endif
+}
+
+@_objcImplementation
+extension WKTextExtractionSelectItem {
+    let selectedValues: [String]
+    let supportsMultiple: Bool
+
+    init(
+        selectedValues: [String],
+        supportsMultiple: Bool,
+        rectInWebView: CGRect,
+        children: [WKTextExtractionItem],
+        eventListeners: WKTextExtractionEventListenerTypes,
+        ariaAttributes: [String: String],
+        accessibilityRole: String,
+        nodeIdentifier: String?
+    ) {
+        self.selectedValues = selectedValues
+        self.supportsMultiple = supportsMultiple
+        super
+            .init(
+                with: rectInWebView,
+                children: children,
+                eventListeners: eventListeners,
+                ariaAttributes: ariaAttributes,
+                accessibilityRole: accessibilityRole,
+                nodeIdentifier: nodeIdentifier
+            )
     }
 
     #if compiler(<6.0)
@@ -172,24 +495,27 @@ extension WKTextExtractionImageItem {
     let name: String
     let altText: String
 
-    init(name: String, altText: String, rectInWebView: CGRect, children: [WKTextExtractionItem]) {
+    init(
+        name: String,
+        altText: String,
+        rectInWebView: CGRect,
+        children: [WKTextExtractionItem],
+        eventListeners: WKTextExtractionEventListenerTypes,
+        ariaAttributes: [String: String],
+        accessibilityRole: String,
+        nodeIdentifier: String?
+    ) {
         self.name = name
         self.altText = altText
-        super.init(with: rectInWebView, children: children)
-    }
-
-    #if compiler(<6.0)
-    @objc
-    deinit {}
-    #endif
-}
-
-@_objcImplementation
-extension WKTextExtractionResult {
-    let rootItem: WKTextExtractionItem
-
-    init(rootItem: WKTextExtractionItem) {
-        self.rootItem = rootItem
+        super
+            .init(
+                with: rectInWebView,
+                children: children,
+                eventListeners: eventListeners,
+                ariaAttributes: ariaAttributes,
+                accessibilityRole: accessibilityRole,
+                nodeIdentifier: nodeIdentifier
+            )
     }
 
     #if compiler(<6.0)

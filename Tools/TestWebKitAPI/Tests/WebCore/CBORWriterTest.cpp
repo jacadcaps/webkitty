@@ -60,7 +60,7 @@ TEST(CBORWriterTest, TestWriteUint)
     static const UintTestCase kUintTestCases[] = {
         // Reminder: must specify length when creating string pieces
         // with null bytes, else the string will truncate prematurely.
-        { 0, CString({ "\x00", 1 }) },
+        { 0, CString(std::span { "\x00", 1 }) },
         { 1, CString("\x01") },
         { 10, CString("\x0a") },
         { 23, CString("\x17") },
@@ -68,10 +68,10 @@ TEST(CBORWriterTest, TestWriteUint)
         { 25, CString("\x18\x19") },
         { 100, CString("\x18\x64") },
         { 1000, CString("\x19\x03\xe8") },
-        { 1000000, CString({ "\x1a\x00\x0f\x42\x40", 5 }) },
+        { 1000000, CString(std::span { "\x1a\x00\x0f\x42\x40", 5 }) },
         { 0xFFFFFFFF, CString("\x1a\xff\xff\xff\xff") },
         { 0x100000000,
-            CString({ "\x1b\x00\x00\x00\x01\x00\x00\x00\x00", 9 }) },
+            CString(std::span { "\x1b\x00\x00\x00\x01\x00\x00\x00\x00", 9 }) },
         { std::numeric_limits<int64_t>::max(),
             CString("\x1b\x7f\xff\xff\xff\xff\xff\xff\xff") }
     };
@@ -98,7 +98,7 @@ TEST(CBORWriterTest, TestWriteNegativeInteger)
         { -1000LL, CString("\x39\x03\xe7") },
         { -4294967296LL, CString("\x3a\xff\xff\xff\xff") },
         { -4294967297LL,
-            CString({ "\x3b\x00\x00\x00\x01\x00\x00\x00\x00", 9 }) },
+            CString(std::string { "\x3b\x00\x00\x00\x01\x00\x00\x00\x00", 9 }) },
         { std::numeric_limits<int64_t>::min(),
             CString("\x3b\x7f\xff\xff\xff\xff\xff\xff\xff") },
     };

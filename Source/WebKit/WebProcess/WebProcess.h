@@ -29,6 +29,7 @@
 #include "CacheModel.h"
 #include "EventDispatcher.h"
 #include "IdentifierTypes.h"
+#include "NetworkProcessConnection.h"
 #include "ScriptTrackingPrivacyFilter.h"
 #include "SharedPreferencesForWebProcess.h"
 #include "StorageAreaMapIdentifier.h"
@@ -87,9 +88,8 @@ OBJC_CLASS NSMutableDictionary;
 #include <WebCore/CaptionUserPreferences.h>
 #endif
 
-#if ENABLE(LOGD_BLOCKING_IN_WEBCONTENT)
-#include "LogStreamIdentifier.h"
-#include "StreamClientConnection.h"
+#if ENABLE(REMOTE_INSPECTOR) && ENABLE(WEBASSEMBLY)
+#include "WasmDebuggerDispatcher.h"
 #endif
 
 namespace API {
@@ -124,6 +124,9 @@ struct PrewarmInformation;
 struct PlatformMediaSessionRemoteCommandArgument;
 struct ScreenProperties;
 struct ServiceWorkerContextData;
+struct JSHandleIdentifierType;
+
+using JSHandleIdentifier = ProcessQualified<ObjectIdentifier<JSHandleIdentifierType>>;
 }
 
 namespace WebKit {
@@ -137,7 +140,6 @@ class LibWebRTCCodecs;
 class LibWebRTCNetwork;
 class ModelProcessConnection;
 class ModelProcessModelPlayerManager;
-class NetworkProcessConnection;
 class RemoteCDMFactory;
 class RemoteImageDecoderAVFManager;
 class RemoteLegacyCDMFactory;
@@ -162,6 +164,8 @@ class WebTransportSession;
 
 struct AccessibilityPreferences;
 struct AdditionalFonts;
+struct ContentWorldIdentifierType;
+struct RemoteAudioSessionConfiguration;
 struct RemoteWorkerInitializationData;
 struct UserMessage;
 struct WebProcessCreationParameters;
@@ -173,10 +177,17 @@ struct WebTransportSessionIdentifierType;
 struct WebsiteData;
 struct WebsiteDataStoreParameters;
 
+#if USE(LIBRICE)
+class RiceBackendProxy;
+struct RiceBackendIdentifierType;
+using RiceBackendIdentifier = ObjectIdentifier<RiceBackendIdentifierType>;
+#endif
+
 enum class RemoteWorkerType : uint8_t;
 enum class WebsiteDataType : uint32_t;
 
-using WebTransportSessionIdentifier = ObjectIdentifier<WebTransportSessionIdentifierType>;
+using ContentWorldIdentifier = WebCore::ProcessQualified<ObjectIdentifier<ContentWorldIdentifierType>>;
+using WebTransportSessionIdentifier = AtomicObjectIdentifier<WebTransportSessionIdentifierType>;
 
 #if PLATFORM(IOS_FAMILY)
 class LayerHostingContext;
@@ -231,6 +242,7 @@ public:
 
     WebPage* webPage(WebCore::PageIdentifier) const;
     void createWebPage(WebCore::PageIdentifier, WebPageCreationParameters&&);
+    Awaitable<unsigned> countWebPagesForTesting();
     void removeWebPage(WebCore::PageIdentifier);
     WebPage* focusedWebPage() const;
     bool hasEverHadAnyWebPages() const { return m_hasEverHadAnyWebPages; }
@@ -244,6 +256,8 @@ public:
     WebCore::ThirdPartyCookieBlockingMode thirdPartyCookieBlockingMode() const { return m_thirdPartyCookieBlockingMode; }
 
     bool fullKeyboardAccessEnabled() const { return m_fullKeyboardAccessEnabled; }
+
+    void contentWorldDestroyed(ContentWorldIdentifier);
 
 #if HAVE(MOUSE_DEVICE_OBSERVATION)
     bool hasMouseDevice() const { return m_hasMouseDevice; }
@@ -272,6 +286,9 @@ public:
     EventDispatcher& eventDispatcher() { return m_eventDispatcher; }
     Ref<EventDispatcher> protectedEventDispatcher() { return m_eventDispatcher; }
     Ref<WebInspectorInterruptDispatcher> protectedWebInspectorInterruptDispatcher() { return m_webInspectorInterruptDispatcher; }
+#if ENABLE(REMOTE_INSPECTOR) && ENABLE(WEBASSEMBLY)
+    Ref<WasmDebuggerDispatcher> protectedWasmDebuggerDispatcher() { return m_wasmDebuggerDispatcher; }
+#endif
 
     NetworkProcessConnection& ensureNetworkProcessConnection();
     Ref<NetworkProcessConnection> ensureProtectedNetworkProcessConnection();
@@ -290,7 +307,13 @@ public:
 
     std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const { return m_sharedPreferencesForWebProcess; }
     const SharedPreferencesForWebProcess& sharedPreferencesForWebProcessValue() const { return m_sharedPreferencesForWebProcess; }
-    void updateSharedPreferencesForWebProcess(SharedPreferencesForWebProcess sharedPreferencesForWebProcess) { m_sharedPreferencesForWebProcess = WTFMove(sharedPreferencesForWebProcess); }
+    void updateSharedPreferencesForWebProcess(SharedPreferencesForWebProcess sharedPreferencesForWebProcess) { m_sharedPreferencesForWebProcess = WTF::move(sharedPreferencesForWebProcess); }
+
+#if USE(LIBRICE)
+    RefPtr<RiceBackendProxy> gstreamerIceBackend(RiceBackendIdentifier);
+    void addRiceBackend(RiceBackendIdentifier, RiceBackendProxy&);
+    void removeRiceBackend(RiceBackendIdentifier);
+#endif
 
 #if ENABLE(GPU_PROCESS)
     GPUProcessConnection& ensureGPUProcessConnection();
@@ -325,8 +348,10 @@ public:
     ModelProcessConnection* existingModelProcessConnection() { return m_modelProcessConnection.get(); }
 #endif // ENABLE(MODEL_PROCESS)
 
+#if USE(LIBWEBRTC)
     LibWebRTCNetwork& libWebRTCNetwork();
     Ref<LibWebRTCNetwork> protectedLibWebRTCNetwork();
+#endif
 
     void setCacheModel(CacheModel);
 
@@ -366,9 +391,13 @@ public:
     void prepareToSuspend(bool isSuspensionImminent, MonotonicTime estimatedSuspendTime, CompletionHandler<void()>&&);
     void processDidResume();
 
+    void jSHandleDestroyed(WebCore::JSHandleIdentifier);
+
     void sendPrewarmInformation(const URL&);
 
     void isJITEnabled(CompletionHandler<void(bool)>&&);
+    void isEnhancedSecurityEnabled(CompletionHandler<void(bool)>&&);
+    bool enhancedSecurityEnabled() const { return m_isEnhancedSecurityEnabled.value_or(false); }
 
     RefPtr<API::Object> transformHandlesToObjects(API::Object*);
     static RefPtr<API::Object> transformObjectsToHandles(API::Object*);
@@ -438,6 +467,9 @@ public:
 
     void addServiceWorkerRegistration(WebCore::ServiceWorkerRegistrationIdentifier);
     bool removeServiceWorkerRegistration(WebCore::ServiceWorkerRegistrationIdentifier);
+
+    bool registerServiceWorker(WebCore::ServiceWorkerIdentifier);
+    bool unregisterServiceWorker(WebCore::ServiceWorkerIdentifier);
 
     void grantAccessToAssetServices(Vector<WebKit::SandboxExtensionHandle>&& assetServicesHandles);
     void revokeAccessToAssetServices();
@@ -527,6 +559,10 @@ public:
     bool shouldInitializeAccessibility() const { return m_shouldInitializeAccessibility; }
 #endif
 
+#if USE(AUDIO_SESSION)
+    void remoteAudioSessionConfigurationChanged(const RemoteAudioSessionConfiguration&);
+#endif
+
 private:
     WebProcess();
     ~WebProcess();
@@ -586,7 +622,7 @@ private:
     void seedResourceLoadStatisticsForTesting(const WebCore::RegistrableDomain& firstPartyDomain, const WebCore::RegistrableDomain& thirdPartyDomain, bool shouldScheduleNotification, CompletionHandler<void()>&&);
     void userPreferredLanguagesChanged(const Vector<String>&) const;
     void fullKeyboardAccessModeChanged(bool fullKeyboardAccessEnabled);
-#if HAVE(ALLOW_ONLY_PARTITIONED_COOKIES)
+#if ENABLE(OPT_IN_PARTITIONED_COOKIES)
     void setOptInCookiePartitioningEnabled(bool);
 #endif
 
@@ -753,14 +789,12 @@ private:
     void accessibilityRelayProcessSuspended(bool);
 
 #if ENABLE(LOGD_BLOCKING_IN_WEBCONTENT)
-    void registerLogHook();
-    void setupLogStream();
-    void sendLogOnStream(std::span<const uint8_t> logChannel, std::span<const uint8_t> logCategory, std::span<const uint8_t> logString, os_log_type_t);
+    void initializeLogForwarding(const WebProcessCreationParameters&);
 #endif
 
     bool isProcessBeingCachedForPerformance();
 
-    HashMap<WebCore::PageIdentifier, RefPtr<WebPage>> m_pageMap;
+    HashMap<WebCore::PageIdentifier, Ref<WebPage>> m_pageMap;
     HashMap<PageGroupIdentifier, RefPtr<WebPageGroupProxy>> m_pageGroupMap;
     const RefPtr<InjectedBundle> m_injectedBundle;
 
@@ -769,6 +803,9 @@ private:
     ViewUpdateDispatcher m_viewUpdateDispatcher;
 #endif
     WebInspectorInterruptDispatcher m_webInspectorInterruptDispatcher;
+#if ENABLE(REMOTE_INSPECTOR) && ENABLE(WEBASSEMBLY)
+    WasmDebuggerDispatcher m_wasmDebuggerDispatcher;
+#endif
 
     bool m_hasSetCacheModel { false };
     CacheModel m_cacheModel { CacheModel::DocumentViewer };
@@ -825,7 +862,9 @@ private:
     const Ref<WebCookieJar> m_cookieJar;
     WebSocketChannelManager m_webSocketChannelManager;
 
+#if USE(LIBWEBRTC)
     const std::unique_ptr<LibWebRTCNetwork> m_libWebRTCNetwork;
+#endif
 
     HashSet<String> m_dnsPrefetchedHosts;
     PAL::HysteresisActivity m_dnsPrefetchHystereris;
@@ -877,9 +916,10 @@ private:
     bool m_hasSuspendedPageProxy { false };
     bool m_allowExitOnMemoryPressure { true };
     std::optional<bool> m_isLockdownModeEnabled;
+    std::optional<bool> m_isEnhancedSecurityEnabled;
 
 #if ENABLE(MEDIA_STREAM) && ENABLE(SANDBOX_EXTENSIONS)
-    HashMap<String, RefPtr<SandboxExtension>> m_mediaCaptureSandboxExtensions;
+    HashMap<String, Ref<SandboxExtension>> m_mediaCaptureSandboxExtensions;
     RefPtr<SandboxExtension> m_machBootstrapExtension;
 #endif
 
@@ -888,6 +928,7 @@ private:
 #endif
 
     HashCountedSet<WebCore::ServiceWorkerRegistrationIdentifier> m_swRegistrationCounts;
+    HashCountedSet<WebCore::ServiceWorkerIdentifier> m_swServiceWorkerCounts;
 
     HashMap<StorageAreaMapIdentifier, WeakPtr<StorageAreaMap>> m_storageAreaMaps;
 
@@ -923,7 +964,7 @@ private:
     const std::unique_ptr<SpeechRecognitionRealtimeMediaSourceManager> m_speechRecognitionRealtimeMediaSourceManager;
 #endif
 #if ENABLE(ROUTING_ARBITRATION)
-    std::unique_ptr<AudioSessionRoutingArbitrator> m_routingArbitrator;
+    const std::unique_ptr<AudioSessionRoutingArbitrator> m_routingArbitrator;
 #endif
     bool m_hadMainFrameMainResourcePrivateRelayed { false };
     bool m_imageAnimationEnabled { true };
@@ -939,7 +980,13 @@ private:
     String m_mediaKeysStorageDirectory;
     FileSystem::Salt m_mediaKeysStorageSalt;
 
-    HashMap<WebTransportSessionIdentifier, ThreadSafeWeakPtr<WebTransportSession>> m_webTransportSessions;
+    Lock m_webTransportSessionsLock;
+    HashMap<WebTransportSessionIdentifier, ThreadSafeWeakPtr<WebTransportSession>> m_webTransportSessions WTF_GUARDED_BY_LOCK(m_webTransportSessionsLock);
+
+#if USE(LIBRICE)
+    HashMap<RiceBackendIdentifier, ThreadSafeWeakPtr<RiceBackendProxy>> m_gstreamerIceBackends;
+#endif
+
     HashSet<WebCore::RegistrableDomain> m_domainsWithStorageAccessQuirks;
     std::unique_ptr<ScriptTrackingPrivacyFilter> m_scriptTrackingPrivacyFilter;
     bool m_mediaPlaybackEnabled { false };

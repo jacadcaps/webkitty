@@ -19,6 +19,7 @@
 
 #include "api/field_trials_view.h"
 #include "api/task_queue/pending_task_safety_flag.h"
+#include "api/transport/ecn_marking.h"
 #include "api/units/timestamp.h"
 #include "call/rtp_demuxer.h"
 #include "call/video_receive_stream.h"
@@ -29,7 +30,6 @@
 #include "rtc_base/async_packet_socket.h"
 #include "rtc_base/containers/flat_set.h"
 #include "rtc_base/copy_on_write_buffer.h"
-#include "rtc_base/network/ecn_marking.h"
 #include "rtc_base/network/received_packet.h"
 #include "rtc_base/network/sent_packet.h"
 #include "rtc_base/network_route.h"
@@ -45,9 +45,7 @@ class RtpTransport : public RtpTransportInternal {
   RtpTransport& operator=(const RtpTransport&) = delete;
 
   RtpTransport(bool rtcp_mux_enabled, const FieldTrialsView& field_trials)
-      : set_ready_to_send_false_if_send_fail_(
-            field_trials.IsEnabled("WebRTC-SetReadyToSendFalseIfSendFail")),
-        rtcp_mux_enabled_(rtcp_mux_enabled) {}
+      : rtcp_mux_enabled_(rtcp_mux_enabled) {}
 
   bool rtcp_mux_enabled() const override { return rtcp_mux_enabled_; }
   void SetRtcpMuxEnabled(bool enable) override;
@@ -109,6 +107,9 @@ class RtpTransport : public RtpTransportInternal {
   virtual void OnWritableState(PacketTransportInternal* packet_transport);
 
  private:
+  // Helper function for SetRt(c)pPacketTransport
+  void ChangePacketTransport(PacketTransportInternal* new_transport,
+                             PacketTransportInternal*& transport_to_change);
   void OnReadyToSend(PacketTransportInternal* transport);
   void OnSentPacket(PacketTransportInternal* packet_transport,
                     const SentPacketInfo& sent_packet);
@@ -123,7 +124,6 @@ class RtpTransport : public RtpTransportInternal {
 
   bool IsTransportWritable();
 
-  const bool set_ready_to_send_false_if_send_fail_;
   bool rtcp_mux_enabled_;
 
   PacketTransportInternal* rtp_packet_transport_ = nullptr;
@@ -139,7 +139,6 @@ class RtpTransport : public RtpTransportInternal {
   RtpHeaderExtensionMap header_extension_map_;
   // Guard against recursive "ready to send" signals
   bool processing_ready_to_send_ = false;
-  bool processing_sent_packet_ = false;
   ScopedTaskSafety safety_;
 };
 

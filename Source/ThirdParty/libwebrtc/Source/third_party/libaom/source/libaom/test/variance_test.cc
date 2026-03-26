@@ -30,43 +30,40 @@
 
 namespace {
 
-typedef uint64_t (*MseWxH16bitFunc)(uint8_t *dst, int dstride, uint16_t *src,
-                                    int sstride, int w, int h);
-typedef uint64_t (*Mse16xH16bitFunc)(uint8_t *dst, int dstride, uint16_t *src,
-                                     int w, int h);
-typedef unsigned int (*VarianceMxNFunc)(const uint8_t *a, int a_stride,
-                                        const uint8_t *b, int b_stride,
-                                        unsigned int *sse);
-typedef void (*GetSseSum8x8QuadFunc)(const uint8_t *a, int a_stride,
-                                     const uint8_t *b, int b_stride,
-                                     uint32_t *sse8x8, int *sum8x8,
-                                     unsigned int *tot_sse, int *tot_sum,
-                                     uint32_t *var8x8);
-typedef void (*GetSseSum16x16DualFunc)(const uint8_t *a, int a_stride,
-                                       const uint8_t *b, int b_stride,
-                                       uint32_t *sse16x16,
-                                       unsigned int *tot_sse, int *tot_sum,
-                                       uint32_t *var16x16);
-typedef unsigned int (*SubpixVarMxNFunc)(const uint8_t *a, int a_stride,
-                                         int xoffset, int yoffset,
+using MseWxH16bitFunc = uint64_t (*)(uint8_t *dst, int dstride, uint16_t *src,
+                                     int sstride, int w, int h);
+using Mse16xH16bitFunc = uint64_t (*)(uint8_t *dst, int dstride, uint16_t *src,
+                                      int w, int h);
+using VarianceMxNFunc = unsigned int (*)(const uint8_t *a, int a_stride,
                                          const uint8_t *b, int b_stride,
                                          unsigned int *sse);
-typedef unsigned int (*SubpixAvgVarMxNFunc)(const uint8_t *a, int a_stride,
-                                            int xoffset, int yoffset,
-                                            const uint8_t *b, int b_stride,
-                                            uint32_t *sse,
-                                            const uint8_t *second_pred);
-typedef unsigned int (*SumOfSquaresFunction)(const int16_t *src);
-typedef unsigned int (*DistWtdSubpixAvgVarMxNFunc)(
-    const uint8_t *a, int a_stride, int xoffset, int yoffset, const uint8_t *b,
-    int b_stride, uint32_t *sse, const uint8_t *second_pred,
-    const DIST_WTD_COMP_PARAMS *jcp_param);
+using GetSseSum8x8QuadFunc = void (*)(const uint8_t *a, int a_stride,
+                                      const uint8_t *b, int b_stride,
+                                      uint32_t *sse8x8, int *sum8x8,
+                                      unsigned int *tot_sse, int *tot_sum,
+                                      uint32_t *var8x8);
+using GetSseSum16x16DualFunc = void (*)(const uint8_t *a, int a_stride,
+                                        const uint8_t *b, int b_stride,
+                                        uint32_t *sse16x16,
+                                        unsigned int *tot_sse, int *tot_sum,
+                                        uint32_t *var16x16);
+using SubpixVarMxNFunc = unsigned int (*)(const uint8_t *a, int a_stride,
+                                          int xoffset, int yoffset,
+                                          const uint8_t *b, int b_stride,
+                                          unsigned int *sse);
+using SubpixAvgVarMxNFunc = unsigned int (*)(const uint8_t *a, int a_stride,
+                                             int xoffset, int yoffset,
+                                             const uint8_t *b, int b_stride,
+                                             uint32_t *sse,
+                                             const uint8_t *second_pred);
+using SumOfSquaresFunction = unsigned int (*)(const int16_t *src);
 
 #if !CONFIG_REALTIME_ONLY
-typedef uint32_t (*ObmcSubpelVarFunc)(const uint8_t *pre, int pre_stride,
-                                      int xoffset, int yoffset,
-                                      const int32_t *wsrc, const int32_t *mask,
-                                      unsigned int *sse);
+using ObmcSubpelVarFunc = uint32_t (*)(const uint8_t *pre, int pre_stride,
+                                       int xoffset, int yoffset,
+                                       const int32_t *wsrc, const int32_t *mask,
+                                       unsigned int *sse);
+
 #endif
 
 using libaom_test::ACMRandom;
@@ -214,64 +211,6 @@ static uint32_t subpel_avg_variance_ref(const uint8_t *ref, const uint8_t *src,
         const int b = b1 + (((b2 - b1) * xoff + 8) >> 4);
         const int r = a + (((b - a) * yoff + 8) >> 4);
         const int diff = ((r + sec16[w * y + x] + 1) >> 1) - src16[w * y + x];
-        se += diff;
-        sse += diff * diff;
-      }
-    }
-  }
-  RoundHighBitDepth(bit_depth, &se, &sse);
-  *sse_ptr = static_cast<uint32_t>(sse);
-  return static_cast<uint32_t>(sse - ((se * se) >> (l2w + l2h)));
-}
-
-static uint32_t dist_wtd_subpel_avg_variance_ref(
-    const uint8_t *ref, const uint8_t *src, const uint8_t *second_pred, int l2w,
-    int l2h, int xoff, int yoff, uint32_t *sse_ptr, bool use_high_bit_depth,
-    aom_bit_depth_t bit_depth, DIST_WTD_COMP_PARAMS *jcp_param) {
-  int64_t se = 0;
-  uint64_t sse = 0;
-  const int w = 1 << l2w;
-  const int h = 1 << l2h;
-
-  xoff <<= 1;
-  yoff <<= 1;
-
-  for (int y = 0; y < h; y++) {
-    for (int x = 0; x < w; x++) {
-      // bilinear interpolation at a 16th pel step
-      if (!use_high_bit_depth) {
-        const int a1 = ref[(w + 0) * (y + 0) + x + 0];
-        const int a2 = ref[(w + 0) * (y + 0) + x + 1];
-        const int b1 = ref[(w + 0) * (y + 1) + x + 0];
-        const int b2 = ref[(w + 0) * (y + 1) + x + 1];
-        const int a = a1 + (((a2 - a1) * xoff + 8) >> 4);
-        const int b = b1 + (((b2 - b1) * xoff + 8) >> 4);
-        const int r = a + (((b - a) * yoff + 8) >> 4);
-        const int avg = ROUND_POWER_OF_TWO(
-            r * jcp_param->fwd_offset +
-                second_pred[w * y + x] * jcp_param->bck_offset,
-            DIST_PRECISION_BITS);
-        const int diff = avg - src[w * y + x];
-
-        se += diff;
-        sse += diff * diff;
-      } else {
-        const uint16_t *ref16 = CONVERT_TO_SHORTPTR(ref);
-        const uint16_t *src16 = CONVERT_TO_SHORTPTR(src);
-        const uint16_t *sec16 = CONVERT_TO_SHORTPTR(second_pred);
-        const int a1 = ref16[(w + 0) * (y + 0) + x + 0];
-        const int a2 = ref16[(w + 0) * (y + 0) + x + 1];
-        const int b1 = ref16[(w + 0) * (y + 1) + x + 0];
-        const int b2 = ref16[(w + 0) * (y + 1) + x + 1];
-        const int a = a1 + (((a2 - a1) * xoff + 8) >> 4);
-        const int b = b1 + (((b2 - b1) * xoff + 8) >> 4);
-        const int r = a + (((b - a) * yoff + 8) >> 4);
-        const int avg =
-            ROUND_POWER_OF_TWO(r * jcp_param->fwd_offset +
-                                   sec16[w * y + x] * jcp_param->bck_offset,
-                               DIST_PRECISION_BITS);
-        const int diff = avg - src16[w * y + x];
-
         se += diff;
         sse += diff * diff;
       }
@@ -1493,54 +1432,13 @@ void SubpelVarianceTest<SubpixAvgVarMxNFunc>::RefTest() {
   }
 }
 
-template <>
-void SubpelVarianceTest<DistWtdSubpixAvgVarMxNFunc>::RefTest() {
-  for (int x = 0; x < 8; ++x) {
-    for (int y = 0; y < 8; ++y) {
-      if (!use_high_bit_depth()) {
-        for (int j = 0; j < block_size(); j++) {
-          src_[j] = rnd_.Rand8();
-          sec_[j] = rnd_.Rand8();
-        }
-        for (int j = 0; j < block_size() + width() + height() + 1; j++) {
-          ref_[j] = rnd_.Rand8();
-        }
-      } else {
-        for (int j = 0; j < block_size(); j++) {
-          CONVERT_TO_SHORTPTR(src_)[j] = rnd_.Rand16() & mask();
-          CONVERT_TO_SHORTPTR(sec_)[j] = rnd_.Rand16() & mask();
-        }
-        for (int j = 0; j < block_size() + width() + height() + 1; j++) {
-          CONVERT_TO_SHORTPTR(ref_)[j] = rnd_.Rand16() & mask();
-        }
-      }
-      for (int x0 = 0; x0 < 2; ++x0) {
-        for (int y0 = 0; y0 < 4; ++y0) {
-          uint32_t sse1, sse2;
-          uint32_t var1, var2;
-          jcp_param_.fwd_offset = quant_dist_lookup_table[y0][x0];
-          jcp_param_.bck_offset = quant_dist_lookup_table[y0][1 - x0];
-          API_REGISTER_STATE_CHECK(var1 = params_.func(ref_, width() + 0, x, y,
-                                                       src_, width(), &sse1,
-                                                       sec_, &jcp_param_));
-          var2 = dist_wtd_subpel_avg_variance_ref(
-              ref_, src_, sec_, params_.log2width, params_.log2height, x, y,
-              &sse2, use_high_bit_depth(), params_.bit_depth, &jcp_param_);
-          EXPECT_EQ(sse1, sse2) << "at position " << x << ", " << y;
-          EXPECT_EQ(var1, var2) << "at position " << x << ", " << y;
-        }
-      }
-    }
-  }
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 
 #if !CONFIG_REALTIME_ONLY
 
 static const int kMaskMax = 64;
 
-typedef TestParams<ObmcSubpelVarFunc> ObmcSubpelVarianceParams;
+using ObmcSubpelVarianceParams = TestParams<ObmcSubpelVarFunc>;
 
 template <typename FunctionType>
 class ObmcVarianceTest
@@ -1695,21 +1593,19 @@ void ObmcVarianceTest<ObmcSubpelVarFunc>::SpeedTest() {
 
 #endif  // !CONFIG_REALTIME_ONLY
 
-typedef MseWxHTestClass<MseWxH16bitFunc> MseWxHTest;
-typedef Mse16xHTestClass<Mse16xH16bitFunc> Mse16xHTest;
-typedef MainTestClass<VarianceMxNFunc> AvxMseTest;
-typedef MainTestClass<VarianceMxNFunc> AvxVarianceTest;
-typedef MainTestClass<GetSseSum8x8QuadFunc> GetSseSum8x8QuadTest;
-typedef MainTestClass<GetSseSum16x16DualFunc> GetSseSum16x16DualTest;
-typedef SubpelVarianceTest<SubpixVarMxNFunc> AvxSubpelVarianceTest;
-typedef SubpelVarianceTest<SubpixAvgVarMxNFunc> AvxSubpelAvgVarianceTest;
-typedef SubpelVarianceTest<DistWtdSubpixAvgVarMxNFunc>
-    AvxDistWtdSubpelAvgVarianceTest;
+using MseWxHTest = MseWxHTestClass<MseWxH16bitFunc>;
+using Mse16xHTest = Mse16xHTestClass<Mse16xH16bitFunc>;
+using AvxMseTest = MainTestClass<VarianceMxNFunc>;
+using AvxVarianceTest = MainTestClass<VarianceMxNFunc>;
+using GetSseSum8x8QuadTest = MainTestClass<GetSseSum8x8QuadFunc>;
+using GetSseSum16x16DualTest = MainTestClass<GetSseSum16x16DualFunc>;
+using AvxSubpelVarianceTest = SubpelVarianceTest<SubpixVarMxNFunc>;
+using AvxSubpelAvgVarianceTest = SubpelVarianceTest<SubpixAvgVarMxNFunc>;
 #if !CONFIG_REALTIME_ONLY
-typedef ObmcVarianceTest<ObmcSubpelVarFunc> AvxObmcSubpelVarianceTest;
+using AvxObmcSubpelVarianceTest = ObmcVarianceTest<ObmcSubpelVarFunc>;
 #endif
-typedef TestParams<MseWxH16bitFunc> MseWxHParams;
-typedef TestParams<Mse16xH16bitFunc> Mse16xHParams;
+using MseWxHParams = TestParams<MseWxH16bitFunc>;
+using Mse16xHParams = TestParams<Mse16xH16bitFunc>;
 
 TEST_P(MseWxHTest, RefMse) { RefMatchTestMse(); }
 TEST_P(MseWxHTest, DISABLED_SpeedMse) { SpeedTest(); }
@@ -1739,7 +1635,6 @@ TEST_P(AvxSubpelVarianceTest, Ref) { RefTest(); }
 TEST_P(AvxSubpelVarianceTest, ExtremeRef) { ExtremeRefTest(); }
 TEST_P(AvxSubpelVarianceTest, DISABLED_Speed) { SpeedTest(); }
 TEST_P(AvxSubpelAvgVarianceTest, Ref) { RefTest(); }
-TEST_P(AvxDistWtdSubpelAvgVarianceTest, Ref) { RefTest(); }
 #if !CONFIG_REALTIME_ONLY
 TEST_P(AvxObmcSubpelVarianceTest, Ref) { RefTest(); }
 TEST_P(AvxObmcSubpelVarianceTest, ExtremeRef) { ExtremeRefTest(); }
@@ -1765,14 +1660,14 @@ INSTANTIATE_TEST_SUITE_P(C, SumOfSquaresTest,
                          ::testing::Values(aom_get_mb_ss_c));
 #endif  // !CONFIG_REALTIME_ONLY
 
-typedef TestParams<VarianceMxNFunc> MseParams;
+using MseParams = TestParams<VarianceMxNFunc>;
 INSTANTIATE_TEST_SUITE_P(C, AvxMseTest,
                          ::testing::Values(MseParams(4, 4, &aom_mse16x16_c),
                                            MseParams(4, 3, &aom_mse16x8_c),
                                            MseParams(3, 4, &aom_mse8x16_c),
                                            MseParams(3, 3, &aom_mse8x8_c)));
 
-typedef TestParams<VarianceMxNFunc> VarianceParams;
+using VarianceParams = TestParams<VarianceMxNFunc>;
 const VarianceParams kArrayVariance_c[] = {
   VarianceParams(7, 7, &aom_variance128x128_c),
   VarianceParams(7, 6, &aom_variance128x64_c),
@@ -1802,7 +1697,7 @@ const VarianceParams kArrayVariance_c[] = {
 INSTANTIATE_TEST_SUITE_P(C, AvxVarianceTest,
                          ::testing::ValuesIn(kArrayVariance_c));
 
-typedef TestParams<GetSseSum8x8QuadFunc> GetSseSumParams;
+using GetSseSumParams = TestParams<GetSseSum8x8QuadFunc>;
 const GetSseSumParams kArrayGetSseSum8x8Quad_c[] = {
   GetSseSumParams(7, 7, &aom_get_var_sse_sum_8x8_quad_c, 0),
   GetSseSumParams(6, 6, &aom_get_var_sse_sum_8x8_quad_c, 0),
@@ -1812,7 +1707,7 @@ const GetSseSumParams kArrayGetSseSum8x8Quad_c[] = {
 INSTANTIATE_TEST_SUITE_P(C, GetSseSum8x8QuadTest,
                          ::testing::ValuesIn(kArrayGetSseSum8x8Quad_c));
 
-typedef TestParams<GetSseSum16x16DualFunc> GetSseSumParamsDual;
+using GetSseSumParamsDual = TestParams<GetSseSum16x16DualFunc>;
 const GetSseSumParamsDual kArrayGetSseSum16x16Dual_c[] = {
   GetSseSumParamsDual(7, 7, &aom_get_var_sse_sum_16x16_dual_c, 0),
   GetSseSumParamsDual(6, 6, &aom_get_var_sse_sum_16x16_dual_c, 0),
@@ -1823,7 +1718,7 @@ const GetSseSumParamsDual kArrayGetSseSum16x16Dual_c[] = {
 INSTANTIATE_TEST_SUITE_P(C, GetSseSum16x16DualTest,
                          ::testing::ValuesIn(kArrayGetSseSum16x16Dual_c));
 
-typedef TestParams<SubpixVarMxNFunc> SubpelVarianceParams;
+using SubpelVarianceParams = TestParams<SubpixVarMxNFunc>;
 const SubpelVarianceParams kArraySubpelVariance_c[] = {
   SubpelVarianceParams(7, 7, &aom_sub_pixel_variance128x128_c, 0),
   SubpelVarianceParams(7, 6, &aom_sub_pixel_variance128x64_c, 0),
@@ -1853,7 +1748,7 @@ const SubpelVarianceParams kArraySubpelVariance_c[] = {
 INSTANTIATE_TEST_SUITE_P(C, AvxSubpelVarianceTest,
                          ::testing::ValuesIn(kArraySubpelVariance_c));
 
-typedef TestParams<SubpixAvgVarMxNFunc> SubpelAvgVarianceParams;
+using SubpelAvgVarianceParams = TestParams<SubpixAvgVarMxNFunc>;
 const SubpelAvgVarianceParams kArraySubpelAvgVariance_c[] = {
   SubpelAvgVarianceParams(7, 7, &aom_sub_pixel_avg_variance128x128_c, 0),
   SubpelAvgVarianceParams(7, 6, &aom_sub_pixel_avg_variance128x64_c, 0),
@@ -1882,53 +1777,6 @@ const SubpelAvgVarianceParams kArraySubpelAvgVariance_c[] = {
 };
 INSTANTIATE_TEST_SUITE_P(C, AvxSubpelAvgVarianceTest,
                          ::testing::ValuesIn(kArraySubpelAvgVariance_c));
-
-typedef TestParams<DistWtdSubpixAvgVarMxNFunc> DistWtdSubpelAvgVarianceParams;
-const DistWtdSubpelAvgVarianceParams kArrayDistWtdSubpelAvgVariance_c[] = {
-  DistWtdSubpelAvgVarianceParams(
-      6, 6, &aom_dist_wtd_sub_pixel_avg_variance64x64_c, 0),
-  DistWtdSubpelAvgVarianceParams(
-      6, 5, &aom_dist_wtd_sub_pixel_avg_variance64x32_c, 0),
-  DistWtdSubpelAvgVarianceParams(
-      5, 6, &aom_dist_wtd_sub_pixel_avg_variance32x64_c, 0),
-  DistWtdSubpelAvgVarianceParams(
-      5, 5, &aom_dist_wtd_sub_pixel_avg_variance32x32_c, 0),
-  DistWtdSubpelAvgVarianceParams(
-      5, 4, &aom_dist_wtd_sub_pixel_avg_variance32x16_c, 0),
-  DistWtdSubpelAvgVarianceParams(
-      4, 5, &aom_dist_wtd_sub_pixel_avg_variance16x32_c, 0),
-  DistWtdSubpelAvgVarianceParams(
-      4, 4, &aom_dist_wtd_sub_pixel_avg_variance16x16_c, 0),
-  DistWtdSubpelAvgVarianceParams(4, 3,
-                                 &aom_dist_wtd_sub_pixel_avg_variance16x8_c, 0),
-  DistWtdSubpelAvgVarianceParams(3, 4,
-                                 &aom_dist_wtd_sub_pixel_avg_variance8x16_c, 0),
-  DistWtdSubpelAvgVarianceParams(3, 3,
-                                 &aom_dist_wtd_sub_pixel_avg_variance8x8_c, 0),
-  DistWtdSubpelAvgVarianceParams(3, 2,
-                                 &aom_dist_wtd_sub_pixel_avg_variance8x4_c, 0),
-  DistWtdSubpelAvgVarianceParams(2, 3,
-                                 &aom_dist_wtd_sub_pixel_avg_variance4x8_c, 0),
-  DistWtdSubpelAvgVarianceParams(2, 2,
-                                 &aom_dist_wtd_sub_pixel_avg_variance4x4_c, 0),
-#if !CONFIG_REALTIME_ONLY
-
-  DistWtdSubpelAvgVarianceParams(
-      6, 4, &aom_dist_wtd_sub_pixel_avg_variance64x16_c, 0),
-  DistWtdSubpelAvgVarianceParams(
-      4, 6, &aom_dist_wtd_sub_pixel_avg_variance16x64_c, 0),
-  DistWtdSubpelAvgVarianceParams(5, 3,
-                                 &aom_dist_wtd_sub_pixel_avg_variance32x8_c, 0),
-  DistWtdSubpelAvgVarianceParams(3, 5,
-                                 &aom_dist_wtd_sub_pixel_avg_variance8x32_c, 0),
-  DistWtdSubpelAvgVarianceParams(4, 2,
-                                 &aom_dist_wtd_sub_pixel_avg_variance16x4_c, 0),
-  DistWtdSubpelAvgVarianceParams(2, 4,
-                                 &aom_dist_wtd_sub_pixel_avg_variance4x16_c, 0),
-#endif
-};
-INSTANTIATE_TEST_SUITE_P(C, AvxDistWtdSubpelAvgVarianceTest,
-                         ::testing::ValuesIn(kArrayDistWtdSubpelAvgVariance_c));
 
 #if !CONFIG_REALTIME_ONLY
 INSTANTIATE_TEST_SUITE_P(
@@ -1961,9 +1809,8 @@ INSTANTIATE_TEST_SUITE_P(
 #endif
 
 #if CONFIG_AV1_HIGHBITDEPTH
-typedef uint64_t (*MseHBDWxH16bitFunc)(uint16_t *dst, int dstride,
-                                       uint16_t *src, int sstride, int w,
-                                       int h);
+using MseHBDWxH16bitFunc = uint64_t (*)(uint16_t *, int, uint16_t *, int, int,
+                                        int);
 
 template <typename FunctionType>
 class MseHBDWxHTestClass
@@ -2062,17 +1909,15 @@ void MseHBDWxHTestClass<MseHBDWxHFunctionType>::RefMatchTestMse() {
   }
 }
 
-typedef TestParams<MseHBDWxH16bitFunc> MseHBDWxHParams;
-typedef MseHBDWxHTestClass<MseHBDWxH16bitFunc> MseHBDWxHTest;
-typedef MainTestClass<VarianceMxNFunc> AvxHBDMseTest;
+using MseHBDWxHParams = TestParams<MseHBDWxH16bitFunc>;
+using MseHBDWxHTest = MseHBDWxHTestClass<MseHBDWxH16bitFunc>;
+using AvxHBDMseTest = MainTestClass<VarianceMxNFunc>;
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(AvxHBDMseTest);
-typedef MainTestClass<VarianceMxNFunc> AvxHBDVarianceTest;
-typedef SubpelVarianceTest<SubpixVarMxNFunc> AvxHBDSubpelVarianceTest;
-typedef SubpelVarianceTest<SubpixAvgVarMxNFunc> AvxHBDSubpelAvgVarianceTest;
-typedef SubpelVarianceTest<DistWtdSubpixAvgVarMxNFunc>
-    AvxHBDDistWtdSubpelAvgVarianceTest;
+using AvxHBDVarianceTest = MainTestClass<VarianceMxNFunc>;
+using AvxHBDSubpelVarianceTest = SubpelVarianceTest<SubpixVarMxNFunc>;
+using AvxHBDSubpelAvgVarianceTest = SubpelVarianceTest<SubpixAvgVarMxNFunc>;
 #if !CONFIG_REALTIME_ONLY
-typedef ObmcVarianceTest<ObmcSubpelVarFunc> AvxHBDObmcSubpelVarianceTest;
+using AvxHBDObmcSubpelVarianceTest = ObmcVarianceTest<ObmcSubpelVarFunc>;
 #endif
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(AvxHBDObmcSubpelVarianceTest);
 
@@ -2090,7 +1935,6 @@ TEST_P(AvxHBDSubpelVarianceTest, Ref) { RefTest(); }
 TEST_P(AvxHBDSubpelVarianceTest, ExtremeRef) { ExtremeRefTest(); }
 TEST_P(AvxHBDSubpelVarianceTest, DISABLED_Speed) { SpeedTest(); }
 TEST_P(AvxHBDSubpelAvgVarianceTest, Ref) { RefTest(); }
-TEST_P(AvxHBDDistWtdSubpelAvgVarianceTest, Ref) { RefTest(); }
 #if !CONFIG_REALTIME_ONLY
 TEST_P(AvxHBDObmcSubpelVarianceTest, Ref) { RefTest(); }
 TEST_P(AvxHBDObmcSubpelVarianceTest, ExtremeRef) { ExtremeRefTest(); }
@@ -2441,147 +2285,6 @@ const SubpelAvgVarianceParams kArrayHBDSubpelAvgVariance_c[] = {
 };
 INSTANTIATE_TEST_SUITE_P(C, AvxHBDSubpelAvgVarianceTest,
                          ::testing::ValuesIn(kArrayHBDSubpelAvgVariance_c));
-
-const DistWtdSubpelAvgVarianceParams kArrayHBDDistWtdSubpelAvgVariance_c[] = {
-  DistWtdSubpelAvgVarianceParams(
-      7, 7, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance128x128_c, 8),
-  DistWtdSubpelAvgVarianceParams(
-      7, 6, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance128x64_c, 8),
-  DistWtdSubpelAvgVarianceParams(
-      6, 7, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance64x128_c, 8),
-  DistWtdSubpelAvgVarianceParams(
-      6, 6, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance64x64_c, 8),
-  DistWtdSubpelAvgVarianceParams(
-      6, 5, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance64x32_c, 8),
-  DistWtdSubpelAvgVarianceParams(
-      5, 6, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance32x64_c, 8),
-  DistWtdSubpelAvgVarianceParams(
-      5, 5, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance32x32_c, 8),
-  DistWtdSubpelAvgVarianceParams(
-      5, 4, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance32x16_c, 8),
-  DistWtdSubpelAvgVarianceParams(
-      4, 5, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance16x32_c, 8),
-  DistWtdSubpelAvgVarianceParams(
-      4, 4, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance16x16_c, 8),
-  DistWtdSubpelAvgVarianceParams(
-      4, 3, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance16x8_c, 8),
-  DistWtdSubpelAvgVarianceParams(
-      3, 4, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance8x16_c, 8),
-  DistWtdSubpelAvgVarianceParams(
-      3, 3, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance8x8_c, 8),
-  DistWtdSubpelAvgVarianceParams(
-      3, 2, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance8x4_c, 8),
-  DistWtdSubpelAvgVarianceParams(
-      2, 3, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance4x8_c, 8),
-  DistWtdSubpelAvgVarianceParams(
-      2, 2, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance4x4_c, 8),
-  DistWtdSubpelAvgVarianceParams(
-      7, 7, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance128x128_c, 10),
-  DistWtdSubpelAvgVarianceParams(
-      7, 6, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance128x64_c, 10),
-  DistWtdSubpelAvgVarianceParams(
-      6, 7, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance64x128_c, 10),
-  DistWtdSubpelAvgVarianceParams(
-      6, 6, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance64x64_c, 10),
-  DistWtdSubpelAvgVarianceParams(
-      6, 5, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance64x32_c, 10),
-  DistWtdSubpelAvgVarianceParams(
-      5, 6, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance32x64_c, 10),
-  DistWtdSubpelAvgVarianceParams(
-      5, 5, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance32x32_c, 10),
-  DistWtdSubpelAvgVarianceParams(
-      5, 4, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance32x16_c, 10),
-  DistWtdSubpelAvgVarianceParams(
-      4, 5, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance16x32_c, 10),
-  DistWtdSubpelAvgVarianceParams(
-      4, 4, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance16x16_c, 10),
-  DistWtdSubpelAvgVarianceParams(
-      4, 3, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance16x8_c, 10),
-  DistWtdSubpelAvgVarianceParams(
-      3, 4, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance8x16_c, 10),
-  DistWtdSubpelAvgVarianceParams(
-      3, 3, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance8x8_c, 10),
-  DistWtdSubpelAvgVarianceParams(
-      3, 2, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance8x4_c, 10),
-  DistWtdSubpelAvgVarianceParams(
-      2, 3, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance4x8_c, 10),
-  DistWtdSubpelAvgVarianceParams(
-      2, 2, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance4x4_c, 10),
-  DistWtdSubpelAvgVarianceParams(
-      7, 7, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance128x128_c, 12),
-  DistWtdSubpelAvgVarianceParams(
-      7, 6, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance128x64_c, 12),
-  DistWtdSubpelAvgVarianceParams(
-      6, 7, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance64x128_c, 12),
-  DistWtdSubpelAvgVarianceParams(
-      6, 6, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance64x64_c, 12),
-  DistWtdSubpelAvgVarianceParams(
-      6, 5, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance64x32_c, 12),
-  DistWtdSubpelAvgVarianceParams(
-      5, 6, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance32x64_c, 12),
-  DistWtdSubpelAvgVarianceParams(
-      5, 5, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance32x32_c, 12),
-  DistWtdSubpelAvgVarianceParams(
-      5, 4, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance32x16_c, 12),
-  DistWtdSubpelAvgVarianceParams(
-      4, 5, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance16x32_c, 12),
-  DistWtdSubpelAvgVarianceParams(
-      4, 4, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance16x16_c, 12),
-  DistWtdSubpelAvgVarianceParams(
-      4, 3, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance16x8_c, 12),
-  DistWtdSubpelAvgVarianceParams(
-      3, 4, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance8x16_c, 12),
-  DistWtdSubpelAvgVarianceParams(
-      3, 3, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance8x8_c, 12),
-  DistWtdSubpelAvgVarianceParams(
-      3, 2, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance8x4_c, 12),
-  DistWtdSubpelAvgVarianceParams(
-      2, 3, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance4x8_c, 12),
-  DistWtdSubpelAvgVarianceParams(
-      2, 2, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance4x4_c, 12),
-
-#if !CONFIG_REALTIME_ONLY
-  DistWtdSubpelAvgVarianceParams(
-      6, 4, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance64x16_c, 8),
-  DistWtdSubpelAvgVarianceParams(
-      4, 6, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance16x64_c, 8),
-  DistWtdSubpelAvgVarianceParams(
-      5, 3, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance32x8_c, 8),
-  DistWtdSubpelAvgVarianceParams(
-      3, 5, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance8x32_c, 8),
-  DistWtdSubpelAvgVarianceParams(
-      4, 2, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance16x4_c, 8),
-  DistWtdSubpelAvgVarianceParams(
-      2, 4, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance4x16_c, 8),
-  DistWtdSubpelAvgVarianceParams(
-      6, 4, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance64x16_c, 10),
-  DistWtdSubpelAvgVarianceParams(
-      4, 6, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance16x64_c, 10),
-  DistWtdSubpelAvgVarianceParams(
-      5, 3, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance32x8_c, 10),
-  DistWtdSubpelAvgVarianceParams(
-      3, 5, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance8x32_c, 10),
-  DistWtdSubpelAvgVarianceParams(
-      4, 2, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance16x4_c, 10),
-  DistWtdSubpelAvgVarianceParams(
-      2, 4, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance4x16_c, 10),
-  DistWtdSubpelAvgVarianceParams(
-      6, 4, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance64x16_c, 12),
-  DistWtdSubpelAvgVarianceParams(
-      4, 6, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance16x64_c, 12),
-  DistWtdSubpelAvgVarianceParams(
-      5, 3, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance32x8_c, 12),
-  DistWtdSubpelAvgVarianceParams(
-      3, 5, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance8x32_c, 12),
-  DistWtdSubpelAvgVarianceParams(
-      4, 2, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance16x4_c, 12),
-  DistWtdSubpelAvgVarianceParams(
-      2, 4, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance4x16_c, 12),
-#endif
-};
-INSTANTIATE_TEST_SUITE_P(
-    C, AvxHBDDistWtdSubpelAvgVarianceTest,
-    ::testing::ValuesIn(kArrayHBDDistWtdSubpelAvgVariance_c));
 
 #if !CONFIG_REALTIME_ONLY
 const ObmcSubpelVarianceParams kArrayHBDObmcSubpelVariance_c[] = {
@@ -3200,58 +2903,6 @@ const SubpelAvgVarianceParams kArraySubpelAvgVariance_ssse3[] = {
 };
 INSTANTIATE_TEST_SUITE_P(SSSE3, AvxSubpelAvgVarianceTest,
                          ::testing::ValuesIn(kArraySubpelAvgVariance_ssse3));
-
-const DistWtdSubpelAvgVarianceParams kArrayDistWtdSubpelAvgVariance_ssse3[] = {
-  DistWtdSubpelAvgVarianceParams(
-      7, 7, &aom_dist_wtd_sub_pixel_avg_variance128x128_ssse3, 0),
-  DistWtdSubpelAvgVarianceParams(
-      7, 6, &aom_dist_wtd_sub_pixel_avg_variance128x64_ssse3, 0),
-  DistWtdSubpelAvgVarianceParams(
-      6, 7, &aom_dist_wtd_sub_pixel_avg_variance64x128_ssse3, 0),
-  DistWtdSubpelAvgVarianceParams(
-      6, 6, &aom_dist_wtd_sub_pixel_avg_variance64x64_ssse3, 0),
-  DistWtdSubpelAvgVarianceParams(
-      6, 5, &aom_dist_wtd_sub_pixel_avg_variance64x32_ssse3, 0),
-  DistWtdSubpelAvgVarianceParams(
-      5, 6, &aom_dist_wtd_sub_pixel_avg_variance32x64_ssse3, 0),
-  DistWtdSubpelAvgVarianceParams(
-      5, 5, &aom_dist_wtd_sub_pixel_avg_variance32x32_ssse3, 0),
-  DistWtdSubpelAvgVarianceParams(
-      5, 4, &aom_dist_wtd_sub_pixel_avg_variance32x16_ssse3, 0),
-  DistWtdSubpelAvgVarianceParams(
-      4, 5, &aom_dist_wtd_sub_pixel_avg_variance16x32_ssse3, 0),
-  DistWtdSubpelAvgVarianceParams(
-      4, 4, &aom_dist_wtd_sub_pixel_avg_variance16x16_ssse3, 0),
-  DistWtdSubpelAvgVarianceParams(
-      4, 3, &aom_dist_wtd_sub_pixel_avg_variance16x8_ssse3, 0),
-  DistWtdSubpelAvgVarianceParams(
-      3, 4, &aom_dist_wtd_sub_pixel_avg_variance8x16_ssse3, 0),
-  DistWtdSubpelAvgVarianceParams(
-      3, 3, &aom_dist_wtd_sub_pixel_avg_variance8x8_ssse3, 0),
-  DistWtdSubpelAvgVarianceParams(
-      3, 2, &aom_dist_wtd_sub_pixel_avg_variance8x4_ssse3, 0),
-  DistWtdSubpelAvgVarianceParams(
-      2, 3, &aom_dist_wtd_sub_pixel_avg_variance4x8_ssse3, 0),
-  DistWtdSubpelAvgVarianceParams(
-      2, 2, &aom_dist_wtd_sub_pixel_avg_variance4x4_ssse3, 0),
-#if !CONFIG_REALTIME_ONLY
-  DistWtdSubpelAvgVarianceParams(
-      6, 4, &aom_dist_wtd_sub_pixel_avg_variance64x16_ssse3, 0),
-  DistWtdSubpelAvgVarianceParams(
-      4, 6, &aom_dist_wtd_sub_pixel_avg_variance16x64_ssse3, 0),
-  DistWtdSubpelAvgVarianceParams(
-      5, 3, &aom_dist_wtd_sub_pixel_avg_variance32x8_ssse3, 0),
-  DistWtdSubpelAvgVarianceParams(
-      3, 5, &aom_dist_wtd_sub_pixel_avg_variance8x32_ssse3, 0),
-  DistWtdSubpelAvgVarianceParams(
-      4, 2, &aom_dist_wtd_sub_pixel_avg_variance16x4_ssse3, 0),
-  DistWtdSubpelAvgVarianceParams(
-      2, 4, &aom_dist_wtd_sub_pixel_avg_variance4x16_ssse3, 0),
-#endif
-};
-INSTANTIATE_TEST_SUITE_P(
-    SSSE3, AvxDistWtdSubpelAvgVarianceTest,
-    ::testing::ValuesIn(kArrayDistWtdSubpelAvgVariance_ssse3));
 #endif  // HAVE_SSSE3
 
 #if HAVE_SSE4_1
@@ -3518,52 +3169,6 @@ const SubpelAvgVarianceParams kArraySubpelAvgVariance_neon[] = {
 };
 INSTANTIATE_TEST_SUITE_P(NEON, AvxSubpelAvgVarianceTest,
                          ::testing::ValuesIn(kArraySubpelAvgVariance_neon));
-
-const DistWtdSubpelAvgVarianceParams kArrayDistWtdSubpelAvgVariance_neon[] = {
-  DistWtdSubpelAvgVarianceParams(
-      6, 6, &aom_dist_wtd_sub_pixel_avg_variance64x64_neon, 0),
-  DistWtdSubpelAvgVarianceParams(
-      6, 5, &aom_dist_wtd_sub_pixel_avg_variance64x32_neon, 0),
-  DistWtdSubpelAvgVarianceParams(
-      5, 6, &aom_dist_wtd_sub_pixel_avg_variance32x64_neon, 0),
-  DistWtdSubpelAvgVarianceParams(
-      5, 5, &aom_dist_wtd_sub_pixel_avg_variance32x32_neon, 0),
-  DistWtdSubpelAvgVarianceParams(
-      5, 4, &aom_dist_wtd_sub_pixel_avg_variance32x16_neon, 0),
-  DistWtdSubpelAvgVarianceParams(
-      4, 5, &aom_dist_wtd_sub_pixel_avg_variance16x32_neon, 0),
-  DistWtdSubpelAvgVarianceParams(
-      4, 4, &aom_dist_wtd_sub_pixel_avg_variance16x16_neon, 0),
-  DistWtdSubpelAvgVarianceParams(
-      4, 3, &aom_dist_wtd_sub_pixel_avg_variance16x8_neon, 0),
-  DistWtdSubpelAvgVarianceParams(
-      3, 4, &aom_dist_wtd_sub_pixel_avg_variance8x16_neon, 0),
-  DistWtdSubpelAvgVarianceParams(
-      3, 3, &aom_dist_wtd_sub_pixel_avg_variance8x8_neon, 0),
-  DistWtdSubpelAvgVarianceParams(
-      3, 2, &aom_dist_wtd_sub_pixel_avg_variance8x4_neon, 0),
-  DistWtdSubpelAvgVarianceParams(
-      2, 3, &aom_dist_wtd_sub_pixel_avg_variance4x8_neon, 0),
-  DistWtdSubpelAvgVarianceParams(
-      2, 2, &aom_dist_wtd_sub_pixel_avg_variance4x4_neon, 0),
-#if !CONFIG_REALTIME_ONLY
-  DistWtdSubpelAvgVarianceParams(
-      6, 4, &aom_dist_wtd_sub_pixel_avg_variance64x16_neon, 0),
-  DistWtdSubpelAvgVarianceParams(
-      4, 6, &aom_dist_wtd_sub_pixel_avg_variance16x64_neon, 0),
-  DistWtdSubpelAvgVarianceParams(
-      5, 3, &aom_dist_wtd_sub_pixel_avg_variance32x8_neon, 0),
-  DistWtdSubpelAvgVarianceParams(
-      3, 5, &aom_dist_wtd_sub_pixel_avg_variance8x32_neon, 0),
-  DistWtdSubpelAvgVarianceParams(
-      4, 2, &aom_dist_wtd_sub_pixel_avg_variance16x4_neon, 0),
-  DistWtdSubpelAvgVarianceParams(
-      2, 4, &aom_dist_wtd_sub_pixel_avg_variance4x16_neon, 0),
-#endif  // !CONFIG_REALTIME_ONLY
-};
-INSTANTIATE_TEST_SUITE_P(
-    NEON, AvxDistWtdSubpelAvgVarianceTest,
-    ::testing::ValuesIn(kArrayDistWtdSubpelAvgVariance_neon));
 
 #if !CONFIG_REALTIME_ONLY
 const ObmcSubpelVarianceParams kArrayObmcSubpelVariance_neon[] = {
@@ -3892,148 +3497,6 @@ const SubpelAvgVarianceParams kArrayHBDSubpelAvgVariance_neon[] = {
 
 INSTANTIATE_TEST_SUITE_P(NEON, AvxHBDSubpelAvgVarianceTest,
                          ::testing::ValuesIn(kArrayHBDSubpelAvgVariance_neon));
-
-const DistWtdSubpelAvgVarianceParams
-    kArrayHBDDistWtdSubpelAvgVariance_neon[] = {
-      DistWtdSubpelAvgVarianceParams(
-          7, 7, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance128x128_neon, 8),
-      DistWtdSubpelAvgVarianceParams(
-          7, 6, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance128x64_neon, 8),
-      DistWtdSubpelAvgVarianceParams(
-          6, 7, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance64x128_neon, 8),
-      DistWtdSubpelAvgVarianceParams(
-          6, 6, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance64x64_neon, 8),
-      DistWtdSubpelAvgVarianceParams(
-          6, 5, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance64x32_neon, 8),
-      DistWtdSubpelAvgVarianceParams(
-          5, 6, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance32x64_neon, 8),
-      DistWtdSubpelAvgVarianceParams(
-          5, 5, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance32x32_neon, 8),
-      DistWtdSubpelAvgVarianceParams(
-          5, 4, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance32x16_neon, 8),
-      DistWtdSubpelAvgVarianceParams(
-          4, 5, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance16x32_neon, 8),
-      DistWtdSubpelAvgVarianceParams(
-          4, 4, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance16x16_neon, 8),
-      DistWtdSubpelAvgVarianceParams(
-          4, 3, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance16x8_neon, 8),
-      DistWtdSubpelAvgVarianceParams(
-          3, 4, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance8x16_neon, 8),
-      DistWtdSubpelAvgVarianceParams(
-          3, 3, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance8x8_neon, 8),
-      DistWtdSubpelAvgVarianceParams(
-          3, 2, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance8x4_neon, 8),
-      DistWtdSubpelAvgVarianceParams(
-          2, 3, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance4x8_neon, 8),
-      DistWtdSubpelAvgVarianceParams(
-          2, 2, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance4x4_neon, 8),
-      DistWtdSubpelAvgVarianceParams(
-          7, 7, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance128x128_neon, 10),
-      DistWtdSubpelAvgVarianceParams(
-          7, 6, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance128x64_neon, 10),
-      DistWtdSubpelAvgVarianceParams(
-          6, 7, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance64x128_neon, 10),
-      DistWtdSubpelAvgVarianceParams(
-          6, 6, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance64x64_neon, 10),
-      DistWtdSubpelAvgVarianceParams(
-          6, 5, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance64x32_neon, 10),
-      DistWtdSubpelAvgVarianceParams(
-          5, 6, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance32x64_neon, 10),
-      DistWtdSubpelAvgVarianceParams(
-          5, 5, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance32x32_neon, 10),
-      DistWtdSubpelAvgVarianceParams(
-          5, 4, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance32x16_neon, 10),
-      DistWtdSubpelAvgVarianceParams(
-          4, 5, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance16x32_neon, 10),
-      DistWtdSubpelAvgVarianceParams(
-          4, 4, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance16x16_neon, 10),
-      DistWtdSubpelAvgVarianceParams(
-          4, 3, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance16x8_neon, 10),
-      DistWtdSubpelAvgVarianceParams(
-          3, 4, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance8x16_neon, 10),
-      DistWtdSubpelAvgVarianceParams(
-          3, 3, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance8x8_neon, 10),
-      DistWtdSubpelAvgVarianceParams(
-          3, 2, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance8x4_neon, 10),
-      DistWtdSubpelAvgVarianceParams(
-          2, 3, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance4x8_neon, 10),
-      DistWtdSubpelAvgVarianceParams(
-          2, 2, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance4x4_neon, 10),
-      DistWtdSubpelAvgVarianceParams(
-          7, 7, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance128x128_neon, 12),
-      DistWtdSubpelAvgVarianceParams(
-          7, 6, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance128x64_neon, 12),
-      DistWtdSubpelAvgVarianceParams(
-          6, 7, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance64x128_neon, 12),
-      DistWtdSubpelAvgVarianceParams(
-          6, 6, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance64x64_neon, 12),
-      DistWtdSubpelAvgVarianceParams(
-          6, 5, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance64x32_neon, 12),
-      DistWtdSubpelAvgVarianceParams(
-          5, 6, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance32x64_neon, 12),
-      DistWtdSubpelAvgVarianceParams(
-          5, 5, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance32x32_neon, 12),
-      DistWtdSubpelAvgVarianceParams(
-          5, 4, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance32x16_neon, 12),
-      DistWtdSubpelAvgVarianceParams(
-          4, 5, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance16x32_neon, 12),
-      DistWtdSubpelAvgVarianceParams(
-          4, 4, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance16x16_neon, 12),
-      DistWtdSubpelAvgVarianceParams(
-          4, 3, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance16x8_neon, 12),
-      DistWtdSubpelAvgVarianceParams(
-          3, 4, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance8x16_neon, 12),
-      DistWtdSubpelAvgVarianceParams(
-          3, 3, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance8x8_neon, 12),
-      DistWtdSubpelAvgVarianceParams(
-          3, 2, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance8x4_neon, 12),
-      DistWtdSubpelAvgVarianceParams(
-          2, 3, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance4x8_neon, 12),
-      DistWtdSubpelAvgVarianceParams(
-          2, 2, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance4x4_neon, 12),
-
-#if !CONFIG_REALTIME_ONLY
-      DistWtdSubpelAvgVarianceParams(
-          6, 4, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance64x16_neon, 8),
-      DistWtdSubpelAvgVarianceParams(
-          4, 6, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance16x64_neon, 8),
-      DistWtdSubpelAvgVarianceParams(
-          5, 3, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance32x8_neon, 8),
-      DistWtdSubpelAvgVarianceParams(
-          3, 5, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance8x32_neon, 8),
-      DistWtdSubpelAvgVarianceParams(
-          4, 2, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance16x4_neon, 8),
-      DistWtdSubpelAvgVarianceParams(
-          2, 4, &aom_highbd_8_dist_wtd_sub_pixel_avg_variance4x16_neon, 8),
-      DistWtdSubpelAvgVarianceParams(
-          6, 4, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance64x16_neon, 10),
-      DistWtdSubpelAvgVarianceParams(
-          4, 6, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance16x64_neon, 10),
-      DistWtdSubpelAvgVarianceParams(
-          5, 3, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance32x8_neon, 10),
-      DistWtdSubpelAvgVarianceParams(
-          3, 5, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance8x32_neon, 10),
-      DistWtdSubpelAvgVarianceParams(
-          4, 2, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance16x4_neon, 10),
-      DistWtdSubpelAvgVarianceParams(
-          2, 4, &aom_highbd_10_dist_wtd_sub_pixel_avg_variance4x16_neon, 10),
-      DistWtdSubpelAvgVarianceParams(
-          6, 4, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance64x16_neon, 12),
-      DistWtdSubpelAvgVarianceParams(
-          4, 6, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance16x64_neon, 12),
-      DistWtdSubpelAvgVarianceParams(
-          5, 3, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance32x8_neon, 12),
-      DistWtdSubpelAvgVarianceParams(
-          3, 5, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance8x32_neon, 12),
-      DistWtdSubpelAvgVarianceParams(
-          4, 2, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance16x4_neon, 12),
-      DistWtdSubpelAvgVarianceParams(
-          2, 4, &aom_highbd_12_dist_wtd_sub_pixel_avg_variance4x16_neon, 12),
-#endif  // !CONFIG_REALTIME_ONLY
-    };
-INSTANTIATE_TEST_SUITE_P(
-    NEON, AvxHBDDistWtdSubpelAvgVarianceTest,
-    ::testing::ValuesIn(kArrayHBDDistWtdSubpelAvgVariance_neon));
 
 #if !CONFIG_REALTIME_ONLY
 const ObmcSubpelVarianceParams kArrayHBDObmcSubpelVariance_neon[] = {

@@ -10,8 +10,7 @@
 
 #include "media/base/media_engine.h"
 
-#include <stddef.h>
-
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -23,10 +22,12 @@
 #include "api/array_view.h"
 #include "api/field_trials_view.h"
 #include "api/rtc_error.h"
+#include "api/rtp_headers.h"
 #include "api/rtp_parameters.h"
 #include "api/rtp_transceiver_direction.h"
 #include "api/video/video_codec_constants.h"
 #include "api/video_codecs/scalability_mode.h"
+#include "api/video_codecs/scalability_mode_helper.h"
 #include "media/base/codec.h"
 #include "media/base/codec_comparators.h"
 #include "media/base/rid_description.h"
@@ -65,7 +66,7 @@ RtpParameters CreateRtpParametersWithEncodings(StreamParams sp) {
   }
 
   const std::vector<RidDescription>& rids = sp.rids();
-  RTC_DCHECK(rids.size() == 0 || rids.size() == encoding_count);
+  RTC_DCHECK(rids.empty() || rids.size() == encoding_count);
   for (size_t i = 0; i < rids.size(); ++i) {
     encodings[i].rid = rids[i].rid;
   }
@@ -77,9 +78,11 @@ RtpParameters CreateRtpParametersWithEncodings(StreamParams sp) {
 }
 
 std::vector<RtpExtension> GetDefaultEnabledRtpHeaderExtensions(
-    const RtpHeaderExtensionQueryInterface& query_interface) {
+    const RtpHeaderExtensionQueryInterface& query_interface,
+    const webrtc::FieldTrialsView* field_trials) {
   std::vector<RtpExtension> extensions;
-  for (const auto& entry : query_interface.GetRtpHeaderExtensions()) {
+  for (const auto& entry :
+       query_interface.GetRtpHeaderExtensions(field_trials)) {
     if (entry.direction != RtpTransceiverDirection::kStopped)
       extensions.emplace_back(entry.uri, *entry.preferred_id);
   }
@@ -217,17 +220,50 @@ RTCError CheckRtpParametersValues(const RtpParameters& rtp_parameters,
                              "different encodings.");
       }
     }
+
+    if (rtp_parameters.encodings[i].csrcs.has_value() &&
+        rtp_parameters.encodings[i].csrcs.value().size() > kRtpCsrcSize) {
+      LOG_AND_RETURN_ERROR(
+          RTCErrorType::INVALID_RANGE,
+          "Attempted to set more than the maximum allowed number of CSRCs.")
+    }
+
+    if (i > 0 && rtp_parameters.encodings[i - 1].csrcs !=
+                     rtp_parameters.encodings[i].csrcs) {
+      LOG_AND_RETURN_ERROR(RTCErrorType::INVALID_MODIFICATION,
+                           "Attempted to set different CSRCs for different "
+                           "encodings.");
+    }
   }
 
   if (has_scale_resolution_down_to &&
       absl::c_any_of(rtp_parameters.encodings,
-                     [](const webrtc::RtpEncodingParameters& encoding) {
+                     [](const RtpEncodingParameters& encoding) {
                        return encoding.active &&
                               !encoding.scale_resolution_down_to.has_value();
                      })) {
     LOG_AND_RETURN_ERROR(RTCErrorType::INVALID_MODIFICATION,
                          "If a resolution is specified on any encoding then "
                          "it must be specified on all encodings.");
+  }
+
+  // In a mixed codec scenario, we only support scalability modes without
+  // spatial layers.
+  if (rtp_parameters.IsMixedCodec()) {
+    for (size_t i = 0; i < rtp_parameters.encodings.size(); ++i) {
+      auto scalability_mode = rtp_parameters.encodings[i].scalability_mode;
+      if (!scalability_mode) {
+        continue;
+      }
+      auto num_spatial_layers =
+          ScalabilityModeStringToNumSpatialLayers(*scalability_mode);
+      if (num_spatial_layers && *num_spatial_layers > 1) {
+        LOG_AND_RETURN_ERROR(
+            RTCErrorType::UNSUPPORTED_OPERATION,
+            "Attempted to use a scalabilityMode with spatial layers in "
+            "a mixed codec scenario.");
+      }
+    }
   }
 
   return CheckScalabilityModeValues(rtp_parameters, send_codecs, send_codec);
@@ -264,16 +300,16 @@ RTCError CheckRtpParametersInvalidModificationAndValues(
         "Attempted to set RtpParameters with modified header extensions");
   }
   if (!absl::c_equal(old_rtp_parameters.encodings, rtp_parameters.encodings,
-                     [](const webrtc::RtpEncodingParameters& encoding1,
-                        const webrtc::RtpEncodingParameters& encoding2) {
+                     [](const RtpEncodingParameters& encoding1,
+                        const RtpEncodingParameters& encoding2) {
                        return encoding1.rid == encoding2.rid;
                      })) {
     LOG_AND_RETURN_ERROR(RTCErrorType::INVALID_MODIFICATION,
                          "Attempted to change RID values in the encodings.");
   }
   if (!absl::c_equal(old_rtp_parameters.encodings, rtp_parameters.encodings,
-                     [](const webrtc::RtpEncodingParameters& encoding1,
-                        const webrtc::RtpEncodingParameters& encoding2) {
+                     [](const RtpEncodingParameters& encoding1,
+                        const RtpEncodingParameters& encoding2) {
                        return encoding1.ssrc == encoding2.ssrc;
                      })) {
     LOG_AND_RETURN_ERROR(RTCErrorType::INVALID_MODIFICATION,
@@ -301,25 +337,28 @@ CompositeMediaEngine::CompositeMediaEngine(
 
 CompositeMediaEngine::~CompositeMediaEngine() = default;
 
-bool CompositeMediaEngine::Init() {
+void CompositeMediaEngine::Init() {
   voice().Init();
-  return true;
+}
+
+void CompositeMediaEngine::Terminate() {
+  voice().Terminate();
 }
 
 VoiceEngineInterface& CompositeMediaEngine::voice() {
-  return *voice_engine_.get();
+  return *voice_engine_;
 }
 
 VideoEngineInterface& CompositeMediaEngine::video() {
-  return *video_engine_.get();
+  return *video_engine_;
 }
 
 const VoiceEngineInterface& CompositeMediaEngine::voice() const {
-  return *voice_engine_.get();
+  return *voice_engine_;
 }
 
 const VideoEngineInterface& CompositeMediaEngine::video() const {
-  return *video_engine_.get();
+  return *video_engine_;
 }
 
 }  // namespace webrtc

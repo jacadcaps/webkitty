@@ -29,6 +29,7 @@
 #import "WebFrameInternal.h"
 #import "WebResourceLoadScheduler.h"
 #import "WebViewPrivate.h"
+#import <WebCore/DocumentPage.h>
 #import <WebCore/FrameInlines.h>
 #import <WebCore/FrameLoader.h>
 #import <WebCore/LocalFrameLoaderClient.h>
@@ -76,11 +77,11 @@ RetainPtr<CFDataRef> WebFrameNetworkingContext::sourceApplicationAuditData() con
     if (!frame() || !frame()->page())
         return nullptr;
     
-    WebView *webview = kit(frame()->page());
+    RetainPtr webview = kit(frame()->page());
     if (!webview)
         return nullptr;
 
-    return (__bridge CFDataRef)webview._sourceApplicationAuditData;
+    return (__bridge CFDataRef)webview.get()._sourceApplicationAuditData;
 }
 
 String WebFrameNetworkingContext::sourceApplicationIdentifier() const

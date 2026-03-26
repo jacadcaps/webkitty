@@ -1,6 +1,8 @@
 # WPE Mock Platform
 set(WPEPlatformMock_SOURCES
     ${TOOLS_DIR}/TestWebKitAPI/glib/WPEPlatform/mock/WPEDisplayMock.cpp
+    ${TOOLS_DIR}/TestWebKitAPI/glib/WPEPlatform/mock/WPEScreenMock.cpp
+    ${TOOLS_DIR}/TestWebKitAPI/glib/WPEPlatform/mock/WPEToplevelMock.cpp
     ${TOOLS_DIR}/TestWebKitAPI/glib/WPEPlatform/mock/WPEViewMock.cpp
 )
 
@@ -11,16 +13,15 @@ set(WPEPlatformMock_PRIVATE_INCLUDE_DIRECTORIES
     ${WTF_FRAMEWORK_HEADERS_DIR}
 )
 
-set(WPEPlatformMock_SYSTEM_INCLUDE_DIRECTORIES
-    ${GLIB_INCLUDE_DIRS}
-)
-
 set(WPEPlatformMock_LIBRARIES
     LibDRM::LibDRM
     WTF
     WebKit
-    bmalloc
 )
+
+if (NOT USE_SYSTEM_MALLOC)
+  list(APPEND WPEPlatformMock_LIBRARIES bmalloc)
+endif ()
 
 add_library(WPEPlatformMock STATIC ${WPEPlatformMock_SOURCES})
 target_include_directories(WPEPlatformMock PRIVATE ${WPEPlatformMock_PRIVATE_INCLUDE_DIRECTORIES})
@@ -39,10 +40,6 @@ set(WPEPlatformMockModule_SOURCES
 set(WPEPlatformMockModule_PRIVATE_INCLUDE_DIRECTORIES
     ${WPEPlatform_DERIVED_SOURCES_DIR}
     ${WEBKIT_DIR}/WPEPlatform
-)
-
-set(WPEPlatformMockModule_SYSTEM_INCLUDE_DIRECTORIES
-    ${GLIB_INCLUDE_DIRS}
 )
 
 set(WPEPlatformMockModule_LIBRARIES
@@ -77,10 +74,6 @@ set(WPEPlatformTest_PRIVATE_INCLUDE_DIRECTORIES
     ${WTF_FRAMEWORK_HEADERS_DIR}
 )
 
-set(WPEPlatformTest_SYSTEM_INCLUDE_DIRECTORIES
-    ${GLIB_INCLUDE_DIRS}
-)
-
 set(WPEPlatformTest_DEFINITIONS
     NO_GTEST_USAGE
     WPE_MOCK_PLATFORM_DIR="${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/WPEPlatformMock"
@@ -112,6 +105,7 @@ endmacro()
 ADD_WPE_PLATFORM_TEST(TestDisplay ${TOOLS_DIR}/TestWebKitAPI/Tests/WPEPlatform/TestDisplay.cpp)
 ADD_WPE_PLATFORM_TEST(TestDisplayDefault ${TOOLS_DIR}/TestWebKitAPI/Tests/WPEPlatform/TestDisplayDefault.cpp)
 ADD_WPE_PLATFORM_TEST(TestSettings ${TOOLS_DIR}/TestWebKitAPI/Tests/WPEPlatform/TestSettings.cpp)
+ADD_WPE_PLATFORM_TEST(TestView ${TOOLS_DIR}/TestWebKitAPI/Tests/WPEPlatform/TestView.cpp)
 
 if (ENABLE_WPE_PLATFORM_WAYLAND)
     ADD_WPE_PLATFORM_TEST(TestDisplayWayland ${TOOLS_DIR}/TestWebKitAPI/Tests/WPEPlatform/TestDisplayWayland.cpp)

@@ -1,6 +1,6 @@
 # Copyright (C) 2010 Google Inc. All rights reserved.
 # Copyright (C) 2010 Gabor Rapcsanyi (rgabor@inf.u-szeged.hu), University of Szeged
-# Copyright (C) 2011, 2016, 2019 Apple Inc. All rights reserved.
+# Copyright (C) 2011-2025 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are
@@ -28,7 +28,6 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from __future__ import print_function
 import logging
 import optparse
 import os
@@ -126,7 +125,7 @@ def parse_args(args):
         optparse.make_option("--no-remote-layer-tree", action="store_true", default=False,
             help="Disable the remote layer tree drawing model (OS X WebKit2 only)"),
         optparse.make_option("--wpe-legacy-api", action="store_true", default=False,
-            help="Use the WPE legacy API (WPE only)"),
+            help="Use the WPE legacy API (WPE only), including its own expectations and result report flavor"),
         optparse.make_option("--internal-feature", type="string", action="append", default=[],
             help="Enable (disable) an internal feature (--internal-feature FeatureName[=true|false])"),
         optparse.make_option("--experimental-feature", type="string", action="append", default=[],
@@ -144,8 +143,10 @@ def parse_args(args):
             help="Enable Guard Malloc (OS X only)"),
         optparse.make_option("--threaded", action="store_true", default=False,
             help="Run a concurrent JavaScript thread with each test"),
-        optparse.make_option("--dump-render-tree", "-1", action="store_false", default=True, dest="webkit_test_runner",
+        optparse.make_option("--dump-render-tree", "-1", action='append_const', dest='driver_names', const="DumpRenderTree", default=[],
             help="Use DumpRenderTree rather than WebKitTestRunner. This runs the wk1 single-process architecture."),
+        optparse.make_option("--webkit-test-runner", "-2", action='append_const', dest='driver_names', const="WebKitTestRunner", default=[],
+            help="Use WebKitTestRunner exclusively, skip any wk1 specific tests."),
         # FIXME: We should merge this w/ --build-directory and only have one flag.
         optparse.make_option("--root", action="store",
             help="Path to a directory containing the executables needed to run tests."),
@@ -358,7 +359,7 @@ def parse_args(args):
             help=("Enable all GPU process related features, also set additional expectations and the result report flavor.")),
         optparse.make_option(
             "--site-isolation", action="store_true", default=False,
-            help=("Run each test in a cross origin iframe with and without site isolation enabled and compare the results. Uses site-isolation test expectations")),
+            help=("Run each test with and without site isolation enabled and compare the results. Uses site-isolation test expectations")),
         optparse.make_option(
             "--load-in-cross-origin-iframe", action="store_true", default=False,
             help=("Run each test in a cross origin iframe.")),
@@ -390,6 +391,10 @@ def parse_args(args):
         option_parser.add_option_group(option_group)
 
     options, args = option_parser.parse_args(args)
+
+    if len(options.driver_names) > 1:
+        raise ValueError('Too many drivers specified')
+
     if options.webgl_test_suite:
         if not args:
             args.append('webgl')
@@ -433,6 +438,11 @@ def parse_args(args):
         if not options.internal_feature:
             options.internal_feature = []
         options.internal_feature.append('UseAsyncUIKitInteractions=0')
+
+    if options.wpe_legacy_api:
+        if options.result_report_flavor:
+            raise RuntimeError('--wpe-legacy-api implicitly sets the result flavor, this should not be overriden')
+        options.result_report_flavor = 'wpe-legacy-api'
 
     return options, args
 
@@ -483,11 +493,6 @@ def _set_up_derived_options(port, options):
             options.additional_platform_directory = []
         options.additional_platform_directory.insert(0, port.host.filesystem.join(host.scm().checkout_root, 'LayoutTests/platform/mac-gpup'))
 
-    if options.site_isolation:
-        if not options.load_in_cross_origin_iframe:
-            _log.warning("Option --site-isolation will set --load-in-cross-origin-iframe")
-        options.load_in_cross_origin_iframe = True
-
     if options.load_in_cross_origin_iframe:
         options.additional_header = 'runInCrossOriginFrame=true'
 
@@ -498,6 +503,17 @@ def _set_up_derived_options(port, options):
         if not options.additional_platform_directory:
             options.additional_platform_directory = []
         options.additional_platform_directory.insert(0, port.host.filesystem.join(host.scm().checkout_root, 'LayoutTests/platform/mac-site-isolation'))
+        if options.result_report_flavor:
+            raise RuntimeError('--site-isolation implicitly sets the result flavor, this should not be overridden')
+        options.result_report_flavor = 'site-isolation'
+
+    if port.port_name.startswith(('ios', 'iphone', 'ipad')) and options.site_isolation:
+        host = Host()
+        host.initialize_scm()
+        options.additional_expectations.insert(0, port.host.filesystem.join(host.scm().checkout_root, 'LayoutTests/platform/ios-site-isolation/TestExpectations'))
+        if not options.additional_platform_directory:
+            options.additional_platform_directory = []
+        options.additional_platform_directory.insert(0, port.host.filesystem.join(host.scm().checkout_root, 'LayoutTests/platform/ios-site-isolation'))
         if options.result_report_flavor:
             raise RuntimeError('--site-isolation implicitly sets the result flavor, this should not be overridden')
         options.result_report_flavor = 'site-isolation'
@@ -542,10 +558,6 @@ def _set_up_derived_options(port, options):
 
     if options.run_singly:
         options.verbose = True
-
-    # The GTK+ and WPE ports only support WebKit2 so they always use WKTR.
-    if options.platform in ["gtk", "wpe"]:
-        options.webkit_test_runner = True
 
 def run(port, options, args, logging_stream):
     logger = logging.getLogger()

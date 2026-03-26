@@ -1,79 +1,192 @@
 =================
-WPE WebKit 2.50.3
+WPE WebKit 2.52.0
 =================
 
-What's new in WPE WebKit 2.50.3?
+What's new in WPE WebKit 2.52.0?
 
+  - Avoid continuous D-Bus connection attempts when the bus is not available
+    when trying to setting up the MPRIS MediaSession backend.
+  - Ensure that "scrollend" events are correctly emitted after scroll animations.
+  - Make scrolling with touch input smoother for small movements.
+  - Fix estimated load progress of downloads when the server-provided value for
+    the Content-Length value is wrong.
+  - Fix the build with ENABLE_BREAKPAD set.
+  - Fix several crashes and rendering issues.
+
+==================
+WPE WebKit 2.51.93
+==================
+
+What's new in WPE WebKit 2.51.93?
+
+  - Make text look like in other browsers by blending in linear color space.
+  - Avoid composition for non visible layers with running animations.
+  - Disable spawning the GStreamer registry scanner on Android.
+  - Fix EGL display initialization on Android.
+  - Fix several crashes and rendering issues.
+
+==================
+WPE WebKit 2.51.92
+==================
+
+What's new in WPE WebKit 2.51.92?
+
+  - Fix PDF rendering broken by the accelerated 2D canvas performance improvements.
+  - Fix flickering while scrolling in some edge cases.
+  - Support for rotation and mirroring in internal WebCodecs encoder.
+  - System fallback font selection no longer takes style into account.
+  - Fix page scrolling at faster speed when scrolling with more than one
+    touch point in effect when using WPEPlatform.
+  - Fix gamepad input by properly checking the active state for toplevels when
+    using WPEPlatform.
+  - Fix several crashes and rendering issues.
+
+==================
+WPE WebKit 2.51.91
+==================
+
+What's new in WPE WebKit 2.51.91?
+
+  - Disable GPU process by default.
+  - Improve async scrolling when main thread is busy by avoiding locks and rendering the
+    scrollbars from the scrolling thread.
+  - Fix the build with old versions of libdrm.
+  - Fix the build on i386.
+  - Fix the build on Android.
+  - Fix several crashes and rendering issues.
+
+==================
+WPE WebKit 2.51.90
+==================
+
+What's new in WPE WebKit 2.51.90?
+
+  - Improve performance of accelerated 2D canvas by recording operations
+    for batched replay.
+  - Remove the WPE Qt5 API binding. The Qt6 API is still available.
+  - Add support to optinally use the WOFF2 support from FreeType. When enabled, the
+    libwoff2 library is not needed.
+  - Add support for damage propagation in non-composited mode.
+  - Add webkit_context_menu_get_position() and webkit_context_menu_item_get_title().
+  - Add hyphenation support through libhyphen. The feature may be toggled at build
+    time via the USE_LIBHYPHEN CMake option.
+  - Add WPEPlatform API to notify of graphics buffers configuration changes for a WPEView.
+  - Add WPEPlatform API to create topleves using wpe_display_create_toplevel().
+  - When using WPEPlatform, rendering of web views is now paused while they are detached
+    from a WPEToplevel.
+  - Change context menu behaviour to match the GTK port more closely.
+  - Change WPEScreenSyncObserver to support multiple callbacks.
+  - Fix handling of touch scrolling in builds configured with ENABLE_WPE_LEGACY_API=OFF.
+  - Fix introspection annotations in wpe_buffer_formats_builder_end() to properly
+    indicate ownership of the passed WPEBufferFormatsBuilder reference.
+  - Fix web process translatable strings to follow system locale.
+  - Fix DMA-BUF buffers leaked with GTK3 when the web view is destroyed.
+  - Fix several crashes and rendering issues.
+
+=================
+WPE WebKit 2.51.4
+=================
+
+What's new in WPE WebKit 2.51.4?
+
+  - Fix rendering of some PDFs due to issues in cross-thread transfer of
+    accelerated bitmaps.
+  - Fix a bug in compositor state causing that one frame could be sent to
+    the UI process before the previous one is done.
+  - Use timerfd when available to improve timer resolution.
+  - Support using AHardwareBuffer as backing store for accelerated surfaces,
+    which avoids copying graphics buffers shared among different processes
+    when using WPEPlatform on Android.
+  - Support non-composited page rendering, which may be beneficial on
+    low-end embedded devices with weak GPUs, or without a GPU at all. This
+    may be toggled at runtime by disabling the AcceleratedCompsiting feature
+    flag.
+  - Add the ENABLE_WPE_LEGACY_API CMake option, which allows disabling the
+    libwpe-based API on builds that have the new WPEPlatform API enabled
+    at build time.
+  - Correctly handle the program name passed to the sleep disabler.
+  - Change XKB context initialization to always succeed even if the default
+    configuration directories are not present in the system.
+  - Fix synthetic clicks for unhandled touch events being produced twice
+    per event.
+  - Fix the build with Clang 21.
+  - Fix the build when support for Sysprof tracing is disabled.
+  - Fix several crashes and rendering issues.
+
+=================
+WPE WebKit 2.51.3
+=================
+
+What's new in WPE WebKit 2.51.3?
+
+  - Add API to take image snapshots of web views, using webkit_web_view_get_snapshot()
+    and webkit_web_view_get_snapshot_finish().
+  - Add WPEPlatform API to obtain the contents of the clipboard, using
+    wpe_clipboard_content_get_text() and wpe_clipboard_content_get_bytes().
+  - Improve composition scheduling to avoid blocking waiting for tile painting.
+  - Moved WebRTC network access to the NetworkProcess, when using GstWebRTC.
+    This requires librice, and building with the CMake USE_LIBRICE option. When
+    enabled, it is still possible to choose the older libnice-based implementation
+    at runtime by setting WEBKIT_GST_DISABLE_WEBRTC_NETWORK_SANDBOX=1 in the
+    environment.
+  - Add support the XR_ANDROID_raycast OpenXR extension for WebXR Hit Testing.
+  - Add support to use super-tiled graphics buffers when running on Vivante GPUs.
+    Currently setting WEBKIT_SKIA_USE_VIVANTE_SUPER_TILED_TILE_TEXTURES=1 in the
+    environment is needed to opt-in into using those.
+  - Ensure that GStreamer is properly initialized before applying any multimedia
+    handling quirks.
   - Fix pointer event processing no longer working after a mouse right button press.
+  - Fix PointerEvent behaviour for mouse events synthesized from touch inputs.
   - Fix seeking and looping of media elements that set the "loop" property.
   - Fix several crashes and rendering issues.
 
 =================
-WPE WebKit 2.50.2
+WPE WebKit 2.51.2
 =================
 
-What's new in WPE WebKit 2.50.2?
+What's new in WPE WebKit 2.51.2?
 
-  - Prevent unsafe URI schemes from participating in media playback.
+  - Add WebKitImage utility class that will be used for favicons and snapshots.
+  - Videos with BT2100-PQ colorspace are now tone-mapped to SDR, ensuring colours
+    do not appear washed out.
+  - Use a run loop observer also to notify the main thread when composition is done.
+  - Remove the hybrid rendering mode now that we are computing a different tile size
+    for GPU and CPU rendering modes.
+  - Make jsc_value_array_buffer_get_data() introspectable.
   - Make webkit_web_view_add_frame_displayed_callback() work with WPEPlatform.
-  - Make jsc_value_array_buffer_get_data() function introspectable.
-  - Fix logging in to Google accounts that have a WebAuthn second factor configured.
-  - Fix loading webkit://gpu when there are no threads configured for GPU rendering.
-  - Fix rendering gradiants that use the CSS hue interpolation method.
-  - Fix pasting image data from the clipboard.
-  - Fix font-family selection when the font name contains spaces.
-  - Fix the build with standard C libraries that lack execinfo.h,
-    like Musl or uClibc.
-  - Fix capturing canvas snapshots in the Web Inspector.
-  - Fix build dependencies to ensure that generated headers for WPEPlatform
-    are always created before they are needed.
+  - Restrict allowed URI protocols for media playback.
+  - Removed support in the MiniBrowser for the unstable zxdg_shell_v6 Wayland
+    protocol when using the legacy API.
+  - Add support in the MiniBrowser for --maximized and --fullscreen when using
+    the legacy API.
+  - Add rendering and buffer formats information to webkit://gpu.
+  - Enable dynamic MSAA for accelerated 2D canvas rendering.
   - Fix several crashes and rendering issues.
 
 =================
-WPE WebKit 2.50.1
+WPE WebKit 2.51.1
 =================
 
-What's new in WPE WebKit 2.50.1?
+What's new in WPE WebKit 2.51.1?
 
-  - Improve text rendering performance.
-  - On Android, the built library no longer includes versioning
-    information in its name.
-  - Fix audio playback broken on Instagram.
-  - Fix blurry rendering of SVG patterns when zoomed.
+  - Use the GPU process for WebGL by default.
+  - Add initial API for web extensions.
+  - Add API to handle WebXR permission requests.
+  - Add new API to query the immersive session status.
+  - Improve text rendering performance
+  - Compute the layers tile size, using a different strategy depending on whether
+    GPU rendering is enabled.
+  - Add support for run loop observers that are now used to replace the layer flush
+    timer and properly implement the opportunistic task scheduler.
+  - Add initial support for WebXR on Android.
+  - Improve WPEBufferDMABuf to allow importing more kinds of buffers as into pixel
+    buffers using wpe_buffer_import_to_pixels().
+  - Remove support for building with libsoup2.
+  - Fix speaker enumeration for ALSA PCM sinks.
+  - Fix rendering for gradients with hue interpolation method.
   - Fix rendering of layers with fractional transforms.
-  - Fix the build with ENABLE(VIDEO) disabled.
-  - Fix the build in s390x.
-  - Fix several crashes and rendering issues.
-
-=================
-WPE WebKit 2.50.0
-=================
-
-What's new in WPE WebKit 2.50.0?
-
-  - WPEPlatform is no longer a standalone library; applications that use
-    the API must continue using the wpeplatform-2.0 pkg-config module.
-  - Fix wpe_renderer_backend_egl_target_interface::deinitialize callbacks
-    not being invoked.
-  - Fix rendering with software rasterization enabled.
-  - Fix WebAudio issues after idling for a minute.
-  - Fix several crashes and rendering issues.
-
-==================
-WPE WebKit 2.49.90
-==================
-
-What's new in WPE WebKit 2.49.90?
-
-  - Add support for font collection / fragment identifiers.
-  - Add basic undo-redo support for input elements.
-  - Do not start the MemoryPressureMonitor when it is disabled.
-  - Allow using a system-wide PulseAudio daemon from the Bubblewrap sandbox.
-  - Disable the MediaSession API on Android.
-  - Fix building with USE_EXTERNAL_HOLEPUNCH enabled.
-  - Fix Web process deadlock on exit.
-  - Fix stuttering when playing WebP animations
-  - Fix CSS animations with cubic-bezier timing function.
+  - Fix pasting image data (like image/png) from the clipboard.
+  - Fix importing a WPEBufferAndroid as an EGLImage when using EGL 1.4 or older.
   - Fix several crashes and rendering issues.
 
 =================

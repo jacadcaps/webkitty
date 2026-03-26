@@ -31,10 +31,10 @@ namespace WebCore {
 namespace Style {
 
 template<typename T> requires std::is_enum_v<T> struct CSSValueConversion<T> {
-   T operator()(BuilderState&, const CSSValue& value)
-   {
+    T operator()(BuilderState&, const CSSValue& value)
+    {
         return fromCSSValueID<T>(value.valueID());
-   }
+    }
 };
 
 } // namespace Style

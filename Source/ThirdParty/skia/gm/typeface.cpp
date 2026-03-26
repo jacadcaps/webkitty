@@ -65,7 +65,7 @@ static void drawKernText(SkCanvas* canvas, const void* text, size_t len,
 
     AutoSTMalloc<128, SkGlyphID> glyphStorage(len);
     SkGlyphID* glyphs = glyphStorage.get();
-    int glyphCount = font.textToGlyphs(text, len, SkTextEncoding::kUTF8, {glyphs, len});
+    size_t glyphCount = font.textToGlyphs(text, len, SkTextEncoding::kUTF8, {glyphs, len});
     if (glyphCount < 1) {
         return;
     }
@@ -176,7 +176,7 @@ static void draw_typeface_rendering_gm(SkCanvas* canvas, sk_sp<SkTypeface> face,
         //       0x330b19d6 <+86>: add    r2, sp, #0x28
         //       0x330b19d8 <+88>: ldr    r0, [r4, #0x4]
         // Disable testing embedded bitmaps on iOS for now.
-        // See https://bug.skia.org/5530 .
+        // See skbug.com/40036707 .
         { SkFont::Edging::kAlias            , false },
 #endif
         { SkFont::Edging::kAntiAlias        , false },

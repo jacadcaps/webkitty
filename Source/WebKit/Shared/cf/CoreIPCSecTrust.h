@@ -91,7 +91,7 @@ public:
     CoreIPCSecTrust(SecTrustRef);
 
     CoreIPCSecTrust(std::optional<WebKit::CoreIPCSecTrustData>&& data)
-        : m_data(WTFMove(data)) { }
+        : m_data(WTF::move(data)) { }
 
     RetainPtr<SecTrustRef> createSecTrust() const;
 

@@ -41,10 +41,8 @@ class BitmapContext : public RefCounted<BitmapContext> {
 public:
     static Ref<BitmapContext> createByAdoptingBitmapAndContext(UniqueBitmapBuffer&& buffer, RetainPtr<CGContextRef>&& context)
     {
-        return adoptRef(*new BitmapContext(WTFMove(buffer), WTFMove(context)));
+        return adoptRef(*new BitmapContext(WTF::move(buffer), WTF::move(context)));
     }
-
-    ~BitmapContext() = default;
 
     CGContextRef cgContext() const { return m_context.get(); }
     
@@ -54,8 +52,8 @@ public:
 private:
 
     BitmapContext(UniqueBitmapBuffer&& buffer, RetainPtr<CGContextRef>&& context)
-        : m_buffer(WTFMove(buffer))
-        , m_context(WTFMove(context))
+        : m_buffer(WTF::move(buffer))
+        , m_context(WTF::move(context))
     {
     }
 

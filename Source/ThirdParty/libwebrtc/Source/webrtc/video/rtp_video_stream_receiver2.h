@@ -17,9 +17,9 @@
 #include <map>
 #include <memory>
 #include <optional>
-#include <variant>
 #include <vector>
 
+#include "api/array_view.h"
 #include "api/crypto/frame_decryptor_interface.h"
 #include "api/environment/environment.h"
 #include "api/frame_transformer_interface.h"
@@ -33,13 +33,13 @@
 #include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
 #include "api/video/color_space.h"
+#include "api/video/corruption_detection/frame_instrumentation_data_reader.h"
 #include "api/video/encoded_frame.h"
 #include "api/video/video_codec_constants.h"
 #include "api/video/video_codec_type.h"
 #include "call/rtp_packet_sink_interface.h"
 #include "call/syncable.h"
 #include "call/video_receive_stream.h"
-#include "common_video/frame_instrumentation_data.h"
 #include "modules/include/module_common_types.h"
 #include "modules/rtp_rtcp/include/receive_statistics.h"
 #include "modules/rtp_rtcp/include/recovered_packet_receiver.h"
@@ -119,7 +119,7 @@ class RtpVideoStreamReceiver2 : public LossNotificationSender,
 
   void AddReceiveCodec(uint8_t payload_type,
                        VideoCodecType video_codec,
-                       const webrtc::CodecParameterMap& codec_params,
+                       const CodecParameterMap& codec_params,
                        bool raw_payload);
 
   // Clears state for all receive codecs added via `AddReceiveCodec`.
@@ -131,7 +131,7 @@ class RtpVideoStreamReceiver2 : public LossNotificationSender,
   // Produces the transport-related timestamps; current_delay_ms is left unset.
   std::optional<Syncable::Info> GetSyncInfo() const;
 
-  bool DeliverRtcp(const uint8_t* rtcp_packet, size_t rtcp_packet_length);
+  bool DeliverRtcp(ArrayView<const uint8_t> rtcp_packet);
 
   void FrameContinuous(int64_t seq_num);
 
@@ -331,10 +331,6 @@ class RtpVideoStreamReceiver2 : public LossNotificationSender,
   void UpdatePacketReceiveTimestamps(const RtpPacketReceived& packet,
                                      bool is_keyframe)
       RTC_RUN_ON(packet_sequence_checker_);
-  void SetLastCorruptionDetectionIndex(
-      const std::variant<FrameInstrumentationSyncData,
-                         FrameInstrumentationData>& frame_instrumentation_data,
-      int spatial_idx);
 
   std::optional<VideoCodecType> GetCodecFromPayloadType(
       uint8_t payload_type) const RTC_RUN_ON(packet_sequence_checker_);
@@ -430,11 +426,11 @@ class RtpVideoStreamReceiver2 : public LossNotificationSender,
   // TODO(johan): Remove pt_codec_params_ once
   // https://bugs.chromium.org/p/webrtc/issues/detail?id=6883 is resolved.
   // Maps a payload type to a map of out-of-band supplied codec parameters.
-  std::map<uint8_t, webrtc::CodecParameterMap> pt_codec_params_
+  std::map<uint8_t, CodecParameterMap> pt_codec_params_
       RTC_GUARDED_BY(packet_sequence_checker_);
 
   // Maps payload type to the VideoCodecType.
-  std::map<uint8_t, webrtc::VideoCodecType> pt_codec_
+  std::map<uint8_t, VideoCodecType> pt_codec_
       RTC_GUARDED_BY(packet_sequence_checker_);
 
   int16_t last_payload_type_ RTC_GUARDED_BY(packet_sequence_checker_) = -1;
@@ -485,11 +481,8 @@ class RtpVideoStreamReceiver2 : public LossNotificationSender,
       Timestamp::MinusInfinity();
   bool sps_pps_idr_is_h264_keyframe_ = false;
 
-  struct CorruptionDetectionLayerState {
-    int sequence_index = 0;
-    std::optional<uint32_t> timestamp;
-  };
-  std::array<CorruptionDetectionLayerState, kMaxSpatialLayers>
+  // TODO: bugs.webrtc.org/358039777 - Move this to after the frame assembler.
+  std::array<FrameInstrumentationDataReader, kMaxSpatialLayers>
       last_corruption_detection_state_by_layer_;
 };
 

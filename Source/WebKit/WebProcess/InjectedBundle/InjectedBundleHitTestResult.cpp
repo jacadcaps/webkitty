@@ -31,7 +31,7 @@
 #include "WebImage.h"
 #include "WebLocalFrameLoaderClient.h"
 #include <WebCore/BitmapImage.h>
-#include <WebCore/Document.h>
+#include <WebCore/DocumentView.h>
 #include <WebCore/Element.h>
 #include <WebCore/FrameDestructionObserverInlines.h>
 #include <WebCore/FrameLoader.h>
@@ -39,7 +39,7 @@
 #include <WebCore/HTMLMediaElement.h>
 #include <WebCore/LocalFrameInlines.h>
 #include <WebCore/LocalFrameView.h>
-#include <WebCore/NodeInlines.h>
+#include <WebCore/NodeDocument.h>
 #include <wtf/URL.h>
 
 namespace WebKit {
@@ -52,12 +52,12 @@ Ref<InjectedBundleHitTestResult> InjectedBundleHitTestResult::create(const HitTe
 
 RefPtr<InjectedBundleNodeHandle> InjectedBundleHitTestResult::nodeHandle() const
 {
-    return InjectedBundleNodeHandle::getOrCreate(m_hitTestResult.innerNonSharedNode());
+    return InjectedBundleNodeHandle::getOrCreate(m_hitTestResult.protectedInnerNonSharedNode().get());
 }
 
 RefPtr<InjectedBundleNodeHandle> InjectedBundleHitTestResult::urlElementHandle() const
 {
-    return InjectedBundleNodeHandle::getOrCreate(m_hitTestResult.URLElement());
+    return InjectedBundleNodeHandle::getOrCreate(m_hitTestResult.protectedURLElement().get());
 }
 
 RefPtr<WebFrame> InjectedBundleHitTestResult::frame() const
@@ -156,7 +156,7 @@ IntRect InjectedBundleHitTestResult::imageRect() const
     if (!coreFrame)
         return imageRect;
     
-    auto* view = coreFrame->view();
+    CheckedPtr view = coreFrame->view();
     if (!view)
         return imageRect;
     

@@ -54,8 +54,8 @@ public:
         return create(m_presentationTime, m_decodeTime, m_duration, static_cast<SampleFlags>(m_flags | IsNonDisplaying));
     }
     SampleFlags flags() const final { return m_flags; }
-    PlatformSample platformSample() const final { return { PlatformSample::None, { nullptr } }; }
-    PlatformSample::Type platformSampleType() const final { return PlatformSample::None; }
+    PlatformSample platformSample() const final { return PlatformSample { static_cast<const MockSampleBox*>(nullptr) }; }
+    Type type() const final { return Type::None; }
 
     void dump(PrintStream&) const final { }
 
@@ -95,7 +95,7 @@ TEST(MediaReorderQueue, MediaSample)
     while (!queue.isEmpty()) {
         RefPtr nextSample = queue.takeFirst();
         ASSERT_LE(currentSample->presentationTime(), nextSample->presentationTime());
-        currentSample = WTFMove(nextSample);
+        currentSample = WTF::move(nextSample);
     }
 }
 

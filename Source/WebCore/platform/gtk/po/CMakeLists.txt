@@ -6,8 +6,8 @@ endif ()
 
 set(linguas
     ar as bg ca cs da de el en_CA en_GB eo es et eu fi fr gl gu he hi hr hu id
-    it ja ka kn ko lt lv ml mr nb nl or pa pl pt pt_BR ro ru sl sr sr@latin sv
-    ta te tr uk vi zh_CN
+    it ja ka kk kn ko lt lv ml mr nb nl or pa pl pt pt_BR ro ru sl sr sr@latin
+    sv ta te tr uk vi zh_CN
 )
 
 # GETTEXT_CREATE_TRANSLATIONS automatically runs msgmerge, which is something we

@@ -42,6 +42,8 @@ namespace WebKit {
 
 using namespace WebCore;
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteLegacyCDMSessionProxy);
+
 Ref<RemoteLegacyCDMSessionProxy> RemoteLegacyCDMSessionProxy::create(RemoteLegacyCDMFactoryProxy& factory, uint64_t logIdentifier, RemoteLegacyCDMSessionIdentifier sessionIdentifier, WebCore::LegacyCDM& cdm)
 {
     return adoptRef(*new RemoteLegacyCDMSessionProxy(factory, logIdentifier, sessionIdentifier, cdm));
@@ -86,11 +88,6 @@ static RefPtr<WebCore::SharedBuffer> convertToOptionalSharedBuffer(T array)
     return SharedBuffer::create(array->span());
 }
 
-void RemoteLegacyCDMSessionProxy::setPlayer(WeakPtr<RemoteMediaPlayerProxy> player)
-{
-    m_player = WTFMove(player);
-}
-
 void RemoteLegacyCDMSessionProxy::generateKeyRequest(const String& mimeType, RefPtr<SharedBuffer>&& initData, const String& mediaKeysHashSalt, GenerateKeyCallback&& completion)
 {
     RefPtr session = m_session;
@@ -99,7 +96,7 @@ void RemoteLegacyCDMSessionProxy::generateKeyRequest(const String& mimeType, Ref
         return;
     }
     
-    auto initDataArray = convertToUint8Array(WTFMove(initData));
+    auto initDataArray = convertToUint8Array(WTF::move(initData));
     if (!initDataArray) {
         completion({ }, emptyString(), 0, 0);
         return;
@@ -131,7 +128,7 @@ void RemoteLegacyCDMSessionProxy::update(RefPtr<SharedBuffer>&& update, UpdateCa
         return;
     }
     
-    auto updateArray = convertToUint8Array(WTFMove(update));
+    auto updateArray = convertToUint8Array(WTF::move(update));
     if (!updateArray) {
         completion(false, nullptr, 0, 0);
         return;
@@ -211,7 +208,7 @@ std::optional<SharedPreferencesForWebProcess> RemoteLegacyCDMSessionProxy::share
     if (!m_factory)
         return std::nullopt;
 
-    return m_factory->sharedPreferencesForWebProcess();
+    return protectedFactory()->sharedPreferencesForWebProcess();
 }
 
 RefPtr<WebCore::LegacyCDMSession> RemoteLegacyCDMSessionProxy::protectedSession() const
