@@ -31,7 +31,7 @@ namespace WebCore {
 void CurlSSLHandle::platformInitialize()
 {
     static String caCertPath = "MOSSYS:Data/SSL/curl-ca-bundle.crt"_s;
-    setCACertPath(WTFMove(caCertPath));
+    setCACertPath(WTF::move(caCertPath));
 
 #if 1
     constexpr auto cipherList =

@@ -105,7 +105,7 @@ static inline void updateVaryInformation(RecordInformation& recordInformation, c
 RecordInformation Cache::toRecordInformation(const Record& record)
 {
     Key key { "record"_s, m_uniqueName, { }, createVersion4UUIDString(), m_caches.salt() };
-    RecordInformation recordInformation { WTFMove(key), MonotonicTime::now().secondsSinceEpoch().milliseconds(), record.identifier, 0 , record.responseBodySize, record.request.url(), false, { } };
+    RecordInformation recordInformation { WTF::move(key), MonotonicTime::now().secondsSinceEpoch().milliseconds(), record.identifier, 0 , record.responseBodySize, record.request.url(), false, { } };
 
     updateVaryInformation(recordInformation, record.request, record.response);
 
@@ -116,8 +116,8 @@ Cache::Cache(Caches& caches, DOMCacheIdentifier identifier, State state, String&
     : m_caches(caches)
     , m_state(state)
     , m_identifier(identifier)
-    , m_name(WTFMove(name))
-    , m_uniqueName(WTFMove(uniqueName))
+    , m_name(WTF::move(name))
+    , m_uniqueName(WTF::move(uniqueName))
 {
 }
 
@@ -135,7 +135,7 @@ void Cache::clearMemoryRepresentation()
 
 RecordInformation RecordInformation::isolatedCopy() &&
 {
-    return { key, insertionTime, identifier, updateResponseCounter, size, WTFMove(url).isolatedCopy(), hasVaryStar, crossThreadCopy(WTFMove(varyHeaders)) };
+    return { key, insertionTime, identifier, updateResponseCounter, size, WTF::move(url).isolatedCopy(), hasVaryStar, crossThreadCopy(WTF::move(varyHeaders)) };
 }
 
 struct TraversalResult {
@@ -149,7 +149,7 @@ struct TraversalResult {
 TraversalResult TraversalResult::isolatedCopy() &&
 {
     // No need to isolate keys since they are isolated through the copy constructor.
-    return { cacheIdentifier, crossThreadCopy(WTFMove(records)), WTFMove(failedRecords) };
+    return { cacheIdentifier, crossThreadCopy(WTF::move(records)), WTF::move(failedRecords) };
 }
 
 void Cache::open(CompletionCallback&& callback)
@@ -159,14 +159,14 @@ void Cache::open(CompletionCallback&& callback)
         return;
     }
     if (m_state == State::Opening) {
-        m_pendingOpeningCallbacks.append(WTFMove(callback));
+        m_pendingOpeningCallbacks.append(WTF::move(callback));
         return;
     }
     m_state = State::Opening;
     TraversalResult traversalResult { m_identifier, { }, { } };
-    m_caches.readRecordsList(*this, [caches = Ref { m_caches }, callback = WTFMove(callback), traversalResult = WTFMove(traversalResult)](const auto* storageRecord, const auto&) mutable {
+    m_caches.readRecordsList(*this, [caches = Ref { m_caches }, callback = WTF::move(callback), traversalResult = WTF::move(traversalResult)](const auto* storageRecord, const auto&) mutable {
         if (!storageRecord) {
-            RunLoop::mainSingleton().dispatch([caches = WTFMove(caches), callback = WTFMove(callback), traversalResult = WTFMove(traversalResult).isolatedCopy() ]() mutable {
+            RunLoop::mainSingleton().dispatch([caches = WTF::move(caches), callback = WTF::move(callback), traversalResult = WTF::move(traversalResult).isolatedCopy() ]() mutable {
                 for (auto& key : traversalResult.failedRecords)
                     caches->removeCacheEntry(key);
 
@@ -175,8 +175,8 @@ void Cache::open(CompletionCallback&& callback)
                     callback(Error::Internal);
                     return;
                 }
-                cache->m_records = WTFMove(traversalResult.records);
-                cache->finishOpening(WTFMove(callback), std::nullopt);
+                cache->m_records = WTF::move(traversalResult.records);
+                cache->finishOpening(WTF::move(callback), std::nullopt);
             });
             return;
         }
@@ -194,7 +194,7 @@ void Cache::open(CompletionCallback&& callback)
         updateVaryInformation(recordInformation, record.request, record.response);
 
         auto& sameURLRecords = traversalResult.records.ensure(computeKeyURL(recordInformation.url), [] { return Vector<RecordInformation> { }; }).iterator->value;
-        sameURLRecords.append(WTFMove(recordInformation));
+        sameURLRecords.append(WTF::move(recordInformation));
     });
 }
 
@@ -214,7 +214,7 @@ void Cache::finishOpening(CompletionCallback&& callback, std::optional<Error>&& 
     if (error) {
         m_state = State::Uninitialized;
         callback(error.value());
-        auto callbacks = WTFMove(m_pendingOpeningCallbacks);
+        auto callbacks = WTF::move(m_pendingOpeningCallbacks);
         for (auto& callback : callbacks)
             callback(error.value());
         return;
@@ -222,7 +222,7 @@ void Cache::finishOpening(CompletionCallback&& callback, std::optional<Error>&& 
     m_state = State::Open;
 
     callback(std::nullopt);
-    auto callbacks = WTFMove(m_pendingOpeningCallbacks);
+    auto callbacks = WTF::move(m_pendingOpeningCallbacks);
     for (auto& callback : callbacks)
         callback(std::nullopt);
 }
@@ -230,7 +230,7 @@ void Cache::finishOpening(CompletionCallback&& callback, std::optional<Error>&& 
 class ReadRecordTaskCounter : public RefCounted<ReadRecordTaskCounter> {
 public:
     using ReadRecordsCallback = WTF::Function<void(Vector<Record>&&, Vector<uint64_t>&&)>;
-    static Ref<ReadRecordTaskCounter> create(ReadRecordsCallback&& callback) { return adoptRef(*new ReadRecordTaskCounter(WTFMove(callback))); }
+    static Ref<ReadRecordTaskCounter> create(ReadRecordsCallback&& callback) { return adoptRef(*new ReadRecordTaskCounter(WTF::move(callback))); }
 
     ~ReadRecordTaskCounter()
     {
@@ -240,7 +240,7 @@ public:
         std::sort(m_records.begin(), m_records.end(), [&] (const auto& a, const auto& b) {
             return a.identifier < b.identifier;
         });
-        m_callback(WTFMove(m_records), WTFMove(m_failedRecords));
+        m_callback(WTF::move(m_records), WTF::move(m_failedRecords));
     }
 
     void appendRecord(Expected<Record, Error>&& result, uint64_t recordIdentifier, uint64_t updateCounter)
@@ -252,12 +252,12 @@ public:
         }
         result.value().identifier = recordIdentifier;
         result.value().updateResponseCounter = updateCounter;
-        m_records.append(WTFMove(result.value()));
+        m_records.append(WTF::move(result.value()));
     }
 
 private:
     explicit ReadRecordTaskCounter(ReadRecordsCallback&& callback)
-        : m_callback(WTFMove(callback))
+        : m_callback(WTF::move(callback))
     {
     }
 
@@ -268,11 +268,11 @@ private:
 
 void Cache::retrieveRecord(const RecordInformation& record, Ref<ReadRecordTaskCounter>&& taskCounter)
 {
-    readRecordFromDisk(record, [caches = Ref { m_caches }, identifier = m_identifier, recordIdentifier = record.identifier, updateCounter = record.updateResponseCounter, taskCounter = WTFMove(taskCounter)](Expected<Record, Error>&& result) mutable {
+    readRecordFromDisk(record, [caches = Ref { m_caches }, identifier = m_identifier, recordIdentifier = record.identifier, updateCounter = record.updateResponseCounter, taskCounter = WTF::move(taskCounter)](Expected<Record, Error>&& result) mutable {
         auto* cache = caches->find(identifier);
         if (!cache)
             return;
-        taskCounter->appendRecord(WTFMove(result), recordIdentifier, updateCounter);
+        taskCounter->appendRecord(WTF::move(result), recordIdentifier, updateCounter);
     });
 }
 
@@ -280,7 +280,7 @@ void Cache::retrieveRecords(const RetrieveRecordsOptions& options, RecordsCallba
 {
     ASSERT(m_state == State::Open);
 
-    auto taskCounter = ReadRecordTaskCounter::create([caches = Ref { m_caches }, identifier = m_identifier, options, callback = WTFMove(callback)](Vector<Record>&& records, Vector<uint64_t>&& failedRecordIdentifiers) mutable {
+    auto taskCounter = ReadRecordTaskCounter::create([caches = Ref { m_caches }, identifier = m_identifier, options, callback = WTF::move(callback)](Vector<Record>&& records, Vector<uint64_t>&& failedRecordIdentifiers) mutable {
         auto* cache = caches->find(identifier);
         if (cache)
             cache->removeFromRecordList(failedRecordIdentifiers);
@@ -303,7 +303,7 @@ void Cache::retrieveRecords(const RetrieveRecordsOptions& options, RecordsCallba
                 record.responseBodySize = 0;
             }
         }
-        callback(WTFMove(records));
+        callback(WTF::move(records));
     });
 
     if (options.request.url().isNull()) {
@@ -357,7 +357,7 @@ const Vector<RecordInformation>* Cache::recordsFromURL(const URL& url) const
 
 class AsynchronousPutTaskCounter : public RefCounted<AsynchronousPutTaskCounter> {
 public:
-    static Ref<AsynchronousPutTaskCounter> create(RecordIdentifiersCallback&& callback) { return adoptRef(*new AsynchronousPutTaskCounter(WTFMove(callback))); }
+    static Ref<AsynchronousPutTaskCounter> create(RecordIdentifiersCallback&& callback) { return adoptRef(*new AsynchronousPutTaskCounter(WTF::move(callback))); }
     ~AsynchronousPutTaskCounter()
     {
         ASSERT(RunLoop::isMain());
@@ -367,7 +367,7 @@ public:
             m_callback(makeUnexpected(m_error.value()));
             return;
         }
-        m_callback(WTFMove(m_recordIdentifiers));
+        m_callback(WTF::move(m_recordIdentifiers));
     }
 
     void setError(Error error)
@@ -386,7 +386,7 @@ public:
 
 private:
     explicit AsynchronousPutTaskCounter(RecordIdentifiersCallback&& callback)
-        : m_callback(WTFMove(callback))
+        : m_callback(WTF::move(callback))
     {
     }
 
@@ -397,7 +397,7 @@ private:
 
 void Cache::storeRecords(Vector<Record>&& records, RecordIdentifiersCallback&& callback)
 {
-    auto taskCounter = AsynchronousPutTaskCounter::create(WTFMove(callback));
+    auto taskCounter = AsynchronousPutTaskCounter::create(WTF::move(callback));
 
     WebCore::CacheQueryOptions options;
     for (auto& record : records) {
@@ -411,11 +411,11 @@ void Cache::storeRecords(Vector<Record>&& records, RecordIdentifiersCallback&& c
             taskCounter->addRecordIdentifier(record.identifier);
 
             auto& recordToWrite = addRecord(sameURLRecords, record);
-            writeRecordToDisk(recordToWrite, WTFMove(record), taskCounter.copyRef(), 0);
+            writeRecordToDisk(recordToWrite, WTF::move(record), taskCounter.copyRef(), 0);
         } else {
             auto& existingRecord = sameURLRecords->at(position);
             taskCounter->addRecordIdentifier(existingRecord.identifier);
-            updateRecordToDisk(existingRecord, WTFMove(record), taskCounter.copyRef());
+            updateRecordToDisk(existingRecord, WTF::move(record), taskCounter.copyRef());
         }
     }
 }
@@ -446,7 +446,7 @@ void Cache::put(Vector<Record>&& records, RecordIdentifiersCallback&& callback)
         return;
     }
 
-    m_caches.requestSpace(spaceRequired, [caches = Ref { m_caches }, identifier = m_identifier, records = WTFMove(records), callback = WTFMove(callback)](std::optional<DOMCacheEngine::Error>&& error) mutable {
+    m_caches.requestSpace(spaceRequired, [caches = Ref { m_caches }, identifier = m_identifier, records = WTF::move(records), callback = WTF::move(callback)](std::optional<DOMCacheEngine::Error>&& error) mutable {
         if (error) {
             callback(makeUnexpected(error.value()));
             return;
@@ -456,7 +456,7 @@ void Cache::put(Vector<Record>&& records, RecordIdentifiersCallback&& callback)
             callback(makeUnexpected(DOMCacheEngine::Error::Internal));
             return;
         }
-        cache->storeRecords(WTFMove(records), WTFMove(callback));
+        cache->storeRecords(WTF::move(records), WTF::move(callback));
     });
 }
 
@@ -479,8 +479,8 @@ void Cache::remove(WebCore::ResourceRequest&& request, WebCore::CacheQueryOption
     });
 
     // This operation would change caches size, so make sure callback finishes after size file is updated.
-    m_caches.updateSizeFile([callback = WTFMove(callback), recordIdentifiers = WTFMove(recordIdentifiers)]() mutable {
-        callback(WTFMove(recordIdentifiers));
+    m_caches.updateSizeFile([callback = WTF::move(callback), recordIdentifiers = WTF::move(recordIdentifiers)]() mutable {
+        callback(WTF::move(recordIdentifiers));
     });
 }
 
@@ -504,7 +504,7 @@ void Cache::removeFromRecordList(const Vector<uint64_t>& recordIdentifiers)
 
 void Cache::writeRecordToDisk(const RecordInformation& recordInformation, Record&& record, Ref<AsynchronousPutTaskCounter>&& taskCounter, uint64_t previousRecordSize)
 {
-    m_caches.writeRecord(*this, recordInformation, WTFMove(record), previousRecordSize, [taskCounter = WTFMove(taskCounter)](std::optional<Error>&& error) {
+    m_caches.writeRecord(*this, recordInformation, WTF::move(record), previousRecordSize, [taskCounter = WTF::move(taskCounter)](std::optional<Error>&& error) {
         if (error)
             taskCounter->setError(error.value());
     });
@@ -513,7 +513,7 @@ void Cache::writeRecordToDisk(const RecordInformation& recordInformation, Record
 void Cache::updateRecordToDisk(RecordInformation& existingRecord, Record&& record, Ref<AsynchronousPutTaskCounter>&& taskCounter)
 {
     ++existingRecord.updateResponseCounter;
-    readRecordFromDisk(existingRecord, [caches = Ref { m_caches }, identifier = m_identifier, recordIdentifier = existingRecord.identifier, record = WTFMove(record), taskCounter = WTFMove(taskCounter)](Expected<Record, Error>&& result) mutable {
+    readRecordFromDisk(existingRecord, [caches = Ref { m_caches }, identifier = m_identifier, recordIdentifier = existingRecord.identifier, record = WTF::move(record), taskCounter = WTF::move(taskCounter)](Expected<Record, Error>&& result) mutable {
         if (!result.has_value())
             return;
 
@@ -534,19 +534,19 @@ void Cache::updateRecordToDisk(RecordInformation& existingRecord, Record&& recor
 
         auto& recordFromDisk = result.value();
         record.requestHeadersGuard = recordFromDisk.requestHeadersGuard;
-        record.request = WTFMove(recordFromDisk.request);
-        record.options = WTFMove(recordFromDisk.options);
-        record.referrer = WTFMove(recordFromDisk.referrer);
+        record.request = WTF::move(recordFromDisk.request);
+        record.options = WTF::move(recordFromDisk.options);
+        record.referrer = WTF::move(recordFromDisk.referrer);
 
         updateVaryInformation(recordInfo, record.request, record.response);
 
-        cache->writeRecordToDisk(recordInfo, WTFMove(record), WTFMove(taskCounter), previousSize);
+        cache->writeRecordToDisk(recordInfo, WTF::move(record), WTF::move(taskCounter), previousSize);
     });
 }
 
 void Cache::readRecordFromDisk(const RecordInformation& record, WTF::Function<void(Expected<Record, Error>&&)>&& callback)
 {
-    m_caches.readRecord(record.key, WTFMove(callback));
+    m_caches.readRecord(record.key, WTF::move(callback));
 }
 
 void Cache::removeRecordFromDisk(const RecordInformation& record)
@@ -625,14 +625,14 @@ static std::optional<WebCore::DOMCacheEngine::Record> decodeDOMCacheRecord(WTF::
     return {{
         0,
         0,
-        WTFMove(*requestHeadersGuard),
-        WTFMove(*request),
-        WTFMove(options),
-        WTFMove(*referrer),
-        WTFMove(*responseHeadersGuard),
-        WTFMove(*response),
+        WTF::move(*requestHeadersGuard),
+        WTF::move(*request),
+        WTF::move(options),
+        WTF::move(*referrer),
+        WTF::move(*responseHeadersGuard),
+        WTF::move(*response),
         { },
-        WTFMove(*responseBodySize)
+        WTF::move(*responseBodySize)
     }};
 }
 
@@ -655,9 +655,9 @@ std::optional<Cache::DecodedRecord> Cache::decodeRecordHeader(const Storage::Rec
         return std::nullopt;
 
     return {{
-        WTFMove(*insertionTime),
-        WTFMove(*size),
-        WTFMove(*record)
+        WTF::move(*insertionTime),
+        WTF::move(*size),
+        WTF::move(*record)
     }};
 }
 
@@ -668,7 +668,7 @@ std::optional<Record> Cache::decode(const Storage::Record& storage)
     if (!result)
         return std::nullopt;
 
-    auto record = WTFMove(result->record);
+    auto record = WTF::move(result->record);
     record.responseBody = WebCore::SharedBuffer::create(storage.body.data(), storage.body.size());
 
     return record;

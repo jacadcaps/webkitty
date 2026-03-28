@@ -307,7 +307,7 @@ void WebProcess::initialize(int sigbit)
 			{
 				if (webpage->_fMediaAdded)
 				{
-					webpage->_fMediaAdded(player, url, info, settings, WTFMove(yieldFunc));
+					webpage->_fMediaAdded(player, url, info, settings, WTF::move(yieldFunc));
 				}
 
 				return;
@@ -382,7 +382,7 @@ void WebProcess::initialize(int sigbit)
 				{
 					// Wrap pElement into a ref - that way, the callback set on webpage holds a ref to the element
 					// This is cause we cannot use RefPtr<Element> in ObjC code
-					webpage->_fMediaSetOverlayCallback(player, pElement, [ref = Ref{*pElement}, cb = WTFMove(overlaycallback)](void *windowPtr, int scrollX, int scrollY, int left, int top, int right, int bottom, int width, int height) {
+					webpage->_fMediaSetOverlayCallback(player, pElement, [ref = Ref{*pElement}, cb = WTF::move(overlaycallback)](void *windowPtr, int scrollX, int scrollY, int left, int top, int right, int bottom, int width, int height) {
 							cb(windowPtr, scrollX, scrollY, left, top, right, bottom, width, height);
 						});
 				}
@@ -584,7 +584,7 @@ void WebProcess::createWebPage(WebCore::PageIdentifier pageID, WebPageCreationPa
 //    auto oldPageID = parameters.oldPageID ? parameters.oldPageID.value() : pageID;
     if (result.isNewEntry) {
         ASSERT(!result.iterator->value);
-        result.iterator->value = WebPage::create(pageID, WTFMove(parameters));
+        result.iterator->value = WebPage::create(pageID, WTF::move(parameters));
 
 		D(dprintf("%s >> %p\n", __PRETTY_FUNCTION__, result.iterator->value));
 
@@ -595,7 +595,7 @@ void WebProcess::createWebPage(WebCore::PageIdentifier pageID, WebPageCreationPa
     }
     else
     {
-//        result.iterator->value->reinitializeWebPage(WTFMove(parameters));
+//        result.iterator->value->reinitializeWebPage(WTF::move(parameters));
 	}
 }
 

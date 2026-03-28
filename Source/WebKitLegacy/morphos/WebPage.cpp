@@ -1168,7 +1168,7 @@ WebPage *kit(WebCore::Page* page)
 
 Ref<WebPage> WebPage::create(WebCore::PageIdentifier pageID, WebPageCreationParameters&& parameters)
 {
-    Ref<WebPage> page = adoptRef(*new WebPage(pageID, WTFMove(parameters)));
+    Ref<WebPage> page = adoptRef(*new WebPage(pageID, WTF::move(parameters)));
     return page;
 }
 
@@ -1247,7 +1247,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 
 //dprintf("%s:%d chromeclient %p\n", __PRETTY_FUNCTION__, __LINE__, pageConfiguration.chromeClient);
 
-	m_page = WebCore::Page::create(WTFMove(pageConfiguration));
+	m_page = WebCore::Page::create(WTF::move(pageConfiguration));
 	storageProvider->setPage(*m_page);
 
 	WebCore::Settings& settings = m_page->settings();
@@ -1413,14 +1413,14 @@ void WebPage::load(const char *url, bool ignoreCaches)
 
     auto* coreFrame = m_mainFrame->coreFrame();
 	WTF::URL baseCoreURL = WTF::URL(WTF::URL(), String::fromUTF8(url));
-	WebCore::ResourceRequest request(WTFMove(baseCoreURL));
+	WebCore::ResourceRequest request(WTF::move(baseCoreURL));
 	
 	if (ignoreCaches)
 		request.setCachePolicy(ResourceRequestCachePolicy::ReloadIgnoringCacheData);
 
     coreFrame->loader().stopForUserCancel();
 	m_pendingNavigationID = navid ++;
-	coreFrame->loader().load(FrameLoadRequest(*coreFrame, WTFMove(request)));
+	coreFrame->loader().load(FrameLoadRequest(*coreFrame, WTF::move(request)));
 	exitFullscreen();
 
 //    coreFrame->loader().urlSelected(baseCoreURL, { }, nullptr, LockHistory::No, LockBackForwardList::No, MaybeSendReferrer, ShouldOpenExternalURLsPolicy::ShouldNotAllow);
@@ -1430,12 +1430,12 @@ void WebPage::loadData(const char *data, size_t length, const char *url)
 {
 	WTF::URL baseURL = url ? WTF::URL(WTF::URL(), WTF::String::fromUTF8(url)) : WTF::aboutBlankURL();
 
-    ResourceRequest request(WTFMove(baseURL));
+    ResourceRequest request(WTF::move(baseURL));
     ResourceResponse response(URL(WTF::aboutBlankURL()), "text/html"_s, length, "UTF-8"_s);
-    SubstituteData substituteData(WebCore::SharedBuffer::create(std::span(data, length)), URL(WTF::aboutBlankURL()), WTFMove(response), SubstituteData::SessionHistoryVisibility::Hidden);
+    SubstituteData substituteData(WebCore::SharedBuffer::create(std::span(data, length)), URL(WTF::aboutBlankURL()), WTF::move(response), SubstituteData::SessionHistoryVisibility::Hidden);
 
 	auto* coreFrame = m_mainFrame->coreFrame();
-    coreFrame->loader().load(FrameLoadRequest(*coreFrame, WTFMove(request), WTFMove(substituteData)));
+    coreFrame->loader().load(FrameLoadRequest(*coreFrame, WTF::move(request), WTF::move(substituteData)));
 	exitFullscreen();
 }
 
@@ -1837,7 +1837,7 @@ void WebPage::setFullscreenElement(WebCore::Element *element, CompletionHandler<
             
         if (_fEnterFullscreen)
         {
-            m_didEnterFullscreen = WTFMove(didEnterFullscreen);
+            m_didEnterFullscreen = WTF::move(didEnterFullscreen);
 
             DFS(dprintf("%s: calling fEnterFullscreen\n", __func__));
             _fEnterFullscreen();
@@ -2104,7 +2104,7 @@ void WebPage::didFailLoad(const WebCore::ResourceError& error)
 
 Ref<DocumentLoader> WebPage::createDocumentLoader(Frame& frame, ResourceRequest&& request, SubstituteData&& substituteData)
 {
-    Ref<WebDocumentLoader> documentLoader = WebDocumentLoader::create(WTFMove(request), WTFMove(substituteData));
+    Ref<WebDocumentLoader> documentLoader = WebDocumentLoader::create(WTF::move(request), WTF::move(substituteData));
 
     if (frame.isMainFrame()) {
         if (m_pendingNavigationID) {
@@ -2114,7 +2114,7 @@ Ref<DocumentLoader> WebPage::createDocumentLoader(Frame& frame, ResourceRequest&
 
 #if 0
         if (m_pendingWebsitePolicies) {
-            WebsitePoliciesData::applyToDocumentLoader(WTFMove(*m_pendingWebsitePolicies), documentLoader);
+            WebsitePoliciesData::applyToDocumentLoader(WTF::move(*m_pendingWebsitePolicies), documentLoader);
             m_pendingWebsitePolicies = WTF::nullopt;
         }
 #endif
@@ -3222,14 +3222,14 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						if (m_dragInside != mouseInside)
 						{
 							if (mouseInside)
-								m_page->dragController().dragEnteredOrUpdated(*localMainFrame, WTFMove(drag));
+								m_page->dragController().dragEnteredOrUpdated(*localMainFrame, WTF::move(drag));
 							else
-								m_page->dragController().dragExited(*localMainFrame, WTFMove(drag));
+								m_page->dragController().dragExited(*localMainFrame, WTF::move(drag));
 							m_dragInside = mouseInside;
 						}
 						else
 						{
-							m_page->dragController().dragEnteredOrUpdated(*localMainFrame, WTFMove(drag));
+							m_page->dragController().dragEnteredOrUpdated(*localMainFrame, WTF::move(drag));
 						}
 
                         D(dprintf("%s: move to %d %d do %d %d\n", __PRETTY_FUNCTION__, adjustedGlobalPosition.x(), adjustedGlobalPosition.y(), m_page->dragController().dragOffset().x(), m_page->dragController().dragOffset().y()));
@@ -4030,7 +4030,7 @@ void WebPage::redo()
 void WebPage::startDrag(WebCore::DragItem&& item, WebCore::DataTransfer& transfer, WebCore::LocalFrame&)
 {
 	m_dragging = true;
-	m_dragImage = WTFMove(item.image);
+	m_dragImage = WTF::move(item.image);
 	m_dragData = transfer.pasteboard().selectionData();
 
 	RefPtr<cairo_surface_t> imageRef = m_dragImage.get();
@@ -4059,7 +4059,7 @@ void WebPage::endDragging(int mouseX, int mouseY, int mouseGlobalX, int mouseGlo
 		// Drop!
 		DragData drag(&m_dragData, adjustedClientPosition, adjustedGlobalPosition, DragOperation::Copy);
 
-		m_page->dragController().performDragOperation(WTFMove(drag));
+		m_page->dragController().performDragOperation(WTF::move(drag));
 		m_page->dragController().dragEnded();
 
 		PlatformMouseEvent event(adjustedClientPosition, adjustedGlobalPosition, WebCore::MouseButton::Left, PlatformEvent::Type::MouseMoved, 0, OptionSet<PlatformEvent::Modifier>(), WallTime::now(), 0, WebCore::SyntheticClickType::NoTap);

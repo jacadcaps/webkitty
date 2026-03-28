@@ -90,7 +90,7 @@ public:
         DecodedRecord(double insertionTime, uint64_t size, WebCore::DOMCacheEngine::Record&& record)
             : insertionTime(insertionTime)
             , size(size)
-            , record(WTFMove(record))
+            , record(WTF::move(record))
         { }
 
         double insertionTime { 0 };

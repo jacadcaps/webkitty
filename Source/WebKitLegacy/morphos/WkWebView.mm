@@ -193,7 +193,7 @@ namespace  {
 	if ((self = [super init]))
 	{
         DMEDIA(dprintf("%s: %p\n", __PRETTY_FUNCTION__, self));
-		_yieldFunction = WTFMove(yield);
+		_yieldFunction = WTF::move(yield);
 		_url = [url retain];
 		_pageURL = [pageurl retain];
 		_playerRef = playerRef;
@@ -1620,7 +1620,7 @@ namespace  {
 		_overlayCallback(nullptr, 0, 0, 0, 0, 0, 0, 0, 0);
 	}
 	
-	_overlayCallback = WTFMove(cb);
+	_overlayCallback = WTF::move(cb);
 	_overlayElement = element;
 	
 	[_overlayTimer invalidate];
@@ -2281,7 +2281,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 		auto identifier = WebCore::PageIdentifier::generate();
 
 		WebKit::WebPageCreationParameters parameters;
-		webProcess.createWebPage(identifier, WTFMove(parameters));
+		webProcess.createWebPage(identifier, WTF::move(parameters));
 		[_private setPage:webProcess.webPage(identifier)];
 
 		if (![_private page])
@@ -3035,7 +3035,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			if (clientDelegate)
 			{
 				auto uurl = url.host().toString().utf8();
-				[clientDelegate webView:self changedFavIcon:[WkFavIconPrivate cacheIconWithData:WTFMove(data) forHost:[OBString stringWithUTF8String:uurl.data()]]];
+				[clientDelegate webView:self changedFavIcon:[WkFavIconPrivate cacheIconWithData:WTF::move(data) forHost:[OBString stringWithUTF8String:uurl.data()]]];
 			}
 		};
 		
@@ -3080,7 +3080,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
             {
                 handler = [[WkMediaLoadResponseHandlerPrivate alloc] initWithPlayer:player
                     url:[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]] pageURL:[self URL]
-                    info:info yieldCallback:WTFMove(yieldFunc)];
+                    info:info yieldCallback:WTF::move(yieldFunc)];
                 if (handler)
                 {
                     [privateObject playerAdded:handler withSettings:settings];
@@ -3105,7 +3105,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			int scrollX, int scrollY, int left, int top, int right, int bottom, int width, int height)> && callback) {
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
-			[privateObject setOverlayCallback:player element:element callback:WTFMove(callback)];
+			[privateObject setOverlayCallback:player element:element callback:WTF::move(callback)];
 		};
 		
 		webPage->_fMediaUpdateOverlayCallback = [self](void *player) {
@@ -3179,7 +3179,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			id<WkNotificationDelegate> delegate = [privateObject notificationDelegate];
 			if (delegate)
 			{
-				[delegate webView:self wantsToDisplayNotification:[[[WkNotificationPrivate alloc] initWithNotification:WTFMove(notification)] autorelease]];
+				[delegate webView:self wantsToDisplayNotification:[[[WkNotificationPrivate alloc] initWithNotification:WTF::move(notification)] autorelease]];
 			}
 		};
 
@@ -3189,7 +3189,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			id<WkNotificationDelegate> delegate = [privateObject notificationDelegate];
 			if (delegate)
 			{
-				id notify = [WkNotificationPrivate notificationForNotification:WTFMove(notification)];
+				id notify = [WkNotificationPrivate notificationForNotification:WTF::move(notification)];
 				if (notify)
 				{
 					[notify cancel];

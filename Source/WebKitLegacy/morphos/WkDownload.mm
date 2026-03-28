@@ -97,7 +97,7 @@ void WebDownload::initialize(_WkDownload *outer, OBURL *url)
 	{
 		WTF::URL wurl(WTF::URL(), String::fromUTF8([[url absoluteString] cString]));
 		D(dprintf("initialize %s context %p\n", [[url absoluteString] cString], WebKit::WebProcess::singleton().networkingContext()));
-		m_download->init(*this, WTFMove(wurl), WebKit::WebProcess::singleton().networkingContext());
+		m_download->init(*this, WTF::move(wurl), WebKit::WebProcess::singleton().networkingContext());
 	}
 }
 
@@ -623,7 +623,7 @@ void WebDownload::setUserPassword(const String& user, const String &password)
             @synchronized (self) {
                 auto [filePath, fileHandle] = FileSystem::openTemporaryFileAsync("download"_s);
                 _downloadPath = filePath;
-                downloadFileHandle = WTFMove(fileHandle);
+                downloadFileHandle = WTF::move(fileHandle);
             }
 
             if (downloadFileHandle)
@@ -830,7 +830,7 @@ void WebDownload::setUserPassword(const String& user, const String &password)
             @synchronized (self) {
                 auto [filePath, fileHandle] = FileSystem::openTemporaryFileAsync("download"_s);
                 _downloadPath = filePath;
-                downloadFileHandle = WTFMove(fileHandle);
+                downloadFileHandle = WTF::move(fileHandle);
             }
 
             if (downloadFileHandle)

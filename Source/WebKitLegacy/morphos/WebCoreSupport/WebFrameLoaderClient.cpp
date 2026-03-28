@@ -103,7 +103,7 @@ void WebFrameLoaderClient::setHasFrameSpecificStorageAccess(FrameSpecificStorage
 {
     ASSERT(!m_frameSpecificStorageAccessIdentifier);
 
-    m_frameSpecificStorageAccessIdentifier = WTFMove(frameSpecificStorageAccessIdentifier);
+    m_frameSpecificStorageAccessIdentifier = WTF::move(frameSpecificStorageAccessIdentifier);
 }
 #endif
 
@@ -649,7 +649,7 @@ void WebFrameLoaderClient::applyToDocumentLoader(WebsitePoliciesData&& websitePo
     if (!documentLoader)
         return;
 
-    WebsitePoliciesData::applyToDocumentLoader(WTFMove(websitePolicies), *documentLoader);
+    WebsitePoliciesData::applyToDocumentLoader(WTF::move(websitePolicies), *documentLoader);
 #endif
 }
 
@@ -1079,7 +1079,7 @@ void WebFrameLoaderClient::prepareForDataSourceReplacement()
 
 Ref<DocumentLoader> WebFrameLoaderClient::createDocumentLoader(ResourceRequest&& request, SubstituteData&& substituteData)
 {
-    return m_frame->page()->createDocumentLoader(*m_frame->coreFrame(), WTFMove(request), WTFMove(substituteData));
+    return m_frame->page()->createDocumentLoader(*m_frame->coreFrame(), WTF::move(request), WTF::move(substituteData));
 }
 
 void WebFrameLoaderClient::updateCachedDocumentLoader(WebCore::DocumentLoader& loader)
@@ -1336,7 +1336,7 @@ Ref<FrameNetworkingContext> WebFrameLoaderClient::createNetworkingContext()
 void WebFrameLoaderClient::contentFilterDidBlockLoad(WebCore::ContentFilterUnblockHandler unblockHandler)
 {
     if (!unblockHandler.needsUIProcess()) {
-        m_frame->coreFrame()->loader().policyChecker().setContentFilterUnblockHandler(WTFMove(unblockHandler));
+        m_frame->coreFrame()->loader().policyChecker().setContentFilterUnblockHandler(WTF::move(unblockHandler));
         return;
     }
 
@@ -1446,7 +1446,7 @@ void WebFrameLoaderClient::finishedLoadingIcon(WebCore::FragmentedSharedBuffer* 
 	{
 		WebPage* webPage = m_frame->page();
 		if (webPage && webPage->_fFavIconLoaded)
-			webPage->_fFavIconLoaded(WTFMove(data), documentLoader->url());
+			webPage->_fFavIconLoaded(WTF::move(data), documentLoader->url());
 	}
 }
 

@@ -223,7 +223,7 @@ HLSStream::HLSStream(const URL &baseURL, const String &sdata)
 				chunk.m_url = URL(baseURL, line).string();
 				if (keyURL.length() > 0)
 					chunk.m_encryption.m_keyURL = URL(baseURL, keyURL).string();
-				m_chunks.append(WTFMove(chunk));
+				m_chunks.append(WTF::move(chunk));
 				
 				duration = m_targetDuration; // reset
 			}
@@ -467,7 +467,7 @@ void AcinerellaNetworkBufferHLS::masterPlaylistReceived(bool succ)
 			HLSMasterPlaylistParser parser(m_baseURL, String::fromUTF8(buffer->span()));
 
 			m_hasMasterList = true;
-			m_streams = WTFMove(parser.streams());
+			m_streams = WTF::move(parser.streams());
 
 			if (m_streams.size())
 			{

@@ -51,7 +51,7 @@ public:
     static bool platformCompare(const ResourceError& a, const ResourceError& b);
 
     std::optional<CertificateInfo> certificateInfo() const { return m_certificateInfo; }
-    void setCertificateInfo(CertificateInfo&&info) { m_certificateInfo = WTFMove(info); };
+    void setCertificateInfo(CertificateInfo&&info) { m_certificateInfo = WTF::move(info); };
 
 private:
     friend class ResourceErrorBase;

@@ -50,39 +50,39 @@ std::optional<WebKit::NetworkCache::Key> Coder<WebKit::NetworkCache::Key>::decod
     decoder >> partition;
     if (!partition)
         return std::nullopt;
-    key.m_partition = WTFMove(*partition);
+    key.m_partition = WTF::move(*partition);
 
     std::optional<String> type;
     decoder >> type;
     if (!type)
         return std::nullopt;
-    key.m_type = WTFMove(*type);
+    key.m_type = WTF::move(*type);
 
     std::optional<String> identifier;
     decoder >> identifier;
     if (!identifier)
         return std::nullopt;
-    key.m_identifier = WTFMove(*identifier);
+    key.m_identifier = WTF::move(*identifier);
 
     std::optional<String> range;
     decoder >> range;
     if (!range)
         return std::nullopt;
-    key.m_range = WTFMove(*range);
+    key.m_range = WTF::move(*range);
 
     std::optional<WebKit::NetworkCache::Key::HashType> hash;
     decoder >> hash;
     if (!hash)
         return std::nullopt;
-    key.m_hash = WTFMove(*hash);
+    key.m_hash = WTF::move(*hash);
 
     std::optional<WebKit::NetworkCache::Key::HashType> partitionHash;
     decoder >> partitionHash;
     if (!partitionHash)
         return std::nullopt;
-    key.m_partitionHash = WTFMove(*partitionHash);
+    key.m_partitionHash = WTF::move(*partitionHash);
 
-    return { WTFMove(key) };
+    return { WTF::move(key) };
 }
 
 #if ENABLE(NETWORK_CACHE_SPECULATIVE_REVALIDATION)
@@ -127,7 +127,7 @@ std::optional<WebKit::NetworkCache::SubresourceInfo> Coder<WebKit::NetworkCache:
         return std::nullopt;
 
     if (*isTransient)
-        return WebKit::NetworkCache::SubresourceInfo(WTFMove(*key), *lastSeen, *firstSeen);
+        return WebKit::NetworkCache::SubresourceInfo(WTF::move(*key), *lastSeen, *firstSeen);
 
     std::optional<bool> isSameSite;
     decoder >> isSameSite;
@@ -154,7 +154,7 @@ std::optional<WebKit::NetworkCache::SubresourceInfo> Coder<WebKit::NetworkCache:
     if (!priority)
         return std::nullopt;
 
-    return WebKit::NetworkCache::SubresourceInfo(WTFMove(*key), *lastSeen, *firstSeen, *isSameSite, *isAppInitiated, WTFMove(*firstPartyForCookies), WTFMove(*requestHeaders), *priority);
+    return WebKit::NetworkCache::SubresourceInfo(WTF::move(*key), *lastSeen, *firstSeen, *isSameSite, *isAppInitiated, WTF::move(*firstPartyForCookies), WTF::move(*requestHeaders), *priority);
 }
 #endif // ENABLE(NETWORK_CACHE_SPECULATIVE_REVALIDATION)
 

@@ -789,7 +789,7 @@ void MediaSourceBufferPrivateMorphOS::dispatch(Function<void ()>&& function)
 {
 	ASSERT(isMainThread());
 	ASSERT(!m_queue.killed() && m_thread);
-	m_queue.append(makeUnique<Function<void ()>>(WTFMove(function)));
+	m_queue.append(makeUnique<Function<void ()>>(WTF::move(function)));
 }
 
 void MediaSourceBufferPrivateMorphOS::performTerminate()

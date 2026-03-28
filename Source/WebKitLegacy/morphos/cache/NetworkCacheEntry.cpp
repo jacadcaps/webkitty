@@ -44,7 +44,7 @@ Entry::Entry(const Key& key, const WebCore::ResourceResponse& response, PrivateR
     , m_timeStamp(WallTime::now())
     , m_response(response)
     , m_varyingRequestHeaders(varyingRequestHeaders)
-    , m_buffer(WTFMove(buffer))
+    , m_buffer(WTF::move(buffer))
     , m_privateRelayed(privateRelayed)
 {
     ASSERT(m_key.type() == "Resource"_s);
@@ -122,7 +122,7 @@ std::unique_ptr<Entry> Entry::decodeStorageRecord(const Storage::Record& storage
     decoder >> response;
     if (!response)
         return nullptr;
-    entry->m_response = WTFMove(*response);
+    entry->m_response = WTF::move(*response);
     entry->m_response.setSource(WebCore::ResourceResponse::Source::DiskCache);
 
     std::optional<bool> hasVaryingRequestHeaders;
@@ -135,7 +135,7 @@ std::unique_ptr<Entry> Entry::decodeStorageRecord(const Storage::Record& storage
         decoder >> varyingRequestHeaders;
         if (!varyingRequestHeaders)
             return nullptr;
-        entry->m_varyingRequestHeaders = WTFMove(*varyingRequestHeaders);
+        entry->m_varyingRequestHeaders = WTF::move(*varyingRequestHeaders);
     }
 
     std::optional<uint8_t> isRedirectAndPrivateRelayed;
@@ -152,14 +152,14 @@ std::unique_ptr<Entry> Entry::decodeStorageRecord(const Storage::Record& storage
         decoder >> resourceRequest;
         if (!resourceRequest)
             return nullptr;
-        entry->m_redirectRequest = WTFMove(*resourceRequest);
+        entry->m_redirectRequest = WTF::move(*resourceRequest);
     }
 
     std::optional<std::optional<Seconds>> maxAgeCap;
     decoder >> maxAgeCap;
     if (!maxAgeCap)
         return nullptr;
-    entry->m_maxAgeCap = WTFMove(*maxAgeCap);
+    entry->m_maxAgeCap = WTF::move(*maxAgeCap);
 
     if (!decoder.verifyChecksum()) {
         LOG(NetworkCache, "(NetworkProcess) checksum verification failure\n");
@@ -192,7 +192,7 @@ void Entry::initializeShareableResourceHandleFromStorageRecord() const
     if (!shareableResource)
         return;
     if (auto handle = shareableResource->createHandle())
-        m_shareableResourceHandle = WTFMove(*handle);
+        m_shareableResourceHandle = WTF::move(*handle);
 }
 #endif
 

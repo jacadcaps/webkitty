@@ -61,60 +61,60 @@ std::optional<SubresourceInfo> SubresourceInfo::decode(WTF::Persistence::Decoder
     decoder >> key;
     if (!key)
         return std::nullopt;
-    info.m_key = WTFMove(*key);
+    info.m_key = WTF::move(*key);
 
     std::optional<WallTime> lastSeen;
     decoder >> lastSeen;
     if (!lastSeen)
         return std::nullopt;
-    info.m_lastSeen = WTFMove(*lastSeen);
+    info.m_lastSeen = WTF::move(*lastSeen);
 
     std::optional<WallTime> firstSeen;
     decoder >> firstSeen;
     if (!firstSeen)
         return std::nullopt;
-    info.m_firstSeen = WTFMove(*firstSeen);
+    info.m_firstSeen = WTF::move(*firstSeen);
 
     std::optional<bool> isTransient;
     decoder >> isTransient;
     if (!isTransient)
         return std::nullopt;
-    info.m_isTransient = WTFMove(*isTransient);
+    info.m_isTransient = WTF::move(*isTransient);
 
     if (info.m_isTransient)
-        return { WTFMove(info) };
+        return { WTF::move(info) };
 
     std::optional<bool> isSameSite;
     decoder >> isSameSite;
     if (!isSameSite)
         return std::nullopt;
-    info.m_isSameSite = WTFMove(*isSameSite);
+    info.m_isSameSite = WTF::move(*isSameSite);
 
     std::optional<bool> isAppInitiated;
     decoder >> isAppInitiated;
     if (!isAppInitiated)
         return std::nullopt;
-    info.m_isAppInitiated = WTFMove(*isAppInitiated);
+    info.m_isAppInitiated = WTF::move(*isAppInitiated);
 
     std::optional<URL> firstPartyForCookies;
     decoder >> firstPartyForCookies;
     if (!firstPartyForCookies)
         return std::nullopt;
-    info.m_firstPartyForCookies = WTFMove(*firstPartyForCookies);
+    info.m_firstPartyForCookies = WTF::move(*firstPartyForCookies);
 
     std::optional<WebCore::HTTPHeaderMap> requestHeaders;
     decoder >> requestHeaders;
     if (!requestHeaders)
         return std::nullopt;
-    info.m_requestHeaders = WTFMove(*requestHeaders);
+    info.m_requestHeaders = WTF::move(*requestHeaders);
 
     std::optional<WebCore::ResourceLoadPriority> priority;
     decoder >> priority;
     if (!priority)
         return std::nullopt;
-    info.m_priority = WTFMove(*priority);
+    info.m_priority = WTF::move(*priority);
     
-    return { WTFMove(info) };
+    return { WTF::move(info) };
 }
 
 bool SubresourceInfo::isFirstParty() const
@@ -142,7 +142,7 @@ std::unique_ptr<SubresourcesEntry> SubresourcesEntry::decodeStorageRecord(const 
     decoder >> subresources;
     if (!subresources)
         return nullptr;
-    entry->m_subresources = WTFMove(*subresources);
+    entry->m_subresources = WTF::move(*subresources);
 
     if (!decoder.verifyChecksum()) {
         LOG(NetworkCache, "(NetworkProcess) checksum verification failure\n");
@@ -206,7 +206,7 @@ static Vector<SubresourceInfo> makeSubresourceInfoVector(const Vector<std::uniqu
 }
 
 SubresourcesEntry::SubresourcesEntry(Key&& key, const Vector<std::unique_ptr<SubresourceLoad>>& subresourceLoads)
-    : m_key(WTFMove(key))
+    : m_key(WTF::move(key))
     , m_timeStamp(WallTime::now())
     , m_subresources(makeSubresourceInfoVector(subresourceLoads, nullptr))
 {

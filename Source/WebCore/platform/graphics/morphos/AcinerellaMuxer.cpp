@@ -25,7 +25,7 @@ namespace Acinerella {
 void AcinerellaMuxedBuffer::setSinkFunction(Function<bool(int decoderIndex, int left, uint32_t bytesInBuffer)>&& sinkFunction)
 {
 	auto lock = Locker(m_lock);
-	m_sinkFunction = WTFMove(sinkFunction);
+	m_sinkFunction = WTF::move(sinkFunction);
 }
 
 void AcinerellaMuxedBuffer::setDecoderMask(uint32_t mask, uint32_t audioMask)

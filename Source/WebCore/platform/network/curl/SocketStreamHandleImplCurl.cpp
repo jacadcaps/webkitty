@@ -75,7 +75,7 @@ std::optional<size_t> SocketStreamHandleImpl::platformSendInternal(std::span<con
     auto buffer = makeUniqueArray<uint8_t>(data.size());
     memcpy(buffer.get(), data.data(), data.size());
 
-    m_scheduler.send(m_streamID, WTFMove(buffer), data.size());
+    m_scheduler.send(m_streamID, WTF::move(buffer), data.size());
     return data.size();
 }
 

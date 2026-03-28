@@ -74,7 +74,7 @@ public:
     void setCanSmartReplace(bool canSmartReplace) { m_canSmartReplace = canSmartReplace; }
     bool canSmartReplace() const { return m_canSmartReplace; }
 
-    void setCustomData(Ref<SharedBuffer>&& buffer) { m_customData = WTFMove(buffer); }
+    void setCustomData(Ref<SharedBuffer>&& buffer) { m_customData = WTF::move(buffer); }
     SharedBuffer* customData() const { return m_customData.get(); }
     bool hasCustomData() const { return !!m_customData; }
     void clearCustomData() { m_customData = nullptr; }

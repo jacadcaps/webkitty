@@ -33,7 +33,7 @@ auto SharedMemory::createHandle(Protection protection) -> std::optional<Handle>
 {
     MorphOSHandle handle;
     handle.m_shared = m_handle.m_shared;
-    return { Handle(WTFMove(handle), m_size) };
+    return { Handle(WTF::move(handle), m_size) };
 }
 
 RefPtr<SharedMemory> SharedMemory::map(Handle&& handle, Protection protection)

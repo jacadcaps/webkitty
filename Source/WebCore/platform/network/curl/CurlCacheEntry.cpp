@@ -143,7 +143,7 @@ bool CurlCacheEntry::readCachedData(ResourceHandle* job)
     }
 
     if (auto bufferSize = buffer->size())
-        job->getInternal()->client()->didReceiveBuffer(job, SharedBuffer::create(WTFMove(*buffer)), bufferSize);
+        job->getInternal()->client()->didReceiveBuffer(job, SharedBuffer::create(WTF::move(*buffer)), bufferSize);
 
     return true;
 }
@@ -177,7 +177,7 @@ bool CurlCacheEntry::loadResponseHeaders()
         return false;
     }
 
-    String headerContent = String::adopt(WTFMove(*buffer));
+    String headerContent = String::adopt(WTF::move(*buffer));
     Vector<String> headerFields = headerContent.split('\n');
 
     Vector<String>::const_iterator it = headerFields.begin();
@@ -224,7 +224,7 @@ void CurlCacheEntry::setResponseFromCachedHeaders(ResourceResponse& response)
             mimeType = MIMETypeRegistry::mimeTypeForExtension(extension);
         }
     }
-    response.setMimeType(WTFMove(mimeType));
+    response.setMimeType(WTF::move(mimeType));
     response.setTextEncodingName(extractCharsetFromMediaType(response.httpHeaderField(HTTPHeaderName::ContentType)).toString());
 }
 

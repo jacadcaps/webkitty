@@ -12,7 +12,7 @@ static WTF::HashMap<WTF::UUID, id> _notificationLookup;
 {
 	if ((self = [super init]))
 	{
-		_notification = WTFMove(notification);
+		_notification = WTF::move(notification);
 		_notificationLookup.add(_notification->notificationID, self);
 	}
 	

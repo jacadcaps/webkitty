@@ -108,7 +108,7 @@ void CurlResourceHandleDelegate::curlDidReceiveResponse(CurlRequest& request, Cu
     m_response = ResourceResponse(receivedResponse);
 
     updateNetworkLoadMetrics(receivedResponse.networkLoadMetrics);
-    m_response.setDeprecatedNetworkLoadMetrics(Box<NetworkLoadMetrics>::create(WTFMove(receivedResponse.networkLoadMetrics)));
+    m_response.setDeprecatedNetworkLoadMetrics(Box<NetworkLoadMetrics>::create(WTF::move(receivedResponse.networkLoadMetrics)));
 
     handleCookieHeaders(d(), request.resourceRequest(), receivedResponse);
 
@@ -167,7 +167,7 @@ void CurlResourceHandleDelegate::curlDidComplete(CurlRequest&, NetworkLoadMetric
     updateNetworkLoadMetrics(metrics);
 
     CurlCacheManager::singleton().didFinishLoading(m_handle);
-    client()->didFinishLoading(&m_handle, WTFMove(metrics));
+    client()->didFinishLoading(&m_handle, WTF::move(metrics));
 }
 
 void CurlResourceHandleDelegate::curlDidFailWithError(CurlRequest&, ResourceError&& resourceError, CertificateInfo&&)

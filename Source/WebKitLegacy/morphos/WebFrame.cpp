@@ -171,7 +171,7 @@ void WebFrame::invalidate()
 {
     m_coreFrame = 0;
 
-    auto willSubmitFormCompletionHandlers = WTFMove(m_willSubmitFormCompletionHandlers);
+    auto willSubmitFormCompletionHandlers = WTF::move(m_willSubmitFormCompletionHandlers);
     for (auto& completionHandler : willSubmitFormCompletionHandlers.values())
         completionHandler();
 
@@ -369,7 +369,7 @@ Ref<API::Array> WebFrame::childFrames()
         vector.uncheckedAppend(webFrame);
     }
 
-    return API::Array::create(WTFMove(vector));
+    return API::Array::create(WTF::move(vector));
 }
 #endif
 
@@ -715,7 +715,7 @@ RefPtr<ShareableBitmap> WebFrame::createSelectionSnapshot() const
     auto graphicsContext = sharedSnapshot->createGraphicsContext();
     float deviceScaleFactor = coreFrame()->page()->deviceScaleFactor();
     graphicsContext->scale(deviceScaleFactor);
-    graphicsContext->drawConsumingImageBuffer(WTFMove(snapshot), FloatPoint());
+    graphicsContext->drawConsumingImageBuffer(WTF::move(snapshot), FloatPoint());
 
     return sharedSnapshot;
 }

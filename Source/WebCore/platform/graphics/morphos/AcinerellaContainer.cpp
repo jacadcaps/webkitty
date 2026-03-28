@@ -555,7 +555,7 @@ void Acinerella::dispatch(Function<void ()>&& function)
 {
 	ASSERT(isMainThread());
 	ASSERT(!m_queue.killed() && m_thread);
-	m_queue.append(makeUnique<Function<void ()>>(WTFMove(function)));
+	m_queue.append(makeUnique<Function<void ()>>(WTF::move(function)));
 }
 
 void Acinerella::performTerminate()
@@ -754,7 +754,7 @@ bool Acinerella::initialize()
 							quality.m_bitRate = info.m_bandwidth;
 							quality.m_codecs = info.m_codecs;
 							quality.m_url = info.m_url;
-							minfo.m_hlsStreams.append(WTFMove(quality));
+							minfo.m_hlsStreams.append(WTF::move(quality));
 						}
 						minfo.m_selectedHLSStreamURL = hls->selectedStream().m_url;
 					}

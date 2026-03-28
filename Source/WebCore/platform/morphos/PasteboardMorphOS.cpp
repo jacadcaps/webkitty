@@ -56,11 +56,11 @@ enum ClipboardDataType {
 std::unique_ptr<Pasteboard> Pasteboard::createForCopyAndPaste(std::unique_ptr<PasteboardContext>&& context)
 {
     D(dprintf("%s:\n", __PRETTY_FUNCTION__));
-    return std::make_unique<Pasteboard>(WTFMove(context), "CLIPBOARD"_s);
+    return std::make_unique<Pasteboard>(WTF::move(context), "CLIPBOARD"_s);
 }
 
 Pasteboard::Pasteboard(std::unique_ptr<PasteboardContext>&& context, const String& name)
-	: m_context(WTFMove(context))
+	: m_context(WTF::move(context))
     , m_selectionData(SelectionData())
     , m_name(name)
 {
@@ -68,21 +68,21 @@ Pasteboard::Pasteboard(std::unique_ptr<PasteboardContext>&& context, const Strin
 }
 
 Pasteboard::Pasteboard(std::unique_ptr<PasteboardContext>&& context, SelectionData&selectionData)
-	: m_context(WTFMove(context))
+	: m_context(WTF::move(context))
     , m_selectionData(selectionData)
 {
 
 }
 
 Pasteboard::Pasteboard(std::unique_ptr<PasteboardContext>&& context, SelectionData&&selectionData)
-	: m_context(WTFMove(context))
-    , m_selectionData(WTFMove(selectionData))
+	: m_context(WTF::move(context))
+    , m_selectionData(WTF::move(selectionData))
 {
 
 }
 
 Pasteboard::Pasteboard(std::unique_ptr<PasteboardContext>&& context)
-    : m_context(WTFMove(context))
+    : m_context(WTF::move(context))
 {
 }
 
@@ -409,7 +409,7 @@ void Pasteboard::setDragImage(DragImage, const IntPoint&)
 
 std::unique_ptr<Pasteboard> Pasteboard::createForDragAndDrop(std::unique_ptr<PasteboardContext>&&context)
 {
-    return std::make_unique<Pasteboard>(WTFMove(context), SelectionData());
+    return std::make_unique<Pasteboard>(WTF::move(context), SelectionData());
 }
 
 std::unique_ptr<Pasteboard> Pasteboard::create(const DragData& dragData)

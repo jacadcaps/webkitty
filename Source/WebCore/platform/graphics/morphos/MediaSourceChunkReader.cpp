@@ -43,7 +43,7 @@ namespace WebCore {
 
 void MediaSourceChunkReaderDataProvider::initialize(Function<void(void)>&& underrun)
 {
-    m_onDataUnderrun = WTFMove(underrun);
+    m_onDataUnderrun = WTF::move(underrun);
 }
 
 void MediaSourceChunkReaderDataProvider::push(Ref<SharedBuffer>&& buffer, MediaSourceChunkReaderDataProvider::ChunkType type)
@@ -240,7 +240,7 @@ Ref<MediaSourceChunkReader::DecodePromise> MediaSourceChunkReader::decodeAsync(R
         return MediaSourceChunkReader::DecodePromise::createAndReject();
 
     WorkQueue& q = *m_workQueue.get();
-    return invokeAsync(q, [buffer = WTFMove(buffer), protectedThis = Ref{*this}, this] () mutable {
+    return invokeAsync(q, [buffer = WTF::move(buffer), protectedThis = Ref{*this}, this] () mutable {
 
         m_decodeAppendCount ++;
 
@@ -268,7 +268,7 @@ Ref<MediaSourceChunkReader::DecodePromise> MediaSourceChunkReader::decodeAsync(R
 
             if (tracks > 0)
             {
-                m_dataProvider.push(WTFMove(buffer));
+                m_dataProvider.push(WTF::move(buffer));
                 m_numStreamInfo = tracks;
                 m_initializationDone = true;
                 updateMetadata();
@@ -309,7 +309,7 @@ Ref<MediaSourceChunkReader::DecodePromise> MediaSourceChunkReader::decodeAsync(R
                 if (m_acinerella)
                 {
                     m_dataProvider.push(SharedBuffer::create()); // used to fool read code in case there's no pending buffers
-                    m_dataProvider.push(WTFMove(buffer), MediaSourceChunkReaderDataProvider::ChunkType::ReInitialization);
+                    m_dataProvider.push(WTF::move(buffer), MediaSourceChunkReaderDataProvider::ChunkType::ReInitialization);
                     decodeAllMediaSamples(); // pull all the pending data until previous acinerella gets an EOF
                     DSAMPLES(dprintf("%s: decoded until the end of previous package\n", __PRETTY_FUNCTION__));
                     m_acinerella = nullptr;
@@ -319,7 +319,7 @@ Ref<MediaSourceChunkReader::DecodePromise> MediaSourceChunkReader::decodeAsync(R
             }
 
             DSAMPLES(dprintf("%s: received buffer size %ld\n", __PRETTY_FUNCTION__, buffer->size()));
-            m_dataProvider.push(WTFMove(buffer));
+            m_dataProvider.push(WTF::move(buffer));
             if (initialize() && decodeAllMediaSamples())
                 return MediaSourceChunkReader::DecodePromise::createAndResolve(DecodeResult::Samples);
             return MediaSourceChunkReader::DecodePromise::createAndReject();
@@ -353,7 +353,7 @@ WebCore::SourceBufferPrivateClient::InitializationSegment MediaSourceChunkReader
                 WebCore::SourceBufferPrivateClient::InitializationSegment::VideoTrackInformation videoTrackInformation;
                 videoTrackInformation.track = m_trackFactory.videoTrack(i);
                 videoTrackInformation.description = MediaDescriptionMorphOS::createVideoWithCodec(String::fromUTF8(info.codecName));
-                initializationSegment.videoTracks.append(WTFMove(videoTrackInformation));
+                initializationSegment.videoTracks.append(WTF::move(videoTrackInformation));
             }
             break;
             
@@ -362,7 +362,7 @@ WebCore::SourceBufferPrivateClient::InitializationSegment MediaSourceChunkReader
                 WebCore::SourceBufferPrivateClient::InitializationSegment::AudioTrackInformation audioTrackInformation;
                 audioTrackInformation.track = m_trackFactory.audioTrack(i);
                 audioTrackInformation.description = MediaDescriptionMorphOS::createAudioWithCodec(String::fromUTF8(info.codecName));
-                initializationSegment.audioTracks.append(WTFMove(audioTrackInformation));
+                initializationSegment.audioTracks.append(WTF::move(audioTrackInformation));
             }
             break;
 

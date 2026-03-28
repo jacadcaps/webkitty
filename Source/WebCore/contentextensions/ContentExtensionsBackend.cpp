@@ -283,7 +283,7 @@ ContentRuleListResults ContentExtensionsBackend::processContentRuleListsForLoad(
         ContentRuleListResults::Result result;
         results.summary.blockedLoad = true;
         result.blockedLoad = true;
-        results.results.append({ "x-morphos-blocker"_s, WTFMove(result) });
+        results.results.append({ "x-morphos-blocker"_s, WTF::move(result) });
     }
     else
     {

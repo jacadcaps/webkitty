@@ -32,7 +32,7 @@ namespace WebKit {
 using namespace WebCore;
 
 WebDocumentLoader::WebDocumentLoader(ResourceRequest&& request, SubstituteData&& substituteData)
-    : DocumentLoader(WTFMove(request), WTFMove(substituteData))
+    : DocumentLoader(WTF::move(request), WTF::move(substituteData))
     , m_navigationID(0)
 {
 }

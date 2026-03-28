@@ -255,7 +255,7 @@ public:
 				request.addHTTPHeaderField(HTTPHeaderName::Cookie, cookieHeaderField);
 		}
 
-		auto curlRequest = CurlRequest::create(WTFMove(request), *this);
+		auto curlRequest = CurlRequest::create(WTF::move(request), *this);
 		return curlRequest;
 	}
 
@@ -338,7 +338,7 @@ public:
 				bool crossOrigin = !protocolHostAndPortAreEqual(m_request.url(), newURL);
 
 				ResourceRequest newRequest = m_request;
-				newRequest.setURL(WTFMove(newURL));
+				newRequest.setURL(WTF::move(newURL));
 
 				if (shouldRedirectAsGET(newRequest, crossOrigin)) {
 					newRequest.setHTTPMethod("GET"_s);
@@ -380,7 +380,7 @@ public:
 				{
 					auto lock = Locker(m_bufferLock);
 					m_bufferSize += buffer->size();
-					m_buffer.append(WTFMove(buffer));
+					m_buffer.append(WTF::move(buffer));
 
 					if (m_bufferSize > m_readAhead && !m_isPaused)
 					{
@@ -662,7 +662,7 @@ class AcinerellaNetworkFileRequestInternal : public AcinerellaNetworkFileRequest
 {
 public:
 	AcinerellaNetworkFileRequestInternal(const String &url, Function<void(bool)>&& onFinished)
-		: AcinerellaNetworkFileRequest(url, WTFMove(onFinished))
+		: AcinerellaNetworkFileRequest(url, WTF::move(onFinished))
 	{
 		m_request = ResourceRequest(String(m_url));
 		m_request.setCachePolicy(ResourceRequestCachePolicy::DoNotUseAnyCache);
@@ -680,7 +680,7 @@ public:
 	}
 
 	AcinerellaNetworkFileRequestInternal(const String &url, Function<void(RefPtr<SharedBuffer>)>&& onFinished)
-		: AcinerellaNetworkFileRequest(url, WTFMove(onFinished))
+		: AcinerellaNetworkFileRequest(url, WTF::move(onFinished))
 	{
 		m_request = ResourceRequest(String(m_url));
 		m_request.setCachePolicy(ResourceRequestCachePolicy::DoNotUseAnyCache);
@@ -739,7 +739,7 @@ public:
 				request.addHTTPHeaderField(HTTPHeaderName::Cookie, cookieHeaderField);
 		}
 
-		auto curlRequest = CurlRequest::create(WTFMove(request), *this);
+		auto curlRequest = CurlRequest::create(WTF::move(request), *this);
 		return curlRequest;
 	}
 
@@ -790,7 +790,7 @@ public:
 				bool crossOrigin = !protocolHostAndPortAreEqual(m_request.url(), newURL);
 
 				ResourceRequest newRequest = m_request;
-				newRequest.setURL(WTFMove(newURL));
+				newRequest.setURL(WTF::move(newURL));
 
 				if (shouldRedirectAsGET(newRequest, crossOrigin)) {
 					newRequest.setHTTPMethod("GET"_s);
@@ -871,12 +871,12 @@ protected:
 
 RefPtr<AcinerellaNetworkFileRequest> AcinerellaNetworkFileRequest::create(const String &url, Function<void(bool)>&& onFinished)
 {
-	return adoptRef(*new AcinerellaNetworkFileRequestInternal(url, WTFMove(onFinished)));
+	return adoptRef(*new AcinerellaNetworkFileRequestInternal(url, WTF::move(onFinished)));
 }
 
 RefPtr<AcinerellaNetworkFileRequest> AcinerellaNetworkFileRequest::createRefResult(const String &url, Function<void(RefPtr<SharedBuffer>)>&& onFinished)
 {
-	return adoptRef(*new AcinerellaNetworkFileRequestInternal(url, WTFMove(onFinished)));
+	return adoptRef(*new AcinerellaNetworkFileRequestInternal(url, WTF::move(onFinished)));
 }
 
 }

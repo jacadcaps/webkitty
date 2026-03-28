@@ -171,7 +171,7 @@ static FontCascade dragLabelFont(int size, bool bold)
     description.setOneFamily("Times New Roman"_s);
     description.setSpecifiedSize((float)size);
     description.setComputedSize((float)size);
-    result = FontCascade(WTFMove(description));
+    result = FontCascade(WTF::move(description));
     result.update();
     return result;
 }

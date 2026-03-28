@@ -79,7 +79,7 @@ public:
         , key(key)
         , ordinal(nextReadOperationOrdinal())
         , priority(priority)
-        , completionHandler(WTFMove(completionHandler))
+        , completionHandler(WTF::move(completionHandler))
     { }
 
     void cancel();
@@ -132,7 +132,7 @@ bool Storage::ReadOperation::finish()
             resultRecord = nullptr;
     }
     timings.completionTime = MonotonicTime::now();
-    return completionHandler(WTFMove(resultRecord), timings);
+    return completionHandler(WTF::move(resultRecord), timings);
 }
 
 struct Storage::WriteOperation {
@@ -141,8 +141,8 @@ public:
     WriteOperation(Storage& storage, const Record& record, MappedBodyHandler&& mappedBodyHandler, CompletionHandler<void(int)>&& completionHandler)
         : storage(storage)
         , record(record)
-        , mappedBodyHandler(WTFMove(mappedBodyHandler))
-        , completionHandler(WTFMove(completionHandler))
+        , mappedBodyHandler(WTF::move(mappedBodyHandler))
+        , completionHandler(WTF::move(completionHandler))
     { }
 
     Ref<Storage> storage;
@@ -158,10 +158,10 @@ struct Storage::TraverseOperation {
     WTF_MAKE_TZONE_ALLOCATED(Storage::TraverseOperation);
 public:
     TraverseOperation(Ref<Storage>&& storage, const String& type, OptionSet<TraverseFlag> flags, TraverseHandler&& handler)
-        : storage(WTFMove(storage))
+        : storage(WTF::move(storage))
         , type(type)
         , flags(flags)
-        , handler(WTFMove(handler))
+        , handler(WTF::move(handler))
     { }
     Ref<Storage> storage;
 
@@ -383,7 +383,7 @@ void Storage::synchronize()
 
         LOG(NetworkCacheStorage, "(NetworkProcess) cache synchronization completed size=%zu recordCount=%u", recordsSize, recordCount);
 
-        RunLoop::mainSingleton().dispatch([this, protectedThis = WTFMove(protectedThis), recordFilter = WTFMove(recordFilter), blobFilter = WTFMove(blobFilter), recordsSize]() mutable {
+        RunLoop::mainSingleton().dispatch([this, protectedThis = WTF::move(protectedThis), recordFilter = WTF::move(recordFilter), blobFilter = WTF::move(blobFilter), recordsSize]() mutable {
             for (auto& recordFilterKey : m_recordFilterHashesAddedDuringSynchronization)
                 recordFilter->add(recordFilterKey);
             m_recordFilterHashesAddedDuringSynchronization.clear();
@@ -392,8 +392,8 @@ void Storage::synchronize()
                 blobFilter->add(hash);
             m_blobFilterHashesAddedDuringSynchronization.clear();
 
-            m_recordFilter = WTFMove(recordFilter);
-            m_blobFilter = WTFMove(blobFilter);
+            m_recordFilter = WTF::move(recordFilter);
+            m_blobFilter = WTF::move(blobFilter);
             m_approximateRecordsSize = recordsSize;
             m_synchronizationInProgress = false;
             if (m_mode == Mode::AvoidRandomness)
@@ -478,49 +478,49 @@ static WARN_UNUSED_RETURN bool decodeRecordMetaData(RecordMetaData& metaData, co
         decoder >> cacheStorageVersion;
         if (!cacheStorageVersion)
             return false;
-        metaData.cacheStorageVersion = WTFMove(*cacheStorageVersion);
+        metaData.cacheStorageVersion = WTF::move(*cacheStorageVersion);
 
         std::optional<Key> key;
         decoder >> key;
         if (!key)
             return false;
-        metaData.key = WTFMove(*key);
+        metaData.key = WTF::move(*key);
 
         std::optional<WallTime> timeStamp;
         decoder >> timeStamp;
         if (!timeStamp)
             return false;
-        metaData.timeStamp = WTFMove(*timeStamp);
+        metaData.timeStamp = WTF::move(*timeStamp);
 
         std::optional<SHA1::Digest> headerHash;
         decoder >> headerHash;
         if (!headerHash)
             return false;
-        metaData.headerHash = WTFMove(*headerHash);
+        metaData.headerHash = WTF::move(*headerHash);
 
         std::optional<uint64_t> headerSize;
         decoder >> headerSize;
         if (!headerSize)
             return false;
-        metaData.headerSize = WTFMove(*headerSize);
+        metaData.headerSize = WTF::move(*headerSize);
 
         std::optional<SHA1::Digest> bodyHash;
         decoder >> bodyHash;
         if (!bodyHash)
             return false;
-        metaData.bodyHash = WTFMove(*bodyHash);
+        metaData.bodyHash = WTF::move(*bodyHash);
 
         std::optional<uint64_t> bodySize;
         decoder >> bodySize;
         if (!bodySize)
             return false;
-        metaData.bodySize = WTFMove(*bodySize);
+        metaData.bodySize = WTF::move(*bodySize);
 
         std::optional<bool> isBodyInline;
         decoder >> isBodyInline;
         if (!isBodyInline)
             return false;
-        metaData.isBodyInline = WTFMove(*isBodyInline);
+        metaData.isBodyInline = WTF::move(*isBodyInline);
 
         if (!decoder.verifyChecksum())
             return false;
@@ -681,7 +681,7 @@ void Storage::remove(const Key& key)
 
     removeFromPendingWriteOperations(key);
 
-    serialBackgroundIOQueue().dispatch([this, protectedThis = WTFMove(protectedThis), key] () mutable {
+    serialBackgroundIOQueue().dispatch([this, protectedThis = WTF::move(protectedThis), key] () mutable {
         deleteFiles(key);
     });
 }
@@ -700,11 +700,11 @@ void Storage::remove(const Vector<Key>& keys, CompletionHandler<void()>&& comple
         keysToRemove.uncheckedAppend(key);
     }
 
-    serialBackgroundIOQueue().dispatch([this, protectedThis = Ref { *this }, keysToRemove = WTFMove(keysToRemove), completionHandler = WTFMove(completionHandler)] () mutable {
+    serialBackgroundIOQueue().dispatch([this, protectedThis = Ref { *this }, keysToRemove = WTF::move(keysToRemove), completionHandler = WTF::move(completionHandler)] () mutable {
         for (auto& key : keysToRemove)
             deleteFiles(key);
 
-        RunLoop::mainSingleton().dispatch(WTFMove(completionHandler));
+        RunLoop::mainSingleton().dispatch(WTF::move(completionHandler));
     });
 }
 
@@ -718,7 +718,7 @@ void Storage::deleteFiles(const Key& key)
 
 void Storage::updateFileModificationTime(String&& path)
 {
-    serialBackgroundIOQueue().dispatch([path = WTFMove(path).isolatedCopy()] {
+    serialBackgroundIOQueue().dispatch([path = WTF::move(path).isolatedCopy()] {
         updateFileModificationTimeIfNeeded(path);
     });
 }
@@ -728,7 +728,7 @@ void Storage::dispatchReadOperation(std::unique_ptr<ReadOperation> readOperation
     ASSERT(RunLoop::isMain());
 
     auto& readOperation = *readOperationPtr;
-    m_activeReadOperations.add(WTFMove(readOperationPtr));
+    m_activeReadOperations.add(WTF::move(readOperationPtr));
 
     readOperation.timings.dispatchTime = MonotonicTime::now();
     readOperation.timings.synchronizationInProgressAtDispatch = m_synchronizationInProgress;
@@ -755,7 +755,7 @@ void Storage::dispatchReadOperation(std::unique_ptr<ReadOperation> readOperation
 
         readOperation.timings.recordIOStartTime = MonotonicTime::now();
 
-        auto channel = IOChannel::open(WTFMove(recordPath), IOChannel::Type::Read);
+        auto channel = IOChannel::open(WTF::move(recordPath), IOChannel::Type::Read);
         channel->read(0, std::numeric_limits<size_t>::max(), ioQueue(), [this, &readOperation](const Data& fileData, int error) {
             readOperation.timings.recordIOEndTime = MonotonicTime::now();
             if (!error)
@@ -841,7 +841,7 @@ template <class T> bool retrieveFromMemory(const T& operations, const Key& key, 
     for (auto& operation : operations) {
         if (operation->record.key == key) {
             LOG(NetworkCacheStorage, "(NetworkProcess) found write operation in progress");
-            RunLoop::mainSingleton().dispatch([record = operation->record, completionHandler = WTFMove(completionHandler)] () mutable {
+            RunLoop::mainSingleton().dispatch([record = operation->record, completionHandler = WTF::move(completionHandler)] () mutable {
                 completionHandler(makeUnique<Storage::Record>(record), { });
             });
             return true;
@@ -875,7 +875,7 @@ void Storage::dispatchWriteOperation(std::unique_ptr<WriteOperation> writeOperat
     ASSERT(RunLoop::isMain());
 
     auto& writeOperation = *writeOperationPtr;
-    m_activeWriteOperations.add(WTFMove(writeOperationPtr));
+    m_activeWriteOperations.add(WTF::move(writeOperationPtr));
 
     // This was added already when starting the store but filter might have been wiped.
     addToRecordFilter(writeOperation.record.key);
@@ -893,7 +893,7 @@ void Storage::dispatchWriteOperation(std::unique_ptr<WriteOperation> writeOperat
 
         auto recordData = encodeRecord(writeOperation.record, blob);
 
-        auto channel = IOChannel::open(WTFMove(recordPath), IOChannel::Type::Create);
+        auto channel = IOChannel::open(WTF::move(recordPath), IOChannel::Type::Create);
         size_t recordSize = recordData.size();
         channel->write(0, recordData, WorkQueue::main(), [this, &writeOperation, recordSize](int error) {
             // On error the entry still stays in the contents filter until next synchronization.
@@ -945,12 +945,12 @@ void Storage::retrieve(const Key& key, unsigned priority, RetrieveCompletionHand
     if (retrieveFromMemory(m_activeWriteOperations, key, completionHandler))
         return;
 
-    auto readOperation = makeUnique<ReadOperation>(*this, key, priority, WTFMove(completionHandler));
+    auto readOperation = makeUnique<ReadOperation>(*this, key, priority, WTF::move(completionHandler));
 
     readOperation->timings.startTime = MonotonicTime::now();
     readOperation->timings.dispatchCountAtStart = m_readOperationDispatchCount;
 
-    m_pendingReadOperations.enqueue(WTFMove(readOperation));
+    m_pendingReadOperations.enqueue(WTF::move(readOperation));
     dispatchPendingReadOperations();
 }
 
@@ -962,8 +962,8 @@ void Storage::store(const Record& record, MappedBodyHandler&& mappedBodyHandler,
     if (!m_capacity)
         return;
 
-    auto writeOperation = makeUnique<WriteOperation>(*this, record, WTFMove(mappedBodyHandler), WTFMove(completionHandler));
-    m_pendingWriteOperations.prepend(WTFMove(writeOperation));
+    auto writeOperation = makeUnique<WriteOperation>(*this, record, WTF::move(mappedBodyHandler), WTF::move(completionHandler));
+    m_pendingWriteOperations.prepend(WTF::move(writeOperation));
 
     // Add key to the filter already here as we do lookups from the pending operations too.
     addToRecordFilter(record.key);
@@ -981,9 +981,9 @@ void Storage::traverseWithinRootPath(const String& rootPath, const String& type,
     ASSERT(traverseHandler);
     // Avoid non-thread safe Function copies.
 
-    auto traverseOperationPtr = makeUnique<TraverseOperation>(Ref { *this }, type, flags, WTFMove(traverseHandler));
+    auto traverseOperationPtr = makeUnique<TraverseOperation>(Ref { *this }, type, flags, WTF::move(traverseHandler));
     auto& traverseOperation = *traverseOperationPtr;
-    m_activeTraverseOperations.add(WTFMove(traverseOperationPtr));
+    m_activeTraverseOperations.add(WTF::move(traverseOperationPtr));
 
     ioQueue().dispatch([this, &traverseOperation, rootPath = rootPath.isolatedCopy()] {
         traverseRecordsFiles(rootPath, traverseOperation.type, [this, &traverseOperation](const String& fileName, const String& hashString, const String& type, bool isBlob, const String& recordDirectoryPath) {
@@ -1003,7 +1003,7 @@ void Storage::traverseWithinRootPath(const String& rootPath, const String& type,
             Locker lock { traverseOperation.activeLock };
             ++traverseOperation.activeCount;
 
-            auto channel = IOChannel::open(WTFMove(recordPath), IOChannel::Type::Read);
+            auto channel = IOChannel::open(WTF::move(recordPath), IOChannel::Type::Read);
             channel->read(0, std::numeric_limits<size_t>::max(), WorkQueue::main(), [this, &traverseOperation, worth, bodyShareCount](Data& fileData, int) {
                 RecordMetaData metaData;
                 Data headerData;
@@ -1055,14 +1055,14 @@ void Storage::traverseWithinRootPath(const String& rootPath, const String& type,
 
 void Storage::traverse(const String& type, OptionSet<TraverseFlag> flags, TraverseHandler&& traverseHandler)
 {
-    traverseWithinRootPath(recordsPathIsolatedCopy(), type, flags, WTFMove(traverseHandler));
+    traverseWithinRootPath(recordsPathIsolatedCopy(), type, flags, WTF::move(traverseHandler));
 }
 
 void Storage::traverse(const String& type, const String& partition, OptionSet<TraverseFlag> flags, TraverseHandler&& traverseHandler)
 {
     auto partitionHashAsString = Key::partitionToPartitionHashAsString(partition, salt());
     auto rootPath = FileSystem::pathByAppendingComponent(recordsPathIsolatedCopy(), partitionHashAsString);
-    traverseWithinRootPath(rootPath, type, flags, WTFMove(traverseHandler));
+    traverseWithinRootPath(rootPath, type, flags, WTF::move(traverseHandler));
 }
 
 void Storage::setCapacity(size_t capacity)
@@ -1096,7 +1096,7 @@ void Storage::clear(String&& type, WallTime modifiedSinceTime, CompletionHandler
         m_blobFilter->clear();
     m_approximateRecordsSize = 0;
 
-    ioQueue().dispatch([this, protectedThis = Ref { *this }, modifiedSinceTime, completionHandler = WTFMove(completionHandler), type = WTFMove(type).isolatedCopy()] () mutable {
+    ioQueue().dispatch([this, protectedThis = Ref { *this }, modifiedSinceTime, completionHandler = WTF::move(completionHandler), type = WTF::move(type).isolatedCopy()] () mutable {
         auto recordsPath = this->recordsPathIsolatedCopy();
         traverseRecordsFiles(recordsPath, type, [modifiedSinceTime](const String& fileName, const String& hashString, const String& type, bool isBlob, const String& recordDirectoryPath) {
             auto filePath = FileSystem::pathByAppendingComponent(recordDirectoryPath, fileName);
@@ -1113,7 +1113,7 @@ void Storage::clear(String&& type, WallTime modifiedSinceTime, CompletionHandler
         // This cleans unreferenced blobs.
         m_blobStorage.synchronize();
 
-        RunLoop::mainSingleton().dispatch(WTFMove(completionHandler));
+        RunLoop::mainSingleton().dispatch(WTF::move(completionHandler));
     });
 }
 
@@ -1196,7 +1196,7 @@ void Storage::shrink()
             }
         });
 
-        RunLoop::mainSingleton().dispatch([this, protectedThis = WTFMove(protectedThis)] {
+        RunLoop::mainSingleton().dispatch([this, protectedThis = WTF::move(protectedThis)] {
             m_shrinkInProgress = false;
             // We could synchronize during the shrink traversal. However this is fast and it is better to have just one code path.
             synchronize();

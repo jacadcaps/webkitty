@@ -251,7 +251,7 @@ bool AcinerellaDecoder::decodeNextFrame()
 					auto lock = Locker(m_lock);
 					onFrameDecoded(frame);
 					DNF(dprintf("[%s]%s: decoded frame @ %f\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, float(frame.frame()->timecode)));
-					m_decodedFrames.append(WTFMove(frame));
+					m_decodedFrames.append(WTF::move(frame));
 					m_decoderEOF = false;
 				}
 				break;
@@ -409,7 +409,7 @@ void AcinerellaDecoder::dispatch(Function<void ()>&& function)
 	ASSERT(!m_queue.killed());
 	if (m_terminating)
 		return;
-	m_queue.append(makeUnique<Function<void ()>>(WTFMove(function)));
+	m_queue.append(makeUnique<Function<void ()>>(WTF::move(function)));
 }
 
 void AcinerellaDecoder::performTerminate()

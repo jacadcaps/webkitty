@@ -44,10 +44,10 @@ Data Data::mapToFile(const String& path) const
     auto applyData = [&](const Function<bool(std::span<const uint8_t>)>& applier) {
         apply(applier);
     };
-    auto mappedFile = FileSystem::mapToFile(path, size(), WTFMove(applyData), &handle);
+    auto mappedFile = FileSystem::mapToFile(path, size(), WTF::move(applyData), &handle);
     if (!mappedFile)
         return { };
-    return Data::adoptMap(WTFMove(mappedFile), handle);
+    return Data::adoptMap(WTF::move(mappedFile), handle);
 }
 
 Data mapFile(const String& path)
@@ -76,7 +76,7 @@ Data adoptAndMapFile(FileSystem::PlatformFileHandle handle, size_t offset, size_
         return { };
     }
 
-    return Data::adoptMap(WTFMove(mappedFile), handle);
+    return Data::adoptMap(WTF::move(mappedFile), handle);
 }
 
 SHA1::Digest computeSHA1(const Data& data, const Salt& salt)

@@ -91,12 +91,12 @@ class AcinerellaNetworkFileRequest : public ThreadSafeRefCounted<AcinerellaNetwo
 protected:
 	AcinerellaNetworkFileRequest(const String &url, Function<void(bool)>&& onFinished)
 		: m_url(url)
-		, m_onFinished(WTFMove(onFinished))
+		, m_onFinished(WTF::move(onFinished))
 	{
 	}
 	AcinerellaNetworkFileRequest(const String &url, Function<void(RefPtr<SharedBuffer>)>&& onFinished)
 		: m_url(url)
-		, m_onFinished2(WTFMove(onFinished))
+		, m_onFinished2(WTF::move(onFinished))
 	{
 	}
 public:

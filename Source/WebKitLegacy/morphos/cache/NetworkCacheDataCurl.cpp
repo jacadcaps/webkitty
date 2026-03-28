@@ -39,7 +39,7 @@ Data::Data(const uint8_t* data, size_t size)
 }
 
 Data::Data(std::variant<Vector<uint8_t>, FileSystem::MappedFileData>&& data)
-    : m_buffer(Box<std::variant<Vector<uint8_t>, FileSystem::MappedFileData>>::create(WTFMove(data)))
+    : m_buffer(Box<std::variant<Vector<uint8_t>, FileSystem::MappedFileData>>::create(WTF::move(data)))
     , m_isMap(std::holds_alternative<FileSystem::MappedFileData>(*m_buffer))
 {
     m_size = WTF::switchOn(*m_buffer,
@@ -51,7 +51,7 @@ Data::Data(std::variant<Vector<uint8_t>, FileSystem::MappedFileData>&& data)
 Data Data::empty()
 {
     Vector<uint8_t> buffer;
-    return { WTFMove(buffer) };
+    return { WTF::move(buffer) };
 }
 
 const uint8_t* Data::data() const
@@ -96,7 +96,7 @@ Data concatenate(const Data& a, const Data& b)
     Vector<uint8_t> buffer(a.size() + b.size());
     memcpy(buffer.data(), a.data(), a.size());
     memcpy(buffer.data() + a.size(), b.data(), b.size());
-    return Data(WTFMove(buffer));
+    return Data(WTF::move(buffer));
 }
 
 Data Data::adoptMap(FileSystem::MappedFileData&& mappedFile, FileSystem::PlatformFileHandle fd)
@@ -104,7 +104,7 @@ Data Data::adoptMap(FileSystem::MappedFileData&& mappedFile, FileSystem::Platfor
     ASSERT(mappedFile.data());
     FileSystem::closeFile(fd);
 
-    return { WTFMove(mappedFile) };
+    return { WTF::move(mappedFile) };
 }
 
 #if ENABLE(SHAREABLE_RESOURCE) && OS(WINDOWS)

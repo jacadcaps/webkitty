@@ -31,7 +31,7 @@ bool WebNotificationClient::show(WebCore::ScriptExecutionContext& context, WebCo
 
 	D(dprintf("%s(%p): %p\n", __PRETTY_FUNCTION__, this, notification));
 
-	page->_fShowNotification(WTFMove(notification));
+	page->_fShowNotification(WTF::move(notification));
 
     onCompleted();
     return true;
@@ -45,7 +45,7 @@ void WebNotificationClient::cancel(WebCore::NotificationData&& notification)
         return;
 
 	if (page->_fHideNotification)
-		page->_fHideNotification(WTFMove(notification));
+		page->_fHideNotification(WTF::move(notification));
 }
 
 void WebNotificationClient::notificationObjectDestroyed(WebCore::NotificationData&& notification)
@@ -55,7 +55,7 @@ void WebNotificationClient::notificationObjectDestroyed(WebCore::NotificationDat
         return;
 
 	if (page->_fHideNotification)
-		page->_fHideNotification(WTFMove(notification));
+		page->_fHideNotification(WTF::move(notification));
 }
 
 void WebNotificationClient::notificationControllerDestroyed()
@@ -75,7 +75,7 @@ void WebNotificationClient::requestPermission(WebCore::ScriptExecutionContext&co
 	D(dprintf("%s(%p): %p\n", __PRETTY_FUNCTION__, this, &context));
 	if (page->_fRequestNotificationPermission)
 	{
-		page->_fRequestNotificationPermission(context.url(), WTFMove(callback));
+		page->_fRequestNotificationPermission(context.url(), WTF::move(callback));
 	}
 	else
 	{

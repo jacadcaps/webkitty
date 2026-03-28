@@ -57,31 +57,31 @@ CacheStorageEngineConnection& WebCacheStorageConnection::connection()
 void WebCacheStorageConnection::open(const WebCore::ClientOrigin& origin, const String& cacheName, WebCore::DOMCacheEngine::CacheIdentifierCallback&& callback)
 {
     D(dprintf("%s\n", __PRETTY_FUNCTION__));
-    connection().open(WebCore::ClientOrigin(origin), String(cacheName), WTFMove(callback));
+    connection().open(WebCore::ClientOrigin(origin), String(cacheName), WTF::move(callback));
 }
 
 void WebCacheStorageConnection::remove(WebCore::DOMCacheIdentifier cacheIdentifier, WebCore::DOMCacheEngine::RemoveCacheIdentifierCallback&& callback)
 {
     D(dprintf("%s\n", __PRETTY_FUNCTION__));
-    connection().remove(cacheIdentifier, WTFMove(callback));
+    connection().remove(cacheIdentifier, WTF::move(callback));
 }
 
 void WebCacheStorageConnection::retrieveCaches(const WebCore::ClientOrigin& origin, uint64_t updateCounter, WebCore::DOMCacheEngine::CacheInfosCallback&& callback)
 {
     D(dprintf("%s\n", __PRETTY_FUNCTION__));
-    connection().caches(WebCore::ClientOrigin(origin), updateCounter, WTFMove(callback));
+    connection().caches(WebCore::ClientOrigin(origin), updateCounter, WTF::move(callback));
 }
 
 void WebCacheStorageConnection::retrieveRecords(WebCore::DOMCacheIdentifier cacheIdentifier, WebCore::RetrieveRecordsOptions&& options, WebCore::DOMCacheEngine::CrossThreadRecordsCallback&& callback)
 {
     D(dprintf("%s\n", __PRETTY_FUNCTION__));
-    connection().retrieveRecords(cacheIdentifier, WTFMove(options), WTFMove(callback));
+    connection().retrieveRecords(cacheIdentifier, WTF::move(options), WTF::move(callback));
 }
 
 void WebCacheStorageConnection::batchDeleteOperation(WebCore::DOMCacheIdentifier cacheIdentifier, const WebCore::ResourceRequest& request, WebCore::CacheQueryOptions&& options, WebCore::DOMCacheEngine::RecordIdentifiersCallback&& callback)
 {
     D(dprintf("%s\n", __PRETTY_FUNCTION__));
-    connection().deleteMatchingRecords(cacheIdentifier, WebCore::ResourceRequest(request), WTFMove(options), WTFMove(callback));
+    connection().deleteMatchingRecords(cacheIdentifier, WebCore::ResourceRequest(request), WTF::move(options), WTF::move(callback));
 }
 
 Record fromCrossThreadRecord(CrossThreadRecord& record)
@@ -90,12 +90,12 @@ Record fromCrossThreadRecord(CrossThreadRecord& record)
         record.identifier,
         record.updateResponseCounter,
         record.requestHeadersGuard,
-        WTFMove(record.request),
-        WTFMove(record.options),
-        WTFMove(record.referrer),
+        WTF::move(record.request),
+        WTF::move(record.options),
+        WTF::move(record.referrer),
         record.responseHeadersGuard,
-        WebCore::ResourceResponse::fromCrossThreadData(WTFMove(record.response)),
-        WTFMove(record.responseBody),
+        WebCore::ResourceResponse::fromCrossThreadData(WTF::move(record.response)),
+        WTF::move(record.responseBody),
         record.responseBodySize
     };
 }
@@ -107,7 +107,7 @@ void WebCacheStorageConnection::batchPutOperation(WebCore::DOMCacheIdentifier ca
     r.reserveCapacity(records.size());
     for(auto& ctr : records)
         r.append(fromCrossThreadRecord(ctr));
-    connection().putRecords(cacheIdentifier, WTFMove(r), WTFMove(callback));
+    connection().putRecords(cacheIdentifier, WTF::move(r), WTF::move(callback));
 }
 
 void WebCacheStorageConnection::reference(WebCore::DOMCacheIdentifier cacheIdentifier)
@@ -122,12 +122,12 @@ void WebCacheStorageConnection::dereference(WebCore::DOMCacheIdentifier cacheIde
 
 void WebCacheStorageConnection::clearMemoryRepresentation(const WebCore::ClientOrigin& origin, CompletionCallback&& callback)
 {
-    connection().clearMemoryRepresentation(WebCore::ClientOrigin(origin), WTFMove(callback));
+    connection().clearMemoryRepresentation(WebCore::ClientOrigin(origin), WTF::move(callback));
 }
 
 void WebCacheStorageConnection::engineRepresentation(CompletionHandler<void(const String&)>&& callback)
 {
-    connection().engineRepresentation(WTFMove(callback));
+    connection().engineRepresentation(WTF::move(callback));
 }
 
 void WebCacheStorageConnection::updateQuotaBasedOnSpaceUsage(const WebCore::ClientOrigin& origin)

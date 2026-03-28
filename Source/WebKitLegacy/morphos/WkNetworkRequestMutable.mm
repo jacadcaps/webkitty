@@ -310,7 +310,7 @@ private:
 	}
     
     void willSendRequestAsync(WebCore::ResourceHandle*, WebCore::ResourceRequest&& request, WebCore::ResourceResponse&&, CompletionHandler<void(WebCore::ResourceRequest&&)>&& completion) final {
-		m_currentRequest = WTFMove(request);
+		m_currentRequest = WTF::move(request);
 		completion(WebCore::ResourceRequest { m_currentRequest });
 	}
     

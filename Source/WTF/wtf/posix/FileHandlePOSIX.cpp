@@ -216,7 +216,7 @@ std::optional<MappedFileData> FileHandle::map(MappedFileMode mapMode, FileOpenMo
         return { };
     }
 
-    return MappedFileData { WTFMove(data) };
+    return MappedFileData { WTF::move(data) };
 }
 #endif // HAVE(MMAP)
 

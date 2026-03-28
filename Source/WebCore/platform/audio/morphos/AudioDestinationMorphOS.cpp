@@ -72,10 +72,10 @@ void AudioDestinationMorphOS::start(Function<void(Function<void()>&&)>&& dispatc
 {
     {
         auto locker = Locker(m_dispatchToRenderThreadLock);
-        m_dispatchToRenderThread = WTFMove(dispatchToRenderThread);
+        m_dispatchToRenderThread = WTF::move(dispatchToRenderThread);
     }
 
-    startRendering(WTFMove(completionHandler));
+    startRendering(WTF::move(completionHandler));
 }
 
 void AudioDestinationMorphOS::startRendering(CompletionHandler<void(bool)>&& completionHandler)
@@ -85,14 +85,14 @@ void AudioDestinationMorphOS::startRendering(CompletionHandler<void(bool)>&& com
     if (success)
         setIsPlaying(true);
 
-    callOnMainThread([completionHandler = WTFMove(completionHandler), success]() mutable {
+    callOnMainThread([completionHandler = WTF::move(completionHandler), success]() mutable {
         completionHandler(success);
     });
 }
 
 void AudioDestinationMorphOS::stop(CompletionHandler<void(bool)>&&completionHandler)
 {
-    stopRendering(WTFMove(completionHandler));
+    stopRendering(WTF::move(completionHandler));
     {
         auto locker = Locker(m_dispatchToRenderThreadLock);
         m_dispatchToRenderThread = nullptr;
@@ -105,7 +105,7 @@ void AudioDestinationMorphOS::stopRendering(CompletionHandler<void(bool)>&& comp
     m_output.stop();
 	setIsPlaying(false);
 
-    callOnMainThread([completionHandler = WTFMove(completionHandler)]() mutable {
+    callOnMainThread([completionHandler = WTF::move(completionHandler)]() mutable {
         completionHandler(true);
     });
 }

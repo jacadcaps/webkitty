@@ -32,7 +32,7 @@ namespace WebKit {
 namespace NetworkCache {
 
 IOChannel::IOChannel(String&& filePath, Type type, std::optional<WorkQueue::QOS>)
-    : m_path(WTFMove(filePath))
+    : m_path(WTF::move(filePath))
     , m_type(type)
 {
     FileSystem::FileOpenMode mode { };
@@ -57,7 +57,7 @@ IOChannel::~IOChannel()
 
 void IOChannel::read(size_t offset, size_t size, WTF::WorkQueueBase& queue, Function<void(Data&, int error)>&& completionHandler)
 {
-    queue.dispatch([this, protectedThis = Ref { *this }, offset, size, completionHandler = WTFMove(completionHandler)] {
+    queue.dispatch([this, protectedThis = Ref { *this }, offset, size, completionHandler = WTF::move(completionHandler)] {
         auto fileSize = FileSystem::fileSize(m_fileDescriptor);
         if (!fileSize || *fileSize > std::numeric_limits<size_t>::max()) {
             Data data;
@@ -70,14 +70,14 @@ void IOChannel::read(size_t offset, size_t size, WTF::WorkQueueBase& queue, Func
         FileSystem::seekFile(m_fileDescriptor, offset, FileSystem::FileSeekOrigin::Beginning);
         int err = FileSystem::readFromFile(m_fileDescriptor, buffer.data(), readSize);
         err = err < 0 ? err : 0;
-        auto data = Data(WTFMove(buffer));
+        auto data = Data(WTF::move(buffer));
         completionHandler(data, err);
     });
 }
 
 void IOChannel::write(size_t offset, const Data& data, WTF::WorkQueueBase& queue, Function<void(int error)>&& completionHandler)
 {
-    queue.dispatch([this, protectedThis = Ref { *this }, offset, data, completionHandler = WTFMove(completionHandler)] {
+    queue.dispatch([this, protectedThis = Ref { *this }, offset, data, completionHandler = WTF::move(completionHandler)] {
         FileSystem::seekFile(m_fileDescriptor, offset, FileSystem::FileSeekOrigin::Beginning);
         int err = FileSystem::writeToFile(m_fileDescriptor, data.data(), data.size());
         err = err < 0 ? err : 0;

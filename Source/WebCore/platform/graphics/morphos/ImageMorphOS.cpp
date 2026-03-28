@@ -38,7 +38,7 @@ Ref<Image> ImageAdapter::loadPlatformResource(const char *name)
 {
     auto buffer = loadResourceIntoBuffer(name);
     auto img = BitmapImage::create();
-    img->setData(WTFMove(buffer), true);
+    img->setData(WTF::move(buffer), true);
     return img;
 }
 

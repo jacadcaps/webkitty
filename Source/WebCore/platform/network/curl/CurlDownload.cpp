@@ -55,7 +55,7 @@ CurlDownload::~CurlDownload()
 void CurlDownload::init(CurlDownloadListener& listener, URL&& url, RefPtr<NetworkingContext> networkingContext)
 {
     m_listener = &listener;
-    m_request.setURL(WTFMove(url));
+    m_request.setURL(WTF::move(url));
     m_context = networkingContext;
 }
 
@@ -253,7 +253,7 @@ void CurlDownload::willSendRequest()
     bool crossOrigin = !protocolHostAndPortAreEqual(m_request.url(), newURL);
 
     ResourceRequest newRequest = m_request;
-    newRequest.setURL(WTFMove(newURL));
+    newRequest.setURL(WTF::move(newURL));
 
     if (shouldRedirectAsGET(newRequest, crossOrigin)) {
         newRequest.setHTTPMethod("GET"_s);

@@ -466,7 +466,7 @@ bool WebChromeClient::supportsFullScreenForElement(const Element& element, bool 
 void WebChromeClient::enterFullScreenForElement(Element& element, WebCore::HTMLMediaElementEnums::VideoFullscreenMode, CompletionHandler<void(WebCore::ExceptionOr<void>)>&& willEnterFullscreen, CompletionHandler<bool(bool)>&& didEnterFullscreen)
 {
     // D(dprintf("%s: element %p\n", __PRETTY_FUNCTION__, &element));
-    m_webPage.setFullscreenElement(&element, WTFMove(willEnterFullscreen), WTFMove(didEnterFullscreen));
+    m_webPage.setFullscreenElement(&element, WTF::move(willEnterFullscreen), WTF::move(didEnterFullscreen));
 }
 
 void WebChromeClient::exitFullScreenForElement(Element* element, CompletionHandler<void()>&& didExitFullscreen)

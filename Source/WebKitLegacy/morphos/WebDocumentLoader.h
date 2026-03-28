@@ -34,7 +34,7 @@ class WebDocumentLoader : public WebCore::DocumentLoader {
 public:
     static Ref<WebDocumentLoader> create(WebCore::ResourceRequest&& request, WebCore::SubstituteData&& data)
     {
-        return adoptRef(*new WebDocumentLoader(WTFMove(request), WTFMove(data)));
+        return adoptRef(*new WebDocumentLoader(WTF::move(request), WTF::move(data)));
     }
 
     uint64_t navigationID() const { return m_navigationID; }
