@@ -44,6 +44,10 @@
 #include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #endif
 
+#if OS(MORPHOS)
+extern "C" unsigned long __stack = 2 * 1024 * 1024;
+#endif
+
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 extern "C" void configureJSCForTesting();

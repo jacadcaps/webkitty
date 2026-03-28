@@ -254,6 +254,7 @@ public:
     public:
         enum CleanupTaskTag { CleanupTask };
 
+#ifndef __MORPHOS_DISABLE
         template<typename T>
             requires (!std::derived_from<T, Task> && std::convertible_to<T, Function<void(ScriptExecutionContext&)>>)
         Task(T task)
@@ -275,6 +276,7 @@ public:
             , m_isCleanupTask(true)
         {
         }
+#endif
 
         void performTask(ScriptExecutionContext& context) { m_task(context); }
         bool isCleanupTask() const { return m_isCleanupTask; }
@@ -384,20 +386,24 @@ public:
     WEBCORE_EXPORT NotificationCallbackIdentifier addNotificationCallback(CompletionHandler<void()>&&);
     WEBCORE_EXPORT CompletionHandler<void()> takeNotificationCallback(NotificationCallbackIdentifier);
 
+#ifndef __MORPHOS_DISABLE
     template<typename Promise, typename TaskType>
     void enqueueTaskWhenSettled(Ref<Promise>&&, TaskSource, TaskType&&);
 
     template<typename Promise, typename TaskType, typename Finalizer>
     void enqueueTaskWhenSettled(Ref<Promise>&&, TaskSource, TaskType&&, Finalizer&&);
+#endif
 
     bool isAlwaysOnLoggingAllowed() const;
 
 protected:
+#ifndef __MORPHOS_DISABLE
     class AddConsoleMessageTask : public Task {
     public:
         inline AddConsoleMessageTask(std::unique_ptr<Inspector::ConsoleMessage>&&);
         inline AddConsoleMessageTask(MessageSource, MessageLevel, const String&);
     };
+#endif
 
     ReasonForSuspension reasonForSuspendingActiveDOMObjects() const { return m_reasonForSuspendingActiveDOMObjects; }
 

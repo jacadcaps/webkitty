@@ -53,7 +53,7 @@ public:
         virtual void didOpen(CurlStreamID) = 0;
         virtual void didSendData(CurlStreamID, size_t) = 0;
         virtual void didReceiveData(CurlStreamID, const SharedBuffer&) = 0;
-        virtual void didFail(CurlStreamID, CURLcode, CertificateInfo&&) = 0;
+        virtual void didFail(CurlStreamID, CURLcode) = 0;
     };
 
     static std::unique_ptr<CurlStream> create(CurlStreamScheduler& scheduler, CurlStreamID streamID, URL&& url, ServerTrustEvaluation serverTrustEvaluation, LocalhostAlias localhostAlias)

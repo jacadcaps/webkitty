@@ -276,6 +276,7 @@ void SVGBoundingBoxComputation::adjustBoxForClippingAndEffects(const SVGBounding
         }
     }
 
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
     if (options.contains(DecorationOption::IncludeMaskers)) {
         if (CheckedPtr referencedMaskerRenderer = m_renderer->svgMaskerResourceFromStyle()) {
             // When masks are nested, the inner masks do not affect the outer mask dimension, so skip the computation for inner masks.

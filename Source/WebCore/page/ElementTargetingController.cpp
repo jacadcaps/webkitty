@@ -445,6 +445,7 @@ static String computeHasChildSelector(Element& element)
         HTMLNames::buttonTag
     } };
 
+#if ENABLE(VIDEO)
     String selectorSuffix;
     for (auto& child : descendantsOfType<HTMLElement>(element)) {
         if (!tagsToCheckForUniqueAttributes->contains(child.tagQName()))

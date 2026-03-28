@@ -194,6 +194,7 @@ public:
 
     bool shouldUpdateScrollLayerPositionSynchronously(const LocalFrameView&) const;
 
+    virtual void willDestroyScrollableArea(ScrollableArea&) { }
     virtual void scrollableAreaScrollbarLayerDidChange(ScrollableArea&, ScrollbarOrientation) { }
 
     virtual void scrollableAreaWillBeDetached(ScrollableArea&) { }

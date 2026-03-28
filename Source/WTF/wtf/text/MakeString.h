@@ -70,7 +70,9 @@ RefPtr<StringImpl> tryMakeStringImplFromAdaptersInternal(unsigned length, bool a
 template<typename... StringTypeAdapters>
 String tryMakeStringFromAdapters(StringTypeAdapters&&... adapters)
 {
+#if !OS(MORPHOS) // different limits for MorphOS
     static_assert(String::MaxLength == std::numeric_limits<int32_t>::max());
+#endif
 
     if constexpr (makeStringSlowPathRequired<StringTypeAdapters...>) {
         StringBuilder builder;
@@ -78,7 +80,8 @@ String tryMakeStringFromAdapters(StringTypeAdapters&&... adapters)
         return builder.toString();
     } else {
         auto sum = checkedSum<int32_t>(adapters.length()...);
-        if (sum.hasOverflowed())
+        unsigned length = sum;
+        if (sum.hasOverflowed() || length >= String::MaxLength)
             return String();
 
         bool areAllAdapters8Bit = are8Bit(adapters...);
@@ -104,7 +107,9 @@ String makeString(StringTypes... strings)
 template<typename... StringTypeAdapters>
 AtomString tryMakeAtomStringFromAdapters(StringTypeAdapters ...adapters)
 {
+#if !OS(MORPHOS) // different limits for MorphOS
     static_assert(String::MaxLength == std::numeric_limits<int32_t>::max());
+#endif
 
     if constexpr (makeStringSlowPathRequired<StringTypeAdapters...>) {
         StringBuilder builder;
@@ -112,12 +117,14 @@ AtomString tryMakeAtomStringFromAdapters(StringTypeAdapters ...adapters)
         return builder.toAtomString();
     } else {
         auto sum = checkedSum<int32_t>(adapters.length()...);
-        if (sum.hasOverflowed())
+#if OS(MORPHOS)
+        unsigned length = sum;
+        if (sum.hasOverflowed() || length >= String::MaxLength)
             return AtomString();
-
+#else
         unsigned length = sum;
         ASSERT(length <= String::MaxLength);
-
+#endif
         bool areAllAdapters8Bit = are8Bit(adapters...);
         constexpr size_t maxLengthToUseStackVariable = 64;
         if (length < maxLengthToUseStackVariable) {

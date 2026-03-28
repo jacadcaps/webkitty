@@ -167,4 +167,6 @@ FloatRect RenderSVGResourceMarker::computeMarkerBoundingBox(const SVGBoundingBox
     return markerTransformation.mapRect(m_supplementalLayerTransform.mapRect(boundingBox));
 }
 
+#endif
+
 }

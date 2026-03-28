@@ -101,12 +101,16 @@ template<CompactVariantAlternative... Ts> struct CompactVariantOperations {
         // For data other than pointers, ensure the data doesn't overwrite the top byte.
         // (i.e top byte should be zero)
         // (pointers may store arbitrary data in the top byte, and that's okay due to TBI)
+#if !OS(MORPHOS)
         if constexpr (!CompactVariantAlternativePointer<T>)
             RELEASE_ASSERT(!(data & topByteMask));
+#endif
 
         // Ensure the bits in the index area are zeroes.
         // Sanity check to make sure the data doesn't overwrite the index.
+#if !OS(MORPHOS)
         RELEASE_ASSERT(!(data & indexMask));
+#endif
         data &= payloadMask;
 
         return data;
@@ -124,12 +128,16 @@ template<CompactVariantAlternative... Ts> struct CompactVariantOperations {
         // For data other than pointers, ensure the data doesn't overwrite the top byte.
         // (i.e top byte should be zero)
         // (pointers may store arbitrary data in the top byte, and that's okay due to TBI)
+#if !OS(MORPHOS)
         if constexpr (!CompactVariantAlternativePointer<T>)
             RELEASE_ASSERT(!(data & topByteMask));
+#endif
 
         // Ensure the bits in the index area are zeroes.
         // Sanity check to make sure the data doesn't overwrite the index.
+#if !OS(MORPHOS)
         RELEASE_ASSERT(!(data & indexMask));
+#endif
         data &= payloadMask;
 
         return data;

@@ -39,6 +39,11 @@
  */
 
 #include "config.h"
+
+#if OS(MORPHOS)
+#define __WANT_PNG_1_6__
+#endif
+
 #include "PNGImageDecoder.h"
 
 #include "Color.h"
@@ -516,6 +521,8 @@ void PNGImageDecoder::rowAvailable(unsigned char* rowBuffer, unsigned rowIndex, 
 
     // Write the decoded row pixels to the frame buffer.
     auto destinationRow = buffer.backingStore()->pixelsStartingAt(0, rowIndex);
+    if (!destinationRow.data())
+        return;
     auto address = destinationRow;
     int width = size().width();
     unsigned char nonTrivialAlphaMask = 0;

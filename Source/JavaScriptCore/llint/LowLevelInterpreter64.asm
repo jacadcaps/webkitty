@@ -1896,7 +1896,11 @@ llintOpWithMetadata(op_get_by_val, OpGetByVal, macro (size, get, dispatch, metad
     
 .opGetByValNotDouble:
     subi ArrayStorageShape, t2
-    bia t2, SlowPutArrayStorageShape - ArrayStorageShape, .opGetByValNotIndexedStorage
+    if BIG_ENDIAN
+        bia t2, SlowPutArrayStorageShape - ArrayStorageShape, .opGetByValSlow
+    else
+		bia t2, SlowPutArrayStorageShape - ArrayStorageShape, .opGetByValNotIndexedStorage
+	end
     biaeq t1, -sizeof IndexingHeader + IndexingHeader::u.lengths.vectorLength[t3], .opGetByValSlow
     get(m_dst, t0)
     loadq ArrayStorage::m_vector[t3, t1, 8], t2
@@ -3589,7 +3593,7 @@ llintOpWithMetadata(op_enumerator_put_by_val, OpEnumeratorPutByVal, macro (size,
     bineq t2, JSCell::m_structureID[t0], .putSlowPath
 
     structureIDToStructureWithScratch(t2, t3)
-    btinz Structure::m_bitField[t2], ((constexpr Structure::s_hasReadOnlyOrGetterSetterPropertiesExcludingProtoBits) | (constexpr Structure::s_isWatchingReplacementBits)), .putSlowPath
+    btinz Structure::m_bitField[t2], (constexpr Structure::s_isWatchingReplacementBits), .putSlowPath
 
     get(m_value, t2)
     loadConstantOrVariable(size, t2, t3)

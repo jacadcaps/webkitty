@@ -43,6 +43,10 @@ OBJC_CLASS NSEvent;
 OBJC_CLASS WebEvent;
 #endif
 
+#if OS(MORPHOS)
+struct IntuiMessage;
+#endif
+
 namespace WebCore {
 
     class PlatformKeyboardEvent : public PlatformEvent {
@@ -162,6 +166,10 @@ namespace WebCore {
         Vector<KeypressCommand> m_commands;
 #elif PLATFORM(GTK)
         Vector<String> m_commands;
+#endif
+
+#if OS(MORPHOS)
+	struct IntuiMessage *m_intuiMessage;
 #endif
 
 #if PLATFORM(COCOA)

@@ -33,6 +33,10 @@
 #include <wtf/StdLibExtras.h>
 #include <wtf/text/ASCIILiteral.h>
 
+#ifndef SIZE_MAX
+#define SIZE_MAX UINT32_MAX
+#endif
+
 namespace WebCore::PushCrypto {
 
 // Arbitrary limit that's larger than the largest payload APNS should ever give us.

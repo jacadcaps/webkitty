@@ -29,6 +29,12 @@
 #include <wtf/Compiler.h>
 #include <wtf/PrintStream.h>
 
+#if OS(MORPHOS)
+#ifndef UINT64_MAX
+#define UINT64_MAX 0xffffffffffffffff
+#endif
+#endif
+
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {

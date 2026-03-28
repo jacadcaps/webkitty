@@ -622,16 +622,39 @@ ALWAYS_INLINE const UnsignedType* findImpl(const UnsignedType* pointer, Unsigned
 
 ALWAYS_INLINE const uint16_t* find16(const uint16_t* pointer, uint16_t character, size_t length)
 {
+#if CPU(BIG_ENDIAN)
+    for (size_t index = 0; index < length; ++index) {
+        if (pointer[index] == character)
+            return pointer + index;
+    }
+    return nullptr;
+#else
     return findImpl(pointer, character, length);
+#endif
 }
 
 ALWAYS_INLINE const uint32_t* find32(const uint32_t* pointer, uint32_t character, size_t length)
 {
+#if CPU(BIG_ENDIAN)
+    for (size_t index = 0; index < length; ++index) {
+        if (pointer[index] == character)
+            return pointer + index;
+    }
+    return nullptr;
+#else
     return findImpl(pointer, character, length);
+#endif
 }
 
 ALWAYS_INLINE const uint64_t* find64(const uint64_t* pointer, uint64_t character, size_t length)
 {
+#if CPU(BIG_ENDIAN)
+    for (size_t index = 0; index < length; ++index) {
+        if (pointer[index] == character)
+            return pointer + index;
+    }
+    return nullptr;
+#else
     constexpr size_t scalarThreshold = 4;
     size_t index = 0;
     size_t runway = std::min(scalarThreshold, length);
@@ -682,6 +705,7 @@ ALWAYS_INLINE const uint64_t* find64(const uint64_t* pointer, uint64_t character
     }
 
     return nullptr;
+#endif
 }
 
 ALWAYS_INLINE const Float16* findFloat16(const Float16* pointer, Float16 target, size_t length)

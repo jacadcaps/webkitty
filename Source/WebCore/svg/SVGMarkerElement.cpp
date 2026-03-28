@@ -106,11 +106,13 @@ void SVGMarkerElement::attributeChanged(const QualifiedName& name, const AtomStr
 
 void SVGMarkerElement::invalidateMarkerResource()
 {
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
     if (document().settings().layerBasedSVGEngineEnabled()) {
         if (CheckedPtr markerRenderer = dynamicDowncast<RenderSVGResourceMarker>(renderer()))
             markerRenderer->invalidateMarker();
         return;
     }
+#endif
 
     updateSVGRendererForElementChange();
 }

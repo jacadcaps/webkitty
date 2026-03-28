@@ -226,6 +226,24 @@ JSC_DEFINE_HOST_FUNCTION(uint8ArrayConstructorFromHex, (JSGlobalObject* globalOb
     RETURN_IF_EXCEPTION(scope, { });
 
     size_t count = static_cast<size_t>(view.length() / 2);
+#if CPU(BIG_ENDIAN)
+    for (size_t i = 0; i < count * 2; ++i) {
+        int digit = parseDigit(view[i], 16);
+        if (digit == -1) [[unlikely]]
+            return JSValue::encode(throwSyntaxError(globalObject, scope, "Uint8Array.prototype.fromHex requires a string containing only \"0123456789abcdefABCDEF\""_s));
+    }
+    JSUint8Array* uint8Array = JSUint8Array::create(globalObject, globalObject->typedArrayStructure(TypeUint8, false), count);
+    uint8_t* data = uint8Array->typedVector();
+    size_t read = 0;
+    size_t written = 0;
+    for (size_t i = 0; i < count; ++i) {
+        int tens = parseDigit(view[read++], 16);
+        int ones = parseDigit(view[read++], 16);
+        data[written++] = (tens * 16) + ones;
+    }
+    ASSERT(read == count * 2);
+    ASSERT(written == count);
+#else
     JSUint8Array* uint8Array = JSUint8Array::createUninitialized(globalObject, globalObject->typedArrayStructure(TypeUint8, false), count);
     RETURN_IF_EXCEPTION(scope, { });
 
@@ -240,6 +258,7 @@ JSC_DEFINE_HOST_FUNCTION(uint8ArrayConstructorFromHex, (JSGlobalObject* globalOb
 
     if (!success) [[unlikely]]
         return JSValue::encode(throwSyntaxError(globalObject, scope, "Uint8Array.prototype.fromHex requires a string containing only \"0123456789abcdefABCDEF\""_s));
+#endif
 
     return JSValue::encode(uint8Array);
 }

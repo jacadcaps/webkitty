@@ -112,6 +112,7 @@ struct VideoFrameMetadata;
 struct MediaEngineSupportParameters {
     ContentType type;
     URL url;
+    Page* page { nullptr };
     bool isMediaSource { false };
     bool isMediaStream { false };
     bool requiresRemotePlayback { false };
@@ -150,7 +151,8 @@ enum class MediaPlatformType {
     Mock,
     AVFObjC,
     GStreamer,
-    Remote
+    Remote,
+    MorphOS
 };
 
 enum class MediaPlayerType {
@@ -348,6 +350,10 @@ public:
 #if !RELEASE_LOG_DISABLED
     virtual uint64_t mediaPlayerLogIdentifier() { return 0; }
     virtual const Logger& mediaPlayerLogger() = 0;
+#endif
+
+#if OS(MORPHOS)
+    virtual Page* mediaPlayerPage() { return nullptr; }
 #endif
 
 #if PLATFORM(IOS_FAMILY)

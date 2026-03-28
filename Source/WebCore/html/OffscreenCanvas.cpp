@@ -90,6 +90,8 @@ bool OffscreenCanvas::enabledForContext(ScriptExecutionContext& context)
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
     if (context.isWorkerGlobalScope())
         return context.settingsValues().offscreenCanvasInWorkersEnabled;
+#else
+    UNUSED_PARAM(context);
 #endif
 
     ASSERT(context.isDocument());

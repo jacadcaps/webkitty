@@ -886,6 +886,13 @@ inline void Node::applyRefDuringDestructionCheck() const
 
 ALWAYS_INLINE void Node::deref() const
 {
+#ifdef __MORPHOS__
+// why does this happen?
+    volatile void* vAddr = (volatile void *)&m_refCountAndParentBit;
+    if (vAddr < (void *)0x1000) {
+        return;
+    }
+#endif
     ASSERT(isMainThread());
     ASSERT(!m_adoptionIsRequired);
 

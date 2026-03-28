@@ -32,6 +32,10 @@
 #include "TypeError.h"
 #include <wtf/Assertions.h>
 
+#if OS(MORPHOS)
+extern "C" { void oomCrash(); }
+#endif
+
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
@@ -2031,7 +2035,12 @@ inline JSArray* constructArray(ObjectInitializationScope& scope, Structure* arra
     // function will correctly handle an exception being thrown from here.
     // https://bugs.webkit.org/show_bug.cgi?id=169786
     if constexpr (failureMode == AllocationFailureMode::Assert)
+#if OS(MORPHOS)
+        if (!array) [[unlikely]]
+            oomCrash();
+#else
         RELEASE_ASSERT_RESOURCE_AVAILABLE(array, MemoryExhaustion, "Crash intentionally because memory is exhausted.");
+#endif
     else if (!array)
         return nullptr;
 

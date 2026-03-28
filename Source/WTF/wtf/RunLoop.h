@@ -143,8 +143,13 @@ public:
 
 #if USE(GENERIC_EVENT_LOOP) || USE(WINDOWS_EVENT_LOOP)
     WTF_EXPORT_PRIVATE static void setWakeUpCallback(WTF::Function<void()>&&);
+    static Seconds secondsUntilNextIterate();
 #endif
 
+#if OS(MORPHOS)
+    void iterate();
+#endif
+    
 #if USE(WINDOWS_EVENT_LOOP)
     static void registerRunLoopMessageWindowClass();
 #endif

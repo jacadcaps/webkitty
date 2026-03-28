@@ -173,6 +173,7 @@ RefPtr<SVGGraphicsElement> SVGClipPathElement::shouldApplyPathClipping() const
 FloatRect SVGClipPathElement::calculateClipContentRepaintRect(RepaintRectCalculation repaintRectCalculation)
 {
     ASSERT(renderer());
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
     auto transformationMatrixFromChild = [&](const RenderLayerModelObject& child) -> std::optional<AffineTransform> {
         if (!document().settings().layerBasedSVGEngineEnabled())
             return std::nullopt;

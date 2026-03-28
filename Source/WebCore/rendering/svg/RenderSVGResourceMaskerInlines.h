@@ -30,6 +30,8 @@
 
 namespace WebCore {
 
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
+
 inline SVGMaskElement& RenderSVGResourceMasker::maskElement() const
 {
     return downcast<SVGMaskElement>(RenderSVGResourceContainer::element());
@@ -49,5 +51,7 @@ SVGUnitTypes::SVGUnitType RenderSVGResourceMasker::maskContentUnits() const
 {
     return protectedMaskElement()->maskContentUnits();
 }
+
+#endif
 
 }

@@ -64,6 +64,13 @@ public:
 
     WEBCORE_EXPORT void updateFromDelegatePreservingOldProperties(const ResourceRequest&);
 
+    // Needed for compatibility.
+    CFURLRequestRef cfURLRequest(HTTPBodyUpdatePolicy) const { return 0; }
+
+    // The following two stubs are for compatibility with CFNetwork, and are not used.
+    static bool httpPipeliningEnabled() { return false; }
+    static void setHTTPPipeliningEnabled(bool) { }
+
 private:
     friend class ResourceRequestBase;
 
@@ -73,6 +80,8 @@ private:
     void doUpdateResourceHTTPBody() { }
 
     void doPlatformSetAsIsolatedCopy(const ResourceRequest&) { }
+
+    static bool s_httpPipeliningEnabled;
 };
 
 } // namespace WebCore

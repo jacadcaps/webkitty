@@ -34,6 +34,10 @@
 #include "ResourceExhaustion.h"
 #include "SuperSampler.h"
 
+#if OS(MORPHOS)
+extern "C" { void oomCrash(); }
+#endif
+
 namespace JSC {
 
 LocalAllocator::LocalAllocator(BlockDirectory* directory)
@@ -147,7 +151,11 @@ void* LocalAllocator::allocateSlowCase(JSC::Heap& heap, size_t cellSize, GCDefer
     ASSERT_WITH_MESSAGE(cellSize == m_directory->cellSize(), "non-preciseOnly allocations should match allocator's the size class");
     MarkedBlock::Handle* block = m_directory->tryAllocateBlock(heap);
     if (!block) [[unlikely]] {
+#ifdef __MORPHOS__
+        oomCrash();
+#else
         RELEASE_ASSERT_RESOURCE_AVAILABLE(failureMode != AllocationFailureMode::Assert, MemoryExhaustion, "Crash intentionally because memory is exhausted.");
+#endif
         return nullptr;
     }
     m_directory->addBlock(block);

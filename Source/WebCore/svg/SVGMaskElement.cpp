@@ -119,6 +119,7 @@ void SVGMaskElement::svgAttributeChanged(const QualifiedName& attrName)
     }
 
     if (PropertyRegistry::isKnownAttribute(attrName)) {
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
         if (document().settings().layerBasedSVGEngineEnabled()) {
             if (CheckedPtr maskRenderer = dynamicDowncast<RenderSVGResourceMasker>(renderer())) {
                 maskRenderer->invalidateMask();
@@ -126,7 +127,7 @@ void SVGMaskElement::svgAttributeChanged(const QualifiedName& attrName)
                 return;
             }
         }
-
+#endif
         updateSVGRendererForElementChange();
         return;
     }
@@ -183,8 +184,10 @@ FloatRect SVGMaskElement::calculateMaskContentRepaintRect(RepaintRectCalculation
         if (style.display() == DisplayType::None || style.usedVisibility() != Visibility::Visible)
             continue;
         auto r = renderer->repaintRectInLocalCoordinates(repaintRectCalculation);
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
         if (auto transform = transformationMatrixFromChild(downcast<RenderLayerModelObject>(*renderer)))
             r = transform->mapRect(r);
+#endif
         maskRepaintRect.unite(r);
     }
     return maskRepaintRect;

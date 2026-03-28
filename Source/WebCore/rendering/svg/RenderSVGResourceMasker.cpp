@@ -206,4 +206,6 @@ bool RenderSVGResourceMasker::drawContentIntoContext(GraphicsContext& context, c
     return drawContentIntoContext(context, { { }, destinationRect.size() });
 }
 
+#endif
+
 }

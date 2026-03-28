@@ -103,6 +103,9 @@ message(STATUS "  Linker supports --gdb-index - ${LD_SUPPORTS_GDB_INDEX}")
 message(STATUS "  Linker supports --disable-new-dtags - ${LD_SUPPORTS_DISABLE_NEW_DTAGS}")
 message(STATUS "  Linker supports --gc-sections - ${LD_SUPPORTS_GC_SECTIONS}")
 
+# MorphOS
+set(LD_SUPPORTS_DISABLE_NEW_DTAGS FALSE)
+
 # Determine whether the archiver in use supports thin archives.
 separate_arguments(AR_VERSION_COMMAND UNIX_COMMAND "${CMAKE_AR} -V")
 execute_process(
@@ -159,6 +162,10 @@ else ()
     set(USE_THIN_ARCHIVES_DEFAULT OFF)
 endif ()
 option(USE_THIN_ARCHIVES "Produce all static libraries as thin archives" ${USE_THIN_ARCHIVES_DEFAULT})
+
+if (MORPHOS_MINIMAL)
+    set (USE_THIN_ARCHIVES OFF)
+endif()
 
 if (USE_THIN_ARCHIVES)
     set(CMAKE_CXX_ARCHIVE_CREATE "<CMAKE_AR> crT <TARGET> <LINK_FLAGS> <OBJECTS>")
@@ -221,22 +228,8 @@ set(CXX_STDLIB_TEST_SOURCE "
 ")
 check_cxx_source_compiles("${CXX_STDLIB_TEST_SOURCE}" CXX_STDLIB_IS_LIBCPP)
 if (CXX_STDLIB_IS_LIBCPP)
-    set(CXX_STDLIB_TEST_SOURCE "
-        #include <utility>
-        #if _LIBCPP_VERSION >= 190000
-        int main() { }
-        #else
-        #error libc++ is older than 19.x
-        #endif
-    ")
-    check_cxx_source_compiles("${CXX_STDLIB_TEST_SOURCE}" CXX_STDLIB_IS_LIBCPP_19_OR_NEWER)
-    if (CXX_STDLIB_IS_LIBCPP_19_OR_NEWER)
-        set(CXX_STDLIB_VARIANT "LIBCPP 19+")
-        set(CXX_STDLIB_ASSERTIONS_MACRO _LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE)
-    else ()
-        set(CXX_STDLIB_VARIANT "LIBCPP <19")
-        set(CXX_STDLIB_ASSERTIONS_MACRO _LIBCPP_ENABLE_ASSERTIONS=1)
-    endif ()
+    set(CXX_STDLIB_VARIANT "LIBCPP")
+    set(CXX_STDLIB_ASSERTIONS_MACRO _LIBCPP_ENABLE_ASSERTIONS)
 else ()
     set(CXX_STDLIB_TEST_SOURCE "
     #include <utility>
@@ -245,7 +238,7 @@ else ()
     check_cxx_source_compiles("${CXX_STDLIB_TEST_SOURCE}" CXX_STDLIB_IS_GLIBCXX)
     if (CXX_STDLIB_IS_GLIBCXX)
         set(CXX_STDLIB_VARIANT "GLIBCXX")
-        set(CXX_STDLIB_ASSERTIONS_MACRO _GLIBCXX_ASSERTIONS=1)
+        set(CXX_STDLIB_ASSERTIONS_MACRO _GLIBCXX_ASSERTIONS)
     endif ()
 endif ()
 message(STATUS "C++ standard library in use: ${CXX_STDLIB_VARIANT}")
@@ -261,8 +254,8 @@ option(USE_CXX_STDLIB_ASSERTIONS
 
 if (USE_CXX_STDLIB_ASSERTIONS)
     if (CXX_STDLIB_ASSERTIONS_MACRO)
-        message(STATUS "  Assertions enabled, ${CXX_STDLIB_ASSERTIONS_MACRO}")
-        add_compile_definitions("${CXX_STDLIB_ASSERTIONS_MACRO}")
+        message(STATUS "  Assertions enabled, ${CXX_STDLIB_ASSERTIONS_MACRO}=1")
+        add_compile_definitions("${CXX_STDLIB_ASSERTIONS_MACRO}=1")
     else ()
         message(STATUS "  Assertions disabled, CXX_STDLIB_ASSERTIONS_MACRO undefined")
     endif ()

@@ -42,17 +42,6 @@ public:
     {
     }
 
-    struct IPCData {
-        Type type;
-        String domain;
-        int errorCode;
-        URL failingURL;
-        String localizedDescription;
-        IsSanitized isSanitized;
-    };
-    WEBCORE_EXPORT static ResourceError fromIPCData(std::optional<IPCData>&&);
-    WEBCORE_EXPORT std::optional<IPCData> ipcData() const;
-
     WEBCORE_EXPORT ResourceError(int curlCode, const URL& failingURL, Type = Type::General);
 
     WEBCORE_EXPORT bool isCertificationVerificationError() const;
@@ -61,10 +50,15 @@ public:
 
     static bool platformCompare(const ResourceError& a, const ResourceError& b);
 
+    std::optional<CertificateInfo> certificateInfo() const { return m_certificateInfo; }
+    void setCertificateInfo(CertificateInfo&&info) { m_certificateInfo = WTFMove(info); };
+
 private:
     friend class ResourceErrorBase;
 
     void doPlatformIsolatedCopy(const ResourceError&);
+
+    std::optional<CertificateInfo> m_certificateInfo;
 };
 
 } // namespace WebCore

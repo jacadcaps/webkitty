@@ -23,6 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "WebKit.h"
 #include "InProcessIDBServer.h"
 
 #include <WebCore/ClientOrigin.h>

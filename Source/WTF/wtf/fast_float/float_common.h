@@ -9,6 +9,16 @@
 #include <type_traits>
 #include <system_error>
 
+#if defined(__MORPHOS__)
+    #ifndef SIZE_MAX
+    #define SIZE_MAX 0xffffffff
+    #endif
+
+    #ifndef UINT64_MAX
+    #define UINT64_MAX 0xffffffffffffffff
+    #endif
+#endif
+
 #include "constexpr_feature_detect.h"
 
 namespace fast_float {
@@ -57,7 +67,7 @@ using parse_options = parse_options_t<char>;
 #define FASTFLOAT_64BIT 1
 #elif (defined(__i386) || defined(__i386__) || defined(_M_IX86)   \
      || defined(__arm__) || defined(_M_ARM) || defined(__ppc__)   \
-     || defined(__MINGW32__) || defined(__EMSCRIPTEN__))
+     || defined(__MINGW32__) || defined(__EMSCRIPTEN__) || defined(__MORPHOS__))
 #define FASTFLOAT_32BIT 1
 #else
   // Need to check incrementally, since SIZE_MAX is a size_t, avoid overflow.

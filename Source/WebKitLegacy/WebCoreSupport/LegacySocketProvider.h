@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "WebKit.h"
 #include <WebCore/SocketProvider.h>
 
 class LegacySocketProvider final : public WebCore::SocketProvider {

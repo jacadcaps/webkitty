@@ -57,6 +57,9 @@ namespace WTF {
 
 void* OSAllocator::tryReserveAndCommit(size_t bytes, Usage usage, void* address, bool writable, bool executable, bool jitCageEnabled, unsigned numGuardPagesToAddOnEachEnd)
 {
+#if OS(MORPHOS)
+    return malloc(bytes);
+#else
     // All POSIX reservations start out logically committed.
     int protection = PROT_READ;
     if (writable)
@@ -111,10 +114,14 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     // Since we're only interested in the starting address, we don't have to specify the actual end of the
     // subspan to exclude the trailing guard pages.
     return result.leakSpan().subspan(guardSize).data();
+#endif
 }
 
 void* OSAllocator::tryReserveUncommitted(size_t bytes, Usage usage, void* address, bool writable, bool executable, bool jitCageEnabled, unsigned numGuardPagesToAddOnEachEnd)
 {
+#ifdef __MORPHOS__
+    return malloc(bytes);
+#else
 #if OS(LINUX) || OS(HAIKU)
     UNUSED_PARAM(usage);
     void* result = tryReserveAndCommit(bytes, OSAllocator::UncommittedPages, address, writable, executable, jitCageEnabled, numGuardPagesToAddOnEachEnd);
@@ -131,6 +138,7 @@ void* OSAllocator::tryReserveUncommitted(size_t bytes, Usage usage, void* addres
 
 #endif // not OS(LINUX) || OS(HAIKU)
     return result;
+#endif
 }
 
 void* OSAllocator::reserveUncommitted(size_t bytes, Usage usage, void* address, bool writable, bool executable, bool jitCageEnabled, unsigned numGuardPagesToAddOnEachEnd)
@@ -267,6 +275,9 @@ void OSAllocator::hintMemoryNotNeededSoon(void* address, size_t bytes)
 
 void OSAllocator::releaseDecommitted(void* address, size_t bytes, unsigned numberOfGuardPagesOnEachEnd = 0)
 {
+#ifdef __MORPHOS__
+    free(address);
+#else
     void* base = address;
     size_t size = bytes;
     if (numberOfGuardPagesOnEachEnd) {
@@ -278,10 +289,14 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     int result = munmap(base, size);
     if (result == -1)
         CRASH();
+#endif
 }
 
 bool OSAllocator::tryProtect(void* address, size_t bytes, bool readable, bool writable)
 {
+#ifdef __MORPHOS__
+    return true;
+#else
     int protection = 0;
     if (readable) {
         if (writable)
@@ -293,6 +308,7 @@ bool OSAllocator::tryProtect(void* address, size_t bytes, bool readable, bool wr
         protection = PROT_NONE;
     }
     return !mprotect(address, bytes, protection);
+#endif
 }
 
 void OSAllocator::protect(void* address, size_t bytes, bool readable, bool writable)

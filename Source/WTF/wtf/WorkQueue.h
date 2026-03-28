@@ -51,6 +51,10 @@ public:
     WTF_EXPORT_PRIVATE virtual void dispatchAfter(Seconds, Function<void()>&&);
     WTF_EXPORT_PRIVATE virtual void dispatchSync(Function<void()>&&);
 
+#if OS(MORPHOS)
+    void shutdown() { platformInvalidate(); }
+#endif
+    
 #if USE(COCOA_EVENT_LOOP)
     dispatch_queue_t dispatchQueue() const { return m_dispatchQueue.get(); }
     OSObjectPtr<dispatch_queue_t> protectedDispatchQueue() const { return dispatchQueue(); }

@@ -47,6 +47,12 @@
 #include <stdlib.h>
 #include <wtf/ExportMacros.h>
 
+#if OS(MORPHOS)
+extern "C" { void dprintf(const char *, ...); }
+extern "C" { void vdprintf(const char *, va_list); }
+
+#endif
+
 #if OS(ANDROID)
 #include <android/log.h>
 #endif
@@ -129,7 +135,7 @@
 #define WTF_ATTRIBUTE_PRINTF_MATCHES(formatStringArgument, formatStringTemplate)
 #endif
 
-#if PLATFORM(IOS_FAMILY)
+#if PLATFORM(IOS_FAMILY) || OS(MORPHOS)
 /* For a project that uses WTF but has no config.h, we need to explicitly set the export defines here. */
 #ifndef WTF_EXPORT_PRIVATE
 #define WTF_EXPORT_PRIVATE
@@ -829,13 +835,27 @@ static constexpr bool unreachableForValue = false;
 
 #if !ASSERT_ENABLED
 
+#if OS(MORPHOS)
+#define RELEASE_ASSERT(assertion, ...) do { \
+    if (UNLIKELY_FOR_C_ASSERTIONS(!(assertion))) { \
+        dprintf("WTFReleaseAssert in %s/%d\n", __FILE__, __LINE__); CRASH(); \
+	}\
+} while (0)
+#else
 #define RELEASE_ASSERT(assertion, ...) do { \
     if (UNLIKELY_FOR_C_ASSERTIONS(!(assertion))) \
         CRASH_WITH_INFO(__VA_ARGS__); \
 } while (0)
+#endif
 #define RELEASE_ASSERT_WITH_MESSAGE(assertion, ...) RELEASE_ASSERT(assertion)
 #define RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(assertion) RELEASE_ASSERT(assertion)
+#if OS(MORPHOS)
+#define RELEASE_ASSERT_NOT_REACHED(...) do { \
+    dprintf("WTFReleaseAssert in %s/%d\n", __FILE__, __LINE__); CRASH(); \
+} while (0)
+#else
 #define RELEASE_ASSERT_NOT_REACHED(...) CRASH_WITH_INFO(__VA_ARGS__)
+#endif
 #define RELEASE_ASSERT_NOT_REACHED_UNDER_CONSTEXPR_CONTEXT() CRASH_UNDER_CONSTEXPR_CONTEXT();
 #define RELEASE_ASSERT_UNDER_CONSTEXPR_CONTEXT(assertion) do { \
     if (UNLIKELY_FOR_C_ASSERTIONS(!(assertion))) { \

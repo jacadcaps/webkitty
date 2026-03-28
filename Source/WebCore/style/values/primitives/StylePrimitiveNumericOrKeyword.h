@@ -40,7 +40,11 @@ public:
     using Calc = typename N::Calc;
     using Dimension = typename N::Dimension;
     using Keywords = WebCore::CSS::PrimitiveKeywordList<Ks...>;
+#if OS(MORPHOS)
+    using Representation = Variant<Ks...>;
+#else
     using Representation = FlatteningCompactVariant<N, Ks...>;
+#endif
 
     template<typename U>
         requires std::same_as<std::remove_cvref_t<U>, N>

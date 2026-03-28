@@ -71,6 +71,8 @@ MemoryPressureHandler::MemoryPressureHandler()
     : m_holdOffTimer(RunLoop::mainSingleton(), "MemoryPressureHandler::HoldOffTimer"_s, this, &MemoryPressureHandler::holdOffTimerFired)
 #elif OS(WINDOWS)
     : m_windowsMeasurementTimer(RunLoop::mainSingleton(), "MemoryPressureHandler::WindowsMeasurementTimer"_s, this, &MemoryPressureHandler::windowsMeasurementTimerFired)
+#elif OS(MORPHOS)
+    : m_morphosMeasurementTimer(RunLoop::mainSingleton(), "MemoryPressureHandler::MorphOSMeasurementTimer"_s, this, &MemoryPressureHandler::morphosMeasurementTimerFired)
 #endif
 {
 #if PLATFORM(COCOA)

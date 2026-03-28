@@ -267,6 +267,15 @@ void SQLiteDatabase::checkpoint(CheckpointMode mode)
 
 bool SQLiteDatabase::useWALJournalMode()
 {
+#if OS(MORPHOS)
+	auto syncStatement = prepareStatement("PRAGMA synchronous=off;"_s);
+	if (syncStatement)
+		syncStatement->step();
+	auto walStatement = prepareStatement("PRAGMA journal_mode=off;"_s);
+	if (walStatement)
+		walStatement->step();
+    return true;
+#else
     m_useWAL = true;
     {
         SQLiteTransactionInProgressAutoCounter transactionCounter;
@@ -289,7 +298,7 @@ bool SQLiteDatabase::useWALJournalMode()
 
     // The database can be used even if checkpoint fails, e.g. when there are multiple open database connections.
     checkpoint(CheckpointMode::Truncate);
-
+#endif
     return true;
 }
 

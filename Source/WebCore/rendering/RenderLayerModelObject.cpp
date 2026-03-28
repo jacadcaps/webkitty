@@ -759,9 +759,11 @@ void RenderLayerModelObject::paintSVGMask(PaintInfo& paintInfo, const LayoutPoin
     if (!paintInfo.shouldPaintWithinRoot(*this) || context.paintingDisabled())
         return;
 
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
     ASSERT(isSVGLayerAwareRenderer());
     if (auto* referencedMaskerRenderer = svgMaskerResourceFromStyle())
         referencedMaskerRenderer->applyMask(paintInfo, *this, adjustedPaintOffset);
+#endif
 }
 
 bool rendererNeedsPixelSnapping(const RenderLayerModelObject& renderer)

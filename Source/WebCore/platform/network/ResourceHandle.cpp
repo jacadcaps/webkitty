@@ -309,7 +309,7 @@ void ResourceHandle::setDefersLoading(bool defers)
     platformSetDefersLoading(defers);
 }
 
-#if USE(SOUP) || USE(CURL)
+#if USE(SOUP) || (USE(CURL) && !OS(MORPHOS))
 ResourceHandleInternal::~ResourceHandleInternal() = default;
 
 ResourceHandle::~ResourceHandle()

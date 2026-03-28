@@ -25,7 +25,6 @@
 
 #pragma once
 
-#include <wtf/ArgumentCoder.h>
 #include <wtf/URL.h>
 #include <wtf/text/WTFString.h>
 
@@ -40,15 +39,6 @@ public:
         Default,
         NoProxy,
         Custom
-    };
-
-    struct DefaultData {
-    };
-    struct NoProxyData {
-    };
-    struct CustomData {
-        URL url;
-        String ignoreHosts;
     };
 
     CurlProxySettings() = default;

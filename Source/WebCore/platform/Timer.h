@@ -139,6 +139,7 @@ private:
 class Timer : public TimerBase {
     WTF_MAKE_TZONE_ALLOCATED_EXPORT(Timer, WEBCORE_EXPORT);
 public:
+#ifndef __MORPHOS_DISABLE
     static void schedule(Seconds delay, Function<void()>&& function)
     {
         auto* timer = new Timer([] { });

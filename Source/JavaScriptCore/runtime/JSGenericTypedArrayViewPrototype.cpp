@@ -136,6 +136,26 @@ JSC_DEFINE_HOST_FUNCTION(uint8ArrayPrototypeSetFromHex, (JSGlobalObject* globalO
     RETURN_IF_EXCEPTION(scope, { });
 
     uint8_t* data = uint8Array->typedVector();
+#if CPU(BIG_ENDIAN)
+    size_t count = std::min(static_cast<size_t>(view.length() / 2), uint8Array->length());
+    for (size_t i = 0; i < count * 2; ++i) {
+        int digit = parseDigit(view[i], 16);
+        if (digit == -1) [[unlikely]]
+            return JSValue::encode(throwSyntaxError(globalObject, scope, "Uint8Array.prototype.setFromHex requires a string containing only \"0123456789abcdefABCDEF\""_s));
+    }
+    size_t read = 0;
+    size_t written = 0;
+    for (size_t i = 0; i < count; ++i) {
+        int tens = parseDigit(view[read++], 16);
+        int ones = parseDigit(view[read++], 16);
+        data[written++] = (tens * 16) + ones;
+    }
+    ASSERT(read == count * 2);
+    ASSERT(written == count);
+    JSObject* resultObject = constructEmptyObject(globalObject);
+    resultObject->putDirect(vm, vm.propertyNames->read, jsNumber(read));
+    resultObject->putDirect(vm, vm.propertyNames->written, jsNumber(written));
+#else
     size_t writtenCount = std::min(static_cast<size_t>(view.length() / 2), uint8Array->length());
     size_t readCount = writtenCount * 2;
     auto result = std::span { data, data + writtenCount };
@@ -152,6 +172,7 @@ JSC_DEFINE_HOST_FUNCTION(uint8ArrayPrototypeSetFromHex, (JSGlobalObject* globalO
     JSObject* resultObject = constructEmptyObject(globalObject);
     resultObject->putDirect(vm, vm.propertyNames->read, jsNumber(readCount));
     resultObject->putDirect(vm, vm.propertyNames->written, jsNumber(writtenCount));
+#endif
     return JSValue::encode(resultObject);
 }
 
@@ -221,6 +242,17 @@ JSC_DEFINE_HOST_FUNCTION(uint8ArrayPrototypeToHex, (JSGlobalObject* globalObject
     if (isIntegerIndexedObjectOutOfBounds(uint8Array, byteLengthGetter)) [[unlikely]]
         return throwVMTypeError(globalObject, scope, typedArrayBufferHasBeenDetachedErrorMessage);
 
+#if CPU(BIG_ENDIAN)
+    StringBuilder builder;
+    builder.reserveCapacity(uint8Array->length() * 2);
+    const uint8_t* data = uint8Array->typedVector();
+    size_t length = uint8Array->length();
+    for (size_t i = 0; i < length; ++i) {
+        builder.append(radixDigits[data[i] / 16]);
+        builder.append(radixDigits[data[i] % 16]);
+    }
+    RELEASE_AND_RETURN(scope, JSValue::encode(jsString(vm, builder.toString())));
+#else
     const uint8_t* data = uint8Array->typedVector();
     size_t length = uint8Array->length();
     const auto* end = data + length;
@@ -276,6 +308,7 @@ JSC_DEFINE_HOST_FUNCTION(uint8ArrayPrototypeToHex, (JSGlobalObject* globalObject
     }
 
     return JSValue::encode(jsNontrivialString(vm, WTF::move(result)));
+#endif
 }
 
 } // namespace JSC

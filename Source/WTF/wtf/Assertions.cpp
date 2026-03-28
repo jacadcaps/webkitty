@@ -69,6 +69,9 @@
 #import <wtf/spi/cocoa/OSLogSPI.h>
 #endif
 
+#if OS(MORPHOS)
+#endif
+
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace WTF {
@@ -206,6 +209,10 @@ ALLOW_NONLITERAL_FORMAT_BEGIN
             size *= 2;
         } while (size > 1024);
     }
+#endif
+#if OS(MORPHOS)
+    vdprintf(formatSpan.data(), args);
+    return;
 #endif
     vfprintf(stderr, formatSpan.data(), args);
 ALLOW_NONLITERAL_FORMAT_END

@@ -59,6 +59,24 @@ enum class SharedMemoryProtection : bool { ReadOnly, ReadWrite };
 
 WEBCORE_EXPORT bool isMemoryAttributionDisabled();
 
+#if OS(MORPHOS)
+class MorphOSHandleData : public ThreadSafeRefCounted<MorphOSHandleData> {
+public:
+    MorphOSHandleData(size_t size);
+    ~MorphOSHandleData();
+    size_t size() const { return m_size; }
+    void *data() { return m_data; }
+protected:
+    void*  m_data;
+    size_t m_size;
+};
+
+struct MorphOSHandle {
+    RefPtr<MorphOSHandleData> m_shared;
+    bool operator!() const { return !m_shared; }
+};
+#endif
+
 class SharedMemoryHandle {
 public:
     using Type =
@@ -163,6 +181,8 @@ private:
     MachSendRight m_sendRight;
 #elif OS(WINDOWS)
     Win32Handle m_handle;
+#elif OS(MORPHOS)
+    MorphOSHandle m_handle;
 #endif
 };
 

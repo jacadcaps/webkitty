@@ -77,6 +77,11 @@
 #endif
 #endif // USE(GSTREAMER)
 
+#if OS(MORPHOS)
+#include "morphos/MediaPlayerPrivateMorphOS.h"
+#define PlatformMediaEngineClassName MediaPlayerPrivateMorphOS
+#endif
+
 #if USE(MEDIA_FOUNDATION)
 #include "MediaPlayerPrivateMediaFoundation.h"
 #endif
@@ -538,6 +543,10 @@ MediaPlayer::~MediaPlayer()
 void MediaPlayer::invalidate()
 {
     m_client = nullMediaPlayerClient();
+#if OS(MORPHOS)
+    if (m_private)
+        m_private->cancelLoad(); // force cleanup - some sites will heavily leak otherwise
+#endif
 }
 
 bool MediaPlayer::load(const URL& url, const LoadOptions& options)
@@ -607,6 +616,9 @@ CheckedPtr<const MediaPlayerFactory> MediaPlayer::nextBestMediaEngine(const Medi
     parameters.allowedMediaVideoCodecIDs = allowedMediaVideoCodecIDs();
     parameters.allowedMediaAudioCodecIDs = allowedMediaAudioCodecIDs();
     parameters.allowedMediaCaptionFormatTypes = allowedMediaCaptionFormatTypes();
+#if OS(MORPHOS)
+    parameters.page = client().mediaPlayerPage();
+#endif
 
     if (m_activeEngineIdentifier) {
         if (current)

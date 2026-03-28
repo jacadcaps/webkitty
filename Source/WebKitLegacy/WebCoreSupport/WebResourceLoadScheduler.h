@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include "WebKit.h"
 #include <WebCore/FrameLoaderTypes.h>
 #include <WebCore/LoaderStrategy.h>
 #include <WebCore/ResourceLoadPriority.h>
@@ -34,6 +35,7 @@
 #include <wtf/HashSet.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/TZoneMalloc.h>
+#include <wtf/UniqueRef.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/StringHash.h>
 #include <wtf/text/WTFString.h>

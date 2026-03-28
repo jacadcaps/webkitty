@@ -29,6 +29,14 @@
 
 #if USE(CURL)
 
+#if OS(MORPHOS)
+extern "C" {
+LONG WaitSelect(LONG nfds, fd_set *readfds, fd_set *writefds, fd_set *exeptfds,
+                struct timeval *timeout, ULONG *maskp);
+}
+#include <unistd.h> /* for usleep */
+#endif
+
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(CurlStreamScheduler);
@@ -43,7 +51,7 @@ CurlStreamScheduler::~CurlStreamScheduler()
     ASSERT(isMainThread());
 }
 
-CurlStreamID CurlStreamScheduler::createStream(const URL& url, CurlStream::Client& client, CurlStream::ServerTrustEvaluation serverTrustEvaluation, CurlStream::LocalhostAlias localhostAlias)
+CurlStreamID CurlStreamScheduler::createStream(const URL& url, CurlStream::Client& client)
 {
     ASSERT(isMainThread());
 
@@ -156,13 +164,19 @@ void CurlStreamScheduler::executeTasks()
 void CurlStreamScheduler::workerThread()
 {
     ASSERT(!isMainThread());
+#if OS(MORPHOS)
+    static const int selectTimeoutMS = 200;
+#else
     static const int selectTimeoutMS = 20;
+#endif
     struct timeval timeout { 0, selectTimeoutMS * 1000};
 
     while (m_runThread) {
         executeTasks();
 
+#if !OS(MORPHOS)
         int rc = 0;
+#endif
         fd_set readfds;
         fd_set writefds;
         fd_set exceptfds;
@@ -178,8 +192,19 @@ void CurlStreamScheduler::workerThread()
                 stream->appendMonitoringFd(readfds, writefds, exceptfds, maxfd);
 
             if (maxfd >= 0)
+            {
+#if OS(MORPHOS)
+                ULONG maskp = 0;
+                WaitSelect(maxfd + 1, &readfds, &writefds, &exceptfds, &timeout, &maskp);
+#else
                 rc = ::select(maxfd + 1, &readfds, &writefds, &exceptfds, &timeout);
+#endif
+            }
+#if OS(MORPHOS)
+        } while (0);
+#else
         } while (rc == -1 && errno == EINTR);
+#endif
 
         for (auto& stream : m_streamList.values())
             stream->tryToTransfer(readfds, writefds, exceptfds);

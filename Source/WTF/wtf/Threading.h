@@ -305,6 +305,12 @@ public:
     static void entryPoint(NewThreadContext*);
     ThreadLikeAssertion threadLikeAssertion() const { return createThreadLikeAssertion(m_uid); }
 
+#if OS(MORPHOS)
+    // Final clean up for this class as a while.
+    // Must method must be called after last sub-thread has terminated.
+    static void deleteTLSKey();
+#endif
+
     // Returns nullptr if thread-specific storage was not initialized.
 #if OS(WINDOWS)
     WTF_EXPORT_PRIVATE static Thread* currentMayBeNull();
@@ -312,6 +318,10 @@ public:
     static Thread* currentMayBeNull();
 #endif
 
+#ifdef __MORPHOS__
+    static Thread* getUserDataThreadPointer();
+#endif
+    
 protected:
     explicit Thread(SchedulingPolicy schedulingPolicy)
         : m_isRealtime(schedulingPolicy == SchedulingPolicy::Realtime)
@@ -329,7 +339,7 @@ protected:
     void establishPlatformSpecificHandle(PlatformThreadHandle, ThreadIdentifier);
 #endif
 
-#if USE(PTHREADS) && !OS(DARWIN)
+#if USE(PTHREADS) && !OS(DARWIN) && !OS(MORPHOS)
     static void signalHandlerSuspendResume(int, siginfo_t*, void* ucontext);
 #endif
 
@@ -440,6 +450,10 @@ inline Thread* Thread::currentMayBeNull()
 }
 #endif
 
+#if OS(MORPHOS)
+extern "C" { void *get_thread_pointer(void); }
+#endif
+
 inline Thread& Thread::currentSingleton()
 {
     // WRT WebCore:
@@ -452,8 +466,16 @@ inline Thread& Thread::currentSingleton()
     if (Thread::s_key == InvalidThreadSpecificKey) [[unlikely]]
         WTF::initialize();
 #endif
+#if OS(MORPHOS)
+    Thread* thread = getUserDataThreadPointer();
+    if (!thread)
+        thread = currentMayBeNull();
+    if (thread)
+        return *thread;
+#else
     if (SUPPRESS_UNCOUNTED_LOCAL auto* thread = currentMayBeNull(); thread) [[likely]]
         return *thread;
+#endif
     return initializeCurrentTLS();
 }
 

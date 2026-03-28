@@ -116,6 +116,45 @@ private:
     Markable<PlatformFileHandle, PlatformHandleTraits> m_handle;
 };
 
+#if OS(MORPHOS)
+
+class AsyncFileHandle
+{
+public:
+    WTF_EXPORT_PRIVATE AsyncFileHandle();
+
+    static AsyncFileHandle adopt(PlatformFileHandle handle)
+    {
+        return AsyncFileHandle { handle };
+    }
+
+    WTF_EXPORT_PRIVATE AsyncFileHandle(AsyncFileHandle&&);
+    WTF_EXPORT_PRIVATE AsyncFileHandle& operator=(AsyncFileHandle&&);
+
+    WTF_EXPORT_PRIVATE ~AsyncFileHandle();
+
+    PlatformFileHandle platformHandle() const { return m_handle; }
+
+    bool isValid() const { return m_handle != invalidPlatformFileHandle; }
+    explicit operator bool() const { return isValid(); }
+    
+    WTF_EXPORT_PRIVATE std::optional<uint64_t> write(std::span<const uint8_t>);
+    WTF_EXPORT_PRIVATE std::optional<uint64_t> seek(int64_t offset, FileSeekOrigin);
+
+private:
+    AsyncFileHandle(PlatformFileHandle handle)
+        : m_handle(handle)
+    {
+    }
+    void close();
+    PlatformFileHandle m_handle;
+};
+
+// Async API
+WTF_EXPORT_PRIVATE std::pair<String, AsyncFileHandle> openTemporaryFileAsync(StringView prefix);
+WTF_EXPORT_PRIVATE AsyncFileHandle openFileAsync(const String& path, FileOpenMode);
+#endif
+
 } // namespace FileSystemImpl
 
 } // namespace WTF

@@ -173,8 +173,13 @@ WTF_EXPORT_PRIVATE size_t fastMallocSize(const void*);
 // FIXME: This is non-helpful; fastMallocGoodSize will be removed soon.
 WTF_EXPORT_PRIVATE size_t fastMallocGoodSize(size_t);
 
+#if OS(MORPHOS)
+WTF_EXPORT_PRIVATE inline void releaseFastMallocFreeMemory() { };
+WTF_EXPORT_PRIVATE inline void releaseFastMallocFreeMemoryForThisThread() { };
+#else
 WTF_EXPORT_PRIVATE void releaseFastMallocFreeMemory();
 WTF_EXPORT_PRIVATE void releaseFastMallocFreeMemoryForThisThread();
+#endif
 
 WTF_EXPORT_PRIVATE void fastCommitAlignedMemory(void*, size_t);
 WTF_EXPORT_PRIVATE void fastDecommitAlignedMemory(void*, size_t);
