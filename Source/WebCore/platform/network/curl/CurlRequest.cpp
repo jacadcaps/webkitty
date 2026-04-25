@@ -41,18 +41,33 @@
 #include <wtf/MainThread.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/MakeString.h>
+#include "SynchronousLoaderClient.h"
 
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(CurlRequest);
 
-CurlRequest::CurlRequest(const ResourceRequest&request, CurlRequestClient* client, CaptureNetworkLoadMetrics captureExtraMetrics)
-    : m_client(client)
-    , m_request(request.isolatedCopy())
-    , m_formDataStream(m_request.httpBody())
-    , m_captureExtraMetrics(captureExtraMetrics == CaptureNetworkLoadMetrics::Extended)
+#if OS(MORPHOS)
+String CurlRequest::m_downloadPath = "SYS:Downloads"_s;
+#else
+String CurlRequest::m_downloadPath = "/tmp";
+#endif
+
+CurlRequest::CurlRequest(const ResourceRequest&request, CurlRequestClient* client, ShouldSuspend shouldSuspend, EnableMultipart enableMultipart, CaptureNetworkLoadMetrics captureExtraMetrics, RefPtr<SynchronousLoaderMessageQueue>&& messageQueue)
+     : m_client(client)
+    , m_messageQueue(WTF::move(messageQueue))
+     , m_request(request.isolatedCopy())
+    , m_enableMultipart(enableMultipart == EnableMultipart::Yes)
+    , m_startState(shouldSuspend == ShouldSuspend::Yes ? StartState::StartSuspended : StartState::WaitingForStart)
+     , m_formDataStream(m_request.httpBody())
+     , m_captureExtraMetrics(captureExtraMetrics == CaptureNetworkLoadMetrics::Extended)
 {
     ASSERT(isMainThread());
+}
+
+CurlRequest::~CurlRequest()
+{
+    cleanupDownloadFile();
 }
 
 void CurlRequest::invalidateClient()
@@ -60,6 +75,7 @@ void CurlRequest::invalidateClient()
     ASSERT(isMainThread());
 
     m_client = nullptr;
+    m_messageQueue = nullptr;
 }
 
 void CurlRequest::setAuthenticationScheme(ProtectionSpace::AuthenticationScheme scheme)
@@ -216,7 +232,10 @@ void CurlRequest::callClient(Function<void(CurlRequest&, CurlRequestClient&)>&& 
 
 void CurlRequest::runOnMainThread(Function<void()>&& task)
 {
-    ensureOnMainThread(WTF::move(task));
+    if (m_messageQueue)
+        m_messageQueue->append(makeUnique<Function<void()>>(WTF::move(task)));
+    else
+        ensureOnMainThread(WTF::move(task));
 }
 
 void CurlRequest::runOnWorkerThreadIfRequired(Function<void()>&& task)
@@ -234,7 +253,7 @@ CURL* CurlRequest::setupTransfer()
 
     m_curlHandle = makeUnique<CurlHandle>();
 
-    m_curlHandle->setUrl(m_request.url());
+    m_curlHandle->setURL(m_request.url(), CurlHandle::LocalhostAlias::Disable);
 
     m_curlHandle->appendRequestHeaders(httpHeaderFields);
 
@@ -431,6 +450,13 @@ size_t CurlRequest::didReceiveData(std::span<const uint8_t> receivedData)
 #endif
 
     if (needToInvokeDidReceiveResponse()) {
+#if OS(MORPHOS)
+        setCallbackPaused(true);
+        invokeDidReceiveResponse(m_response, Action::ReceiveData);
+        // Because libcurl pauses the handle after returning this CURL_WRITEFUNC_PAUSE,
+        // we need to update its state here.
+        updateHandlePauseState(true);
+#else
         // Pause until completeDidReceiveResponse() is called.
         invokeDidReceiveResponse(m_response, [this] {
             runOnWorkerThreadIfRequired([this, protectedThis = Ref { *this }]() {
@@ -441,11 +467,15 @@ size_t CurlRequest::didReceiveData(std::span<const uint8_t> receivedData)
                 m_curlHandle->pause(CURLPAUSE_CONT);
             });
         });
-
+#endif
         return CURL_WRITEFUNC_PAUSE;
     }
 
     m_totalReceivedSize += receivedData.size();
+
+#if OS(MORPHOS)
+    writeDataToDownloadFileIfEnabled(receivedData);
+#endif
 
     if (receivedData.size()) {
         if (m_multipartHandle) {
@@ -478,6 +508,9 @@ void CurlRequest::didReceiveHeaderFromMultipart(Vector<String>&& headers)
     for (auto& header : headers)
         response.headers.append(WTF::move(header));
 
+#if OS(MORPHOS)
+    invokeDidReceiveResponse(response, Action::None);
+#else
     invokeDidReceiveResponse(response, [this] {
         runOnWorkerThreadIfRequired([this, protectedThis = Ref { *this }]() {
             if (isCompletedOrCancelled() || !m_multipartHandle)
@@ -486,6 +519,7 @@ void CurlRequest::didReceiveHeaderFromMultipart(Vector<String>&& headers)
             m_multipartHandle->completeHeaderProcessing();
         });
     });
+#endif
 }
 
 void CurlRequest::didReceiveDataFromMultipart(std::span<const uint8_t> receivedData)
@@ -545,10 +579,15 @@ void CurlRequest::didCompleteTransfer(CURLcode result)
         auto resourceError = ResourceError(result, m_request.url(), type);
 
         CertificateInfo certificateInfo;
-        if (auto info = m_curlHandle->certificateInfo())
+        if (auto info = m_curlHandle->certificateInfo()) {
+            resourceError.setCertificateInfo(info->isolatedCopy());
             certificateInfo = WTF::move(*info);
+        }
 
+        m_cancelled = true;
         finalizeTransfer();
+        cleanupDownloadFile();
+
         callClient([error = WTF::move(resourceError), certificateInfo = WTF::move(certificateInfo)](CurlRequest& request, CurlRequestClient& client) mutable {
             client.curlDidFailWithError(request, WTF::move(error), WTF::move(certificateInfo));
         });
@@ -677,19 +716,28 @@ void CurlRequest::invokeDidReceiveResponseForFile(const URL& url)
         response.statusCode = 200;
         response.headers.append(makeString("Content-Type: "_s, mimeType));
 
+#if OS(MORPHOS)
+        invokeDidReceiveResponse(response, Action::StartTransfer);
+#else
         invokeDidReceiveResponse(response, [this] {
             startWithJobManager();
         });
+#endif
     });
 }
 
-void CurlRequest::invokeDidReceiveResponse(const CurlResponse& response, Function<void()>&& completionHandler)
+void CurlRequest::invokeDidReceiveResponse(const CurlResponse& response, Action behaviorAfterInvoke)
 {
+#if OS(MORPHOS)
+    m_actionAfterInvoke = behaviorAfterInvoke;
+    m_didNotifyResponse = true;
+#else
     ASSERT(!m_responseCompletionHandler);
     ASSERT(!m_didNotifyResponse || m_multipartHandle);
-
+    
     m_didNotifyResponse = true;
     m_responseCompletionHandler = WTF::move(completionHandler);
+#endif
 
     // FIXME: Replace this isolatedCopy with WTF::move.
     callClient([response = response.isolatedCopy()](CurlRequest& request, CurlRequestClient& client) mutable {
@@ -702,15 +750,113 @@ void CurlRequest::completeDidReceiveResponse()
     ASSERT(isMainThread());
     ASSERT(m_didNotifyResponse);
     ASSERT(!m_didReturnFromNotify || m_multipartHandle);
+    
+    if (isCompletedOrCancelled())
+        return;
+    
+    m_didReturnFromNotify = true;
+    
+#if OS(MORPHOS)
+    if (m_actionAfterInvoke == Action::ReceiveData) {
+        // Resume transfer
+        setCallbackPaused(false);
+    } else if (m_actionAfterInvoke == Action::StartTransfer) {
+        // Start transfer for file scheme
+        startWithJobManager();
+    } else if (m_actionAfterInvoke == Action::FinishTransfer) {
+        runOnWorkerThreadIfRequired([this, protectedThis = Ref { *this }, finishedResultCode = m_finishedResultCode]() {
+            didCompleteTransfer(finishedResultCode);
+        });
+    }
+#else
+    if (auto responseCompletionHandler = WTF::move(m_responseCompletionHandler))
+        responseCompletionHandler();
+#endif
+}
 
+#if OS(MORPHOS)
+void CurlRequest::setRequestPaused(bool paused)
+{
+    {
+        Locker locker { m_pauseStateMutex };
+
+        auto savedState = shouldBePaused();
+        m_isPausedOfRequest = paused;
+        if (shouldBePaused() == savedState)
+            return;
+    }
+
+    pausedStatusChanged();
+}
+
+void CurlRequest::setCallbackPaused(bool paused)
+{
+    {
+        Locker locker { m_pauseStateMutex };
+
+        auto savedState = shouldBePaused();
+        m_isPausedOfCallback = paused;
+
+        // If pause is requested, it is called within didReceiveData() which means
+        // actual change happens inside libcurl. No need to update manually here.
+        if (shouldBePaused() == savedState || paused)
+            return;
+    }
+
+    pausedStatusChanged();
+}
+
+void CurlRequest::invokeCancel()
+{
+    // There's no need to extract this method. This is a workaround for MSVC's bug
+    // which happens when using lambda inside other lambda. The compiler loses context
+    // of `this` which prevent makeRef.
+    runOnMainThread([this, protectedThis = Ref { *this }]() {
+        cancel();
+    });
+}
+
+void CurlRequest::pausedStatusChanged()
+{
     if (isCompletedOrCancelled())
         return;
 
-    m_didReturnFromNotify = true;
+    runOnWorkerThreadIfRequired([this, protectedThis = Ref { *this }]() {
+        if (isCompletedOrCancelled() || !m_curlHandle)
+            return;
 
-    if (auto responseCompletionHandler = WTF::move(m_responseCompletionHandler))
-        responseCompletionHandler();
+        bool needCancel { false };
+        {
+            Locker locker { m_pauseStateMutex };
+            bool paused = shouldBePaused();
+
+            if (isHandlePaused() == paused)
+                return;
+
+            auto error = m_curlHandle->pause(paused ? CURLPAUSE_ALL : CURLPAUSE_CONT);
+            if (error == CURLE_OK)
+                updateHandlePauseState(paused);
+
+            needCancel = (error != CURLE_OK && !paused);
+        }
+
+        if (needCancel)
+            invokeCancel();
+    });
 }
+
+void CurlRequest::updateHandlePauseState(bool paused)
+{
+    ASSERT(!isMainThread());
+    m_isHandlePaused = paused;
+}
+
+bool CurlRequest::isHandlePaused() const
+{
+    ASSERT(!isMainThread());
+    return m_isHandlePaused;
+}
+#endif
 
 NetworkLoadMetrics CurlRequest::networkLoadMetrics()
 {
@@ -733,6 +879,7 @@ NetworkLoadMetrics CurlRequest::networkLoadMetrics()
     return WTF::move(*networkLoadMetrics);
 }
 
+#if !OS(MORPHOS)
 std::optional<long long> CurlRequest::getContentLength()
 {
     for (const auto& header : m_response.headers) {
@@ -747,6 +894,91 @@ std::optional<long long> CurlRequest::getContentLength()
 
     return std::nullopt;
 }
+#endif
+
+#if OS(MORPHOS)
+void CurlRequest::enableDownloadToFile()
+{
+    Locker locker { m_downloadMutex };
+    m_isEnabledDownloadToFile = true;
+}
+
+void CurlRequest::resumeDownloadToFile(const String &tmpDownloadPath)
+{
+    Locker locker(m_downloadMutex);
+    m_isEnabledDownloadToFile = true;
+    m_downloadFilePath = tmpDownloadPath;
+    m_downloadPendingResume = true;
+}
+
+String CurlRequest::getDownloadedFilePath()
+{
+    Locker locker { m_downloadMutex };
+    return m_downloadFilePath;
+}
+
+void CurlRequest::writeDataToDownloadFileIfEnabled(std::span<const uint8_t> buffer)
+{
+    {
+        Locker locker { m_downloadMutex };
+
+        if (!m_isEnabledDownloadToFile)
+            return;
+
+        if (m_downloadFilePath.isEmpty())
+        {
+            auto [filePath, fileHandle] = FileSystem::openTemporaryFileAsync("download"_s);
+            m_downloadFilePath = filePath;
+            m_downloadFileHandle = WTF::move(fileHandle);
+        }
+
+        if (m_downloadFilePath.isEmpty() && m_downloadFileHandle) {
+            m_downloadFileHandle = { };
+        }
+    }
+
+    if (!m_downloadFileHandle)
+    {
+        auto resourceError = ResourceError(507, m_request.url(), ResourceError::Type::General);
+        callClient([error = WTF::move(resourceError)](CurlRequest& request, CurlRequestClient& client) mutable {
+            client.curlDidFailWithError(request, WTF::move(error), { });
+        });
+        runOnMainThread([this, protectedThis = Ref { *this }]() {
+            cancel();
+        });
+     }
+
+    if (m_downloadFileHandle)
+    {
+        if (!m_downloadFileHandle.write(buffer).has_value())
+        {
+            auto resourceError = ResourceError(507, m_request.url(), ResourceError::Type::General);
+            callClient([error = WTF::move(resourceError)](CurlRequest& request, CurlRequestClient& client) mutable {
+                client.curlDidFailWithError(request, WTF::move(error), { });
+            });
+            runOnMainThread([this, protectedThis = Ref { *this }]() {
+                cancel();
+            });
+         }
+     }
+}
+
+void CurlRequest::closeDownloadFile()
+{
+    Locker locker { m_downloadMutex };
+    m_downloadFileHandle = { };
+}
+ 
+void CurlRequest::cleanupDownloadFile()
+{
+    Locker locker { m_downloadMutex };
+
+    if (!m_downloadFilePath.isEmpty() && m_deletesDownloadFileOnCancelOrError) {
+        FileSystem::deleteFile(m_downloadFilePath);
+        m_downloadFilePath = String();
+    }
+}
+#endif
 
 size_t CurlRequest::willSendDataCallback(char* ptr, size_t blockSize, size_t numberOfBlocks, void* userData)
 {

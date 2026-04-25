@@ -42,23 +42,35 @@ class CurlRequestClient;
 class NetworkLoadMetrics;
 class ResourceError;
 class FragmentedSharedBuffer;
+class SynchronousLoaderMessageQueue;
 
 class CurlRequest final : public ThreadSafeRefCounted<CurlRequest>, public CurlRequestSchedulerClient, public CurlMultipartHandleClient, public CanMakeThreadSafeCheckedPtr<CurlRequest> {
     WTF_MAKE_TZONE_ALLOCATED(CurlRequest);
     WTF_MAKE_NONCOPYABLE(CurlRequest);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(CurlRequest);
 public:
+    enum class ShouldSuspend : bool {
+        No = false,
+        Yes = true
+    };
+ 
+    enum class EnableMultipart : bool {
+        No = false,
+        Yes = true
+    };
+
     enum class CaptureNetworkLoadMetrics : uint8_t {
         Basic,
         Extended
     };
 
-    static Ref<CurlRequest> create(const ResourceRequest& request, CurlRequestClient& client, CaptureNetworkLoadMetrics captureMetrics = CaptureNetworkLoadMetrics::Basic)
+    static Ref<CurlRequest> create(const ResourceRequest& request, CurlRequestClient& client, ShouldSuspend shouldSuspend = ShouldSuspend::No, EnableMultipart enableMultipart = EnableMultipart::No, CaptureNetworkLoadMetrics captureMetrics = CaptureNetworkLoadMetrics::Basic,
+        RefPtr<SynchronousLoaderMessageQueue>&& messageQueue = nullptr)
     {
-        return adoptRef(*new CurlRequest(request, &client, captureMetrics));
+        return adoptRef(*new CurlRequest(request, &client, shouldSuspend, enableMultipart, captureMetrics, WTF::move(messageQueue)));
     }
 
-    ~CurlRequest() = default;
+    ~CurlRequest();
 
     WEBCORE_EXPORT void invalidateClient();
     WEBCORE_EXPORT void setAuthenticationScheme(ProtectionSpace::AuthenticationScheme);

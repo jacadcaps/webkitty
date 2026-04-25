@@ -42,7 +42,9 @@
 #include <WebCore/MediaElementSession.h>
 #include <WebCore/MediaPlayer.h>
 #include <WebCore/MediaProducer.h>
+#ifndef __MORPHOS_DISABLE
 #include <WebCore/MediaResourceSniffer.h>
+#endif
 #include <WebCore/MediaUniqueIdentifier.h>
 #include <WebCore/MessageTargetForTesting.h>
 #include <WebCore/PlatformDynamicRangeLimit.h>

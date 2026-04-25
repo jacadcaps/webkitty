@@ -90,6 +90,7 @@ bool protocolIsInSocksFamily(const URL& url)
     return url.protocolIs("socks4"_s) || url.protocolIs("socks4a"_s) || url.protocolIs("socks5"_s) || url.protocolIs("socks5h"_s);
 }
 
+#if !OS(MORPHOS)
 CurlProxySettings::IPCData CurlProxySettings::toIPCData() const
 {
     switch (m_mode) {
@@ -116,6 +117,7 @@ CurlProxySettings CurlProxySettings::fromIPCData(CurlProxySettings::IPCData&& ip
         }
     );
 }
+#endif
 
 static std::optional<uint16_t> getProxyPort(const URL& url)
 {

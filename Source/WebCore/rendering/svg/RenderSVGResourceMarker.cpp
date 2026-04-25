@@ -41,6 +41,8 @@
 
 namespace WebCore {
 
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
+
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderSVGResourceMarker);
 
 RenderSVGResourceMarker::RenderSVGResourceMarker(SVGMarkerElement& element, RenderStyle&& style)

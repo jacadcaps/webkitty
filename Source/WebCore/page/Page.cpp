@@ -2514,7 +2514,12 @@ void Page::finalizeRenderingUpdateForRootFrame(LocalFrame& rootFrame, OptionSet<
     if (!view)
         return;
 
+#if OS(MORPHOS)
+    if (!m_renderingUpdateRemainingSteps.isEmpty())
+        m_renderingUpdateRemainingSteps.last().remove(RenderingUpdateStep::LayerFlush);
+#else
     m_renderingUpdateRemainingSteps.last().remove(RenderingUpdateStep::LayerFlush);
+#endif
 
     view->flushCompositingStateIncludingSubframes();
 

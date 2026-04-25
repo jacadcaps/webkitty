@@ -845,6 +845,13 @@ HTMLMediaElement::~HTMLMediaElement()
     unregisterWithDocument(Ref<Document> { document() });
 }
 
+#if OS(MORPHOS)
+WebCore::Page* HTMLMediaElement::mediaPlayerPage()
+{
+    return document().page();
+}
+#endif
+
 std::optional<MediaPlayerIdentifier> HTMLMediaElement::playerIdentifier() const
 {
     RefPtr player = m_player;

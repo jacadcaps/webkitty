@@ -458,7 +458,7 @@ static String computeHasChildSelector(Element& element)
         selectorSuffix = makeString(":has("_s, WTF::move(selector), ')');
         break;
     }
-
+#endif
     if (selectorSuffix.isEmpty())
         return emptyString();
 

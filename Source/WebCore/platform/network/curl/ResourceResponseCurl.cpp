@@ -107,7 +107,26 @@ ResourceResponse::ResourceResponse(CurlResponse& response)
         break;
     }
 
+#if OS(MORPHOS)
+    String mimeType = extractMIMETypeFromMediaType(httpHeaderField(HTTPHeaderName::ContentType)).convertToASCIILowercase();
+    if (mimeType.isEmpty()) {
+        auto lastPathComponent = response.url.lastPathComponent();
+        size_t pos = lastPathComponent.reverseFind('.');
+        if (pos != notFound) {
+            auto extension = lastPathComponent.substring(pos + 1);
+            mimeType = MIMETypeRegistry::mimeTypeForExtension(extension);
+            // cache the content type, don't override if we're getting a response from cache anyway
+            // since in some cases the deduced mimetype may be wrong (if the server omitted content-type that
+            // mismatches the extension for a 304, like on a1k.org)
+            if (mimeType.length() && httpStatusCode() != 304) {
+                setHTTPHeaderField(HTTPHeaderName::ContentType, mimeType);
+            }
+        }
+    }
+    setMimeType(mimeType.convertToASCIILowercase());
+#else
     setMimeType(extractMIMETypeFromMediaType(httpHeaderField(HTTPHeaderName::ContentType)).convertToASCIILowercase());
+#endif
     setTextEncodingName(extractCharsetFromMediaType(httpHeaderField(HTTPHeaderName::ContentType)).toString());
     setCertificateInfo(WTF::move(response.certificateInfo));
     setSource(ResourceResponse::Source::Network);
@@ -173,36 +192,6 @@ bool ResourceResponse::shouldRedirect() const
         return false;
 
     return true;
-}
-
-bool ResourceResponse::isMovedPermanently() const
-{
-    return httpStatusCode() == 301;
-}
-
-bool ResourceResponse::isFound() const
-{
-    return httpStatusCode() == 302;
-}
-
-bool ResourceResponse::isSeeOther() const
-{
-    return httpStatusCode() == 303;
-}
-
-bool ResourceResponse::isNotModified() const
-{
-    return httpStatusCode() == 304;
-}
-
-bool ResourceResponse::isUnauthorized() const
-{
-    return httpStatusCode() == 401;
-}
-
-bool ResourceResponse::isProxyAuthenticationRequired() const
-{
-    return httpStatusCode() == 407;
 }
 
 }

@@ -104,6 +104,7 @@ class SharedBuffer;
 class TextTrackRepresentation;
 class VideoFrame;
 class VideoTrackPrivate;
+class Page;
 
 struct GraphicsDeviceAdapter;
 struct HostingContext;
@@ -164,6 +165,7 @@ enum class MediaPlayerType {
     AVFObjCMSE,
     AVFObjCMediaStream,
     CocoaWebM,
+    MorphOS,
     GStreamer,
     GStreamerMSE,
     HolePunch,
@@ -675,6 +677,10 @@ public:
     bool isGStreamerHolePunchingEnabled();
 #endif
 
+#if OS(MORPHOS)
+    void selectHLSStream(const String& url);
+#endif
+
     String languageOfPrimaryAudioTrack() const;
 
     size_t extraMemoryCost() const;
@@ -817,7 +823,9 @@ private:
     MediaPlayer(MediaPlayerClient&);
     MediaPlayer(MediaPlayerClient&, MediaPlayerEnums::MediaEngineIdentifier);
 
+public:
     MediaPlayerClient& client() const { return *m_client; }
+private:
     Ref<MediaPlayerClient> protectedClient() const { return client(); }
 
     RefPtr<MediaPlayerPrivateInterface> protectedPrivate() const;

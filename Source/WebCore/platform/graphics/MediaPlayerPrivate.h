@@ -293,6 +293,10 @@ public:
     virtual void simulateAudioInterruption() { }
 #endif
 
+#if OS(MORPHOS)
+    virtual void selectHLSStream(const String&) { }
+#endif
+    
     virtual String languageOfPrimaryAudioTrack() const { return emptyString(); }
 
     virtual size_t extraMemoryCost() const

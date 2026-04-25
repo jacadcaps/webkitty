@@ -51,6 +51,11 @@ public:
 
     WEBCORE_EXPORT ResourceResponse(CurlResponse&);
 
+#if OS(MORPHOS)
+    bool shouldRedirect() const;
+    bool isNotModified() const { return httpStatusCode() == 304; }
+#endif
+
     bool isMovedPermanently() const { return httpStatusCode() == 301; };
     bool isFound() const { return httpStatusCode() == 302; }
     bool isSeeOther() const { return httpStatusCode() == 303; }
@@ -61,6 +66,9 @@ private:
     friend class ResourceResponseBase;
 
     String platformSuggestedFilename() const;
+
+    static bool isAppendableHeader(const String &key);
+    void setStatusLine(StringView);
 
     void appendHTTPHeaderField(const String&);
 };

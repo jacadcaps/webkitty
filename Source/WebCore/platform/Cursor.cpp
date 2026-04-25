@@ -442,7 +442,7 @@ const Cursor& grabbingCursor()
     return c;
 }
 
-#if !HAVE(NSCURSOR) && !PLATFORM(WIN)
+#if !HAVE(NSCURSOR) && !PLATFORM(WIN) && !OS(MORPHOS)
 void Cursor::ensurePlatformCursor() const
 {
     notImplemented();

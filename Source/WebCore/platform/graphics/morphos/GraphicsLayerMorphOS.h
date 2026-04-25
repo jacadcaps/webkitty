@@ -51,7 +51,7 @@ private:
     WEBCORE_EXPORT void initialize(Type) override;
 
     WEBCORE_EXPORT void setNeedsDisplay() override;
-    WEBCORE_EXPORT void setNeedsDisplayInRect(const FloatRect&, ShouldClipToLayer = ClipToLayer) override;
+    WEBCORE_EXPORT void setNeedsDisplayInRect(const FloatRect&, ShouldClipToLayer = ShouldClipToLayer::Clip) override;
 
     bool isGraphicsLayerCA() const override { return false; }
 };

@@ -27,6 +27,8 @@
 #pragma once
 
 #include <WebCore/ResourceErrorBase.h>
+#include "CertificateInfo.h"
+#include <optional>
 
 namespace WebCore {
 

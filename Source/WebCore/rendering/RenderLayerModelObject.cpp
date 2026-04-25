@@ -463,10 +463,12 @@ RenderSVGResourceClipper* RenderLayerModelObject::svgClipperResourceFromStyle() 
 
     return WTF::switchOn(style().clipPath(),
         [&](const Style::ReferencePath& clipPath) -> RenderSVGResourceClipper* {
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
             if (RefPtr referencedClipPathElement = ReferencedSVGResources::referencedClipPathElement(treeScopeForSVGReferences(), clipPath)) {
                 if (auto* referencedClipperRenderer = dynamicDowncast<RenderSVGResourceClipper>(referencedClipPathElement->renderer()))
                     return referencedClipperRenderer;
             }
+#endif
 
             if (auto* svgElement = dynamicDowncast<SVGElement>(this->element()))
                 document().addPendingSVGResource(clipPath.fragment(), *svgElement);
@@ -493,10 +495,12 @@ RenderSVGResourceFilter* RenderLayerModelObject::svgFilterResourceFromStyle() co
     if (!referenceFilterOperation)
         return nullptr;
 
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
     if (RefPtr referencedFilterElement = ReferencedSVGResources::referencedFilterElement(treeScopeForSVGReferences(), *referenceFilterOperation)) {
         if (auto* referencedFilterRenderer = dynamicDowncast<RenderSVGResourceFilter>(referencedFilterElement->renderer()))
             return referencedFilterRenderer;
     }
+#endif
 
     if (auto* svgElement = dynamicDowncast<SVGElement>(this->element()))
         document().addPendingSVGResource(referenceFilterOperation->fragment(), *svgElement);
@@ -515,10 +519,12 @@ RenderSVGResourceMasker* RenderLayerModelObject::svgMaskerResourceFromStyle() co
 
     auto resourceID = SVGURIReference::fragmentIdentifierFromIRIString(maskImage->url(), protectedDocument());
 
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
     if (RefPtr referencedMaskElement = ReferencedSVGResources::referencedMaskElement(treeScopeForSVGReferences(), *maskImage)) {
         if (auto* referencedMaskerRenderer = dynamicDowncast<RenderSVGResourceMasker>(referencedMaskElement->renderer()))
             return referencedMaskerRenderer;
     }
+#endif
 
     if (auto* element = this->element())
         document().addPendingSVGResource(resourceID, downcast<SVGElement>(*element));
@@ -550,10 +556,12 @@ RenderSVGResourceMarker* RenderLayerModelObject::svgMarkerResourceFromStyle(cons
     if (!markerResourceURL)
         return nullptr;
 
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
     if (RefPtr referencedMarkerElement = ReferencedSVGResources::referencedMarkerElement(treeScopeForSVGReferences(), *markerResourceURL)) {
         if (auto* referencedMarkerRenderer = dynamicDowncast<RenderSVGResourceMarker>(referencedMarkerElement->renderer()))
             return referencedMarkerRenderer;
     }
+#endif
 
     if (auto* element = dynamicDowncast<SVGElement>(this->element()))
         document().addPendingSVGResource(AtomString(markerResourceURL->resolved.string()), *element);
@@ -570,10 +578,12 @@ RenderSVGResourcePaintServer* RenderLayerModelObject::svgFillPaintServerResource
     if (!fillURL)
         return nullptr;
 
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
     if (RefPtr referencedElement = ReferencedSVGResources::referencedPaintServerElement(treeScopeForSVGReferences(), *fillURL)) {
         if (auto* referencedPaintServerRenderer = dynamicDowncast<RenderSVGResourcePaintServer>(referencedElement->renderer()))
             return referencedPaintServerRenderer;
     }
+#endif
 
     if (auto* element = this->element())
         document().addPendingSVGResource(AtomString(fillURL->resolved.string()), downcast<SVGElement>(*element));
@@ -590,10 +600,12 @@ RenderSVGResourcePaintServer* RenderLayerModelObject::svgStrokePaintServerResour
     if (!strokeURL)
         return nullptr;
 
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
     if (RefPtr referencedElement = ReferencedSVGResources::referencedPaintServerElement(treeScopeForSVGReferences(), *strokeURL)) {
         if (auto* referencedPaintServerRenderer = dynamicDowncast<RenderSVGResourcePaintServer>(referencedElement->renderer()))
             return referencedPaintServerRenderer;
     }
+#endif
 
     if (auto* element = this->element())
         document().addPendingSVGResource(AtomString(strokeURL->resolved.string()), downcast<SVGElement>(*element));

@@ -64,8 +64,10 @@ public:
 
     WEBCORE_EXPORT void updateFromDelegatePreservingOldProperties(const ResourceRequest&);
 
+#if !OS(MORPHOS)
     // Needed for compatibility.
     CFURLRequestRef cfURLRequest(HTTPBodyUpdatePolicy) const { return 0; }
+#endif
 
     // The following two stubs are for compatibility with CFNetwork, and are not used.
     static bool httpPipeliningEnabled() { return false; }

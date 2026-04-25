@@ -179,6 +179,8 @@ public:
     {
     }
 
+#endif
+
     Timer(Function<void()>&& function)
         : m_function(WTF::move(function))
     {

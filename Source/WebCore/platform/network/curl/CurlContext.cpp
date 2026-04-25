@@ -547,31 +547,47 @@ void CurlHandle::enableShareHandle()
     curl_easy_setopt(m_handle, CURLOPT_SHARE, CurlContext::singleton().shareHandle().handle());
 }
 
-void CurlHandle::setUrl(const URL& url)
+void CurlHandle::setURL(const URL& url, LocalhostAlias localhostAlias)
 {
     m_url = url.isolatedCopy();
-
+    
     URL curlUrl = url;
-
+    
     // Remove any fragment part, otherwise curl will send it as part of the request.
     curlUrl.removeFragmentIdentifier();
-
+    
     // Remove any query part sent to a local file.
     if (curlUrl.protocolIsFile()) {
         // By setting the query to a null string it'll be removed.
         if (!curlUrl.query().isEmpty())
             curlUrl.setQuery(String());
     }
-
+    
     // url is in ASCII so latin1() will only convert it to char* without character translation.
     curl_easy_setopt(m_handle, CURLOPT_URL, curlUrl.string().latin1().data());
-
+    
     if (url.protocolIs("https"_s))
         enableSSLForHost(m_url.host().toString());
 #if OS(MORPHOS)
     else
         curl_easy_setopt(m_handle, CURLOPT_HTTP09_ALLOWED, 1L);  // HTTP only
 #endif
+    
+    if (localhostAlias == LocalhostAlias::Enable) {
+        auto host = url.host();
+        auto port = url.port();
+        if (!port)
+            port = WTF::defaultPortForProtocol(url.protocol());
+        
+        if (port) {
+            auto alias = makeString(host, ':', static_cast<unsigned>(*port), ":127.0.0.1"_s);
+            
+            m_localhostAlias.clear();
+            m_localhostAlias.append(alias);
+            
+            curl_easy_setopt(m_handle, CURLOPT_RESOLVE, m_localhostAlias.head());
+        }
+    }
 }
 
 void CurlHandle::appendRequestHeaders(const HTTPHeaderMap& headers)

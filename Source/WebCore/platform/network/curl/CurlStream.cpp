@@ -192,7 +192,11 @@ void CurlStream::notifyFailure(CURLcode errorCode)
     destroyHandle();
 
     m_scheduler.callClientOnMainThread(m_streamID, [streamID = m_streamID, errorCode, certificateInfo = WTF::move(certificateInfo)](Client& client) mutable {
+#if OS(MORPHOS)
+        client.didFail(streamID, errorCode);
+#else
         client.didFail(streamID, errorCode, WTF::move(certificateInfo));
+#endif
     });
 }
 

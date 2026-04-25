@@ -30,6 +30,7 @@
 
 #include "FocusController.h"
 #include "Page.h"
+#include "Document.h"
 
 namespace WebCore {
 

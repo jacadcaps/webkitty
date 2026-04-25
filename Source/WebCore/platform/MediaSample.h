@@ -47,6 +47,12 @@ namespace WebCore {
 class MockSampleBox;
 class ProcessIdentity;
 
+#if OS(MORPHOS)
+namespace Acinerella {
+    class AcinerellaPackage;
+}
+#endif
+
 using TrackID = uint64_t;
 
 class PlatformSample {
@@ -56,6 +62,8 @@ public:
         , RetainPtr<CMSampleBufferRef>
 #elif USE(GSTREAMER)
         , GstSample*
+#elif OS(MORPHOS)
+        , Acinerella::AcinerellaPackage*
 #endif
     >;
     PlatformSample(VariantType&& sample)
@@ -68,6 +76,8 @@ public:
     CMSampleBufferRef cmSampleBuffer() const { return std::get<RetainPtr<CMSampleBufferRef>>(m_sample).get(); }
 #elif USE(GSTREAMER)
     GstSample* gstSample() const { return std::get<GstSample*>(m_sample); }
+#elif OS(MORPHOS)
+    Acinerella::AcinerellaPackage* mosSample() const { return std::get<Acinerella::AcinerellaPackage*>(m_sample); }
 #endif
 
 private:
@@ -116,6 +126,7 @@ public:
         MockSampleBox,
         CMSampleBuffer,
         GStreamerSample,
+        MorphOSSample
     };
     virtual Type type() const = 0;
 

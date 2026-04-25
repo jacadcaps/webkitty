@@ -25,6 +25,7 @@
 
 #include "config.h"
 #include "AXObjectCache.h"
+#include "AXNotifications.h"
 
 #include "AccessibilityObject.h"
 #include "Chrome.h"
@@ -37,8 +38,6 @@ namespace WebCore {
 
 void AXObjectCache::attachWrapper(AccessibilityObject& object)
 {
-    auto wrapper = adoptRef(*new AccessibilityObjectWrapper());
-    object.setWrapper(wrapper.ptr());
 }
 
 void AXObjectCache::detachWrapper(AXCoreObject*, AccessibilityDetachmentType)
@@ -66,17 +65,6 @@ static AXCoreObject* notifyChildrenSelectionChange(AXCoreObject* object)
     return items.at(changedItemIndex).ptr();
 }
 
-static AXNotification checkInteractableObjects(AXCoreObject* object)
-{
-    if (!object->isEnabled())
-        return AXNotification::PressDidFail;
-
-    if (object->isTextControl() && !object->canSetValueAttribute()) // Also determine whether it is readonly
-        return AXNotification::PressDidFail;
-
-    return AXNotification::PressDidSucceed;
-}
-
 void AXObjectCache::postPlatformNotification(AccessibilityObject& object, AXNotification notification)
 {
 }
@@ -85,7 +73,7 @@ void AXObjectCache::nodeTextChangePlatformNotification(AccessibilityObject* obje
 {
 }
 
-void AXObjectCache::frameLoadingEventPlatformNotification(AccessibilityObject* object, AXLoadingEvent loadingEvent)
+void AXObjectCache::frameLoadingEventPlatformNotification(RenderView* renderView, AXLoadingEvent loadingEvent)
 {
 }
 

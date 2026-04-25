@@ -381,7 +381,7 @@ ContentRuleListResults ContentExtensionsBackend::processContentRuleListsForLoad(
 
         results.results.append({ contentRuleListIdentifier, WTF::move(result) });
     }
-
+#endif
     if (currentDocument) {
         if (results.summary.madeHTTPS) {
             ASSERT(url.protocolIs("http"_s) || url.protocolIs("ws"_s));

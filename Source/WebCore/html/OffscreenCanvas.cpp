@@ -158,16 +158,18 @@ void OffscreenCanvas::didUpdateSizeProperties()
     resetGraphicsContextState();
     if (RefPtr context = dynamicDowncast<OffscreenCanvasRenderingContext2D>(m_context.get()))
         context->reset();
-
+    
     setHasCreatedImageBuffer(false);
     setImageBuffer(nullptr);
     clearCopiedImage();
-
+    
     notifyObserversCanvasResized();
     scheduleCommitToPlaceholderCanvas();
-
+    
+#if !OS(MORPHOS)
     if (RefPtr context = dynamicDowncast<GPUBasedCanvasRenderingContext>(m_context.get()))
         context->reshape();
+#endif
 }
 
 #if ENABLE(WEBGL)

@@ -521,7 +521,7 @@ namespace {
 }
 
 PlatformKeyboardEvent::PlatformKeyboardEvent(struct IntuiMessage *imsg)
-	: PlatformEvent(eventTypeForIntuiMessage(imsg), modifiersForIntuiMessage(imsg), WTF::WallTime::fromRawSeconds(imsg->Seconds))
+	: PlatformEvent(eventTypeForIntuiMessage(imsg), modifiersForIntuiMessage(imsg), MonotonicTime::now())
     , m_autoRepeat(false)
     , m_isSystemKey(false)
 	, m_intuiMessage(imsg)

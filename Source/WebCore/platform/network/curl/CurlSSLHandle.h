@@ -60,6 +60,11 @@ public:
     void setSignatureAlgorithmsList(CString&& data) { m_signatureAlgorithmsList = WTF::move(data); }
     void setECCurves(CString&& data) { m_ecCurves = WTF::move(data); }
 
+#if OS(MORPHOS)
+    const CString& cipherListTLS1_3() const { return m_cipherListTLS1_3; }
+    void setCipherListTLS1_3(CString&& data) { m_cipherListTLS1_3 = WTF::move(data); }
+#endif
+    
     bool shouldIgnoreSSLErrors() const { return m_ignoreSSLErrors; }
     WEBCORE_EXPORT void setIgnoreSSLErrors(bool flag) { m_ignoreSSLErrors = flag; }
 
@@ -106,10 +111,13 @@ private:
     void platformInitialize();
 
     CString m_cipherList;
-    CString m_cipherListTLS1_3;
     CString m_signatureAlgorithmsList;
     CString m_ecCurves;
     CACertInfo m_caCertInfo;
+
+#if OS(MORPHOS)
+    CString m_cipherListTLS1_3;
+#endif
 
     bool m_ignoreSSLErrors { false };
 

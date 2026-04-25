@@ -1053,9 +1053,13 @@ Ref<NodeList> Quirks::applyFacebookFlagQuirk(Document& document, NodeList& nodeL
 // baidu.com rdar://56421276
 bool Quirks::shouldEnableLegacyGetUserMediaQuirk() const
 {
+#if OS(MORPHOS)
+    return true;
+#else
     QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
-
+    
     return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::ShouldEnableLegacyGetUserMediaQuirk);
+#endif
 }
 
 // zoom.us rdar://118185086

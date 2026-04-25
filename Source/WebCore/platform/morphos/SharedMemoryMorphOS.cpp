@@ -36,7 +36,7 @@ auto SharedMemory::createHandle(Protection protection) -> std::optional<Handle>
     return { Handle(WTF::move(handle), m_size) };
 }
 
-RefPtr<SharedMemory> SharedMemory::map(Handle&& handle, Protection protection)
+RefPtr<SharedMemory> SharedMemory::map(Handle&& handle, Protection, CopyOnWrite)
 {
     if (!handle.m_handle.m_shared)
         return nullptr;

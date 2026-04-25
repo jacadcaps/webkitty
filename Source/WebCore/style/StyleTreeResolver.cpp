@@ -314,11 +314,6 @@ auto TreeResolver::computeDescendantsToResolve(const ElementUpdate& update, cons
     return DescendantsToResolve::None;
 };
 
-#if OS(MORPHOS)
-#pragma GCC diagnostic push
-#pragma GCC optimize ("O1")
-#endif
-
 static bool styleChangeAffectsRelativeUnits(const RenderStyle& style, const RenderStyle* existingStyle)
 {
     if (!existingStyle)

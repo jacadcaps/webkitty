@@ -90,6 +90,7 @@ enum class MediaPlayerMediaEngineIdentifier : uint8_t {
     AVFoundationCF,
     GStreamer,
     GStreamerMSE,
+    MorphOS,
     HolePunch,
     MediaFoundation,
     MockMSE,

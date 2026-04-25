@@ -30,7 +30,7 @@
 
 namespace WebCore {
 
-class DisplayRefreshMonitorMorphOS : public DisplayRefreshMonitor {
+class DisplayRefreshMonitorMorphOS : public DisplayRefreshMonitor, public CanMakeWeakPtr<DisplayRefreshMonitorMorphOS> {
 public:
     static RefPtr<DisplayRefreshMonitorMorphOS> create(PlatformDisplayID);
 

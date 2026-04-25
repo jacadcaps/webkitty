@@ -371,6 +371,10 @@ static void buildMediaEnginesVector() WTF_REQUIRES_LOCK(mediaEngineVectorLock)
     MediaPlayerPrivateHolePunch::registerMediaEngine(addMediaEngine);
 #endif
 
+#if ENABLE(VIDEO) && OS(MORPHOS)
+    MediaPlayerPrivateMorphOS::registerMediaEngine(addMediaEngine);
+#endif
+
 #if ENABLE(WIRELESS_PLAYBACK_MEDIA_PLAYER)
     if (!hasPlatformStrategies() || platformStrategies()->mediaStrategy()->wirelessPlaybackMediaPlayerEnabled()) {
         if (registerRemoteEngine && !mockMediaDeviceRouteControllerEnabled())
@@ -2087,6 +2091,14 @@ bool MediaPlayer::isInFullscreenOrPictureInPicture() const
 {
     return m_isInFullscreenOrPictureInPicture;
 }
+
+#if OS(MORPHOS)
+void MediaPlayer::selectHLSStream(const String& url)
+{
+    if (m_private)
+        m_private->selectHLSStream(url);
+}
+#endif
 
 #if ENABLE(LINEAR_MEDIA_PLAYER)
 bool MediaPlayer::supportsLinearMediaPlayer() const

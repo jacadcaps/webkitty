@@ -141,6 +141,7 @@ public:
     {
         target.queueCancellableTaskToDispatchEventInternal(target, source, cancellationGroup, WTF::move(event));
     }
+#endif // !__MORPHOS_DISABLE
 
 protected:
     explicit ActiveDOMObject(ScriptExecutionContext*);

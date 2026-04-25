@@ -288,6 +288,7 @@ void SVGBoundingBoxComputation::adjustBoxForClippingAndEffects(const SVGBounding
             }
         }
     }
+#endif
 
     if (options.contains(DecorationOption::IncludeOutline))
         box.inflate(m_renderer->outlineStyleForRepaint().usedOutlineSize());
