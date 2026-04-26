@@ -34,7 +34,7 @@ public:
 
     SampleFlags flags() const override { return m_flags; }
     PlatformSample platformSample() const override;
-    PlatformSample::Type platformSampleType() const override { return PlatformSample::MorphOSSampleType; }
+    Type type() const override { return Type::MorphOSSample; }
     void dump(PrintStream&) const override { };
 
 	RefPtr<Acinerella::AcinerellaPackage> package() { return m_sample; }

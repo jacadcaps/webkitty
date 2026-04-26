@@ -31,7 +31,6 @@ public:
     void durationChanged(const MediaTime&) override;
     void markEndOfStream(EndOfStreamStatus) override;
     void unmarkEndOfStream() override;
-    MediaPlayer::ReadyState mediaPlayerReadyState() const override;
     void setMediaPlayerReadyState(MediaPlayer::ReadyState) override;
     RefPtr<MediaPlayerPrivateInterface> player() const override;
     RefPtr<MediaPlayerPrivateMorphOS> platformPlayer() const;
@@ -110,7 +109,6 @@ private:
 	HashSet<Ref<MediaSourceBufferPrivateMorphOS>>    m_sourceBuffers;
 	HashSet<Ref<MediaSourceBufferPrivateMorphOS>>    m_activeSourceBuffers;
 	RefPtr<MediaSourceBufferPrivateMorphOS>          m_paintingBuffer;
-	MediaPlayer::ReadyState                          m_readyState = MediaPlayer::ReadyState::HaveNothing;
 	RunLoop::Timer                                   m_watchdogTimer;
 	RunLoop::Timer                                   m_seekingWatchdogTimer;
     bool                                             m_orphaned = false;

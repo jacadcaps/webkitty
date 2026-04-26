@@ -194,7 +194,7 @@ HLSStream::HLSStream(const URL &baseURL, const String &sdata)
 			else if (startsWithLettersIgnoringASCIICase(line, "#ext-x-program-date-time"_s))
 			{
 				bool local;
-				auto time = WTF::parseES5Date(spanReinterpretCast<const LChar>(line.substring(25).utf8().span()), local);
+				auto time = WTF::parseES5Date(spanReinterpretCast<const Latin1Character>(line.substring(25).utf8().span()), local);
 				if (time == time)
 				{
 					programTimeDate = time / 1000.0;

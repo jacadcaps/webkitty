@@ -517,7 +517,7 @@ public:
 							params.iv = BufferSource(asAB);
 						}
 					}
-					auto decryptResult = CryptoAlgorithmAES_CBC::platformDecrypt(params, *key, m_bufferBuilder.takeAsContiguous()->extractData(), CryptoAlgorithmAES_CBC::Padding::No);
+					auto decryptResult = CryptoAlgorithmAES_CBC::platformDecrypt(params, *key, m_bufferBuilder.takeBufferAsContiguous()->extractData(), CryptoAlgorithmAES_CBC::Padding::No);
 					if (!decryptResult.hasException())
 					{
 						auto encrypted = decryptResult.releaseReturnValue();
@@ -531,7 +531,7 @@ public:
 					}
 				}
 #endif
-                m_buffer = m_bufferBuilder.takeAsContiguous();
+                m_buffer = m_bufferBuilder.takeBufferAsContiguous();
 				m_length = m_buffer->size();
 			}
 
@@ -842,7 +842,7 @@ public:
 		D(dprintf("%s(%p): %s %d OK %d onfini %d\n", __PRETTY_FUNCTION__, this, m_url.utf8().data(), m_buffer.size(), m_curlRequest.get() == &request, !!m_onFinished));
 		if (m_curlRequest.get() == &request)
 		{
-            m_contiguousBuffer = m_buffer.takeAsContiguous();
+            m_contiguousBuffer = m_buffer.takeBufferAsContiguous();
 			onFinished(true);
 		}
 	}

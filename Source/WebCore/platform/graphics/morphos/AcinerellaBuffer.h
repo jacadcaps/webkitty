@@ -8,6 +8,7 @@
 #include <wtf/Function.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/threads/BinarySemaphore.h>
+#include <wtf/CanMakeWeakPtr.h>
 #include "SharedBuffer.h"
 #include "acinerella.h"
 #include "AcinerellaPointer.h"
@@ -31,7 +32,7 @@ public:
 	virtual void selectStream() = 0;
 };
 
-class AcinerellaNetworkBuffer : public ThreadSafeRefCounted<AcinerellaNetworkBuffer>
+class AcinerellaNetworkBuffer : public ThreadSafeRefCounted<AcinerellaNetworkBuffer>, public CanMakeWeakPtr<AcinerellaNetworkBuffer>
 {
 protected:
 	AcinerellaNetworkBuffer(AcinerellaNetworkBufferResourceLoaderProvider *resourceProvider, const String &url, size_t readAhead);

@@ -8,6 +8,7 @@
 #include <wtf/text/WTFString.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/RunLoop.h>
+#include <wtf/CanMakeWeakPtr.h>
 #include "AcinerellaClient.h"
 #include "AcinerellaBuffer.h"
 #include "AcinerellaMuxer.h"
@@ -23,7 +24,7 @@ struct Window;
 namespace WebCore {
 namespace Acinerella {
 
-class Acinerella : public ThreadSafeRefCounted<Acinerella>, public AcinerellaNetworkBufferResourceLoaderProvider, public AcinerellaDecoderClient
+class Acinerella : public ThreadSafeRefCounted<Acinerella>, public AcinerellaNetworkBufferResourceLoaderProvider, public AcinerellaDecoderClient, public CanMakeWeakPtr<Acinerella>
 {
 friend class AcinerellaDecoder;
 friend class AcinerellaMuxedBuffer;

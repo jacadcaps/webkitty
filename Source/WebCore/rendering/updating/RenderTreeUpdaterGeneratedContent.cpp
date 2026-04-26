@@ -313,7 +313,7 @@ dprintf("style %p: hasc %d an %d tr %d 3d %d bfv %d sn %d type %d\n", style, sty
 #endif
 
     if (style && style->display() == DisplayType::Block && style->position() == PositionType::Fixed &&
-        (style->pseudoElementType() == PseudoId::Before || style->pseudoElementType() == PseudoId::After) &&
+        (style->pseudoElementType() == PseudoElementType::Before || style->pseudoElementType() == PseudoElementType::After) &&
         !style->hasAnimations() && !style->hasTransitions())
         return false;
 #endif

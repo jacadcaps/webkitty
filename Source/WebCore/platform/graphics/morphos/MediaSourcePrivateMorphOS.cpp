@@ -122,6 +122,7 @@ void MediaSourcePrivateMorphOS::unmarkEndOfStream()
     MediaSourcePrivate::unmarkEndOfStream();
 }
 
+#if 0
 MediaPlayer::ReadyState MediaSourcePrivateMorphOS::mediaPlayerReadyState() const
 {
     RefPtr player = platformPlayer();
@@ -129,15 +130,15 @@ MediaPlayer::ReadyState MediaSourcePrivateMorphOS::mediaPlayerReadyState() const
         return m_readyState;
     return player->readyState();
 }
+#endif
 
 void MediaSourcePrivateMorphOS::setMediaPlayerReadyState(MediaPlayer::ReadyState rs)
 {
 	DRS(dprintf("%s: %d\n", __PRETTY_FUNCTION__, int(rs)));
-	m_readyState = rs;
     RefPtr player = platformPlayer();
-    if (!player)
-        return;
-    player->accSetReadyState(rs);
+    if (player)
+        player->accSetReadyState(rs);
+    MediaSourcePrivate::setMediaPlayerReadyState(rs);
 }
 
 void MediaSourcePrivateMorphOS::onSourceBufferLoadingProgressed()
@@ -376,9 +377,14 @@ void MediaSourcePrivateMorphOS::seekToTarget(const SeekTarget& target)
             sourceBufferPrivate->willSeek(m_lastSeekTime.toDouble());
         }
 
+#if 1
+        seekToTime(seekedTime);
+        maybeCompleteSeek();
+#else
         seekToTime(seekedTime)->whenSettled(RunLoop::currentSingleton(), [this, protect = Ref{*this}]() mutable {
             maybeCompleteSeek();
         });
+#endif
     });
 }
 

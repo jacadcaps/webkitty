@@ -7,7 +7,6 @@
 #include <WebCore/Color.h>
 #include <WebCore/GraphicsTypes.h>
 #include <WebCore/FindOptions.h>
-#include <WebCore/LengthBox.h>
 #include <WebCore/SelectionData.h>
 #include <WebCore/DragImage.h>
 #include <WebCore/InspectorOverlay.h>

@@ -41,7 +41,7 @@ class MediaPlayerFactoryMediaSourceMorphOS final : public MediaPlayerFactory {
 public:
     MediaPlayerEnums::MediaEngineIdentifier identifier() const final { return MediaPlayerEnums::MediaEngineIdentifier::MorphOS; };
 
-    Ref<MediaPlayerPrivateInterface> createMediaEnginePlayer(MediaPlayer* player) const final {
+    Ref<MediaPlayerPrivateInterface> createMediaEnginePlayer(MediaPlayer& player) const final {
         return adoptRef(*new MediaPlayerPrivateMorphOS(player));
     }
 
@@ -278,7 +278,7 @@ public:
 	}
 };
 
-MediaPlayerPrivateMorphOS::MediaPlayerPrivateMorphOS(MediaPlayer* player)
+MediaPlayerPrivateMorphOS::MediaPlayerPrivateMorphOS(MediaPlayer& player)
 	: m_player(player)
 {
 	notImplemented();

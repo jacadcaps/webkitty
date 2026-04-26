@@ -125,8 +125,8 @@ public:
         None,
         MockSampleBox,
         CMSampleBuffer,
-        GStreamerSample,
-        MorphOSSample
+        MorphOSSample,
+        GStreamerSample
     };
     virtual Type type() const = 0;
 

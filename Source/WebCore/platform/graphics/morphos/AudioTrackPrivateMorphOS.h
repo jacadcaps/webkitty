@@ -28,8 +28,8 @@ public:
     int trackIndex() const override { return m_index; }
 
     TrackID id() const override { return TrackID(m_index); }
-    AtomString label() const override { return AtomString(m_label); }
-    AtomString language() const override { return AtomString(m_language); }
+    String label() const override { return m_label; }
+    String language() const override { return m_language; }
 
 protected:
     AudioTrackPrivateMorphOS(ThreadSafeWeakPtr<MediaPlayerPrivateMorphOS>, int index);

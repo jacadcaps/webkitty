@@ -29,7 +29,7 @@ class MediaPlayerPrivateMorphOS
 {
     WTF_MAKE_TZONE_ALLOCATED(MediaPlayerPrivateMorphOS);
 public:
-    MediaPlayerPrivateMorphOS(MediaPlayer*);
+    MediaPlayerPrivateMorphOS(MediaPlayer&);
     virtual ~MediaPlayerPrivateMorphOS();
 
     void ref() const final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::ref(); }
