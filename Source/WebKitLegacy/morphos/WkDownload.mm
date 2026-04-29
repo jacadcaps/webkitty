@@ -811,7 +811,7 @@ void WebDownload::setUserPassword(const String& user, const String &password)
         auto items = _blobData->items();
         for (auto& item : items)
         {
-            size += item.data()->size();
+            size += item.data().size();
         }
 
         _size = size;
@@ -839,10 +839,10 @@ void WebDownload::setUserPassword(const String& user, const String &password)
                 {
                     D(dprintf("%s: item offset %lld size %d\n", __PRETTY_FUNCTION__, item.offset(), item.data()->size()));
                 
-                    if (downloadFileHandle.write(item.data()->span()).value_or(0) == item.data()->size())
+                    if (downloadFileHandle.write(item.data().span()).value_or(0) == item.data().size())
                     {
-                        _downloadedSize += item.data()->size();
-                        [_delegate download:self didReceiveBytes:item.data()->size()];
+                        _downloadedSize += item.data().size();
+                        [_delegate download:self didReceiveBytes:item.data().size()];
                     }
                     else
                     {

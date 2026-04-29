@@ -61,7 +61,7 @@ protected:
     bool canTakeFocus(WebCore::FocusDirection) const final;
     void takeFocus(WebCore::FocusDirection) final;
 
-    void focusedElementChanged(WebCore::Element*) final;
+    void focusedElementChanged(WebCore::Element*, WebCore::LocalFrame*, WebCore::FocusOptions, WebCore::BroadcastFocusedElement) final;
     void focusedFrameChanged(WebCore::Frame*) final { };
 
     RefPtr<WebCore::Page> createWindow(WebCore::LocalFrame&, const String& openedMainFrameName, const WebCore::WindowFeatures&, const WebCore::NavigationAction&) final;
@@ -70,22 +70,14 @@ protected:
     bool canRunModal() const final { return false; }
     void runModal() final { }
 
-    void setToolbarsVisible(bool) final { }
     bool toolbarsVisible() const final { return false; }
-    
-    void setStatusbarVisible(bool) final { }
     bool statusbarVisible() const final { return false; }
-    
-    void setScrollbarsVisible(bool) final;
     bool scrollbarsVisible() const final;
-    
-    void setMenubarVisible(bool) final { }
-    bool menubarVisible() const final { return true; }
+    bool menubarVisible() const final { return false; }
 
     void setResizable(bool) final;
 
-    void addMessageToConsole(JSC::MessageSource, JSC::MessageLevel, const WTF::String&, unsigned, unsigned, const WTF::String& ) final { };
-    void addMessageWithArgumentsToConsole(MessageSource, MessageLevel, const String&, std::span<const String>, unsigned, unsigned, const String&) final;
+    void addMessageToConsole(JSC::MessageSource, JSC::MessageLevel, const WTF::String&, unsigned, unsigned, const WTF::String& ) final;
 
     bool canRunBeforeUnloadConfirmPanel() final;
     bool runBeforeUnloadConfirmPanel(String&& message, WebCore::LocalFrame&) final;
@@ -125,7 +117,6 @@ protected:
     void exceededDatabaseQuota(WebCore::LocalFrame&, const WTF::String&, WebCore::DatabaseDetails) final;
 
     void reachedMaxAppCacheSize(int64_t spaceNeeded) final;
-    void reachedApplicationCacheOriginQuota(WebCore::SecurityOrigin&, int64_t totalSpaceNeeded) final;
 
     void runOpenPanel(WebCore::LocalFrame&, WebCore::FileChooser&) final;
     void loadIconForFiles(const Vector<WTF::String>&, WebCore::FileIconLoader&) final;
@@ -151,13 +142,14 @@ protected:
 
     bool hoverSupportedByPrimaryPointingDevice() const final { return true; };
     bool hoverSupportedByAnyAvailablePointingDevice() const final { return true; }
+    bool hasAccessoryMousePointingDevice() const final { return false; }
     std::optional<WebCore::PointerCharacteristics> pointerCharacteristicsOfPrimaryPointingDevice() const final { return WebCore::PointerCharacteristics::Fine; }
     OptionSet<WebCore::PointerCharacteristics> pointerCharacteristicsOfAllAvailablePointingDevices() const final { return WebCore::PointerCharacteristics::Fine; }
 
     void scrollContainingScrollViewsToRevealRect(const WebCore::IntRect&) const final { }
 
-	void setTextIndicator(const WebCore::TextIndicatorData&) const final { }
-    void updateTextIndicator(const WebCore::TextIndicatorData&) const final { };
+	void setTextIndicator(RefPtr<WebCore::TextIndicator>&&) const final { }
+    void updateTextIndicator(RefPtr<WebCore::TextIndicator>&&) const final { };
 
     bool selectItemWritingDirectionIsNatural() final;
     bool selectItemAlignmentFollowsMenuWritingDirection() final;

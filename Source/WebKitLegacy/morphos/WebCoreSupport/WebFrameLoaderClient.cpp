@@ -154,7 +154,7 @@ void WebFrameLoaderClient::detachedFromParent3()
     notImplemented();
 }
 
-void WebFrameLoaderClient::assignIdentifierToInitialRequest(WebCore::ResourceLoaderIdentifier identifier, WebCore::IsMainResourceLoad, DocumentLoader* loader, const ResourceRequest& request)
+void WebFrameLoaderClient::assignIdentifierToInitialRequest(WebCore::ResourceLoaderIdentifier identifier, DocumentLoader* loader, const ResourceRequest& request)
 {
     WebPage* webPage = m_frame->page();
     if (!webPage)
@@ -207,7 +207,7 @@ void WebFrameLoaderClient::dispatchDidReceiveContentLength(DocumentLoader*, WebC
 {
 }
 
-void WebFrameLoaderClient::dispatchDidFinishLoading(DocumentLoader*, WebCore::IsMainResourceLoad, WebCore::ResourceLoaderIdentifier identifier)
+void WebFrameLoaderClient::dispatchDidFinishLoading(DocumentLoader*, WebCore::ResourceLoaderIdentifier identifier)
 {
     notImplemented();
     WebPage* webPage = m_frame->page();
@@ -219,7 +219,7 @@ void WebFrameLoaderClient::dispatchDidFinishLoading(DocumentLoader*, WebCore::Is
     webPage->removeResourceRequest(identifier);
 }
 
-void WebFrameLoaderClient::dispatchDidFailLoading(DocumentLoader*loader, WebCore::IsMainResourceLoad, WebCore::ResourceLoaderIdentifier identifier, const ResourceError& error)
+void WebFrameLoaderClient::dispatchDidFailLoading(DocumentLoader*loader, WebCore::ResourceLoaderIdentifier identifier, const ResourceError& error)
 {
     WebPage* webPage = m_frame->page();
     if (!webPage)
@@ -653,7 +653,7 @@ void WebFrameLoaderClient::applyToDocumentLoader(WebsitePoliciesData&& websitePo
 #endif
 }
 
-void WebFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const WebCore::NavigationAction& navigationAction, const WebCore::ResourceRequest& request, const WebCore::ResourceResponse& redirectResponse, WebCore::FormState* formState, const String&, std::optional<WebCore::NavigationIdentifier> navigationIdentifier, std::optional<WebCore::HitTestResult>&&, bool, WebCore::IsPerformingHTTPFallback, WebCore::SandboxFlags, WebCore::PolicyDecisionMode, WebCore::FramePolicyFunction&& function)
+void WebFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const WebCore::NavigationAction& navigationAction, const WebCore::ResourceRequest& request, const WebCore::ResourceResponse& redirectResponse, WebCore::FormState* formState, const String&, std::optional<WebCore::NavigationIdentifier> navigationIdentifier, std::optional<WebCore::HitTestResult>&&, bool, WebCore::NavigationUpgradeToHTTPSBehavior, WebCore::SandboxFlags, WebCore::PolicyDecisionMode, WebCore::FramePolicyFunction&& function)
 {
     WebPage* webPage = m_frame->page();
     if (!webPage) {
@@ -729,7 +729,7 @@ void WebFrameLoaderClient::dispatchWillSendSubmitEvent(Ref<FormState>&& formStat
 	}
 }
 
-void WebFrameLoaderClient::dispatchWillSubmitForm(FormState& formState, CompletionHandler<void()>&& completionHandler)
+void WebFrameLoaderClient::dispatchWillSubmitForm(FormState& formState, URL&& requestURL, String&& method, CompletionHandler<void()>&& completionHandler)
 {
     WebPage* webPage = m_frame->page();
     if (!webPage) {
@@ -941,31 +941,6 @@ void WebFrameLoaderClient::shouldGoToHistoryItemAsync(WebCore::HistoryItem&, Com
 {
 }
 
-void WebFrameLoaderClient::didDisplayInsecureContent()
-{
-	D(dprintf("%s: !!!\n", __PRETTY_FUNCTION__));
-    WebPage* webPage = m_frame->page();
-    if (webPage)
-		webPage->_fDidLoadInsecureContent();
-}
-
-
-void WebFrameLoaderClient::didRunInsecureContent(SecurityOrigin&)
-{
-	D(dprintf("%s: !!!\n", __PRETTY_FUNCTION__));
-    WebPage* webPage = m_frame->page();
-    if (webPage)
-		webPage->_fDidLoadInsecureContent();
-}
-
-/* void WebFrameLoaderClient::didDetectXSS(const URL&, bool)
-{
-	D(dprintf("%s: !!!\n", __PRETTY_FUNCTION__));
-    WebPage* webPage = m_frame->page();
-    if (webPage)
-		webPage->_fDidLoadInsecureContent();
-} */
-
 bool WebFrameLoaderClient::shouldFallBack(const ResourceError& error) const
 {
     if (error.isCancellation())
@@ -1127,13 +1102,6 @@ String WebFrameLoaderClient::overrideContentSecurityPolicy() const
 
 void WebFrameLoaderClient::savePlatformDataToCachedFrame(CachedFrame* cachedFrame)
 {
-    WebPage* webPage = m_frame->page();
-    if (!webPage)
-        return;
-
-//    HasInsecureContent hasInsecureContent;
-//    if (webPage->sendSync(Messages::WebPageProxy::HasInsecureContent(), Messages::WebPageProxy::HasInsecureContent::Reply(hasInsecureContent)))
-//    cachedFrame->setHasInsecureContent(hasInsecureContent);
 }
 
 RefPtr<WebCore::HistoryItem> WebFrameLoaderClient::createHistoryItemTree(bool clipAtTarget, WebCore::BackForwardItemIdentifier itemID) const

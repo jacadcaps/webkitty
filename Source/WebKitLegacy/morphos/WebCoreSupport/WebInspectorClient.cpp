@@ -31,7 +31,7 @@
 
 #include "WebPage.h"
 #include <WebCore/Page.h>
-#include <WebCore/InspectorController.h>
+#include <WebCore/PageInspectorController.h>
 #include <JavaScriptCore/InspectorAgentBase.h>
 #include <wtf/HashMap.h>
 
@@ -42,7 +42,7 @@ using namespace WebCore;
 namespace WebKit {
 
 class WebInspectorFrontendClient final : public WebCore::InspectorFrontendClientLocal {
-    WTF_MAKE_TZONE_ALLOCATED(WebInspectorFrontEndClient);
+    WTF_MAKE_TZONE_ALLOCATED(WebInspectorFrontendClient);
 public:
     WebInspectorFrontendClient(WebPage* inspectedWebView, WebCore::Page *frontendPage, WebInspectorClient* parent, std::unique_ptr<WebCore::InspectorFrontendClientLocal::Settings>&& settings)
 		: InspectorFrontendClientLocal(&inspectedWebView->corePage()->inspectorController(), frontendPage, std::move(settings))
@@ -225,7 +225,7 @@ void WebInspectorClient::inspectedPageWillBeDestroyed()
 	D(dprintf("%s: done!\n", __PRETTY_FUNCTION__));
 }
 
-Inspector::FrontendChannel* WebInspectorClient::openLocalFrontend(InspectorController* inspectorController)
+Inspector::FrontendChannel* WebInspectorClient::openLocalFrontend(PageInspectorController* inspectorController)
 {
 	auto *frontendPage = m_inspectedPage->_fOpenInspectorWindow();
 	D(dprintf("%s: fpage %p\n", __PRETTY_FUNCTION__, frontendPage));

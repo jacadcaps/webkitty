@@ -1,6 +1,5 @@
 #include "WebKit.h"
 
-#include <WebCore/ApplicationCacheStorage.h>
 #include <WebCore/BackForwardController.h>
 #include <WebCore/CacheStorageProvider.h>
 #include <WebCore/Chrome.h>
@@ -13,6 +12,7 @@
 #include <WebCore/DragController.h>
 #include <WebCore/DragData.h>
 #include <WebCore/DragItem.h>
+#include <WebCore/DocumentSyncClient.h>
 #include <WebCore/Editing.h>
 #include <WebCore/Editor.h>
 #include <WebCore/Event.h>
@@ -26,7 +26,6 @@
 #include <WebCore/FrameSelection.h>
 #include <WebCore/FrameTree.h>
 #include <WebCore/FrameView.h>
-#include <WebCore/GCController.h>
 #include <WebCore/GeolocationController.h>
 #include <WebCore/GeolocationError.h>
 #include <WebCore/HTMLNames.h>
@@ -98,7 +97,7 @@
 #include <WebCore/DataTransfer.h>
 #include <WebCore/Pasteboard.h>
 #include <WebCore/PermissionController.h>
-#include <WebCore/InspectorController.h>
+#include <WebCore/PageInspectorController.h>
 #include <JavaScriptCore/VM.h>
 #include <WebCore/CommonVM.h>
 #include <WebCore/GraphicsContextCairo.h>
@@ -111,7 +110,8 @@
 #include <wtf/HexNumber.h>
 #include <WebCore/DummySpeechRecognitionProvider.h>
 #include <WebCore/EmptyBadgeClient.h>
-#include <WebCore/ProcessSyncClient.h>
+#include <WebCore/GraphicsLayer.h>
+//#include <WebCore/ProcessSyncClient.h>
 #include "LegacySocketProvider.h"
 
 #include <JavaScriptCore/APICast.h>
@@ -145,7 +145,6 @@
 #include "WebCoreSupport/LegacyHistoryItemClient.h"
 #include "WebCoreSupport/WebCryptoClient.h"
 #include "../../WebCoreSupport/WebBroadcastChannelRegistry.h"
-#include "WebApplicationCache.h"
 #include "../../Storage/WebDatabaseProvider.h"
 #include "WebDocumentLoader.h"
 #include "WebDragClient.h"
@@ -597,7 +596,7 @@ public:
     }
 #endif
 	
-	void repair(WebCore::FrameView *frameView, WebCore::GraphicsLayer *rootLayer, WebCore::InterpolationQuality interpolation, WebCore::InspectorController *highlight)
+	void repair(WebCore::FrameView *frameView, WebCore::GraphicsLayer *rootLayer, WebCore::InterpolationQuality interpolation, WebCore::PageInspectorController *highlight)
 	{
 		EP_SCOPE(repair);
         (void)rootLayer;
@@ -664,7 +663,7 @@ public:
 	}
 
 	void draw(WebCore::FrameView *frameView, RastPort *rp, const int x, const int y, const int width, const int height,
-		int scrollX, int scrollY, bool update, WebCore::InterpolationQuality interpolation, WebCore::InspectorController *highlight,
+		int scrollX, int scrollY, bool update, WebCore::InterpolationQuality interpolation, WebCore::PageInspectorController *highlight,
         WebCore::GraphicsLayer *rootLayer)
 	{
 		if (!m_platformContext)
@@ -1233,7 +1232,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
         makeUniqueRef<WebContextMenuClient>(this),
         makeUniqueRef<WebChromeClient>(*this),
         makeUniqueRef<WebCryptoClient>(),
-        makeUniqueRef<WebCore::ProcessSyncClient>()
+        makeUniqueRef<WebCore::DocumentSyncClient>()
     );
 
 	pageConfiguration.inspectorBackendClient = makeUnique<WebInspectorClient>(this);
@@ -1241,7 +1240,6 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     pageConfiguration.storageNamespaceProvider = &m_webPageGroup->storageNamespaceProvider();
     pageConfiguration.visitedLinkStore = &m_webPageGroup->visitedLinkStore();
     pageConfiguration.pluginInfoProvider = &WebPluginInfoProvider::singleton();
-    pageConfiguration.applicationCacheStorage = &WebApplicationCache::storage();
     pageConfiguration.databaseProvider = &WebDatabaseProvider::singleton();
 	pageConfiguration.dragClient = makeUnique<WebDragClient>(this);
 
@@ -1251,8 +1249,8 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	storageProvider->setPage(*m_page);
 
 	WebCore::Settings& settings = m_page->settings();
-    settings.setAllowDisplayOfInsecureContent(false);
-    settings.setAllowRunningOfInsecureContent(false);
+//    settings.setAllowDisplayOfInsecureContent(false);
+//    settings.setAllowRunningOfInsecureContent(false);
     settings.setLoadsImagesAutomatically(true);
     settings.setScriptEnabled(true);
     settings.setScriptMarkupEnabled(true);
@@ -2739,7 +2737,7 @@ bool WebPage::search(const WTF::String &string, WebCore::FindOptions &options, b
 		WebCore::DidWrap didWrap(WebCore::DidWrap::No);
 		auto found = cp->findString(string, options, &didWrap);
 		outWrapped = didWrap == WebCore::DidWrap::Yes;
-		return found.has_value();
+		return found.range.has_value();
 	}
 	
 	return false;
@@ -3122,7 +3120,7 @@ bool WebPage::checkDownloadable(IntuiMessage *imsg, const int mouseX, const int 
 	auto position = m_mainFrame->coreFrame()->view()->windowToContents(WebCore::IntPoint(mouseX, mouseY));
     constexpr OptionSet<HitTestRequest::Type> hitType { HitTestRequest::Type::ReadOnly, HitTestRequest::Type::Active,
 		HitTestRequest::Type::DisallowUserAgentShadowContent, HitTestRequest::Type::AllowChildFrameContent };
-	auto hitTestResult = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, hitType);
+	auto hitTestResult = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(WebCore::LayoutPoint(position), hitType);
 	(void)imsg;
 	if (hitTestResult.isOverLink())
 		outURL = hitTestResult.absoluteLinkURL();
@@ -3196,7 +3194,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 				imsgToEventType(imsg),
 				m_clickCount,
                 modifiers,
-				WTF::WallTime::fromRawSeconds(imsg->Seconds),
+				WTF::MonotonicTime::now(),
 				imsg->Class == IDCMP_MOUSEBUTTONS ? WebCore::ForceAtClick : 0.0,
 				WebCore::SyntheticClickType::NoTap);
 			
@@ -3284,7 +3282,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 					{
 						auto position = m_mainFrame->coreFrame()->view()->windowToContents(pme.position());
 						constexpr OptionSet<HitTestRequest::Type> hitType { WebCore::HitTestRequest::Type::ReadOnly, WebCore::HitTestRequest::Type::Active, WebCore::HitTestRequest::Type::DisallowUserAgentShadowContent, WebCore::HitTestRequest::Type::AllowChildFrameContent };
-            			auto hitTestResult = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, hitType);
+            			auto hitTestResult = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(WebCore::LayoutPoint(position), hitType);
 						bool isMouseDownOnLinkOrImage = hitTestResult.isOverLink() || hitTestResult.image();
 
 						if (isMouseDownOnLinkOrImage)
@@ -3369,7 +3367,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 
 						auto position = m_mainFrame->coreFrame()->view()->windowToContents(pme.position());
 						constexpr OptionSet<HitTestRequest::Type> hitType { WebCore::HitTestRequest::Type::ReadOnly, WebCore::HitTestRequest::Type::Active, WebCore::HitTestRequest::Type::DisallowUserAgentShadowContent, WebCore::HitTestRequest::Type::AllowChildFrameContent };
-						auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, hitType);
+						auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(WebCore::LayoutPoint(position), hitType);
 
 						if (doEvent)
 						{
@@ -3498,7 +3496,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						WebCore::IntPoint(imsg->IDCMPWindow->LeftEdge + imsg->MouseX, imsg->IDCMPWindow->TopEdge + imsg->MouseY),
 						0, deltaY,
 						0, wheelTicksY,
-						ScrollByPixelWheelEvent,
+                        PlatformWheelEventGranularity::ScrollByPixelWheelEvent,
 						(imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) != 0,
 						(imsg->Qualifier & IEQUALIFIER_CONTROL) != 0,
 						(imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) != 0,
@@ -3507,7 +3505,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 					
 					auto position = m_mainFrame->coreFrame()->view()->windowToContents(pke.position());
 					constexpr OptionSet<HitTestRequest::Type> hitType { WebCore::HitTestRequest::Type::ReadOnly, WebCore::HitTestRequest::Type::Active, WebCore::HitTestRequest::Type::DisallowUserAgentShadowContent, WebCore::HitTestRequest::Type::AllowChildFrameContent };
-					auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, hitType);
+					auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(WebCore::LayoutPoint(position), hitType);
 					auto targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : m_page->focusController().focusedOrMainFrame();
 					auto [whResult, _] = eventHandler.handleWheelEvent(pke, { WheelEventProcessingSteps::SynchronousScrolling, WheelEventProcessingSteps::BlockingDOMEventDispatch });
 					if (!whResult.wasHandled())
@@ -3527,7 +3525,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						WebCore::IntPoint(imsg->IDCMPWindow->LeftEdge + imsg->MouseX, imsg->IDCMPWindow->TopEdge + imsg->MouseY),
 						deltaX, 0,
 						wheelTicksX, 0,
-						ScrollByPixelWheelEvent,
+                        PlatformWheelEventGranularity::ScrollByPixelWheelEvent,
 						(imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) != 0,
 						(imsg->Qualifier & IEQUALIFIER_CONTROL) != 0,
 						(imsg->Qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) != 0,
@@ -4062,7 +4060,7 @@ void WebPage::endDragging(int mouseX, int mouseY, int mouseGlobalX, int mouseGlo
 		m_page->dragController().performDragOperation(WTF::move(drag));
 		m_page->dragController().dragEnded();
 
-		PlatformMouseEvent event(adjustedClientPosition, adjustedGlobalPosition, WebCore::MouseButton::Left, PlatformEvent::Type::MouseMoved, 0, OptionSet<PlatformEvent::Modifier>(), WallTime::now(), 0, WebCore::SyntheticClickType::NoTap);
+		PlatformMouseEvent event(adjustedClientPosition, adjustedGlobalPosition, WebCore::MouseButton::Left, PlatformEvent::Type::MouseMoved, 0, OptionSet<PlatformEvent::Modifier>(), MonotonicTime::now(), 0, WebCore::SyntheticClickType::NoTap);
 		m_mainFrame->coreFrame()->eventHandler().dragSourceEndedAt(event, m_page->dragController().sourceDragOperationMask());
 	}
 	else

@@ -54,7 +54,7 @@ public:
     // InspectorClient API.
     void inspectedPageDestroyed() override;
 
-    Inspector::FrontendChannel* openLocalFrontend(WebCore::InspectorController*) override;
+    Inspector::FrontendChannel* openLocalFrontend(WebCore::PageInspectorController*) override;
     void bringFrontendToFront() override;
 
     void highlight() override;

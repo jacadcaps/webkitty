@@ -12,7 +12,9 @@
 #import <WebCore/MediaPlayerMorphOS.h>
 #import <WebCore/CurlProxySettings.h>
 #import <WebCore/NetworkStorageSession.h>
+#define __MORPHOS_DISABLE
 #include <WebCore/FontCascade.h>
+#undef __MORPHOS_DISABLE
 #import "../WebCoreSupport/NetworkStorageSessionMap.h"
 #import <wtf/FileSystem.h>
 #import <WebProcess.h>

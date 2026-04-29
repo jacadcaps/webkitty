@@ -9,7 +9,7 @@
 #endif
 #define ENABLE_CONTENT_EXTENSIONS 1
 
-#include <WebCore/GCController.h>
+#include <WebCore/GarbageCollectionController.h>
 #include <WebCore/FontCache.h>
 #include <WebCore/MemoryCache.h>
 #include <WebCore/MemoryRelease.h>
@@ -52,7 +52,7 @@
 #include "cache/CacheStorageEngineConnection.h"
 #endif
 #include "StorageTracker.h"
-#include <WebCore/PageConsoleClient.h>
+//#include <WebCore/PageConsoleClient.h>
 #include <WebCore/DeprecatedGlobalSettings.h>
 #include <WebCore/DataURLDecoder.h>
 #include <libraries/charsets.h>
@@ -213,7 +213,7 @@ void WebProcess::initialize(int sigbit)
 
 	D(dprintf("%s mask %u\n", __PRETTY_FUNCTION__, m_sigMask));
 
-//	GCController::singleton().setJavaScriptGarbageCollectorTimerEnabled(true);
+//	GarbageCollectionController::singleton().setJavaScriptGarbageCollectorTimerEnabled(true);
 
 #if (!MORPHOS_MINIMAL)
 	PAL::GCrypt::initialize();
@@ -519,7 +519,7 @@ void WebProcess::terminate()
 
 	waitForThreads();
 
-    GCController::singleton().garbageCollectNow();
+    GarbageCollectionController::singleton().garbageCollectNow();
 //    FontCache::singleton().invalidate(); // trashes memory like fuck on https://testdrive-archive.azurewebsites.net/Graphics/CanvasPinball/default.html
     MemoryCache::singleton().setDisabled(true);
 	D(dprintf("%s done\n", __PRETTY_FUNCTION__));
@@ -536,21 +536,18 @@ void WebProcess::waitForThreads()
 	int loops = 5 * 5; // 5s grace period, then sigint
 	while (loops-- > 0)
 	{
-		{
-			Locker lock(Thread::allThreadsLock());
-			auto& allThreads = Thread::allThreads();
-			auto count = allThreads.size();
-			if (0 == count)
-				return;
-			if (2 * 5 == loops)
-			{
-				D(dprintf("sending SIGINT...\n"));
-				for (auto thread : allThreads)
-				{
-					thread->signal(SIGINT);
-				}
-			}
-		}
+        if (2 * 5 == loops)
+        {
+            D(dprintf("sending SIGINT...\n"));
+            bool hasThreads = false;
+            for (auto& thread : Thread::allThreads())
+            {
+                thread.signal(SIGINT);
+                hasThreads = true;
+            }
+            if (!hasThreads)
+                return;
+        }
 		Delay(20);
 		RunLoop::currentSingleton().iterate();
 	}
@@ -705,7 +702,7 @@ static void getWebCoreMemoryCacheStatistics(WTF::TextStream& ss)
 
 void WebProcess::dumpWebCoreStatistics()
 {
-    GCController::singleton().garbageCollectNow();
+    GarbageCollectionController::singleton().garbageCollectNow();
 
 	WTF::TextStream ss;
 	
@@ -748,7 +745,7 @@ void reactOnMemoryPressureInWebKit()
 
 void WebProcess::garbageCollectJavaScriptObjects()
 {
-    GCController::singleton().garbageCollectNow();
+    GarbageCollectionController::singleton().garbageCollectNow();
 }
 
 Ref<WebCore::LocalWebLockRegistry> WebProcess::getOrCreateWebLockRegistry(bool isPrivateBrowsingEnabled)

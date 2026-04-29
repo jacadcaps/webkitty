@@ -287,7 +287,7 @@ private:
     	OBData *resp = nil;
     	if (m_resourceData && m_resourceData.size())
     	{
-            auto buffer = m_resourceData.takeAsContiguous();
+            auto buffer = m_resourceData.takeBufferAsContiguous();
     		resp = [OBData dataWithBytes:buffer->span().data() length:buffer->span().size()];
 		}
 		m_handle = nullptr;
@@ -300,7 +300,7 @@ private:
     	OBData *resp = nil;
     	if (m_resourceData && m_resourceData.size())
     	{
-            auto buffer = m_resourceData.takeAsContiguous();
+            auto buffer = m_resourceData.takeBufferAsContiguous();
     		resp = [OBData dataWithBytes:buffer->span().data() length:buffer->span().size()];
 		}
 		m_handle = nullptr;

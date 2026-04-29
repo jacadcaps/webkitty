@@ -56,7 +56,7 @@ namespace WebCore {
 @interface WkPrintingStatePrivate : WkPrintingState
 {
 	WkWebView             *_webView;
-	WebCore::PrintContext *_context;
+	RefPtr<WebCore::PrintContext> _context;
 	WkPrintingProfile     *_profile;
 	OBMutableArray        *_profiles;
 	float                  _marginLeft;

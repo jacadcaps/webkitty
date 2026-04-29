@@ -9,7 +9,6 @@
 #include <WebCore/FindOptions.h>
 #include <WebCore/SelectionData.h>
 #include <WebCore/DragImage.h>
-#include <WebCore/InspectorOverlay.h>
 #include <WebCore/ExceptionOr.h>
 #include "WebViewDelegate.h"
 #include "WebFrame.h"

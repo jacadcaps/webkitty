@@ -207,6 +207,7 @@ public:
     class Timer : public TimerBase {
         WTF_DEPRECATED_MAKE_FAST_ALLOCATED(Timer);
     public:
+#ifndef __MORPHOS_DISABLE
         template <typename TimerFiredClass>
         requires (WTF::HasThreadSafeWeakPtrFunctions<TimerFiredClass>::value)
         Timer(Ref<RunLoop>&& runLoop, ASCIILiteral description, TimerFiredClass* object, void (TimerFiredClass::*function)())
@@ -245,6 +246,7 @@ public:
             })
         {
         }
+#endif
 
         Timer(Ref<RunLoop>&& runLoop, ASCIILiteral description, Function<void ()>&& function)
             : TimerBase(WTF::move(runLoop), description)

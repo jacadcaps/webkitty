@@ -97,10 +97,11 @@ Ref<WebFrame> WebFrame::createSubframe(WebPage* page, const WTF::AtomString& fra
     auto effectiveSandboxFlags = ownerElement->sandboxFlags();
     if (RefPtr parentLocalFrame = ownerElement->document().frame())
         effectiveSandboxFlags.add(parentLocalFrame->effectiveSandboxFlags());
+    auto effectiveReferrerPolicy = ownerElement->referrerPolicy();
 
     auto coreFrame = WebCore::LocalFrame::createSubframe(*page->corePage(), [frame] (auto&, auto& frameLoader) {
         return makeUniqueRefWithoutRefCountedCheck<WebFrameLoaderClient>(frameLoader, frame.get());
-    }, WebCore::FrameIdentifier::generate(), effectiveSandboxFlags, *ownerElement, WebCore::FrameTreeSyncData::create());
+    }, WebCore::FrameIdentifier::generate(), effectiveSandboxFlags, effectiveReferrerPolicy, *ownerElement, WebCore::FrameTreeSyncData::create());
     frame->m_coreFrame = coreFrame.ptr();
 
     coreFrame->tree().setSpecifiedName(frameName);

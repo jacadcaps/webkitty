@@ -39,6 +39,9 @@ class WebDatabaseManager final : public WebCore::DatabaseManagerClient {
 public:
     static WebDatabaseManager* createInstance();
 
+    void ref() const final { }
+    void deref() const final { }
+
     // DatabaseManagerClient
     virtual void dispatchDidModifyOrigin(const WebCore::SecurityOriginData&);
     virtual void dispatchDidModifyDatabase(const WebCore::SecurityOriginData&, const WTF::String& databaseName);

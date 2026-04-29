@@ -28,7 +28,6 @@
 #include <WebCore/LocalFrameLoaderClient.h>
 #include <WebCore/Widget.h>
 #include <WebCore/LocalFrameLoaderClient.h>
-#include <WebCore/Timer.h>
 #include <wtf/Forward.h>
 #include <wtf/HashMap.h>
 #include <wtf/RetainPtr.h>
@@ -89,7 +88,7 @@ private:
     void detachedFromParent2() final;
     void detachedFromParent3() final;
 
-    void assignIdentifierToInitialRequest(WebCore::ResourceLoaderIdentifier, WebCore::IsMainResourceLoad, WebCore::DocumentLoader*, const WebCore::ResourceRequest&) final;
+    void assignIdentifierToInitialRequest(WebCore::ResourceLoaderIdentifier, WebCore::DocumentLoader*, const WebCore::ResourceRequest&) final;
     
     void dispatchWillSendRequest(WebCore::DocumentLoader*, WebCore::ResourceLoaderIdentifier identifier, WebCore::ResourceRequest&, const WebCore::ResourceResponse& redirectResponse) final;
     bool shouldUseCredentialStorage(WebCore::DocumentLoader*, WebCore::ResourceLoaderIdentifier identifier) final;
@@ -99,8 +98,8 @@ private:
 #endif
     void dispatchDidReceiveResponse(WebCore::DocumentLoader*, WebCore::ResourceLoaderIdentifier identifier, const WebCore::ResourceResponse&) final;
     void dispatchDidReceiveContentLength(WebCore::DocumentLoader*, WebCore::ResourceLoaderIdentifier identifier, int dataLength) final;
-    void dispatchDidFinishLoading(WebCore::DocumentLoader*, WebCore::IsMainResourceLoad, WebCore::ResourceLoaderIdentifier identifier) final;
-    void dispatchDidFailLoading(WebCore::DocumentLoader*, WebCore::IsMainResourceLoad, WebCore::ResourceLoaderIdentifier identifier, const WebCore::ResourceError&) final;
+    void dispatchDidFinishLoading(WebCore::DocumentLoader*, WebCore::ResourceLoaderIdentifier identifier) final;
+    void dispatchDidFailLoading(WebCore::DocumentLoader*, WebCore::ResourceLoaderIdentifier identifier, const WebCore::ResourceError&) final;
     bool dispatchDidLoadResourceFromMemoryCache(WebCore::DocumentLoader*, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&, int length) final;
 #if ENABLE(DATA_DETECTION)
     void dispatchDidFinishDataDetection(NSArray *detectionResults) final;
@@ -135,16 +134,17 @@ private:
 
     void dispatchDecidePolicyForResponse(const WebCore::ResourceResponse&, const WebCore::ResourceRequest&, const String& downloadAttribute, WebCore::FramePolicyFunction&&) final;
     void dispatchDecidePolicyForNewWindowAction(const WebCore::NavigationAction&, const WebCore::ResourceRequest&, WebCore::FormState*, const String& frameName, std::optional<WebCore::HitTestResult>&&, WebCore::FramePolicyFunction&&) final;
-    void dispatchDecidePolicyForNavigationAction(const WebCore::NavigationAction&, const WebCore::ResourceRequest&, const WebCore::ResourceResponse& redirectResponse, WebCore::FormState*, const String&, std::optional<WebCore::NavigationIdentifier>, std::optional<WebCore::HitTestResult>&&, bool, WebCore::IsPerformingHTTPFallback, WebCore::SandboxFlags, WebCore::PolicyDecisionMode, WebCore::FramePolicyFunction&&) final;
+    void dispatchDecidePolicyForNavigationAction(const WebCore::NavigationAction&, const WebCore::ResourceRequest&, const WebCore::ResourceResponse& redirectResponse, WebCore::FormState*, const String&, std::optional<WebCore::NavigationIdentifier>, std::optional<WebCore::HitTestResult>&&, bool, WebCore::NavigationUpgradeToHTTPSBehavior, WebCore::SandboxFlags, WebCore::PolicyDecisionMode, WebCore::FramePolicyFunction&&) final;
     void cancelPolicyCheck() final;
     void updateSandboxFlags(WebCore::SandboxFlags) { }
-    void updateOpener(const WebCore::Frame&) { }
+    void updateOpener(std::optional<WebCore::FrameIdentifier>) { }
+    void setPrinting(bool, WebCore::FloatSize, WebCore::FloatSize, float, WebCore::AdjustViewSize) { }
 
     void dispatchUnableToImplementPolicy(const WebCore::ResourceError&) final;
     void dispatchLoadEventToOwnerElementInAnotherProcess() final { };
     
     void dispatchWillSendSubmitEvent(Ref<WebCore::FormState>&&) final;
-    void dispatchWillSubmitForm(WebCore::FormState&, CompletionHandler<void()>&&) final;
+    void dispatchWillSubmitForm(WebCore::FormState&, URL&& requestURL, String&& method, CompletionHandler<void()>&&) final;
     
     void revertToProvisionalState(WebCore::DocumentLoader*) final;
     void setMainDocumentError(WebCore::DocumentLoader*, const WebCore::ResourceError&) final;
@@ -169,10 +169,6 @@ private:
     bool supportsAsyncShouldGoToHistoryItem() const final;
     void shouldGoToHistoryItemAsync(WebCore::HistoryItem&, CompletionHandler<void(WebCore::ShouldGoToHistoryItem)>&&) const final;
     RefPtr<WebCore::HistoryItem> createHistoryItemTree(bool clipAtTarget, WebCore::BackForwardItemIdentifier) const final;
-
-    void didDisplayInsecureContent() final;
-    void didRunInsecureContent(WebCore::SecurityOrigin&) final;
-//    void didDetectXSS(const URL&, bool didBlockEntirePage) final;
 
     bool shouldFallBack(const WebCore::ResourceError&) const final;
     void loadStorageAccessQuirksIfNeeded() final { };

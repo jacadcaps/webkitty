@@ -56,13 +56,11 @@
 #include <WebCore/Page.h>
 #include <WebCore/SecurityOrigin.h>
 #include <WebCore/WindowFeatures.h>
-#include <WebCore/ApplicationCacheStorage.h>
 #include <WebCore/CookieConsentDecisionResult.h>
 #include <WebCore/ModalContainerTypes.h>
 #include <WebCore/ColorChooser.h>
 #include <WebCore/DataListSuggestionPicker.h>
 #include <WebCore/RenderEmbeddedObject.h>
-#include <WebCore/HTMLPlugInImageElement.h>
 #include <WebCore/Storage.h>
 #include <WebCore/DateTimeChooser.h>
 //#include <WebCore/FullscreenManager.h>
@@ -141,7 +139,7 @@ void WebChromeClient::takeFocus(FocusDirection direction)
 	}
 }
 
-void WebChromeClient::focusedElementChanged(Element* element)
+void WebChromeClient::focusedElementChanged(Element* element, WebCore::LocalFrame*, WebCore::FocusOptions, WebCore::BroadcastFocusedElement)
 {
 	m_webPage.setFocusedElement(element);
 }
@@ -159,10 +157,12 @@ void WebChromeClient::show()
 	notImplemented();
 }
 
+#if 0
 void WebChromeClient::setScrollbarsVisible(bool b)
 {
 	m_webPage.setAllowsScrolling(b);
 }
+#endif
 
 bool WebChromeClient::scrollbarsVisible() const
 {
@@ -181,18 +181,10 @@ static BOOL messageIsError(MessageLevel level)
 }
 #endif
 
-#if 0
 void WebChromeClient::addMessageToConsole(MessageSource source, MessageLevel level, const String& message, unsigned lineNumber, unsigned columnNumber, const String& url)
 {
 	if (m_webPage._fConsole)
 		m_webPage._fConsole(url, message, int(level), lineNumber, columnNumber);
-}
-#endif
-
-void WebChromeClient::addMessageWithArgumentsToConsole(MessageSource source, MessageLevel level, const String& message, std::span<const String> arguments, unsigned lineNumber, unsigned columnNumber, const String&url)
-{
-	if (m_webPage._fConsole)
-		m_webPage._fConsole(url, equalIgnoringASCIICase(message, "%s"_s) ? makeStringByJoining(arguments, " "_s) : message, int(level), lineNumber, columnNumber);
 }
 
 bool WebChromeClient::canRunBeforeUnloadConfirmPanel()
@@ -358,11 +350,6 @@ void WebChromeClient::exceededDatabaseQuota(WebCore::LocalFrame& frame, const St
 void WebChromeClient::reachedMaxAppCacheSize(int64_t spaceNeeded)
 {
     // FIXME: Free some space.
-    notImplemented();
-}
-
-void WebChromeClient::reachedApplicationCacheOriginQuota(SecurityOrigin&, int64_t)
-{
     notImplemented();
 }
 

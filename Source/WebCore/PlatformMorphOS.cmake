@@ -80,6 +80,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/graphics/morphos/MediaPlayerMorphOS.h
     platform/morphos/SelectionData.h
     inspector/LegacyWebSocketInspectorInstrumentation.h
+    platform/graphics/GraphicsLayer.h
 )
 
 if (NOT MORPHOS_MINIMAL)

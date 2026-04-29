@@ -33,6 +33,7 @@
 #include <WebCore/BackForwardFrameItemIdentifier.h>
 #include <WebCore/BackForwardItemIdentifier.h>
 #include <WebCore/FrameIdentifier.h>
+#include <WebCore/HistoryItem.h>
 #include <wtf/HashSet.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
@@ -57,6 +58,7 @@ public:
     void goBack();
     void goForward();
     void goToItem(WebCore::HistoryItem&) override;
+    Vector<Ref<WebCore::HistoryItem>> allItems(WebCore::FrameIdentifier) override { return m_entries; }
 
     RefPtr<WebCore::HistoryItem> backItem();
     RefPtr<WebCore::HistoryItem> currentItem();

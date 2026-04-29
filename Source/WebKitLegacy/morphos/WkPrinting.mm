@@ -581,7 +581,7 @@ protected:
 	if ((self = [super init]))
 	{
 		_webView = view;
-		_context = new WebCore::PrintContext(frame);
+		_context = WebCore::PrintContext::create(frame);
 		OBArray *profileNames = [WkPrintingProfile allProfiles];
 		_profiles = [[OBMutableArray arrayWithCapacity:[profileNames count] + 1] retain];
 		_scale = 1.0f;
