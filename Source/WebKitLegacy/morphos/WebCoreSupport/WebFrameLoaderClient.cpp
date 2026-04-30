@@ -67,6 +67,10 @@
 #include <WebCore/AuthenticationChallenge.h>
 #include <WebCore/AuthenticationClient.h>
 #include <WebCore/BitmapImage.h>
+#include <WebCore/PageInlines.h>
+#include <WebCore/FrameInlines.h>
+#include <WebCore/DocumentPage.h>
+#include <WebCore/DocumentView.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/ProcessID.h>
 #include <wtf/ProcessPrivilege.h>

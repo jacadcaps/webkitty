@@ -32,6 +32,7 @@
 #include "ChromeClient.h"
 #include "HTMLSelectElement.h"
 #include "LocalFrame.h"
+#include "NodeDocument.h"
 #include "Page.h"
 
 namespace WebCore {

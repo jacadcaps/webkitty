@@ -24,6 +24,8 @@
  */
 
 #include "config.h"
+#include "DocumentPage.h"
+#include "NodeDocument.h"
 #include "AutofillElements.h"
 #include "HTMLFormElement.h"
 #include "HTMLCollection.h"

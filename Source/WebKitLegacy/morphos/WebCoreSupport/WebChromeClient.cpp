@@ -63,6 +63,7 @@
 #include <WebCore/RenderEmbeddedObject.h>
 #include <WebCore/Storage.h>
 #include <WebCore/DateTimeChooser.h>
+#include <WebCore/NodeDocument.h>
 //#include <WebCore/FullscreenManager.h>
 #include "PopupMenu.h"
 #include <proto/exec.h>

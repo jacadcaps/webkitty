@@ -27,7 +27,9 @@
 #include "Editor.h"
 
 #include "DocumentFragment.h"
+#include "FrameDestructionObserverInlines.h"
 #include "Frame.h"
+#include "LocalFrameInlines.h"
 #include "NotImplemented.h"
 #include "HTMLEmbedElement.h"
 #include "HTMLImageElement.h"

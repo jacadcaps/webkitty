@@ -106,6 +106,12 @@
 #include <WebCore/DummyModelPlayerProvider.h>
 #include <WebCore/WheelEvent.h>
 #include <WebCore/ScrollingCoordinatorTypes.h>
+#include <WebCore/LocalFrameInlines.h>
+#include <WebCore/PageInlines.h>
+#include <WebCore/FrameInlines.h>
+#include <WebCore/DocumentPage.h>
+#include <WebCore/DocumentView.h>
+#include <WebCore/FrameDestructionObserverInlines.h>
 #include <wtf/ASCIICType.h>
 #include <wtf/HexNumber.h>
 #include <WebCore/DummySpeechRecognitionProvider.h>

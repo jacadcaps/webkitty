@@ -26,6 +26,7 @@
 #import <WebCore/Storage.h>
 #import <WebCore/ExceptionOr.h>
 #import <WebCore/NodeInlines.h>
+#import <WebCore/NodeDocument.h>
 #import <wtf/MediaTime.h>
 #import <pal/text/TextEncoding.h>
 #import <wtf/text/Base64.h>

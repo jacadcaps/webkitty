@@ -70,6 +70,13 @@
 #include <WebCore/NetworkStorageSession.h>
 #include <WebCore/Color.h>
 #include <WebCore/OriginAccessPatterns.h>
+#include <WebCore/FrameDestructionObserverInlines.h>
+#include <WebCore/NodeDocument.h>
+#include <WebCore/LocalFrameInlines.h>
+#include <WebCore/PageInlines.h>
+#include <WebCore/FrameInlines.h>
+#include <WebCore/DocumentPage.h>
+#include <WebCore/DocumentView.h>
 #include <wtf/text/StringBuilder.h>
 
 #if PLATFORM(COCOA)

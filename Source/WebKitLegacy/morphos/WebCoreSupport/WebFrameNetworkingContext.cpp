@@ -34,6 +34,8 @@
 #include <WebCore/Page.h>
 #include <WebCore/ResourceError.h>
 #include <WebCore/Settings.h>
+#include <WebCore/DocumentPage.h>
+#include <WebCore/DocumentView.h>
 #include <wtf/NeverDestroyed.h>
 
 using namespace WebCore;

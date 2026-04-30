@@ -46,4 +46,4 @@ _IN_ROOTPATH/gen/host/libnix/lib/libbrotlidec.a _IN_ROOTPATH/gen/host/libnix/lib
 -lsyscall -lpthread \
 CMakeFiles/MiniBrowserlib.dir/minibrowser.mm.obj \
 -lob_debug.framework -lmui_debug.framework \
--lobjc -lc -lgcc -lauto
+-lobjc -lc -lgcc -lauto -Wl,--demangle
