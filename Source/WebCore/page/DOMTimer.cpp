@@ -53,8 +53,8 @@ namespace WebCore {
 
 #if OS(MORPHOS)
 static constexpr Seconds minIntervalForNonUserObservableChangeTimers { 2_s }; // Empirically determined to maximize battery life.
-static constexpr Seconds minIntervalForOneShotTimers { 100_ms };
-static constexpr Seconds minIntervalForRepeatingTimers { 200_ms };
+static constexpr Seconds minIntervalForOneShotTimers { 5_ms };
+static constexpr Seconds minIntervalForRepeatingTimers { 20_ms };
 #else
 static constexpr Seconds minIntervalForNonUserObservableChangeTimers { 1_s }; // Empirically determined to maximize battery life.
 static constexpr Seconds minIntervalForOneShotTimers { 0_ms };

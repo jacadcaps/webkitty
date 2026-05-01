@@ -1279,6 +1279,8 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     settings.setAsyncClipboardAPIEnabled(true);
     settings.setOffscreenCanvasEnabled(true);
     settings.setOffscreenCanvasInWorkersEnabled(true);
+    settings.setSessionStorageEnabled(true);
+    settings.setRequestIdleCallbackEnabled(true);
 
 // todo: this doesn't actually work
     settings.setCacheAPIEnabled(false);

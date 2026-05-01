@@ -2277,26 +2277,30 @@ std::optional<Quirks::TikTokOverflowingContentQuirkType> Quirks::needsTikTokOver
 bool Quirks::needsInstagramResizingReelsQuirk(const Element& element, const RenderStyle& elementStyle, const RenderStyle& parentStyle) const
 {
     QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
-
+    
     if (!m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::NeedsInstagramResizingReelsQuirk))
         return false;
-
+    
     if (elementStyle.display() != DisplayType::Block)
         return false;
-
+    
     if (elementStyle.isOverflowVisible())
         return false;
-
+    
     if (!elementStyle.width().isAuto())
         return false;
-
+    
     if (parentStyle.display() != DisplayType::Flex)
         return false;
-
+    
     if (!parentStyle.width().isPercent())
         return false;
-
+    
+#if ENABLE(VIDEO)
     return descendantsOfType<HTMLVideoElement>(element).first();
+#else
+    return false;
+#endif
 }
 
 bool Quirks::needsWebKitMediaTextTrackDisplayQuirk() const

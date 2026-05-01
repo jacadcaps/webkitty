@@ -24,5 +24,6 @@
  */
 
 [
-    GenerateIsReachable=ImplScriptExecutionContext
+    GenerateIsReachable=ImplScriptExecutionContext,
+    Conditional=WIRELESS_PLAYBACK_MEDIA_PLAYER
 ] callback MockCaptionDisplaySettingsClientCallback = Promise<undefined> (HTMLMediaElement element, ResolvedCaptionDisplaySettingsOptions options);

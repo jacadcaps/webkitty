@@ -55,7 +55,7 @@ public:
 #if OS(MORPHOS)
     static constexpr Seconds defaultMinimumInterval() { return 30_ms; }
     static constexpr Seconds minimumAlignmentForMaximallyNestedTimers() { return 30_ms; }
-    static constexpr Seconds defaultAlignmentInterval() { return 10_s; }
+    static constexpr Seconds defaultAlignmentInterval() { return 10_ms; }
     static constexpr Seconds defaultAlignmentIntervalInLowPowerOrThermallyMitigatedMode() { return 250_ms; }
     static constexpr Seconds nonInteractedCrossOriginFrameAlignmentInterval() { return 500_ms; }
     static constexpr Seconds hiddenPageAlignmentInterval() { return 3_s; }
