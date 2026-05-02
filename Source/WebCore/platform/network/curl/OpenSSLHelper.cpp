@@ -238,6 +238,12 @@ static std::optional<Seconds> convertASN1TimeToSeconds(const ASN1_TIME* ans1Time
     if (!ans1Time)
         return std::nullopt;
 
+#if OPENSSL_VERSION_NUMBER >= 0x40000000L
+    struct tm time { };
+
+    if (!ASN1_TIME_to_tm(ans1Time, &time))
+       return std::nullopt;
+#else
     if ((ans1Time->type != V_ASN1_UTCTIME && ans1Time->type != V_ASN1_GENERALIZEDTIME) || !ans1Time->data)
         return std::nullopt;
 
@@ -275,6 +281,7 @@ static std::optional<Seconds> convertASN1TimeToSeconds(const ASN1_TIME* ans1Time
 
     if ((ans1Time->length >= digitLength + 2) && isASCIIDigit(data[8]) && isASCIIDigit(data[9]))
         time.tm_sec = (data[8] - '0') * 10 + (data[9] - '0');
+#endif
 
     auto gmtTime = mktime(&time);
     auto localTimeOffset = calculateLocalTimeOffset(gmtTime * 1000.0);
@@ -298,10 +305,11 @@ static void getSubjectAltName(const X509* x509, Vector<String>& dnsNames, Vector
             if (!dnsName.isNull())
                 dnsNames.append(WTF::move(dnsName));
         } else if (value->type == GEN_IPADD) {
-            auto data = value->d.iPAddress->data;
-            if (value->d.iPAddress->length == 4)
+            auto data = (uint8_t *) ASN1_STRING_get0_data(value->d.iPAddress);
+            auto len = ASN1_STRING_length(value->d.iPAddress);
+            if (len == 4)
                 ipAddresses.append(makeString(data[0], '.', data[1], '.', data[2], '.', data[3]));
-            else if (value->d.iPAddress->length == 16) {
+            else if (len == 16) {
                 std::span<uint8_t, 16> dataSpan { data, 16 };
                 ipAddresses.append(canonicalizeIPv6Address(dataSpan));
             }
