@@ -1208,6 +1208,7 @@ template <bool shouldBuildStrings> ALWAYS_INLINE typename Lexer<T>::StringParseR
 
     const T* stringStart = currentSourcePtr();
 
+#if !OS(MORPHOS)
     using UnsignedType = SameSizeUnsignedInteger<T>;
     auto quoteMask = SIMD::splat<UnsignedType>(stringQuoteCharacter);
     constexpr auto escapeMask = SIMD::splat<UnsignedType>('\\');
@@ -1257,7 +1258,7 @@ template <bool shouldBuildStrings> ALWAYS_INLINE typename Lexer<T>::StringParseR
             tokenData->ident = nullptr;
         return StringParsedSuccessfully;
     }
-
+#endif
     while (m_current != stringQuoteCharacter) {
         if (m_current == '\\') [[unlikely]] {
             if constexpr (shouldBuildStrings) {
@@ -1908,6 +1909,7 @@ ALWAYS_INLINE void Lexer<T>::parseCommentDirective()
     }
 }
 
+#if !OS(MORPHOS)
 ALWAYS_INLINE const Latin1Character* parseCommentDirectiveValueSIMD(const Latin1Character* start, const Latin1Character* end)
 {
     constexpr auto controlMinChar = SIMD::splat<Latin1Character>(0x09); // '\t'
@@ -1940,6 +1942,7 @@ ALWAYS_INLINE const Latin1Character* parseCommentDirectiveValueSIMD(const Latin1
 
     return SIMD::find(std::span { start, end }, vectorMatch, scalarMatch);
 }
+#endif
 
 IGNORE_WARNINGS_BEGIN("unused-but-set-variable")
 template<typename CharacterType> ALWAYS_INLINE String Lexer<CharacterType>::parseCommentDirectiveValue()
@@ -1947,6 +1950,8 @@ template<typename CharacterType> ALWAYS_INLINE String Lexer<CharacterType>::pars
     skipWhitespace();
     char16_t mergedCharacterBits = 0;
     auto stringStart = currentSourcePtr();
+
+#if !OS(MORPHOS)
     if constexpr (std::is_same_v<CharacterType, Latin1Character>) {
         m_code = parseCommentDirectiveValueSIMD(stringStart, m_codeEnd);
         if (m_code < m_codeEnd)
@@ -1954,12 +1959,15 @@ template<typename CharacterType> ALWAYS_INLINE String Lexer<CharacterType>::pars
         else
             m_current = 0;
     } else {
+#endif
         while (!isWhiteSpace(m_current) && !isLineTerminator(m_current) && m_current != '"' && m_current != '\'' && !atEnd()) {
             if constexpr (std::is_same_v<CharacterType, char16_t>)
                 mergedCharacterBits |= m_current;
             shift();
         }
+#if !OS(MORPHOS)
     }
+#endif
     std::span commentDirective { stringStart, currentSourcePtr() };
 
     skipWhitespace();
@@ -2966,6 +2974,18 @@ inSingleLineCommentCheckForDirectives:
 
 inSingleLineComment:
     {
+#if OS(MORPHOS)
+        auto endPosition = currentPosition();
+
+        while (!isLineTerminator(m_current)) {
+            if (atEnd()) {
+                token = EOFTOK;
+                fillTokenInfo(tokenRecord, token, endPosition);
+                return token;
+            }
+            shift();
+        };
+#else
         auto endPosition = currentPosition();
 
         using UnsignedType = SameSizeUnsignedInteger<T>;
@@ -3000,6 +3020,7 @@ inSingleLineComment:
         }
 
         m_current = *m_code;
+#endif
         shiftLineTerminator();
         m_atLineStart = true;
         m_hasLineTerminatorBeforeToken = true;
