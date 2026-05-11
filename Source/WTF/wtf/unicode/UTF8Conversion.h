@@ -74,5 +74,10 @@ struct UTF16LengthWithHash {
 };
 WTF_EXPORT_PRIVATE UTF16LengthWithHash computeUTF16LengthWithHash(std::span<const char8_t>);
 
+#if OS(MORPHOS)
+WTF_EXPORT_PRIVATE size_t computeUTF16Length(std::span<const char8_t>);
+WTF_EXPORT_PRIVATE size_t computeUTF8Length(std::span<const char16_t>);
+#endif
+
 } // namespace Unicode
 } // namespace WTF

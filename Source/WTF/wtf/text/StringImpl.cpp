@@ -291,6 +291,14 @@ RefPtr<StringImpl> StringImpl::create(std::span<const char8_t> codeUnits)
     if (charactersAreAllASCII(codeUnits))
         return create(byteCast<Latin1Character>(codeUnits));
 
+#if OS(MORPHOS)
+    Vector<char16_t, 1024> buffer(codeUnits.size());
+    auto result = Unicode::convert(codeUnits, buffer.mutableSpan());
+    if (result.code != Unicode::ConversionResultCode::Success)
+        return nullptr;
+     return create(result.buffer);
+#else
+    
     auto input = reinterpret_cast<const char*>(codeUnits.data());
     auto inputLength = codeUnits.size();
 
@@ -306,6 +314,7 @@ RefPtr<StringImpl> StringImpl::create(std::span<const char8_t> codeUnits)
     RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(written == utf16Length);
 
     return string;
+#endif
 }
 
 Ref<StringImpl> StringImpl::createStaticStringImpl(std::span<const Latin1Character> characters)
@@ -1580,6 +1589,7 @@ Expected<size_t, UTF8ConversionError> StringImpl::utf8ForCharactersIntoBuffer(st
 {
     ASSERT(bufferVector.size() == span.size() * 3);
 
+#if !OS(MORPHOS)
     auto bufferData = bufferVector.mutableSpan().data();
 #if CPU(BIG_ENDIAN)
     auto conversionResult = simdutf::convert_utf16be_to_utf8_with_errors(span.data(), span.size(), reinterpret_cast<char*>(bufferData));
@@ -1589,6 +1599,7 @@ Expected<size_t, UTF8ConversionError> StringImpl::utf8ForCharactersIntoBuffer(st
 
     if (conversionResult.error == simdutf::error_code::SUCCESS)
         return conversionResult.count;
+#endif
 
     ConversionResult<char8_t> result;
     switch (mode) {
@@ -1605,6 +1616,21 @@ Expected<size_t, UTF8ConversionError> StringImpl::utf8ForCharactersIntoBuffer(st
         return makeUnexpected(UTF8ConversionError::Invalid);
     return result.buffer.size();
 }
+
+#if OS(MORPHOS)
+size_t StringImpl::utf8LengthFromUTF16(std::span<const char16_t> characters)
+{
+    return Unicode::computeUTF8Length(characters);
+}
+
+size_t StringImpl::tryConvertUTF16ToUTF8(std::span<const char16_t> source, std::span<char8_t> destination)
+{
+    auto result = Unicode::convert(source, destination);
+    if (result.code == Unicode::ConversionResultCode::Success)
+        return result.buffer.size();
+    return notFound;
+}
+#else
 
 size_t StringImpl::utf8LengthFromUTF16(std::span<const char16_t> characters)
 {
@@ -1626,6 +1652,7 @@ size_t StringImpl::tryConvertUTF16ToUTF8(std::span<const char16_t> source, std::
         return result.count;
     return notFound;
 }
+#endif
 
 Expected<CString, UTF8ConversionError> StringImpl::tryGetUTF8(ConversionMode mode) const
 {

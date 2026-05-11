@@ -129,6 +129,7 @@ template<Replacement replacement = Replacement::None, typename SourceCharacterTy
 
 ConversionResult<char8_t> convert(std::span<const char16_t> source, std::span<char8_t> buffer)
 {
+#if !OS(MORPHOS)
 #if CPU(BIG_ENDIAN)
     size_t requiredLength = simdutf::utf8_length_from_utf16be(source.data(), source.size());
 #else
@@ -148,7 +149,7 @@ ConversionResult<char8_t> convert(std::span<const char16_t> source, std::span<ch
         bool isAllASCII = result.count == source.size();
         return { ConversionResultCode::Success, buffer.first(result.count), isAllASCII };
     }
-
+#endif
     return convertInternal(source, buffer);
 }
 
@@ -208,6 +209,47 @@ UTF16LengthWithHash computeUTF16LengthWithHash(std::span<const char8_t> source)
     }
     return { lengthUTF16, hasher.hashWithTop8BitsMasked() };
 }
+
+#if OS(MORPHOS)
+size_t computeUTF16Length(std::span<const char8_t> source)
+{
+    size_t lengthUTF16 = 0;
+    for (size_t sourceOffset = 0; sourceOffset < source.size(); ) {
+        char32_t character = next(source, sourceOffset);
+        if (character == sentinelCodePoint)
+            return lengthUTF16;
+        if (U_IS_BMP(character)) {
+            ++lengthUTF16;
+        } else {
+            lengthUTF16 += 2;
+        }
+    }
+    return lengthUTF16;
+}
+
+size_t computeUTF8Length(std::span<const char16_t> source)
+{
+    size_t lengthUTF8 = 0;
+
+    for (size_t sourceOffset = 0; sourceOffset < source.size(); ) {
+        char32_t character = next(source, sourceOffset);
+
+        if (character == sentinelCodePoint)
+            return lengthUTF8;
+
+        if (character <= 0x7F)
+            lengthUTF8 += 1;
+        else if (character <= 0x7FF)
+            lengthUTF8 += 2;
+        else if (character <= 0xFFFF)
+            lengthUTF8 += 3;
+        else
+            lengthUTF8 += 4;
+    }
+
+    return lengthUTF8;
+}
+#endif
 
 template<typename CharacterTypeA, typename CharacterTypeB> bool equalInternal(std::span<CharacterTypeA> a, std::span<CharacterTypeB> b)
 {
