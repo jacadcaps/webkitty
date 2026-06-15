@@ -133,7 +133,7 @@ protected:
 	MediaTime m_duration = MediaTime::invalidTime();
 	MediaTime m_currentTime;
     String m_errorMessage;
-    PlatformTimeRanges m_buffered;
+    mutable PlatformTimeRanges m_buffered;
 	int   m_width = 1280;
 	int   m_height = 740;
 	bool  m_prepareToPlay = false;

@@ -131,6 +131,12 @@ private:
 	bool                                          m_decodersStarved[Acinerella::AcinerellaMuxedBuffer::maxDecoders];
     bool                                          m_enabled[Acinerella::AcinerellaMuxedBuffer::maxDecoders];
 	uint32_t                                      m_maxBuffer[Acinerella::AcinerellaMuxedBuffer::maxDecoders];
+	// Per-track backpressure gate (two-water-level over the muxer queue). isReadyForMoreSamples()
+	// returns m_decoderReadyForMore; it flips false once the muxer buffer for a decoder reaches the
+	// high-water mark (m_maxBuffer) in enqueueSample(), and flips back true when the decoder drains it
+	// below the low-water mark (becomeReadyForMoreSamples(), driven by the muxer sink callback).
+	std::atomic<bool>                             m_decoderReadyForMore[Acinerella::AcinerellaMuxedBuffer::maxDecoders];
+	std::atomic<bool>                             m_notifyRequested[Acinerella::AcinerellaMuxedBuffer::maxDecoders];
 	int                                           m_numDecoders = 0;
     std::optional<MediaPromise::Producer>         m_appendPromise;
 

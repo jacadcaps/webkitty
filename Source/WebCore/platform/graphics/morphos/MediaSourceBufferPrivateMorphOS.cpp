@@ -58,6 +58,9 @@ MediaSourceBufferPrivateMorphOS::MediaSourceBufferPrivateMorphOS(MediaSourcePriv
 	{
 		m_decodersStarved[i] = false;
         m_enabled[i] = false;
+        m_maxBuffer[i] = 0;
+        m_decoderReadyForMore[i] = true;
+        m_notifyRequested[i] = false;
 	}
 
     m_reader = MediaSourceChunkReader::create(*this);
@@ -407,6 +410,9 @@ void MediaSourceBufferPrivateMorphOS::flush(TrackID trackID)
 	if (trackID < Acinerella::AcinerellaMuxedBuffer::maxDecoders)
 	{
 		m_muxer->flush(trackID);
+		// Emptied the muxer queue for this track: re-open the backpressure gate.
+		m_decoderReadyForMore[trackID] = true;
+		m_notifyRequested[trackID] = false;
 		auto acinerella = m_reader->acinerella();
 		if (!!acinerella)
 		{
@@ -418,38 +424,27 @@ void MediaSourceBufferPrivateMorphOS::flush(TrackID trackID)
 
 void MediaSourceBufferPrivateMorphOS::becomeReadyForMoreSamples(int index)
 {
-	DRMS(dprintf("[MS]%s: %d apc %d starved %d seeking %d (%d)\n", __func__, index, m_appendCompleteDelayed, m_decodersStarved[index], m_seeking, isSeeking()));
-	if (m_appendCompleteDelayed)
+	// Called from the muxer sink (decoder thread) once a decoder has drained its muxer queue below the
+	// low-water mark. Re-open the backpressure gate and, if the WebCore MSE core asked to be told when
+	// we are ready again (notifyClientWhenReadyForMoreSamples), pump more data on the dispatcher thread.
+	if (index < 0 || index >= Acinerella::AcinerellaMuxedBuffer::maxDecoders)
+		return;
+
+	DRMS(dprintf("[MS]%s: %d seeking %d (%d)\n", __func__, index, m_seeking, isSeeking()));
+
+	m_decoderReadyForMore[index] = true;
+
+	if (m_notifyRequested[index].exchange(false))
 	{
-		DRMS(dprintf("[MS]%s: issuing appendComplete...\n", __func__));
-		m_appendCompleteDelayed = false;
-  #if 0
-		WTF::callOnMainThread([this, protect = Ref{*this}]() {
-			if (m_mediaSource && !m_terminating)
-				appendCompleted(true);
+		WTF::callOnMainThread([this, protect = Ref{*this}, index]() {
+			if (m_terminating)
+				return;
+			RefPtr mediaSource = m_mediaSource.get();
+			if (!mediaSource)
+				return;
+			provideMediaData(TrackID(index));
 		});
-#endif
 	}
-
-#if 0
-	if (!m_decodersStarved[index] && !m_seeking)
-	{
-		m_decodersStarved[index] = true;
-
-		if (!!m_decoders[index])
-		{
-			WTF::callOnMainThread([this, protect = Ref{*this}, isVideo = m_decoders[index]->isVideo(), index]() {
-
-				DRMS(dprintf("[MS:%c]becomeReadyForMoreSamples %d\n", isVideo?'V':'A', index));
-
-				m_requestedMoreFrames = true;
-				m_readyForMoreSamples = true;
-				provideMediaData(index);
-
-			});
-		}
-	}
-#endif
 }
 
 void MediaSourceBufferPrivateMorphOS::flush()
@@ -462,9 +457,14 @@ void MediaSourceBufferPrivateMorphOS::flush()
 // TODO: how?
 		RefPtr<Acinerella::AcinerellaPackage> package = Acinerella::AcinerellaPackage::create(m_reader->acinerella(), ac_flush_packet());
 		m_muxer->push(package);
-		
+
 		for (int i = 0; i < m_numDecoders; i++)
+		{
 			m_decodersStarved[i] = false;
+			// Emptied the muxer queues: re-open the backpressure gate for every track.
+			m_decoderReadyForMore[i] = true;
+			m_notifyRequested[i] = false;
+		}
 	}
 }
 
@@ -489,7 +489,13 @@ void MediaSourceBufferPrivateMorphOS::enqueueSample(Ref<MediaSample>&&sample, Tr
 		return;
 
 	m_muxer->push(package);
-	
+
+	// Backpressure: once this decoder's muxer queue reaches the high-water mark, close its gate so the
+	// WebCore MSE core stops pulling samples out of the TrackBuffer until the decoder drains it again.
+	// (m_maxBuffer is only non-zero once createDecoders() has run; until then we keep accepting.)
+	if (m_maxBuffer[index] && m_muxer->bytesForDecoder(index) >= m_maxBuffer[index])
+		m_decoderReadyForMore[index] = false;
+
 	if (!!m_decoders[index] && m_muxer->bytesForDecoder(index) >= m_maxBuffer[index] &&
 		m_decodersStarved[index])
 	{
@@ -507,15 +513,26 @@ void MediaSourceBufferPrivateMorphOS::allSamplesInTrackEnqueued(TrackID)
         m_muxer->push(nothing);
 }
 
-bool MediaSourceBufferPrivateMorphOS::isReadyForMoreSamples(TrackID)
+bool MediaSourceBufferPrivateMorphOS::isReadyForMoreSamples(TrackID trackID)
 {
-// 	D(dprintf("[MS]%s %d\n", __func__, m_readyForMoreSamples));
-	return m_readyForMoreSamples;
+	int index = int(trackID);
+	if (index < 0 || index >= Acinerella::AcinerellaMuxedBuffer::maxDecoders)
+		return false;
+	// Before the decoders/muxer exist (m_maxBuffer still 0) we have no queue to gauge, so accept samples;
+	// otherwise report the per-track backpressure gate.
+	if (!m_maxBuffer[index])
+		return true;
+	return m_decoderReadyForMore[index].load();
 }
 
 void MediaSourceBufferPrivateMorphOS::setActive(bool isActive)
 {
 	D(dprintf("[MS]%s\n", __func__));
+	// Chain to the base so the WebCore MSE core's active-source-buffer set is populated. Without this the
+	// base m_activeSourceBuffers stays empty for the player's lifetime, leaving base hasAudio()/hasVideo(),
+	// updateTracksType() and notifyActiveSourceBuffersChanged() dead. The MorphOS-specific reactions below
+	// (painting buffer, warm/cool, volume) are still driven through onSourceBufferDidChangeActiveState().
+	SourceBufferPrivate::setActive(isActive);
     RefPtr mediaSource = m_mediaSource.get();
     if (mediaSource)
     {
@@ -524,8 +541,28 @@ void MediaSourceBufferPrivateMorphOS::setActive(bool isActive)
 	}
 }
 
-void MediaSourceBufferPrivateMorphOS::notifyClientWhenReadyForMoreSamples(TrackID)
+void MediaSourceBufferPrivateMorphOS::notifyClientWhenReadyForMoreSamples(TrackID trackID)
 {
+	int index = int(trackID);
+	if (index < 0 || index >= Acinerella::AcinerellaMuxedBuffer::maxDecoders)
+		return;
+
+	// The WebCore MSE core stopped pulling because isReadyForMoreSamples() returned false. Record that it
+	// wants to be pumped again; becomeReadyForMoreSamples() will call provideMediaData() once the decoder
+	// drains the muxer queue. If the gate is already open (drained in the meantime), pump immediately.
+	m_notifyRequested[index] = true;
+
+	if (m_decoderReadyForMore[index].load() && m_notifyRequested[index].exchange(false))
+	{
+		WTF::callOnMainThread([this, protect = Ref{*this}, index]() {
+			if (m_terminating)
+				return;
+			RefPtr mediaSource = m_mediaSource.get();
+			if (!mediaSource)
+				return;
+			provideMediaData(TrackID(index));
+		});
+	}
 }
 
 bool MediaSourceBufferPrivateMorphOS::canSetMinimumUpcomingPresentationTime(TrackID) const
