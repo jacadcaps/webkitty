@@ -74,6 +74,8 @@ protected:
 	void updateOverlayCoords();
 
 	bool getAudioPresentationTime(double &time);
+	// Diagnostics: ms since the audio pipeline last fed us a presentation time (-1 if none).
+	int audioClockAgeMs();
 
 protected:
     ::Library      *m_cgxVideo;
@@ -101,6 +103,7 @@ protected:
 	bool            m_fakeDecode = false;
 	bool            m_canDropKeyFrames = false;
 	bool            m_didShowFirstFrame = false;
+	std::atomic<bool> m_inSwap { false }; // pull thread is inside the (blocking) overlay swap+blit
 	bool            m_frameSizeTransition = false;
     bool            m_ismjpeg = false;
     bool            m_otterFrames = false;

@@ -218,11 +218,20 @@ void AcinerellaVideoDecoder::flush(bool willSeek)
 	m_liveTimeCode = 0;
 }
 
+int AcinerellaVideoDecoder::audioClockAgeMs()
+{
+	auto lock = Locker(m_audioLock);
+	if (!m_hasAudioPosition)
+		return -1;
+	return int((MonotonicTime::now() - m_audioPositionRealTime).milliseconds());
+}
+
 void AcinerellaVideoDecoder::dumpStatus()
 {
 	auto lock = Locker(m_lock);
-	dprintf("[\033[35mV]: WM %d IR %d PL %d BUF %f POS %f FIRSTFRAME %d DECFR %d LIVE %d EOF %d DECW %d DECD %u\033[0m\n",
-		isWarmedUp(), isReadyToPlay(), isPlaying(), float(bufferSize()), float(position()), m_didShowFirstFrame, m_decodedFrames.size(), m_isLive, m_decoderEOF, isDecoding(), takeDecodedSinceDump());
+	dprintf("[\033[35mV]: WM %d IR %d PL %d BUF %f POS %f FIRSTFRAME %d DECFR %d LIVE %d EOF %d DECW %d DECD %u OVL %d SWAP %d ACAGE %d\033[0m\n",
+		isWarmedUp(), isReadyToPlay(), isPlaying(), float(bufferSize()), float(position()), m_didShowFirstFrame, m_decodedFrames.size(), m_isLive, m_decoderEOF, isDecoding(), takeDecodedSinceDump(),
+		!!m_overlayHandle, m_inSwap.load(), audioClockAgeMs());
 }
 
 void AcinerellaVideoDecoder::setAudioPresentationTime(double apts)
@@ -623,15 +632,19 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 					{
 						if (m_decodedFrames.size())
 						{
+							// Diagnostics: mark that we're inside the (potentially blocking) overlay
+							// swap+blit so dumpStatus can tell a stuck presentation apart from a stall.
+							m_inSwap = true;
 							if (m_overlayHandle)
 								SwapVLayerBuffer(m_overlayHandle);
 
 							// Store current frame's pts
 							pts = m_decodedFrames.first().pts();
 							m_position = pts;
-							
+
 							// Blit the frame into overlay backbuffer
 							blitFrameLocked();
+							m_inSwap = false;
 
 							// Pop the frame
 							m_decodedFrames.removeFirst();
