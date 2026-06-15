@@ -666,7 +666,12 @@ const PlatformTimeRanges& MediaPlayerPrivateMorphOS::buffered() const
 {
 #if ENABLE(MEDIA_SOURCE)
 	if (m_mediaSourcePrivate)
-        m_mediaSourcePrivate->buffered();
+	{
+		// MSE: use the buffered ranges the WebCore MSE core computes from the
+		// TrackBuffers, rather than the synthetic window used for non-MSE playback.
+		m_buffered = m_mediaSourcePrivate->buffered();
+		return m_buffered;
+	}
 #endif
 
     return m_buffered;
@@ -921,6 +926,9 @@ void MediaPlayerPrivateMorphOS::accSetPosition(double pos)
 {
 	D(dprintf("%s: timechanged to %f\n", __func__, float(pos)));
 	m_currentTime = MediaTime::createWithDouble(pos);
+#if ENABLE(MEDIA_SOURCE)
+	if (!m_mediaSourcePrivate)
+#endif
     m_buffered = PlatformTimeRanges(MediaTime::createWithDouble(std::max(0.0, m_currentTime.toDouble() - 1.0 )),
 		MediaTime::createWithDouble(m_currentTime.toDouble() + 10.0));
     RefPtr player = m_player.get();
@@ -961,6 +969,9 @@ void MediaPlayerPrivateMorphOS::accEnded()
 {
     D(dprintf("%s: ended\n", __func__));
 	m_currentTime = m_duration;
+#if ENABLE(MEDIA_SOURCE)
+	if (!m_mediaSourcePrivate)
+#endif
     m_buffered = PlatformTimeRanges(MediaTime::createWithDouble(std::max(0.0, m_currentTime.toDouble() - 1.0 )),
 		MediaTime::createWithDouble(m_currentTime.toDouble()));
     RefPtr player = m_player.get();

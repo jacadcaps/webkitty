@@ -89,7 +89,7 @@ public:
 	const String &url() const { return m_url; }
  
     bool hasVideo() const { return m_hasVideo; }
-    bool hasAudio() const { return m_hasVideo; }
+    bool hasAudio() const { return m_hasAudio; }
     
     void setVolume(double vol);
     void setMuted(bool muted);

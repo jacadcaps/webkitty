@@ -253,6 +253,8 @@ bool AcinerellaDecoder::decodeNextFrame()
 					DNF(dprintf("[%s]%s: decoded frame @ %f\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, float(frame.frame()->timecode)));
 					m_decodedFrames.append(WTFMove(frame));
 					m_decoderEOF = false;
+					m_decodedSinceDump++;
+					m_totalDecodedFrames++;
 				}
 				break;
 			case RECEIVE_FRAME_NEED_PACKET:
@@ -277,17 +279,54 @@ bool AcinerellaDecoder::decodeNextFrame()
 	return false;
 }
 
+void AcinerellaDecoder::requestDecodeUntilBufferFull()
+{
+	if (m_terminating)
+		return;
+	// Coalesce: only queue a refill if one isn't already pending. The pending flag is cleared at the
+	// top of decodeUntilBufferFull(), so a request arriving while a refill runs still queues a fresh one.
+	if (!m_refillRequested.exchange(true))
+	{
+		dispatch([this] {
+			decodeUntilBufferFull();
+		});
+	}
+}
+
 void AcinerellaDecoder::decodeUntilBufferFull()
 {
 	EP_SCOPE(untilBufferFull);
 
+	m_refillRequested = false;
+	m_decoding = true;
+
 	DBF(dprintf("[%s]%s: %p - start! wmup %d prep %d\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, this, m_warminUp, m_readying));
+
+	// Decode in a bounded slice; if we run out of budget while still behind, re-arm (coalesced) and
+	// return so the message queue and other threads get a turn. Easing off the catch-up like this
+	// avoids the CPU/lock-contention spike that otherwise follows an underrun.
+	//
+	// Crucially the budget counts frames we actually *produce*, not packets consumed: when catching
+	// up after falling behind, decodeNextFrame() drops/skips packets cheaply without emitting a frame
+	// (m_droppingFrames / m_droppingUntilKeyFrame), and throttling that would make re-sync crawl. A
+	// large packet cap is the only backstop there, so we still yield during a pathologically long drop.
+	const unsigned producedAtStart = m_totalDecodedFrames;
+	int packetCap = decodeSliceFrames * 32;
+	bool moreToDo = false;
 
 	while (bufferSize() < readAheadTime())
 	{
 		if (!decodeNextFrame())
 			break;
+
+		if ((m_totalDecodedFrames - producedAtStart) >= unsigned(decodeSliceFrames) || --packetCap <= 0)
+		{
+			moreToDo = bufferSize() < readAheadTime();
+			break;
+		}
 	}
+
+	m_decoding = false;
 
 	if (m_warminUp && bufferSize() >= readAheadTime())
 	{
@@ -300,6 +339,9 @@ void AcinerellaDecoder::decodeUntilBufferFull()
 	{
 		onReadyToPlay();
 	}
+
+	if (moreToDo)
+		requestDecodeUntilBufferFull();
 
 	DBF(dprintf("[%s]%s: %p - buffer full (%f s)\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, this, float(bufferSize())));
 }
@@ -360,6 +402,12 @@ void AcinerellaDecoder::terminate()
 
 	DLIFETIME(dprintf("[%s]%s: %p\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, this));
 	m_terminating = true;
+
+	// The decoder thread may be parked inside a blocking m_muxer->nextPackage(); wake it so it
+	// observes isTerminating() and returns instead of waiting for data that will never arrive.
+	if (m_muxer)
+		m_muxer->interrupt(m_index);
+
 	if (!m_thread)
 		return;
 

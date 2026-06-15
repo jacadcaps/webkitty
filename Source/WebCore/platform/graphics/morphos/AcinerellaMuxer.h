@@ -68,6 +68,9 @@ public:
 	void flush(int decoderIndex);
 	void terminate();
 
+	// Wake a decoder thread blocked in nextPackage() (e.g. so it can observe its own termination).
+	void interrupt(int decoderIndex);
+
 	// This is meant to be called from the decoder threads. Will block until a valid package can be returned
 	// or sinkfunction returns false (MediaStream)
 	RefPtr<AcinerellaPackage> nextPackage(AcinerellaDecoder &decoder);

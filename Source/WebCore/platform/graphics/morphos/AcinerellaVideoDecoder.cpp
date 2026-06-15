@@ -218,11 +218,20 @@ void AcinerellaVideoDecoder::flush(bool willSeek)
 	m_liveTimeCode = 0;
 }
 
+int AcinerellaVideoDecoder::audioClockAgeMs()
+{
+	auto lock = Locker(m_audioLock);
+	if (!m_hasAudioPosition)
+		return -1;
+	return int((MonotonicTime::now() - m_audioPositionRealTime).milliseconds());
+}
+
 void AcinerellaVideoDecoder::dumpStatus()
 {
 	auto lock = Locker(m_lock);
-	dprintf("[\033[35mV]: WM %d IR %d PL %d BUF %f POS %f FIRSTFRAME %d DECFR %d LIVE %d EOF %d\033[0m\n",
-		isWarmedUp(), isReadyToPlay(), isPlaying(), float(bufferSize()), float(position()), m_didShowFirstFrame, m_decodedFrames.size(), m_isLive, m_decoderEOF);
+	dprintf("[\033[35mV]: WM %d IR %d PL %d BUF %f POS %f FIRSTFRAME %d DECFR %d LIVE %d EOF %d DECW %d DECD %u OVL %d SWAP %d ACAGE %d\033[0m\n",
+		isWarmedUp(), isReadyToPlay(), isPlaying(), float(bufferSize()), float(position()), m_didShowFirstFrame, m_decodedFrames.size(), m_isLive, m_decoderEOF, isDecoding(), takeDecodedSinceDump(),
+		!!m_overlayHandle, m_inSwap.load(), audioClockAgeMs());
 }
 
 void AcinerellaVideoDecoder::setAudioPresentationTime(double apts)
@@ -614,6 +623,8 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 						}
 						else
 						{
+							// presentation queue underran - re-arm the decoder before parking
+							requestDecodeUntilBufferFull();
 							break;
 						}
 					}
@@ -621,15 +632,19 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 					{
 						if (m_decodedFrames.size())
 						{
+							// Diagnostics: mark that we're inside the (potentially blocking) overlay
+							// swap+blit so dumpStatus can tell a stuck presentation apart from a stall.
+							m_inSwap = true;
 							if (m_overlayHandle)
 								SwapVLayerBuffer(m_overlayHandle);
 
 							// Store current frame's pts
 							pts = m_decodedFrames.first().pts();
 							m_position = pts;
-							
+
 							// Blit the frame into overlay backbuffer
 							blitFrameLocked();
+							m_inSwap = false;
 
 							// Pop the frame
 							m_decodedFrames.removeFirst();
@@ -640,6 +655,8 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 						}
 						else
 						{
+							// presentation queue underran - re-arm the decoder before parking
+							requestDecodeUntilBufferFull();
 							break;
 						}
 					}
@@ -647,21 +664,27 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 
 				bool changePosition = 0 == (m_frameCount % int(m_fps));
 
-				dispatch([this, changePosition, didShowFrame]() {
-                    if (changePosition)
-                    {
-                        onPositionChanged();
-                        HIDInput();
-                    }
+				// Only dispatch the position/first-frame closure when it actually has work; doing it
+				// every frame floods the decoder queue and delays pause/seek/flush messages.
+				if (changePosition || (didShowFrame && !m_didShowFirstFrame))
+				{
+					dispatch([this, changePosition, didShowFrame]() {
+						if (changePosition)
+						{
+							onPositionChanged();
+							HIDInput();
+						}
 
-					if (didShowFrame && !m_didShowFirstFrame)
-					{
-						m_didShowFirstFrame = true;
-						onReadyToPlay();
-					}
+						if (didShowFrame && !m_didShowFirstFrame)
+						{
+							m_didShowFirstFrame = true;
+							onReadyToPlay();
+						}
+					});
+				}
 
-					decodeUntilBufferFull();
-				});
+				// Coalesced top-up: won't pile up redundant no-op refills behind control messages.
+				requestDecodeUntilBufferFull();
 
 resync:
 				double audioAt = -1;
@@ -725,7 +748,11 @@ resync:
 					if (sleepFor.value() > (m_frameDuration * 10))
 					{
 						DSYNC(dprintf("\033[36m[VD]%s: long sleep %f to catch to %f\033[0m\n", __func__, float(sleepFor.value()), float(audioAt)));
-                        if (m_frameEvent.waitFor(10_s))
+                        // Cap the wait: if the audio decoder stops posting presentation times, don't
+                        // freeze the picture for the full interval. Wake every second to re-read the
+                        // audio position (on a real update we resync immediately; on timeout we make
+                        // forward progress rather than holding the frame for 10s).
+                        if (m_frameEvent.waitFor(1_s))
                             goto resync;
 					}
                     else

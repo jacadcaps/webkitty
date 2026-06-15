@@ -431,8 +431,8 @@ void AcinerellaAudioDecoder::flush(bool willSeek)
 void AcinerellaAudioDecoder::dumpStatus()
 {
 	auto lock = Locker(m_lock);
-	dprintf("[\033[33mA]: WM %d IR %d PL %d BUF %f BS %d DF %d POS %f LIV %d HLS %d\033[0m\n", isWarmedUp(), isReadyToPlay(), isPlaying(),
-		float(bufferSize()), m_bufferedSamples, m_decodedFrames.size(), float(position()), m_isLive, m_isHLS);
+	dprintf("[\033[33mA]: WM %d IR %d PL %d BUF %f BS %d DF %d POS %f LIV %d HLS %d DECW %d DECD %u\033[0m\n", isWarmedUp(), isReadyToPlay(), isPlaying(),
+		float(bufferSize()), m_bufferedSamples, m_decodedFrames.size(), float(position()), m_isLive, m_isHLS, isDecoding(), takeDecodedSinceDump());
 }
 
 bool AcinerellaAudioDecoder::fillBuffer(RefPtr<AcinerellaAudioRequest>& request, double desiredPosition)
