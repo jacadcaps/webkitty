@@ -27,7 +27,7 @@ public:
 	bool isVideo() const override { return true; }
 	bool isText() const override { return false; }
 	
-	double readAheadTime() const override { return m_frameHeight > 720 ? 0.2f : .5f; }
+	double readAheadTime() const override { return m_frameHeight > 720 ? 1.0f : 2.0f; }
 	
 	double framesPerSecond() const { return m_fps; }
 

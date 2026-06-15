@@ -10,6 +10,7 @@
 #include <wtf/text/WTFString.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/Deque.h>
+#include <atomic>
 #include <memory>
 #include "AcinerellaBuffer.h"
 #include "AcinerellaMuxer.h"
@@ -102,6 +103,14 @@ public:
 	// call from: Acinerella thread
 	void terminate();
 
+	// safe to read from any thread; lets the muxer abort a blocking nextPackage() during shutdown
+	bool isTerminating() const { return m_terminating; }
+
+	// Diagnostics (any thread): is the decoder thread actively in its decode loop right now, and
+	// how many frames has it decoded since the last poll (decode rate / catch-up spike indicator).
+	bool isDecoding() const { return m_decoding; }
+	unsigned takeDecodedSinceDump() { return m_decodedSinceDump.exchange(0); }
+
     // buffer enough frames, signal warmedUp
 	void warmUp();
     // true if enough data is buffered in the decoder
@@ -151,8 +160,17 @@ protected:
 	void performTerminate();
 
 	// call from: Own thread
+	// Per-call frame budget for decodeUntilBufferFull(). When far behind (e.g. recovering from an
+	// underrun) the catch-up is spread over several dispatches instead of one tight loop, so the
+	// pull/main/audio threads aren't starved and the activity spike is smoothed out.
+	static constexpr int decodeSliceFrames = 8;
+
 	bool decodeNextFrame();
 	void decodeUntilBufferFull();
+	// Coalesced refill request: dispatches decodeUntilBufferFull() unless one is already pending.
+	// Avoids flooding the decoder message queue (which would delay pause/seek/flush) and re-arms
+	// the decoder thread when the presentation queue underruns.
+	void requestDecodeUntilBufferFull();
 	void dropUntilPTS(double pts);
 	void onPositionChanged();
 	void onDurationChanged();
@@ -205,6 +223,10 @@ protected:
 	bool                               m_readying = false;
 	bool                               m_warminUp = false;
 	bool                               m_terminating = false;
+	std::atomic<bool>                  m_refillRequested { false };
+	std::atomic<bool>                  m_decoding { false };
+	std::atomic<unsigned>              m_decodedSinceDump { 0 };
+	unsigned                           m_totalDecodedFrames = 0; // decoder thread only; monotonic
 	bool                               m_decoderEOF = false;
 	
 	bool                               m_droppingFrames = false;

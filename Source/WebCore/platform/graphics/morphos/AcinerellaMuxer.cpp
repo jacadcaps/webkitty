@@ -148,6 +148,12 @@ void AcinerellaMuxedBuffer::terminate()
 	});
 }
 
+void AcinerellaMuxedBuffer::interrupt(int decoderIndex)
+{
+	if (decoderIndex >= 0 && decoderIndex < maxDecoders)
+		m_events[decoderIndex].signal();
+}
+
 RefPtr<AcinerellaPackage> AcinerellaMuxedBuffer::nextPackage(AcinerellaDecoder &decoder)
 {
 	D(dprintf("%s: isAudio %d index %lu\n", __func__, decoder.isAudio(), decoder.index()));
@@ -157,6 +163,10 @@ RefPtr<AcinerellaPackage> AcinerellaMuxedBuffer::nextPackage(AcinerellaDecoder &
 
 	for (;;)
 	{
+		// Don't block a terminating decoder waiting for data that may never arrive.
+		if (decoder.isTerminating())
+			return nullptr;
+
 		bool requestMore = false;
 		int sizeLeft = 0;
 		uint32_t bytes = 0;
