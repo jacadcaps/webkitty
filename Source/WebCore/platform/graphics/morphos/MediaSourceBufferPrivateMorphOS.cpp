@@ -763,7 +763,13 @@ bool MediaSourceBufferPrivateMorphOS::createDecoders()
         DI(dprintf("[MS] decoder mask %x %x\n", decoderIndexMask, m_audioDecoderMask));
         m_muxer->setDecoderMask(decoderIndexMask, m_audioDecoderMask);
         for (int i = 0; i < std::min(Acinerella::AcinerellaMuxedBuffer::maxDecoders, acinerella->instance()->stream_count); i++) {
-            m_maxBuffer[i] = m_muxer->maxBufferSizeForMediaSourceDecoder(i);
+            // Bound the compressed muxer backlog to a few read-ahead windows (decoder-derived) instead
+            // of the fixed multi-MB cap. A smaller backlog means a fall-behind/seek has far less stale
+            // data to grind through, avoiding the video-decoder CPU spike and frozen-picture stalls.
+            if (!!m_decoders[i])
+                m_maxBuffer[i] = m_decoders[i]->maxCompressedBufferSize();
+            else
+                m_maxBuffer[i] = m_muxer->maxBufferSizeForMediaSourceDecoder(i);
         }
 
         m_muxer->setSinkFunction([this, protectedThis = Ref{*this}](int decoderIndex, int , uint32_t bytesInBuffer) {

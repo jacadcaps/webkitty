@@ -51,6 +51,27 @@ AcinerellaDecoder::~AcinerellaDecoder()
     }
 }
 
+uint32_t AcinerellaDecoder::maxCompressedBufferSize() const
+{
+	// Reserve a few read-ahead windows worth of compressed data. m_bitrate is the whole-container
+	// bitrate (bits/s); for video (which dominates the bitrate) that's a good upper bound, for audio
+	// it over-estimates harmlessly (audio packets are tiny, so the gate just rarely trips).
+	const double seconds = std::max(2.0, readAheadTime() * 4.0);
+	double bytesPerSecond = double(m_bitrate) / 8.0;
+	if (bytesPerSecond < 16384.0)
+		bytesPerSecond = 16384.0; // bitrate unknown/bogus - stay generous so we never starve
+
+	uint64_t bytes = uint64_t(bytesPerSecond * seconds);
+
+	// Floor so a low-bitrate track always has room to fill its read-ahead; ceiling so we never
+	// exceed the old hard cap even for very high bitrate streams.
+	const uint64_t floorBytes = 1024 * 1024;
+	const uint64_t ceilBytes = 28521267;
+	bytes = std::max(bytes, floorBytes);
+	bytes = std::min(bytes, ceilBytes);
+	return uint32_t(bytes);
+}
+
 void AcinerellaDecoder::warmUp()
 {
 	if (!m_terminating && !m_thread)
@@ -194,8 +215,16 @@ bool AcinerellaDecoder::decodeNextFrame()
 			{
 				if (pts < m_dropToPTS)
 				{
-					m_needsKF = true; // dropped frames - we'll need a keyframe!
-					ac_flush_buffers(decoder);
+					// Flush the codec exactly once, on entry to the drop. The old code re-flushed on
+					// every dropped packet, which re-acquired a keyframe each time and burned the CPU
+					// for seconds on a deep backlog while producing no frames (the frozen-picture stall).
+					// Dropped packets are never pushed, so a single flush leaves the codec empty and
+					// ready for the next keyframe; subsequent packets are just skipped cheaply.
+					if (!m_needsKF)
+					{
+						m_needsKF = true; // dropped frames - we'll need a keyframe!
+						ac_flush_buffers(decoder);
+					}
 					return true;
 				}
 				else if (m_needsKF)

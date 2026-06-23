@@ -141,6 +141,11 @@ public:
 
 	double duration() const { return m_duration; }
 	double bitRate() const { return m_bitrate; }
+
+	// Upper bound (bytes) on how much *compressed* data the muxer should queue ahead of this decoder.
+	// Derived from the decoded read-ahead window (a few times over) rather than a fixed multi-MB cap,
+	// so falling behind can't build a huge backlog that then costs seconds of CPU to grind through.
+	uint32_t maxCompressedBufferSize() const;
 	const WTF::String &codec() const { return m_codec; }
 	virtual double position() const = 0;
 	virtual double bufferSize() const = 0;
