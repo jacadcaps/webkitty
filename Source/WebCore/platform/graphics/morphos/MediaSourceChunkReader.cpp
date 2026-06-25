@@ -117,6 +117,12 @@ int MediaSourceChunkReaderDataProvider::pull(uint8_t *buf, int size)
                 // 2nd time we get here, return an EOF - the next chunk requires reinitialization before resuming read ops
                 else
                 {
+                    // If we already concatenated bytes from a previous chunk into buf earlier in THIS
+                    // call (branch below), deliver them first. Returning AVERROR_EOF now would make
+                    // ffmpeg discard buf entirely, truncating the tail of the last fragment before the
+                    // reinit. Leave the boundary marker in place so the next call returns the EOF.
+                    if (readTotal > 0)
+                        return readTotal;
                     DPROVIDER(dprintf("[MSDP][%p]%s: chunk EOF due to reinitialization\n", this, __func__));
                     m_queue.removeAt(0);
                     m_bufferPosition = 0;
