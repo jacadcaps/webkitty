@@ -1134,7 +1134,34 @@ ac_receive_frame_rc ac_receive_frame(lp_ac_decoder pDecoder, lp_ac_decoder_frame
 	
 	if (rc >= 0)
 	{
-		pFrame->timecode = pDecoder->timecode; // is this correct?
+		// Stamp the frame with ITS OWN presentation timestamp, not pDecoder->timecode (which holds the
+		// last *pushed* packet's pts). With B-frame reordering decode order != presentation order, so the
+		// frame coming out is older than the packet just pushed; using the pushed pts mislabels it and can
+		// jump a frame's timecode a whole GOP ahead, which the player then treats as a multi-second gap
+		// (picture freeze). best_effort_timestamp is FFmpeg's reconciled pts for this frame.
+		// Video only: audio has no reorder (its pushed pts already == frame pts) and drives the A/V clock,
+		// so leave it on the existing path.
+		if (pDecoder->type == AC_DECODER_TYPE_VIDEO)
+		{
+			int64_t ts = frame->pFrame->best_effort_timestamp;
+			if (ts == AV_NOPTS_VALUE)
+				ts = frame->pFrame->pts;
+			if (ts != AV_NOPTS_VALUE)
+			{
+				double rb = av_q2d(((lp_ac_data)pDecoder->pacInstance)
+				                       ->pFormatCtx->streams[pDecoder->stream_index]
+				                       ->time_base);
+				pFrame->timecode = ts * rb;
+			}
+			else
+			{
+				pFrame->timecode = pDecoder->timecode; // no usable pts from the codec - fall back
+			}
+		}
+		else
+		{
+			pFrame->timecode = pDecoder->timecode; // is this correct?
+		}
 		frame->needs_unref = 1;
 		
 		if (pDecoder->type == AC_DECODER_TYPE_AUDIO) {
@@ -1352,26 +1379,22 @@ double CALL_CONVT ac_get_package_pts(lp_ac_instance pacInstance, lp_ac_package p
 	lp_ac_package_data self = (lp_ac_package_data)pPackage;
 	if (pPackage == ac_flush_packet())
 		return 0.0;
-    if (AV_NOPTS_VALUE == self->pPack->dts)
-        return 0.0;
+	// Check the PTS for "no value", and convert
+	// with av_q2d so a time_base with num != 1 is handled
+	if (AV_NOPTS_VALUE == self->pPack->pts)
+		return 0.0;
 	AVRational tb = ((lp_ac_data)pacInstance)->pFormatCtx->streams[self->pPack->stream_index]->time_base;
-	double out = ((double)self->pPack->pts) / tb.den;
-    if (out > 0)
-        return out;
-    return 0;
+	return ((double)self->pPack->pts) * av_q2d(tb);
 }
 
 double CALL_CONVT ac_get_package_dts(lp_ac_instance pacInstance, lp_ac_package pPackage) {
 	lp_ac_package_data self = (lp_ac_package_data)pPackage;
 	if (pPackage == ac_flush_packet())
 		return 0.0;
-    if (AV_NOPTS_VALUE == self->pPack->dts)
-        return 0.0;
+	if (AV_NOPTS_VALUE == self->pPack->dts)
+		return 0.0;
 	AVRational tb = ((lp_ac_data)pacInstance)->pFormatCtx->streams[self->pPack->stream_index]->time_base;
-	double out = ((double)self->pPack->dts) / tb.den;
-    if (out > 0)
-        return out;
-    return 0;
+	return ((double)self->pPack->dts) * av_q2d(tb);
 }
 
 double CALL_CONVT ac_get_package_duration(lp_ac_instance pacInstance, lp_ac_package pPackage) {
@@ -1380,7 +1403,7 @@ double CALL_CONVT ac_get_package_duration(lp_ac_instance pacInstance, lp_ac_pack
 		return 0.0;
 
 	AVRational tb = ((lp_ac_data)pacInstance)->pFormatCtx->streams[self->pPack->stream_index]->time_base;
-	return ((double)self->pPack->duration) / tb.den;
+	return ((double)self->pPack->duration) * av_q2d(tb);
 }
 
 static const ac_package_data flush_pkt = {{0}, NULL, 0};
