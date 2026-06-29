@@ -254,50 +254,87 @@ bool AcinerellaDecoder::decodeNextFrame()
 
 		DNF(dprintf("[%s]%s: package %p ts %f\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, buffer->package(), float(ac_get_package_pts(acinerella->instance(), buffer->package()))));
 
-		auto rcPush = ac_push_package(decoder, buffer->package());
-		if (rcPush != PUSH_PACKAGE_SUCCESS)
+		// Receive one decoded frame and queue it; returns the ac_receive_frame result.
+		auto receiveOne = [&]() -> ac_receive_frame_rc {
+			AcinerellaDecodedFrame frame = AcinerellaDecodedFrame(acinerella, decoder);
+			auto rcFrame = ac_receive_frame(decoder, frame.frame());
+			if (rcFrame == RECEIVE_FRAME_SUCCESS)
+			{
+#if defined(EP_PROFILING) && EP_PROFILING
+				{
+					char profbuffer[128];
+					sprintf(profbuffer, "frame TS %f", float(frame.frame()->timecode));
+					EP_EVENTSTR(profbuffer);
+				}
+#endif
+				auto lock = Locker(m_lock);
+				onFrameDecoded(frame);
+				DNF(dprintf("[%s]%s: decoded frame @ %f\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, float(frame.frame()->timecode)));
+				m_decodedFrames.append(WTFMove(frame));
+				m_decoderEOF = false;
+				m_decodedSinceDump++;
+				m_totalDecodedFrames++;
+			}
+			return rcFrame;
+		};
+
+		// Send the packet. avcodec_send_packet can return EAGAIN (PUSH_PACKAGE_NEED_RECEIVE) when its
+		// output buffer is full; the FFmpeg contract is then to drain frames and RE-SEND THE SAME
+		// packet. The old code dropped the packet on EAGAIN instead, losing a (reference) frame and
+		// breaking decode until the next keyframe - a multi-second video freeze with no decode error.
+		for (int sendTries = 0; ; ++sendTries)
 		{
-			DNF(dprintf("[%s]%s: failed ac_push_package %d\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, rcPush));
-			return true; // don't fail decoding - keep going instead!
+			auto rcPush = ac_push_package(decoder, buffer->package());
+			if (rcPush == PUSH_PACKAGE_SUCCESS)
+				break;
+
+			if (rcPush != PUSH_PACKAGE_NEED_RECEIVE)
+			{
+				DNF(dprintf("[%s]%s: failed ac_push_package %d\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, rcPush));
+				return true; // genuine push error - skip this packet
+			}
+
+			// EAGAIN: drain available frames, then retry the same packet.
+			bool drainedAny = false;
+			for (;;)
+			{
+				auto rc = receiveOne();
+				if (rc == RECEIVE_FRAME_SUCCESS) { drainedAny = true; continue; }
+				if (rc == RECEIVE_FRAME_ERROR)
+				{
+					return false;
+				}
+				if (rc == RECEIVE_FRAME_EOF) { m_decoderEOF = true; return false; }
+				break; // NEED_PACKET - nothing more to drain right now
+			}
+
+			if (!drainedAny || sendTries > 16)
+			{
+				// Couldn't make progress (shouldn't happen)
+				return true;
+			}
 		}
 
 		for (;;)
 		{
-			AcinerellaDecodedFrame frame = AcinerellaDecodedFrame(acinerella, decoder);
-			auto rcFrame = ac_receive_frame(decoder, frame.frame());
-			
-			switch (rcFrame)
+			auto rcFrame = receiveOne();
+			if (rcFrame == RECEIVE_FRAME_SUCCESS)
 			{
-			case RECEIVE_FRAME_SUCCESS:
-				{
-#if defined(EP_PROFILING) && EP_PROFILING
-					{
-						char buffer[128];
-						sprintf(buffer, "frame TS %f", float(frame.frame()->timecode));
-						EP_EVENTSTR(buffer);
-					}
-#endif
-					auto lock = Locker(m_lock);
-					onFrameDecoded(frame);
-					DNF(dprintf("[%s]%s: decoded frame @ %f\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, float(frame.frame()->timecode)));
-					m_decodedFrames.append(WTFMove(frame));
-					m_decoderEOF = false;
-					m_decodedSinceDump++;
-					m_totalDecodedFrames++;
-				}
-				break;
-			case RECEIVE_FRAME_NEED_PACKET:
-				// we'll have to call decodeNextFrame again
-//				DNF(dprintf("[%s]%s: NEED_PACKET\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__));
+				continue;
+			}
+			if (rcFrame == RECEIVE_FRAME_NEED_PACKET)
+			{
 				return true;
-			case RECEIVE_FRAME_ERROR:
+			}
+			if (rcFrame == RECEIVE_FRAME_ERROR)
+			{
 				DNF(dprintf("[%s]%s: FRAME_ERROR\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__));
 				return false;
-			case RECEIVE_FRAME_EOF:
-				DNF(dprintf("[%s]%s: FRAME_EOF\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__));
-				m_decoderEOF = true;
-				return false;
 			}
+			// RECEIVE_FRAME_EOF
+			DNF(dprintf("[%s]%s: FRAME_EOF\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__));
+			m_decoderEOF = true;
+			return false;
 		}
 	}
 	else if (m_muxer->isEOS())

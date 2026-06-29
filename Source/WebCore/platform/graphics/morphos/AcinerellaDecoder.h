@@ -146,6 +146,13 @@ public:
 	// Derived from the decoded read-ahead window (a few times over) rather than a fixed multi-MB cap,
 	// so falling behind can't build a huge backlog that then costs seconds of CPU to grind through.
 	uint32_t maxCompressedBufferSize() const;
+
+	// Upper bound on how many *compressed packets* the muxer should queue ahead. Unlike the byte cap,
+	// this bounds the time window we enqueue past currentTime regardless of bitrate - which limits how
+	// often a (re)append can overlap already-enqueued samples and force WebCore to flush/re-enqueue
+	// this track (rewinding the decoder). Base is effectively unlimited; video overrides with an
+	// fps-derived value.
+	virtual uint32_t maxCompressedPackets() const { return 1u << 30; }
 	const WTF::String &codec() const { return m_codec; }
 	virtual double position() const = 0;
 	virtual double bufferSize() const = 0;
