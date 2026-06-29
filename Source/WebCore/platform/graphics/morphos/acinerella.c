@@ -18,9 +18,11 @@
 
 #include <stdbool.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 
 #include <libavcodec/avcodec.h>
+#include <libavcodec/bsf.h>
 #include <libavformat/avformat.h>
 #include <libavformat/avio.h>
 #include <libavutil/avutil.h>
@@ -97,6 +99,18 @@ struct _ac_video_decoder {
 	AVFrame *pFrame;
 	AVFrame *pFrameRGB;
 	struct SwsContext *pSwsCtx;
+	// Optional avcC->Annex-B (h264_mp4toannexb, re-inserting SPS/PPS in-band at each keyframe) + H.264
+	// parser front end. Added while chasing the overlapping-reappend freeze, but that freeze was
+	// AV_PKT_FLAG_DISCARD (fixed in ac_push_package), not framing - so this is likely vestigial and is
+	// gated by AC_H264_ANNEXB_FRONTEND for A/B testing. NULL when disabled or not applicable, in which
+	// case the direct avcC send path is used.
+	AVBSFContext         *pBSF;       // avcC -> Annex-B, NULL = direct feed
+	AVCodecParserContext *pParser;    // H.264 parser (PARSER_FLAG_COMPLETE_FRAMES, 1:1, no latency)
+	AVPacket             *pFilteredPkt; // reused BSF output
+	AVPacket             *pParsedPkt;   // reused parser/AU output handed to the decoder
+	int                   staged;       // pParsedPkt holds an AU awaiting a successful send
+	lp_ac_package         stagedFor;    // the package pParsedPkt was derived from (EAGAIN re-send guard)
+	int64_t               maxFwdDTS;    // high-water mark of pushed DTS, for the discard-flag gate (AV_NOPTS_VALUE = unset)
 };
 
 typedef struct _ac_video_decoder ac_video_decoder;
@@ -591,7 +605,7 @@ int CALL_CONVT ac_open(lp_ac_instance pacInstance, void *sender,
 	}
 
 #if FFMPEG_LOGS_ENABLED
-	av_log_set_level(AV_LOG_DEBUG);
+	av_log_set_level(AV_LOG_WARNING);
 #else
 	av_log_set_level(AV_LOG_QUIET);
 #endif
@@ -871,6 +885,7 @@ static void *ac_create_video_decoder(lp_ac_instance pacInstance,
 	lp_ac_video_decoder pDecoder;
 	ERR(pDecoder = (lp_ac_video_decoder)(av_malloc(sizeof(ac_video_decoder))));
 	memset(pDecoder, 0, sizeof(ac_video_decoder));
+	pDecoder->maxFwdDTS = AV_NOPTS_VALUE; // discard-flag gate: no DTS seen yet
 
 	// Manually create a codec context
 	AVFormatContext *pFormatCtx = self->pFormatCtx;
@@ -888,6 +903,9 @@ static void *ac_create_video_decoder(lp_ac_instance pacInstance,
 		pCodecCtx->skip_loop_filter = AVDISCARD_ALL;
 	}
 
+	// Auto-detect thread count (0) and leave the default thread_type.
+	pCodecCtx->thread_count = 0;
+
 	// Set a few properties
 	pDecoder->decoder.pacInstance = pacInstance;
 	pDecoder->decoder.type = AC_DECODER_TYPE_VIDEO;
@@ -898,6 +916,47 @@ static void *ac_create_video_decoder(lp_ac_instance pacInstance,
 	// Find correspondenting codec
 	ERR(pDecoder->pCodec =
 	          avcodec_find_decoder(pDecoder->pCodecCtx->codec_id));
+
+	// avcC -> Annex-B (h264_mp4toannexb) + H.264 parser front end. Added chasing the "overlapping
+	// re-append freeze" - which turned out to be AV_PKT_FLAG_DISCARD (fixed in ac_push_package), NOT
+	// framing. It never fixed that freeze AND it BREAKS quality/resolution switches: the BSF is
+	// initialised once for the original stream and chokes / silently drops packets on a mid-stream
+	// Reinit -> "Frame num gap" / missing references -> a hard stall. So it is DISABLED by default;
+	// avcC is fed directly (pBSF stays NULL, decoder opened is_avc = 1). Set to 1 only to re-test the
+	// old path. The [VDEC] log below reports which path actually engaged.
+#define AC_H264_ANNEXB_FRONTEND 0
+	int dbgEb0 = (pCodecCtx->extradata && pCodecCtx->extradata_size > 0) ? pCodecCtx->extradata[0] : -1;
+	int dbgEsz = pCodecCtx->extradata_size;
+	if (AC_H264_ANNEXB_FRONTEND
+	    && pCodecCtx->codec_id == AV_CODEC_ID_H264
+	    && pCodecCtx->extradata && pCodecCtx->extradata_size > 0 && pCodecCtx->extradata[0] == 1)
+	{
+		const AVBitStreamFilter *f = av_bsf_get_by_name("h264_mp4toannexb");
+		if (f && av_bsf_alloc(f, &pDecoder->pBSF) >= 0)
+		{
+			pDecoder->pParser = av_parser_init(pCodecCtx->codec_id);
+			pDecoder->pFilteredPkt = av_packet_alloc();
+			pDecoder->pParsedPkt = av_packet_alloc();
+			if (avcodec_parameters_from_context(pDecoder->pBSF->par_in, pCodecCtx) >= 0
+			    && av_bsf_init(pDecoder->pBSF) >= 0
+			    && pDecoder->pParser && pDecoder->pFilteredPkt && pDecoder->pParsedPkt)
+			{
+				// Each fed package is already exactly one access unit, so tell the parser the input is a
+				// complete frame: it passes the AU through 1:1 (no buffering / latency) while still
+				// parsing headers and setting has_b_frames the way the clean offline decode does.
+				pDecoder->pParser->flags |= PARSER_FLAG_COMPLETE_FRAMES;
+				avcodec_parameters_to_context(pCodecCtx, pDecoder->pBSF->par_out);
+			}
+			else
+			{
+				// Setup incomplete - tear down and fall back to the direct feed (ctx stays avcC).
+				av_parser_close(pDecoder->pParser); pDecoder->pParser = NULL;
+				av_packet_free(&pDecoder->pFilteredPkt);
+				av_packet_free(&pDecoder->pParsedPkt);
+				av_bsf_free(&pDecoder->pBSF);
+			}
+		}
+	}
 
 	// Open codec
 	AV_ERR(avcodec_open2(pDecoder->pCodecCtx, pDecoder->pCodec, NULL));
@@ -1232,7 +1291,117 @@ ac_push_package_rc ac_push_package(lp_ac_decoder pDecoder, lp_ac_package pPackag
 	double timebase = av_q2d(((lp_ac_data)pDecoder->pacInstance)
 	                             ->pFormatCtx->streams[pPackage->stream_index]
 	                             ->time_base);
-	int rc = avcodec_send_packet(pCodecCtx, pkt->pPack);
+
+	int rc;
+	lp_ac_video_decoder vdec = (pDecoder->type == AC_DECODER_TYPE_VIDEO)
+	                              ? (lp_ac_video_decoder)pDecoder : NULL;
+	if (vdec && vdec->pBSF)
+	{
+		// Stage the access unit for this package (avcC -> Annex-B via the BSF, then the H.264 parser)
+		// unless it is already staged from a prior EAGAIN on this very same package - re-deriving would
+		// consume the source twice. On EAGAIN we keep the staged AU; the caller drains frames and retries
+		// with the same package.
+		if (!vdec->staged || vdec->stagedFor != pPackage)
+		{
+			vdec->staged = 0;
+			// Feed the BSF a throwaway ref so the original (owned by the muxer's package) is preserved.
+			AVPacket *in = av_packet_alloc();
+			if (!in)
+				return PUSH_PACKAGE_ERROR;
+			if (av_packet_ref(in, pkt->pPack) < 0) { av_packet_free(&in); return PUSH_PACKAGE_ERROR; }
+			int brc = av_bsf_send_packet(vdec->pBSF, in); // consumes/unrefs in
+			av_packet_free(&in);
+			if (brc < 0)
+				return PUSH_PACKAGE_ERROR;
+			av_packet_unref(vdec->pFilteredPkt);
+			brc = av_bsf_receive_packet(vdec->pBSF, vdec->pFilteredPkt);
+			if (brc == AVERROR(EAGAIN) || brc == AVERROR_EOF)
+				return PUSH_PACKAGE_SUCCESS; // BSF emitted nothing for this input - treat as consumed
+			if (brc < 0)
+				return PUSH_PACKAGE_ERROR;
+
+			// Parser in complete-frames mode: 1:1 pass-through of the AU, but it parses the headers and
+			// sets has_b_frames the way the clean offline decode does.
+			uint8_t *outbuf = NULL; int outsize = 0;
+			av_parser_parse2(vdec->pParser, pCodecCtx, &outbuf, &outsize,
+			                 vdec->pFilteredPkt->data, vdec->pFilteredPkt->size,
+			                 vdec->pFilteredPkt->pts, vdec->pFilteredPkt->dts, AV_NOPTS_VALUE);
+			av_packet_unref(vdec->pParsedPkt);
+			if (outsize > 0)
+			{
+				if (av_new_packet(vdec->pParsedPkt, outsize) < 0)
+					return PUSH_PACKAGE_ERROR;
+				memcpy(vdec->pParsedPkt->data, outbuf, outsize);
+			}
+			else
+			{
+				// COMPLETE_FRAMES should always emit; if not, hand the filtered AU through unchanged.
+				if (av_packet_ref(vdec->pParsedPkt, vdec->pFilteredPkt) < 0)
+					return PUSH_PACKAGE_ERROR;
+			}
+			vdec->pParsedPkt->pts   = vdec->pFilteredPkt->pts;
+			vdec->pParsedPkt->dts   = vdec->pFilteredPkt->dts;
+			vdec->pParsedPkt->flags = vdec->pFilteredPkt->flags;
+
+			// FREEZE FIX: the mov demuxer flags fragment-overlap samples AV_PKT_FLAG_DISCARD whenever
+			// fragments overlap in DTS (mov.c: prev_dts >= dts). MSE's overlapping re-appends trip this
+			// constantly, so a whole displayable region gets flagged; avcodec decodes those frames fine
+			// then drops them at decode.c:350 (frame AV_FRAME_FLAG_DISCARD -> got_frame=0 -> receive
+			// EAGAIN) -> a multi-second freeze ending at the next keyframe.
+			// Smart un-flag: only clear it for frames that ADVANCE in decode order (dts past our high-
+			// water mark) - those are real forward content a re-append wrongly flagged. A genuinely
+			// re-fed duplicate arrives with backward dts (the demuxer's own overlap condition), so we
+			// leave its flag intact and let avcodec skip it. (Anything that slips through but is behind
+			// the clock is still dropped by the presentation thread's late-frame drop.) Reset on flush.
+			//
+			// A/B SWITCH: set to 0 to revert to the original UNCONDITIONAL clear (the behaviour confirmed
+			// working on the 480p reference clip) - useful for isolating whether the gate regresses a
+			// stream.
+#define AC_DISCARD_DTS_GATE 1
+			if (vdec->pParsedPkt->flags & AV_PKT_FLAG_DISCARD)
+			{
+				int64_t dts = pkt->pPack->dts;
+				int forward = !AC_DISCARD_DTS_GATE
+				              || (dts == AV_NOPTS_VALUE) || (vdec->maxFwdDTS == AV_NOPTS_VALUE)
+				              || (dts > vdec->maxFwdDTS);
+				if (forward)
+					vdec->pParsedPkt->flags &= ~AV_PKT_FLAG_DISCARD;
+			}
+			{
+				int64_t dts = pkt->pPack->dts;
+				if (dts != AV_NOPTS_VALUE && (vdec->maxFwdDTS == AV_NOPTS_VALUE || dts > vdec->maxFwdDTS))
+					vdec->maxFwdDTS = dts;
+			}
+
+			vdec->staged = 1;
+			vdec->stagedFor = pPackage;
+		}
+
+		rc = avcodec_send_packet(pCodecCtx, vdec->pParsedPkt);
+		if (rc != AVERROR(EAGAIN))
+			vdec->staged = 0; // consumed (or errored) - allow the next package to be staged
+	}
+	else
+	{
+		// Same freeze fix as the BSF path (direct avcC feed): clear a fragment-overlap discard flag
+		// only on forward-progressing frames; honor it on a backward re-feed.
+		if (vdec)
+		{
+			if (pkt->pPack->flags & AV_PKT_FLAG_DISCARD)
+			{
+				int64_t dts = pkt->pPack->dts;
+				int forward = !AC_DISCARD_DTS_GATE
+				              || (dts == AV_NOPTS_VALUE) || (vdec->maxFwdDTS == AV_NOPTS_VALUE)
+				              || (dts > vdec->maxFwdDTS);
+				if (forward)
+					pkt->pPack->flags &= ~AV_PKT_FLAG_DISCARD;
+			}
+			int64_t dts = pkt->pPack->dts;
+			if (dts != AV_NOPTS_VALUE && (vdec->maxFwdDTS == AV_NOPTS_VALUE || dts > vdec->maxFwdDTS))
+				vdec->maxFwdDTS = dts;
+		}
+		rc = avcodec_send_packet(pCodecCtx, pkt->pPack);
+	}
 	switch (rc)
 	{
 	case 0:
@@ -1308,6 +1477,10 @@ error:
 // Free video decoder
 static void ac_free_video_decoder(lp_ac_video_decoder pDecoder) {
 	if (pDecoder) {
+		av_parser_close(pDecoder->pParser);
+		av_packet_free(&(pDecoder->pFilteredPkt));
+		av_packet_free(&(pDecoder->pParsedPkt));
+		av_bsf_free(&(pDecoder->pBSF));
 		av_frame_free(&(pDecoder->pFrame));
 		av_frame_free(&(pDecoder->pFrameRGB));
 		sws_freeContext(pDecoder->pSwsCtx);
@@ -1420,11 +1593,25 @@ void CALL_CONVT ac_flush_buffers(lp_ac_decoder pDecoder) {
 	AVCodecContext *pCodecCtx = NULL;
 
 	if (pDecoder->type == AC_DECODER_TYPE_VIDEO) {
-		pCodecCtx = ((lp_ac_video_decoder)pDecoder)->pCodecCtx;
+		lp_ac_video_decoder vdec = (lp_ac_video_decoder)pDecoder;
+		pCodecCtx = vdec->pCodecCtx;
+		// Reset the discard-flag gate's DTS high-water mark: after a seek/flush the new position's dts
+		// may legitimately be lower, and must not be mistaken for a backward re-feed.
+		vdec->maxFwdDTS = AV_NOPTS_VALUE;
+		// Drop any AU staged for a send and reset the Annex-B front end so it doesn't carry pre-flush
+		// state across a seek/flush.
+		if (vdec->pBSF)
+		{
+			vdec->staged = 0;
+			vdec->stagedFor = NULL;
+			if (vdec->pFilteredPkt) av_packet_unref(vdec->pFilteredPkt);
+			if (vdec->pParsedPkt) av_packet_unref(vdec->pParsedPkt);
+			av_bsf_flush(vdec->pBSF);
+		}
 	} else if (pDecoder->type == AC_DECODER_TYPE_AUDIO) {
 		pCodecCtx = ((lp_ac_audio_decoder)pDecoder)->pCodecCtx;
 	}
-	
+
 	if (pCodecCtx)
 		avcodec_flush_buffers(pCodecCtx);
 }
