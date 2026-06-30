@@ -1,4 +1,4 @@
-FFMPEG_VERSION=4.4.5
+FFMPEG_VERSION=4.4.8
 OPUS_VERSION=1.3.1
 
 all: .buildstamp
