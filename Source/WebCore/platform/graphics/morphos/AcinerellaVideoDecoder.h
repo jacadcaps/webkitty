@@ -28,6 +28,7 @@ public:
 	bool isText() const override { return false; }
 	
 	double readAheadTime() const override { return m_frameHeight > 720 ? 1.0f : 2.0f; }
+	uint32_t maxCompressedPackets() const override;
 	
 	double framesPerSecond() const { return m_fps; }
 
@@ -99,7 +100,7 @@ protected:
 	double          m_audioPosition = 0.0;
 	MonotonicTime   m_audioPositionRealTime;
 	bool            m_hasAudioPosition = false;
-	
+
 	bool            m_fakeDecode = false;
 	bool            m_canDropKeyFrames = false;
 	bool            m_didShowFirstFrame = false;

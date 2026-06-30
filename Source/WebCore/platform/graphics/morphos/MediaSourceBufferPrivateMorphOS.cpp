@@ -59,6 +59,7 @@ MediaSourceBufferPrivateMorphOS::MediaSourceBufferPrivateMorphOS(MediaSourcePriv
 		m_decodersStarved[i] = false;
         m_enabled[i] = false;
         m_maxBuffer[i] = 0;
+        m_maxPackets[i] = 0;
         m_decoderReadyForMore[i] = true;
         m_notifyRequested[i] = false;
 	}
@@ -490,10 +491,13 @@ void MediaSourceBufferPrivateMorphOS::enqueueSample(Ref<MediaSample>&&sample, Tr
 
 	m_muxer->push(package);
 
-	// Backpressure: once this decoder's muxer queue reaches the high-water mark, close its gate so the
+	// Backpressure: once this decoder's muxer queue reaches a high-water mark, close its gate so the
 	// WebCore MSE core stops pulling samples out of the TrackBuffer until the decoder drains it again.
+	// We cap on BYTES (memory) and PACKETS (time ahead of currentTime); the packet cap is what keeps
+	// us from enqueuing tens of seconds ahead on low-bitrate streams and getting flushed by re-appends.
 	// (m_maxBuffer is only non-zero once createDecoders() has run; until then we keep accepting.)
-	if (m_maxBuffer[index] && m_muxer->bytesForDecoder(index) >= m_maxBuffer[index])
+	if ((m_maxBuffer[index] && m_muxer->bytesForDecoder(index) >= m_maxBuffer[index])
+		|| (m_maxPackets[index] && uint32_t(m_muxer->packagesForDecoder(index)) >= m_maxPackets[index]))
 		m_decoderReadyForMore[index] = false;
 
 	if (!!m_decoders[index] && m_muxer->bytesForDecoder(index) >= m_maxBuffer[index] &&
@@ -767,13 +771,24 @@ bool MediaSourceBufferPrivateMorphOS::createDecoders()
             // of the fixed multi-MB cap. A smaller backlog means a fall-behind/seek has far less stale
             // data to grind through, avoiding the video-decoder CPU spike and frozen-picture stalls.
             if (!!m_decoders[i])
+            {
                 m_maxBuffer[i] = m_decoders[i]->maxCompressedBufferSize();
+                m_maxPackets[i] = m_decoders[i]->maxCompressedPackets();
+            }
             else
+            {
                 m_maxBuffer[i] = m_muxer->maxBufferSizeForMediaSourceDecoder(i);
+                m_maxPackets[i] = 0;
+            }
         }
 
-        m_muxer->setSinkFunction([this, protectedThis = Ref{*this}](int decoderIndex, int , uint32_t bytesInBuffer) {
-            if (bytesInBuffer < m_maxBuffer[decoderIndex] / 2)
+        m_muxer->setSinkFunction([this, protectedThis = Ref{*this}](int decoderIndex, int left, uint32_t bytesInBuffer) {
+            // Re-open the gate only when BOTH the byte and packet queues have drained below half their
+            // high-water marks. The packet half-mark is what bounds how far ahead of currentTime we
+            // re-enqueue (so re-appends stop overlapping our enqueued samples and flushing us).
+            bool bytesOk = bytesInBuffer < m_maxBuffer[decoderIndex] / 2;
+            bool packetsOk = !m_maxPackets[decoderIndex] || uint32_t(left) < std::max(1u, m_maxPackets[decoderIndex] / 2);
+            if (bytesOk && packetsOk)
                 becomeReadyForMoreSamples(decoderIndex);
             return false; // avoid blocking the pipeline!
         });

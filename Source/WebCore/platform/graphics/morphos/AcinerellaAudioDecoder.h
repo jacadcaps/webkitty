@@ -84,6 +84,14 @@ public:
 	bool isText() const override { return false; }
 	
 	double readAheadTime() const override { return m_isLive ? 4.0 : 2.0; }
+	uint32_t maxCompressedPackets() const override
+	{
+		// Bound audio enqueue-ahead by time too (as for video), so re-appends don't overlap our
+		// already-enqueued audio samples and make WebCore flush/re-enqueue the audio track.
+		double pps = m_audioRate > 0 ? (double(m_audioRate) / 1024.0) : 43.0; // ~packets/sec (nominal frame)
+		double packets = pps * (readAheadTime() + 3.0);
+		return uint32_t(packets < 100.0 ? 100.0 : packets);
+	}
 
 	bool isReadyToPlay() const override;
 	bool isPlaying() const override;

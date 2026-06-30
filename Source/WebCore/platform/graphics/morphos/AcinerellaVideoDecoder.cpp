@@ -31,9 +31,9 @@
 #include <proto/graphics.h>
 
 #define D(x)
-#define DSYNC(x) 
+#define DSYNC(x)
 #define DOVL(x)
-#define DFRAME(x) 
+#define DFRAME(x)
 
 // #pragma GCC optimize ("O0")
 // #define FORCEDECODE
@@ -97,6 +97,19 @@ void AcinerellaVideoDecoder::onDecoderChanged(RefPtr<AcinerellaPointer> acinerel
 	auto decoder = acinerella->decoder(m_index);
 	//ac_set_output_format(decoder, AC_OUTPUT_YUV420P);
     ac_decoder_set_loopfilter(decoder, int(m_client->streamSettings().m_loopFilter));
+}
+
+uint32_t AcinerellaVideoDecoder::maxCompressedPackets() const
+{
+	// Keep only a few seconds of compressed video queued ahead of playback. The byte cap alone lets a
+	// low-bitrate stream enqueue tens of seconds ahead; that wide "enqueued past currentTime" window is
+	// what makes nearly every re-append overlap our samples and trigger a WebCore flush/re-enqueue
+	// (which rewinds this decoder - the picture bounce / overshoot-freeze).
+	double fps = m_fps > 1.0 ? m_fps : 25.0;
+	double packets = fps * (readAheadTime() + 3.0);
+	if (packets < 50.0)
+		packets = 50.0;
+	return uint32_t(packets);
 }
 
 bool AcinerellaVideoDecoder::isReadyToPlay() const
@@ -765,7 +778,7 @@ resync:
 				else if (m_canDropKeyFrames && canDropFrames && sleepFor.value() < -1.0)
 				{
 					DSYNC(dprintf("\033[36m[VD]%s: dropping video frames until %f\033[0m\n", __func__, float(audioAt) + 1.0));
-					
+
 					{
 						auto lock = Locker(m_lock);
 						while (m_decodedFrames.size())
@@ -778,8 +791,16 @@ resync:
 							m_bufferedSeconds -= m_frameDuration;
 						}
 					}
-						
-					dropUntilPTS(audioAt + 0.5);
+
+					// Recover by simply decoding forward: the pull thread presents frames as they arrive
+					// and this branch keeps dropping the ones behind audio, so we converge on the audio
+					// clock without a visible jump.
+					//
+					// We deliberately do NOT skip-to-keyframe (it overshoots to a distant future IDR and
+					// freezes the picture) nor re-anchor via the source buffer: reenqueueMediaForTime
+					// re-feeds from the GOP keyframe *before* currentTime, which rewinds the decoder up to
+					// a full GOP into the past and forces a re-decode - making the stall worse.
+					requestDecodeUntilBufferFull();
 				}
 				else if (sleepFor.value() < -(m_frameDuration * 0.1))
 				{
